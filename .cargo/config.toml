@@ -1,0 +1,3 @@
+[alias]
+validate = "run --quiet --package xtask -- validate"
+ship = "run --quiet --package xtask -- ship"
