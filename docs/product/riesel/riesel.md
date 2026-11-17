@@ -174,3 +174,30 @@ Riesel is successful when:
 
 7. New application types can be supported without replacing
    the platform's foundational concepts.
+
+
+
+## Composition and Execution
+
+Riesel separates functional composition from process execution.
+
+Components implement bounded functionality and may require
+or provide capabilities.
+
+Capabilities describe functionality through explicit contracts.
+
+Components are not inherently operating-system processes.
+
+Execution environments determine how component behavior runs.
+
+Independent processes have their own lifecycle, resource
+boundaries, communication, and failure behavior.
+
+Applications describe logical software products and may
+compose multiple components and independently running services.
+
+The same capability contract may support different providers,
+provided their declared semantics and guarantees are compatible.
+
+Process isolation is mandatory for native window hosts.
+Other process boundaries follow explicit requirements.

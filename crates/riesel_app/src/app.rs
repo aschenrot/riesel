@@ -1,5 +1,5 @@
-use thiserror::Error;
 use crate::AppConfig;
+use thiserror::Error;
 
 pub struct App {
     config: AppConfig,

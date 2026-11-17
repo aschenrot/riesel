@@ -4,3 +4,5 @@ pub use riesel_app::{App, AppConfig, AppError};
 pub mod prelude {
     pub use super::{App, AppConfig, AppError};
 }
+pub use riesel_schema as schema;
+pub use riesel_storage as storage;

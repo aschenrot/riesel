@@ -1,5 +1,5 @@
-use riesel::prelude::*;
 use anyhow::Result;
+use riesel::prelude::*;
 pub fn main() -> Result<()> {
     let app = App::load("app.json")?;
 

@@ -1,0 +1,11 @@
+[package]
+name = "riesel_storage_component"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+riesel_storage.workspace = true
+serde_json.workspace = true
+uuid.workspace = true

@@ -2,12 +2,12 @@
 resolver = "3"
 members = [
   "apps/examples/simple_app",
-  "apps/examples/todo",
+  "apps/examples/todo", "components/storage",
   "crates/riesel",
   "crates/riesel_app",
   "crates/riesel_manager",
   "crates/riesel_protocol",
-  "crates/riesel_schema",
+  "crates/riesel_schema", "crates/riesel_storage",
   "tools/xtask",
 ]
 
@@ -21,8 +21,12 @@ repository = "https://codeberg.org/Riesel/riesel"
 riesel = { path = "crates/riesel" }
 riesel_app =  { path = "crates/riesel_app" }
 riesel_schema = { path = "crates/riesel_schema" }
+riesel_storage = { path = "crates/riesel_storage" }
+
+riesel_storage_component = { path = "components/storage" }
 
 thiserror = "2.0.21"
 anyhow = "1.0.104"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
+uuid = { version = "1", features = ["v4", "serde"] }

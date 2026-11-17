@@ -7,4 +7,6 @@ repository.workspace = true
 publish = false
 
 [dependencies]
+riesel_schema.workspace = true
+
 thiserror.workspace = true

@@ -64,5 +64,65 @@ pub enum RecordError {
     UnknownField { field: String },
 
     #[error("invalid value for field: {field}, expected: {expected}")]
-    InvalidValue { field: String, expected: &'static String },
+    InvalidValue {
+        field: String,
+        expected: &'static str,
+    },
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn parses_valid_schema() {
+        let source = r#"
+        {
+            "version": 1,
+            "app": {
+                "name": "Example"
+            },
+            "models": {
+                "entry": {
+                    "fields": {
+                        "title": "string",
+                        "active": "bool"
+                    }
+                }
+            }
+        }
+        "#;
+
+        let schema = parse_schema(source).unwrap();
+
+        schema.validate().unwrap();
+
+        assert_eq!(schema.app.name, "Example");
+
+        let model = schema.models.get("entry").unwrap();
+
+        assert!(matches!(model.fields.get("title"), Some(FieldType::String)));
+
+        assert!(matches!(model.fields.get("active"), Some(FieldType::Bool)));
+    }
+
+    #[test]
+    fn rejects_unsupported_version() {
+        let source = r#"
+        {
+            "version": 2,
+            "app": {
+                "name": "Example"
+            },
+            "models": {}
+        }
+        "#;
+
+        let schema = parse_schema(source).unwrap();
+
+        assert!(matches!(
+            schema.validate(),
+            Err(SchemaError::UnsupportedVersion { version: 2 })
+        ));
+    }
 }
