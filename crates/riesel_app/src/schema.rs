@@ -5,7 +5,6 @@ use thiserror::Error;
 #[derive(Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct AppDefinition {
-    pub id: String,
     pub name: String,
 }
 
@@ -28,7 +27,6 @@ pub enum FieldType {
 #[derive(Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct ModelDefinition {
-    pub key: String,
     pub fields: BTreeMap<String, FieldType>,
 }
 
@@ -52,4 +50,19 @@ impl AppSchema {
 
         Ok(())
     }
+}
+
+#[derive(Debug, Error)]
+pub enum RecordError {
+    #[error("record must be a JSON object")]
+    ExpectedObject,
+
+    #[error("missing required field: {field}")]
+    MissingField { field: String },
+
+    #[error("unknown field: {field}")]
+    UnknownField { field: String },
+
+    #[error("invalid value for field: {field}, expected: {expected}")]
+    InvalidValue { field: String, expected: &'static String },
 }

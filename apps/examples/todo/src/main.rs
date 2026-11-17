@@ -1,4 +1,8 @@
 use riesel::prelude::*;
-pub fn main() -> Result<(), AppError> {
-    let app = App::with_schema(schema).run();
+use anyhow::Result;
+pub fn main() -> Result<()> {
+    let app = App::load("app.json")?;
+
+    println!("{}", app.config().name);
+    Ok(())
 }

@@ -7,3 +7,4 @@ repository.workspace = true
 
 [dependencies]
 riesel.workspace = true
+anyhow.workspace = true

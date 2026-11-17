@@ -18,7 +18,7 @@ impl App {
         App { config }
     }
 
-    pub fn with_schema() -> App {
+    pub fn from_schema() -> App {
         App::default();
         todo!()
     }
