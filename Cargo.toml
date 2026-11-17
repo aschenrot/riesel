@@ -1,7 +1,9 @@
 [workspace]
 resolver = "3"
 members = [
+  "apps/examples/simple_app", "apps/examples/todo",
   "crates/riesel",
+  "crates/riesel_app", "crates/riesel_manager", "crates/riesel_protocol",
   "tools/xtask",
 ]
 
@@ -9,4 +11,11 @@ members = [
 version = "0.1.0"
 edition = "2024"
 license = "AGPL-3.0-only"
-repository = "https://codeberg/Riesel/riesel"
+repository = "https://codeberg.org/Riesel/riesel"
+
+[workspace.dependencies]
+riesel = { path = "crates/riesel" }
+riesel_app =  { path = "crates/riesel_app" }
+
+thiserror = "2.0.21"
+anyhow = "1.0.104"

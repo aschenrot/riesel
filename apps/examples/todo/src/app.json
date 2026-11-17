@@ -1,0 +1,17 @@
+{
+  "version": 1,
+  "app": {
+    "id": "todo",
+    "name": "Todo"
+  },
+  "models": {
+    "task": {
+      "key": "id",
+      "fields": {
+        "id": "uuid",
+        "title": "string",
+        "completed": "bool"
+      }
+    }
+  }
+}
