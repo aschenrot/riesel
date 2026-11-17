@@ -1,11 +1,13 @@
+use thiserror::Error;
 use crate::AppConfig;
 
 pub struct App {
     config: AppConfig,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Error)]
 pub enum AppError {
+    #[error("Unknown error")]
     Unknown,
 }
 
@@ -18,7 +20,7 @@ impl App {
         App { config }
     }
 
-    pub fn from_schema() -> App {
+    pub fn load(path: &str) -> Result<App, AppError> {
         App::default();
         todo!()
     }

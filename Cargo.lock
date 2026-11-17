@@ -49,8 +49,6 @@ dependencies = [
 name = "riesel_app"
 version = "0.1.0"
 dependencies = [
- "serde",
- "serde_json",
  "thiserror",
 ]
 
@@ -61,6 +59,15 @@ version = "0.1.0"
 [[package]]
 name = "riesel_protocol"
 version = "0.1.0"
+
+[[package]]
+name = "riesel_schema"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "serde_json",
+ "thiserror",
+]
 
 [[package]]
 name = "serde"

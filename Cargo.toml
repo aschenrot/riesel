@@ -1,9 +1,13 @@
 [workspace]
 resolver = "3"
 members = [
-  "apps/examples/simple_app", "apps/examples/todo",
+  "apps/examples/simple_app",
+  "apps/examples/todo",
   "crates/riesel",
-  "crates/riesel_app", "crates/riesel_manager", "crates/riesel_protocol",
+  "crates/riesel_app",
+  "crates/riesel_manager",
+  "crates/riesel_protocol",
+  "crates/riesel_schema",
   "tools/xtask",
 ]
 
@@ -16,6 +20,9 @@ repository = "https://codeberg.org/Riesel/riesel"
 [workspace.dependencies]
 riesel = { path = "crates/riesel" }
 riesel_app =  { path = "crates/riesel_app" }
+riesel_schema = { path = "crates/riesel_schema" }
 
 thiserror = "2.0.21"
 anyhow = "1.0.104"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
