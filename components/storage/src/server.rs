@@ -16,7 +16,9 @@ pub fn run_storage_server(address: &str) -> io::Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use riesel_protocol::{CallError, RpcError, RpcTransport, TcpRpcTransport};
+    use riesel_protocol::{
+        CallError, RpcError, RpcTransport, TcpRpcTransport, handle_tcp_connection,
+    };
     use riesel_storage::{RecordStoreContract, RecordStoreRpcClient, StoreError};
     use serde_json::json;
     use std::net::TcpListener;
