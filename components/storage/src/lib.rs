@@ -24,7 +24,6 @@ pub(crate) fn memory_service_info() -> Result<StorageServiceInfo, ContractError>
     })
 }
 
-
 use riesel_app::{ConnectedProvider, ConnectorError, LocalProviderFactory};
 use riesel_storage::RecordStore;
 use std::sync::Arc;
@@ -45,8 +44,7 @@ impl LocalProviderFactory for MemoryStoreFactory {
         Ok(ConnectedProvider {
             definition: memory_provider_definition()?,
             contract: RecordStoreContract::definition()?,
-            service: Box::new(Arc::new(MemoryStore::new())
-                as Arc<dyn RecordStore + Send + Sync>),
+            service: Box::new(Arc::new(MemoryStore::new()) as Arc<dyn RecordStore + Send + Sync>),
         })
     }
 }

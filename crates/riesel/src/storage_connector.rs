@@ -15,7 +15,10 @@ impl CapabilityConnector for TcpRecordStoreConnector {
 
     fn connect(&self, endpoint: &ServiceEndpoint) -> Result<ConnectedProvider, ConnectorError> {
         let address = endpoint.address().ok_or_else(|| {
-            io::Error::new(io::ErrorKind::InvalidInput, "TCP connector requires a TCP endpoint")
+            io::Error::new(
+                io::ErrorKind::InvalidInput,
+                "TCP connector requires a TCP endpoint",
+            )
         })?;
         if address.port() == 0 {
             return Err(io::Error::new(

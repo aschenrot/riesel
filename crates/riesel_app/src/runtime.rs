@@ -73,19 +73,21 @@ impl ConnectorRegistry {
         &mut self,
         factory: impl LocalProviderFactory + 'static,
     ) -> Result<(), RuntimeError> {
-        let definition = factory.definition().map_err(|source| RuntimeError::ProviderFactory {
-            source,
-        })?;
-        definition.validate().map_err(|source| RuntimeError::InvalidProvider {
-            requirement: definition.id.clone(),
-            source,
-        })?;
-        let contract = factory.contract().map_err(|source| RuntimeError::ProviderFactory {
-            source,
-        })?;
-        contract.validate().map_err(|source| RuntimeError::InvalidContract {
-            source,
-        })?;
+        let definition = factory
+            .definition()
+            .map_err(|source| RuntimeError::ProviderFactory { source })?;
+        definition
+            .validate()
+            .map_err(|source| RuntimeError::InvalidProvider {
+                requirement: definition.id.clone(),
+                source,
+            })?;
+        let contract = factory
+            .contract()
+            .map_err(|source| RuntimeError::ProviderFactory { source })?;
+        contract
+            .validate()
+            .map_err(|source| RuntimeError::InvalidContract { source })?;
         if !definition.capabilities.contains(&contract.capability) {
             return Err(RuntimeError::ProviderContractMismatch(definition.id));
         }
@@ -93,11 +95,14 @@ impl ConnectorRegistry {
         if self.local.contains_key(&id) {
             return Err(RuntimeError::DuplicateLocalProvider(id));
         }
-        self.local.insert(id, RegisteredLocalProvider {
-            definition,
-            contract,
-            factory: Box::new(factory),
-        });
+        self.local.insert(
+            id,
+            RegisteredLocalProvider {
+                definition,
+                contract,
+                factory: Box::new(factory),
+            },
+        );
         Ok(())
     }
 
@@ -184,9 +189,16 @@ pub enum RuntimeError {
     #[error("provider {0} does not advertise its returned contract")]
     ProviderContractMismatch(String),
     #[error("no registered local provider implements {id}@{version} (requirement {requirement})")]
-    NoLocalProvider { requirement: String, id: String, version: u32 },
+    NoLocalProvider {
+        requirement: String,
+        id: String,
+        version: u32,
+    },
     #[error("multiple local providers implement requirement {requirement}: {providers:?}")]
-    AmbiguousLocalProvider { requirement: String, providers: Vec<String> },
+    AmbiguousLocalProvider {
+        requirement: String,
+        providers: Vec<String>,
+    },
     #[error("unregistered local provider: {0}")]
     UnknownLocalProvider(String),
     #[error("local provider {0} returned different metadata from its registration")]
@@ -295,32 +307,42 @@ impl App {
     /// Automatically select local implementations for every declared
     /// capability. This does not allocate sockets or start subprocesses.
     /// Explicit selection remains possible using ServiceEndpoint::Local.
-    pub fn start_local(
-        self,
-        connectors: &ConnectorRegistry,
-    ) -> Result<RunningApp, RuntimeError> {
+    pub fn start_local(self, connectors: &ConnectorRegistry) -> Result<RunningApp, RuntimeError> {
         let schema = self.definition().ok_or(RuntimeError::MissingDefinition)?;
         let mut services = BTreeMap::new();
         for requirement in &schema.requires {
-            let compatible: Vec<String> = connectors.local
+            let compatible: Vec<String> = connectors
+                .local
                 .values()
-                .filter(|local| local.definition.capabilities.contains(&requirement.capability)
-                    && local.contract.capability == requirement.capability)
+                .filter(|local| {
+                    local
+                        .definition
+                        .capabilities
+                        .contains(&requirement.capability)
+                        && local.contract.capability == requirement.capability
+                })
                 .map(|local| local.definition.id.clone())
                 .collect();
             let provider = match compatible.as_slice() {
-                [] => return Err(RuntimeError::NoLocalProvider {
-                    requirement: requirement.name.clone(),
-                    id: requirement.capability.id.clone(),
-                    version: requirement.capability.version,
-                }),
+                [] => {
+                    return Err(RuntimeError::NoLocalProvider {
+                        requirement: requirement.name.clone(),
+                        id: requirement.capability.id.clone(),
+                        version: requirement.capability.version,
+                    });
+                }
                 [only] => only.clone(),
-                _ => return Err(RuntimeError::AmbiguousLocalProvider {
-                    requirement: requirement.name.clone(),
-                    providers: compatible,
-                }),
+                _ => {
+                    return Err(RuntimeError::AmbiguousLocalProvider {
+                        requirement: requirement.name.clone(),
+                        providers: compatible,
+                    });
+                }
             };
-            services.insert(requirement.name.clone(), ServiceEndpoint::Local { provider });
+            services.insert(
+                requirement.name.clone(),
+                ServiceEndpoint::Local { provider },
+            );
         }
         self.start(&DeploymentConfig { services }, connectors)
     }
@@ -356,19 +378,28 @@ impl App {
         for (index, requirement) in schema.requires.iter().enumerate() {
             let endpoint = &deployment.services[&requirement.name];
             if let ServiceEndpoint::Local { provider } = endpoint {
-                let local = connectors.local.get(provider)
+                let local = connectors
+                    .local
+                    .get(provider)
                     .ok_or_else(|| RuntimeError::UnknownLocalProvider(provider.clone()))?;
-                if !local.definition.capabilities.contains(&requirement.capability)
+                if !local
+                    .definition
+                    .capabilities
+                    .contains(&requirement.capability)
                     || local.contract.capability != requirement.capability
                 {
                     return Err(RuntimeError::LocalContractMismatch {
                         requirement: requirement.name.clone(),
                     });
                 }
-                let connected = local.factory.create().map_err(|source| RuntimeError::Connection {
-                    requirement: requirement.name.clone(),
-                    source,
-                })?;
+                let connected =
+                    local
+                        .factory
+                        .create()
+                        .map_err(|source| RuntimeError::Connection {
+                            requirement: requirement.name.clone(),
+                            source,
+                        })?;
                 if connected.definition != local.definition
                     || !connected.contract.has_same_api_shape(&local.contract)
                 {
@@ -770,7 +801,9 @@ mod tests {
     #[test]
     fn starts_local_service_without_tcp_or_deployment_json() {
         let mut connectors = ConnectorRegistry::new();
-        connectors.register_local(LocalCounter("example.counter.memory")).unwrap();
+        connectors
+            .register_local(LocalCounter("example.counter.memory"))
+            .unwrap();
         let running = app().start_local(&connectors).unwrap();
         assert_eq!(running.resolved()[0].provider, "example.counter.memory");
         assert_eq!(**running.service::<Arc<u64>>("counter").unwrap(), 123);
@@ -784,16 +817,23 @@ mod tests {
             Err(RuntimeError::NoLocalProvider { .. })
         ));
         let mut connectors = ConnectorRegistry::new();
-        connectors.register_local(LocalCounter("example.counter.memory")).unwrap();
-        connectors.register_local(LocalCounter("example.counter.other")).unwrap();
+        connectors
+            .register_local(LocalCounter("example.counter.memory"))
+            .unwrap();
+        connectors
+            .register_local(LocalCounter("example.counter.other"))
+            .unwrap();
         assert!(matches!(
             app().start_local(&connectors),
             Err(RuntimeError::AmbiguousLocalProvider { .. })
         ));
         let explicit = DeploymentConfig {
-            services: BTreeMap::from([("counter".into(), ServiceEndpoint::Local {
-                provider: "example.counter.other".into(),
-            })]),
+            services: BTreeMap::from([(
+                "counter".into(),
+                ServiceEndpoint::Local {
+                    provider: "example.counter.other".into(),
+                },
+            )]),
         };
         let running = app().start(&explicit, &connectors).unwrap();
         assert_eq!(running.resolved()[0].provider, "example.counter.other");
@@ -808,5 +848,4 @@ mod tests {
             Err(RuntimeError::DuplicateLocalProvider(_))
         ));
     }
-
 }

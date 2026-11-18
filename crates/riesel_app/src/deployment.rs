@@ -90,7 +90,10 @@ impl DeploymentConfig {
             }
         }
         for (name, endpoint) in &self.services {
-            if endpoint.address().is_some_and(|address| address.port() == 0) {
+            if endpoint
+                .address()
+                .is_some_and(|address| address.port() == 0)
+            {
                 return Err(DeploymentError::InvalidEndpoint {
                     name: name.clone(),
                     reason: "port zero is not a valid client endpoint",
