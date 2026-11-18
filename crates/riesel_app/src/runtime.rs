@@ -328,9 +328,9 @@ pub enum AppRunError {
         "required managed service failed: {failure}; entrypoint: {entry:?}; shutdown: {shutdown:?}"
     )]
     Supervision {
-        failure: RuntimeError,
+        failure: Box<RuntimeError>,
         entry: Option<ConnectorError>,
-        shutdown: Option<RuntimeError>,
+        shutdown: Option<Box<RuntimeError>>,
     },
 }
 
@@ -698,9 +698,9 @@ impl RunningApp {
 
         if let Some(failure) = failure {
             return Err(AppRunError::Supervision {
-                failure,
+                failure: Box::new(failure),
                 entry: outcome.err(),
-                shutdown,
+                shutdown: shutdown.map(Box::new),
             });
         }
         match (outcome, shutdown) {
