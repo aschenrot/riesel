@@ -352,7 +352,9 @@ pub enum AppRunError {
         restarts: u32,
         last: Box<AppRunError>,
     },
-    #[error("application background task failed: {failure}; entrypoint: {entry:?}; shutdown: {shutdown:?}")]
+    #[error(
+        "application background task failed: {failure}; entrypoint: {entry:?}; shutdown: {shutdown:?}"
+    )]
     TaskFailure {
         failure: Box<RuntimeError>,
         entry: Option<ConnectorError>,
@@ -1130,6 +1132,171 @@ mod tests {
         ));
     }
 
+
+    #[test]
+    fn whole_application_restart_rebuilds_services_after_real_child_exit() {
+        use crate::RecoveryPolicy;
+        let mut connectors = ConnectorRegistry::new();
+        connectors
+            .register_local(LocalCounter("example.counter.memory"))
+            .unwrap();
+        let policy = RecoveryPolicy::RestartApplication {
+            max_restarts: 2,
+            initial_backoff_ms: 1,
+            max_backoff_ms: 2,
+        };
+        let mut starts = 0;
+        let mut entries = 0;
+        crate::recovery::run_with_recovery(
+            &policy,
+            || {
+                starts += 1;
+                if starts == 1 {
+                    Ok(with_exiting_managed_child())
+                } else {
+                    app().start_local(&connectors)
+                }
+            },
+            |running| {
+                entries += 1;
+                if entries == 1 {
+                    assert!(
+                        running
+                            .cancellation_token()
+                            .wait_cancelled_timeout(Duration::from_secs(8))
+                    );
+                } else {
+                    assert_eq!(**running.service::<Arc<u64>>("counter").unwrap(), 123);
+                    assert!(!running.cancellation_token().is_cancelled());
+                }
+                Ok(())
+            },
+        )
+        .unwrap();
+        assert_eq!(starts, 2);
+        assert_eq!(entries, 2);
+    }
+
+    #[test]
+    fn whole_application_restart_is_bounded_after_repeated_real_process_failures() {
+        use crate::RecoveryPolicy;
+        let policy = RecoveryPolicy::RestartApplication {
+            max_restarts: 2,
+            initial_backoff_ms: 1,
+            max_backoff_ms: 2,
+        };
+        let mut starts = 0;
+        let result = crate::recovery::run_with_recovery(
+            &policy,
+            || {
+                starts += 1;
+                Ok(with_exiting_managed_child())
+            },
+            |running| {
+                assert!(
+                    running
+                        .cancellation_token()
+                        .wait_cancelled_timeout(Duration::from_secs(8))
+                );
+                Ok(())
+            },
+        );
+        assert_eq!(starts, 3);
+        assert!(matches!(
+            result,
+            Err(AppRunError::RecoveryExhausted {
+                restarts: 2,
+                last,
+            }) if matches!(*last, AppRunError::Supervision { .. })
+        ));
+    }
+
+    #[test]
+    fn session_restart_does_not_replay_concurrent_business_errors() {
+        use crate::RecoveryPolicy;
+        let policy = RecoveryPolicy::RestartApplication {
+            max_restarts: 3,
+            initial_backoff_ms: 1,
+            max_backoff_ms: 2,
+        };
+        let mut starts = 0;
+        let result = crate::recovery::run_with_recovery(
+            &policy,
+            || {
+                starts += 1;
+                Ok(with_exiting_managed_child())
+            },
+            |running| {
+                assert!(
+                    running
+                        .cancellation_token()
+                        .wait_cancelled_timeout(Duration::from_secs(8))
+                );
+                Err(io::Error::other("business work cannot be replayed").into())
+            },
+        );
+        assert_eq!(starts, 1);
+        assert!(matches!(
+            result,
+            Err(AppRunError::Supervision {
+                entry: Some(_),
+                shutdown: None,
+                ..
+            })
+        ));
+    }
+
+    #[test]
+    fn structured_task_failure_cancels_application_and_preserves_error() {
+        let mut registry = ConnectorRegistry::new();
+        registry
+            .register_local(LocalCounter("example.counter.memory"))
+            .unwrap();
+        let result = app().run_local(&registry, |running| {
+            running.spawn_task("failure", |_| {
+                Err(io::Error::other("injected worker error").into())
+            })?;
+            assert!(
+                running
+                    .cancellation_token()
+                    .wait_cancelled_timeout(Duration::from_secs(5))
+            );
+            assert!(matches!(
+                running.check_processes(),
+                Err(RuntimeError::TaskFailed { name, .. }) if name == "failure"
+            ));
+            Ok(())
+        });
+        assert!(matches!(
+            result,
+            Err(AppRunError::TaskFailure {
+                failure,
+                entry: None,
+                ..
+            }) if matches!(*failure, RuntimeError::TaskFailed { .. })
+        ));
+    }
+
+    #[test]
+    fn structured_tasks_are_joined_before_session_resources_are_destroyed() {
+        let mut registry = ConnectorRegistry::new();
+        registry
+            .register_local(LocalCounter("example.counter.memory"))
+            .unwrap();
+        let joined = Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let flag = Arc::clone(&joined);
+        app()
+            .run_local(&registry, |running| {
+                running.spawn_task("cooperative", move |token| {
+                    token.wait_cancelled_timeout(Duration::from_secs(5));
+                    flag.store(true, std::sync::atomic::Ordering::Release);
+                    Ok(())
+                })?;
+                Ok(())
+            })
+            .unwrap();
+        assert!(joined.load(std::sync::atomic::Ordering::Acquire));
+    }
     #[test]
     fn preflight_orders_all_dependencies_without_connecting_or_starting() {
         let application = App::from_schema(

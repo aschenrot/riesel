@@ -152,7 +152,9 @@ mod tests {
         let token = CancellationToken::default();
         let group = TaskGroup::new(token.clone());
         group
-            .spawn("failing".into(), |_| Err(io::Error::other("broken task").into()))
+            .spawn("failing".into(), |_| {
+                Err(io::Error::other("broken task").into())
+            })
             .unwrap();
         assert!(token.wait_cancelled_timeout(Duration::from_secs(5)));
         assert!(matches!(
@@ -160,7 +162,10 @@ mod tests {
             Err(RuntimeError::TaskFailed { name, message })
                 if name == "failing" && message.contains("broken task")
         ));
-        assert!(matches!(group.failure(), Some(RuntimeError::TaskFailed { .. })));
+        assert!(matches!(
+            group.failure(),
+            Some(RuntimeError::TaskFailed { .. })
+        ));
     }
 
     #[test]

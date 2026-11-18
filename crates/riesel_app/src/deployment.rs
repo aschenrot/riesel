@@ -259,4 +259,34 @@ mod tests {
         config.validate(&app()).unwrap();
         assert!(config.services["storage"].address().is_none());
     }
+
+    #[test]
+    fn restart_policy_is_opt_in_and_validated_before_startup() {
+        let config = DeploymentConfig::from_json(
+            r#"{"services":{"storage":{"transport":"managed","program":"not-running"}},
+                "recovery":{"mode":"restart_application","max_restarts":2,
+                            "initial_backoff_ms":10,"max_backoff_ms":100}}"#,
+        )
+        .unwrap();
+        config.validate(&app()).unwrap();
+        assert!(matches!(
+            config.recovery,
+            RecoveryPolicy::RestartApplication {
+                max_restarts: 2,
+                ..
+            }
+        ));
+
+        let invalid = DeploymentConfig::from_json(
+            r#"{"services":{"storage":{"transport":"managed","program":"not-running"}},
+                "recovery":{"mode":"restart_application","max_restarts":0}}"#,
+        )
+        .unwrap();
+        assert!(matches!(
+            invalid.validate(&app()),
+            Err(DeploymentError::InvalidRecovery(_))
+        ));
+        let default_config = DeploymentConfig::new(BTreeMap::new());
+        assert_eq!(default_config.recovery, RecoveryPolicy::FailFast);
+    }
 }

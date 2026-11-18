@@ -262,9 +262,7 @@ impl Context<'_> {
     pub fn spawn_task(
         &self,
         name: impl Into<String>,
-        task: impl FnOnce(CancellationToken) -> std::result::Result<(), ConnectorError>
-            + Send
-            + 'static,
+        task: impl FnOnce(CancellationToken) -> std::result::Result<(), ConnectorError> + Send + 'static,
     ) -> Result<()> {
         Ok(self.running.spawn_task(name, task)?)
     }
