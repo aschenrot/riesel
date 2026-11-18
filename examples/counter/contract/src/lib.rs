@@ -171,9 +171,7 @@ mod native_async_capability_tests {
             .build()
             .unwrap();
         runtime.block_on(async {
-            let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
-                .await
-                .unwrap();
+            let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
             let address = listener.local_addr().unwrap();
             let stopping = Arc::new(AtomicBool::new(false));
             let handler = Arc::new(AsyncCounterAsyncRpcDispatcher::new(
