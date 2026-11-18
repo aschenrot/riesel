@@ -445,5 +445,5 @@ mod tests {
             Err(SchemaError::DuplicateModelBinding { requirement, .. })
                 if requirement == "storage"
         ));
-     }
+    }
 }
