@@ -59,21 +59,31 @@ verified using Linux `cargo validate --check` and `cargo smoke`:
   remove repeated Storage/Counter local factory wiring.
 - Generated client bindings carry revocable session tokens; calls from
   escaped local or remote handles fail after shutdown and restart.
+  `RpcClientBinding` now requires explicit `guard_local` implementation,
+  with no silently unguarded default. Compile-fail tests protect this rule.
 - Runtime registry, planning, startup, handshake, running session, errors
   and tests are separate modules. SDK builder, CLI and Context; macro
-  capability and model/type derives; and RPC client/wire/server/hosting
-  follow the same responsibility split.
+  capability argument parsing, signature checking, expansion and model/type
+  derives; and RPC client/wire/server/hosting follow the same responsibility
+  split.
 - The `#[capability]` macro generates `Arc<T>` trait forwarding.
   Derive validation rejects unsupported Serde field/variant/container
   modifiers rather than generating inaccurate contract metadata.
 - The loopback RPC host uses four workers and a bounded 32-socket pending
-  queue; slow and fast calls are tested concurrently.
+  queue; slow and fast calls are tested concurrently. Runtime application
+  workers have a cap of 64 simultaneously active threads; completed workers
+  are joined and their names and capacity reused.
 - `RieselModel` supports numeric, optional, list and JSON fields, including
   typed Storage round-trip tests.
 - Obsolete handwritten-protocol/fixed-port tests were removed.
   `cargo ship` preserves deliberate staging instead of `git add .`.
   Linux CI runs on main and the working branch; Windows remains an
   explicit on-demand pre-release check.
+- Regression gates include multiple versions of one capability in the same
+  registry, multiple local bindings sharing one provider instance, rejection
+  of incomplete bindings, stale-handle rejection after recovery, schema
+  validation, bounded RPC concurrency, compiler-negative contract cases,
+  and executable managed-process failure injection.
 
 **Breaking change:** Counter now advertises version **2** because it
 returns a typed internal failure instead of panicking on a poisoned lock.

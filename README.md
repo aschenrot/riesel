@@ -87,6 +87,9 @@ defaults, not configurable production resource policies.
 JSON values, `Option<T>` and `Vec<T>`, with recursive value validation.
 Unsupported Serde renaming and field/variant modifiers are rejected by
 the derive macros to avoid inconsistent generated contract metadata.
+Compile-fail documentation tests verify those restrictions, invalid async
+capability signatures and the required session guarding of custom
+`RpcClientBinding` implementations.
 
 ### Capability handle lifetimes
 
@@ -142,7 +145,10 @@ Create application-owned worker threads using `Context::spawn_task("name",
 task must finish cooperatively. Riesel joins tasks **before** dropping
 capability clients or stopping processes. Task errors and panics cancel the
 application and become `AppRunError::TaskFailure`; simultaneous errors are
-retained rather than silently discarded.
+retained rather than silently discarded. At most **64 concurrent
+application-owned OS threads** may be registered; finished tasks are
+joined and their slots and names can be reused. Blocking, non-cooperative
+tasks can still prevent shutdown indefinitely; no thread is forcibly killed.
 
 Default deployments use `fail_fast`. To opt into a bounded restart of the
 **whole application session**, add this top-level deployment policy:
