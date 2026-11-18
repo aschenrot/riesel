@@ -1,6 +1,6 @@
 # Riesel — Async Execution Contract (Stage 5.4)
 
-Status: partial implementation verified on Linux, 2026-11-19.
+Status: native async contract and standalone host slices verified on Linux, 2026-11-19.
 This defines the next engineering gates for the accepted
 [high-level application authoring API](api-authoring-v3.md).
 The user-facing mental model stays **app uses capabilities, components
@@ -37,37 +37,45 @@ mandatory ECS, transport object or executor type in the default authoring API.
   Existing managed-process smoke and minimal-feature checks remain green.
   Evidence: https://github.com/aschenrot/riesel/actions/runs/44420615980
 
+## Native async contract and host now verified
+
+- `#[capability]` accepts native async Rust methods, while rejecting mixed
+  synchronous/asynchronous declarations in one contract. Generated trait
+  signatures use `impl Future<Output = Result<T, E>> + Send`, which normal
+  Rust `async fn` implementations satisfy when their futures are Send.
+- The generator emits an object-safe `<Trait>AsyncService`, an owned,
+  revocable `<Trait>LocalClient` and `<Trait>AsyncRpcDispatcher`.
+  Developers do not manually box futures. Internal adapter methods have
+  distinct names so `self.value()` remains unambiguous inside impls.
+- `AsyncRpcHandler` supplies typed contract metadata, capability identity
+  checking and true async dispatch. The optional Tokio TCP host uses bounded
+  frame reads/writes, 5-second deadlines, loopback enforcement, at most 32
+  active connections, and owned JoinSet tasks aborted at shutdown.
+- A generated native async Counter contract runs locally and through the
+  standalone Tokio TCP host; tests cover a command, query, borrowed string,
+  domain error, session expiry and unknown operation.
+- The synchronous Counter and Storage capability contracts, RPC host and
+  application manager have not been changed. Evidence:
+  https://github.com/aschenrot/riesel/actions/runs/44423972358
+
 ## Remaining engineering decisions and required behavior
 
-### 1. Native async capability contracts and local execution
+### 1. Component registration and supervised runtime parity
 
-The accepted surface includes `#[capability] trait Counter { async fn ... }`.
-The current macro **rejects** async trait methods. Native async trait methods
-are not directly dyn-compatible in Rust. We must generate a typed,
-object-safe asynchronous service adapter (or an equivalent typed handle)
-for component state instead of assuming `Arc<dyn Counter>` will work.
-Ordinary Rust `impl Counter for MemoryCounter` syntax should remain
-possible. Avoid requiring every author to manually box futures or use an ECS.
+The current `#[component]` and `ComponentDefinition` APIs still expect
+synchronous `RpcClientBinding` / `ComponentAdapter` interfaces.
+Generate native async component bindings from the **same** component
+declaration and provider-owned state, with typed local and managed adapters.
+The standalone Tokio async server is not yet connected to the managed
+process lifecycle; it does not advertise supervised readiness or implement
+Riesel's existing provider recovery policy. Do not create a parallel runtime
+or silently call synchronous providers inside async futures.
 
-Compile-time tests must cover async receivers, owned and borrowed arguments,
-typed domain errors, generic restrictions, unsupported forms and generated
-contract equivalence. Changes to published contracts must retain intentional
-versioning; do not silently rewrite Counter or Storage wire IDs.
+Tests must call the same native async capability locally and through a
+manager-owned process without application-level transport wiring. Blocking
+implementation code needs an explicit blocking boundary.
 
-### 2. Async server dispatch and local/managed parity
-
-The current RPC host serves synchronous handlers on a bounded worker pool.
-Add an async dispatcher/host with bounded admission and cooperative shutdown,
-and a generated in-process async adapter that does not synchronously block
-the executor. Both routes must share the same provider-owned state and
-versioned contract metadata.
-
-Tests must call the same capability locally and in a managed process without
-application-level transport wiring. Blocking local implementations need an
-explicit boundary; never poll blocking I/O in a Tokio task and label it
-nonblocking.
-
-### 3. Session ownership, cancellation and execution policy
+### 2. Session ownership, cancellation and execution policy
 
 Introduce runtime-owned async tasks with bounded concurrency, join/cancel
 semantics and observable failures, rather than detached `tokio::spawn`
@@ -83,7 +91,7 @@ Every async client must be tied to the active session before application
 code receives it. Stale clones and results from a stopped session must not
 escape. Cancellation, timers and error sources must remain structured.
 
-### 4. Developer-facing injection and error model
+### 3. Developer-facing injection and error model
 
 The accepted `CounterHandle` should be a generated typed façade over the
 same capability binding and runtime ownership in local and remote modes;
@@ -95,7 +103,7 @@ Multiple providers still require deterministic aliases and selection.
 Auto-registered private IDs are not externally stable contracts. No silent
 MemoryStore fallback and no global constructors.
 
-### 5. Security and production boundaries
+### 4. Security and production boundaries
 
 Current TCP is loopback-only, unauthenticated and unencrypted. Its provider
 announcement is not a trust proof. Persistent Storage, authenticated remote
@@ -105,12 +113,16 @@ not change that security posture.
 
 ## Stage 5.4 completion gates
 
-1. Native async capability definitions and generated local/managed adapters
-   compile without hand-written dispatch or a required async-trait macro.
-2. Genuine nonblocking calls and bounded provider execution work in both
-   local and managed scenarios; no synchronous TCP hidden inside futures.
+1. Native async capability definitions and standalone local/Tokio adapters
+   compile and run without hand-written dispatch or an async-trait macro
+   (**implemented**); generated component registrations and supervised
+   managed bindings remain.
+2. Genuine nonblocking calls and bounded provider execution work for
+   standalone local and Tokio host scenarios (**implemented**); supervised
+   local/managed parity remains.
 3. Runtime-owned task lifecycle, session invalidation and prompt cooperative
-   cancellation pass deterministic tests, including live managed-child crash.
+   cancellation pass deterministic tests, including live managed-child crash
+   (**not yet implemented**).
 4. Domain/transport/cancellation/session errors remain distinguishable;
    no automatic command retry, even after timeout.
 5. Generated async bindings derive the same validated contract and provider

@@ -188,3 +188,22 @@ are complete. The detailed design gates and these restrictions are in
 [async execution contract](async-execution-contract.md).
 
 Validated: https://github.com/aschenrot/riesel/actions/runs/44420615980
+
+## Native async capability and host progress (verified 2026-11-19)
+
+The `#[capability]` macro accepts entirely asynchronous Rust traits.
+It generates an object-safe `<Trait>AsyncService`, a session-scoped
+`<Trait>LocalClient` and `<Trait>AsyncRpcDispatcher`. Ordinary Rust
+`impl Trait for Component { async fn ... }` requires no manual future boxing.
+The generated method futures must be `Send`; a single capability contract
+cannot mix sync and async methods. The optional Tokio TCP host can execute
+the native async dispatcher with bounded concurrency and nonblocking I/O.
+
+This does **not** yet give developers the final `#[riesel::app] async fn`
+surface. The existing provider registry and component macro still bind
+synchronous services. The next slice needs async component registration,
+runtime-owned async tasks, manager-owned async service lifecycle and prompt
+session-driven cancellation.
+
+Verified workspace validation, async Counter integration and managed
+synchronous smoke: https://github.com/aschenrot/riesel/actions/runs/44423972358
