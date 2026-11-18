@@ -280,11 +280,14 @@ mod tests {
             }
         }
         assert_eq!(visited, ids);
-        assert_eq!(store.list_page("task", None, 0).unwrap_err(), StoreError::InvalidPageSize);
-        assert_eq!(
-            store.list_page("task", None, MAX_PAGE_SIZE + 1).unwrap_err(),
-            StoreError::InvalidPageSize
-        );
+        assert!(matches!(
+            store.list_page("task", None, 0),
+            Err(StoreError::InvalidPageSize)
+        ));
+        assert!(matches!(
+            store.list_page("task", None, MAX_PAGE_SIZE + 1),
+            Err(StoreError::InvalidPageSize)
+        ));
     }
 
     #[test]
@@ -294,13 +297,16 @@ mod tests {
         let updated = store
             .update("task", created.id, created.revision, json!({"title": "Updated"}))
             .unwrap();
-        assert_eq!(
+        assert!(matches!(
             store.delete("task", created.id, created.revision),
             Err(StoreError::RevisionConflict)
-        );
+        ));
         store.delete("task", created.id, updated.revision).unwrap();
         assert!(store.get("task", created.id).unwrap().is_none());
-        assert_eq!(store.delete("task", created.id, updated.revision), Err(StoreError::NotFound));
+        assert!(matches!(
+            store.delete("task", created.id, updated.revision),
+            Err(StoreError::NotFound)
+        ));
     }
 
     #[test]

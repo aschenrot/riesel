@@ -99,7 +99,7 @@ fn rust_first_app_runs_without_json_or_tcp() {
             assert_eq!(got.value.title, "Build Riesel");
             assert_eq!(records.list()?.len(), 1);
             let storage = ctx.capability::<RecordStoreContract>("storage")?;
-            assert_eq!(storage.list("todo")?.len(), 1);
+            assert_eq!(storage.list_page("todo", None, 32)?.records.len(), 1);
             Ok(())
         })
         .unwrap();

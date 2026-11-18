@@ -32,9 +32,9 @@ pub(super) fn verify_multi_service_rollback() -> TaskResult {
             "app":{"name":"RollbackProbe"},
             "models":{},
             "requires":[
-                {"name":"second","capability":{"id":"riesel.storage.records","version":1},
+                {"name":"second","capability":{"id":"riesel.storage.records","version":2},
                  "depends_on":["first"]},
-                {"name":"first","capability":{"id":"riesel.storage.records","version":1}}
+                {"name":"first","capability":{"id":"riesel.storage.records","version":2}}
             ]
         }"#,
     )
