@@ -125,11 +125,9 @@ impl Application {
         &self.definition
     }
 
-    pub fn run(self, entrypoint: impl FnOnce(&Context<'_>) -> Result<()>) -> Result<()> {
+    pub fn run(self, entrypoint: impl FnOnce(&Context<'_>) -> std::result::Result<(), ConnectorError>) -> Result<()> {
         let app = App::from_definition(self.definition)?;
-        let invoke = |running: &RunningApp| -> std::result::Result<(), ConnectorError> {
-            entrypoint(&Context { running }).map_err(|error| Box::new(error) as ConnectorError)
-        };
+        let invoke = |running: &RunningApp| entrypoint(&Context { running });
         if let Some(deployment) = self.deployment {
             app.run(&deployment, &self.providers, invoke)?;
         } else {
@@ -142,7 +140,7 @@ impl Application {
     /// Supported: --deployment FILE and --help.
     pub fn run_from_env(
         mut self,
-        entrypoint: impl FnOnce(&Context<'_>) -> Result<()>,
+        entrypoint: impl FnOnce(&Context<'_>) -> std::result::Result<(), ConnectorError>,
     ) -> Result<()> {
         let args: Vec<_> = std::env::args_os().skip(1).collect();
         match args.as_slice() {

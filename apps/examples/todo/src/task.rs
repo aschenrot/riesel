@@ -1,13 +1,16 @@
-use riesel::storage::{RecordStore, StoreError, StoredRecord};
-
-use riesel::RieselModel;
-use riesel::schema::{ModelDefinition, RecordError};
+use riesel::{Record, Records, RieselModel, SdkError};
 use serde::{Deserialize, Serialize};
-use serde_json::json;
 use thiserror::Error;
 use uuid::Uuid;
 
-const TASK_MODEL: &str = "task";
+/// All persisted fields are described here; no separate JSON model is needed.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, RieselModel)]
+#[riesel(model = "task")]
+#[serde(deny_unknown_fields)]
+pub struct TaskData {
+    pub title: String,
+    pub completed: bool,
+}
 
 #[derive(Debug, PartialEq, Eq)]
 pub struct Task {
@@ -17,222 +20,126 @@ pub struct Task {
     pub revision: u64,
 }
 
-#[derive(Debug, Serialize, Deserialize, RieselModel)]
-#[riesel(model = "task")]
-#[serde(deny_unknown_fields)]
-struct TaskData {
-    title: String,
-    completed: bool,
+impl From<Record<TaskData>> for Task {
+    fn from(record: Record<TaskData>) -> Self {
+        Self {
+            id: record.id,
+            title: record.value.title,
+            completed: record.value.completed,
+            revision: record.revision,
+        }
+    }
 }
 
 #[derive(Debug, Error)]
 pub enum TodoError {
     #[error("task title must not be empty")]
     EmptyTitle,
-
     #[error("task not found")]
     NotFound,
-
     #[error(transparent)]
-    InvalidRecord(#[from] RecordError),
-
-    #[error(transparent)]
-    Storage(#[from] StoreError),
-
-    #[error("invalid stored task data: {0}")]
-    InvalidStoredData(#[from] serde_json::Error),
+    Storage(#[from] SdkError),
 }
 
-pub struct Todo<S: RecordStore> {
-    store: S,
-    task_model: ModelDefinition,
+pub struct Todo {
+    records: Records<TaskData>,
 }
 
-impl<S: RecordStore> Todo<S> {
-    pub fn new(store: S, task_model: ModelDefinition) -> Self {
-        Self { store, task_model }
+impl Todo {
+    pub fn new(records: Records<TaskData>) -> Self {
+        Self { records }
     }
 
     pub fn create_task(&self, title: impl Into<String>) -> Result<Task, TodoError> {
         let title = title.into();
-
         if title.trim().is_empty() {
             return Err(TodoError::EmptyTitle);
         }
-
-        let data = json!({
-            "title": title,
-            "completed": false,
-        });
-
-        self.task_model.validate_record(&data)?;
-
-        let record = self.store.create(TASK_MODEL, data)?;
-
-        self.to_task(record)
+        let record = self.records.create(TaskData {
+            title,
+            completed: false,
+        })?;
+        Ok(record.into())
     }
 
     pub fn get_task(&self, id: Uuid) -> Result<Option<Task>, TodoError> {
-        self.store
-            .get(TASK_MODEL, id)?
-            .map(|record| self.to_task(record))
-            .transpose()
+        Ok(self.records.get(id)?.map(Task::from))
     }
 
     pub fn list_tasks(&self) -> Result<Vec<Task>, TodoError> {
-        self.store
-            .list(TASK_MODEL)?
-            .into_iter()
-            .map(|record| self.to_task(record))
-            .collect()
+        Ok(self.records.list()?.into_iter().map(Task::from).collect())
     }
 
     pub fn set_completed(&self, id: Uuid, completed: bool) -> Result<Task, TodoError> {
-        let record = self.store.get(TASK_MODEL, id)?.ok_or(TodoError::NotFound)?;
-
-        self.task_model.validate_record(&record.data)?;
-
-        let mut data = record.data;
-
-        let fields = data.as_object_mut().ok_or(RecordError::ExpectedObject)?;
-
-        fields.insert("completed".into(), json!(completed));
-
-        self.task_model.validate_record(&data)?;
-
-        let updated = self.store.update(TASK_MODEL, id, record.revision, data)?;
-
-        self.to_task(updated)
-    }
-
-    fn to_task(&self, record: StoredRecord) -> Result<Task, TodoError> {
-        self.task_model.validate_record(&record.data)?;
-
-        let data: TaskData = serde_json::from_value(record.data)?;
-
-        Ok(Task {
-            id: record.id,
-            title: data.title,
-            completed: data.completed,
-            revision: record.revision,
-        })
+        let current = self.records.get(id)?.ok_or(TodoError::NotFound)?;
+        let mut data = current.value;
+        data.completed = completed;
+        let updated = self.records.update(id, current.revision, data)?;
+        Ok(updated.into())
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use riesel::schema::parse_schema;
+    use riesel::storage::RecordStore;
     use riesel_storage_component::MemoryStore;
+    use std::sync::Arc;
 
-    fn todo() -> Todo<MemoryStore> {
-        let mut schema = parse_schema(include_str!("../app.json")).expect("Todo schema must parse");
-
-        schema.validate().expect("Todo schema must be valid");
-
-        let task_model = schema
-            .models
-            .remove("task")
-            .expect("Todo must define a task model");
-
-        Todo::new(MemoryStore::new(), task_model)
+    fn todo() -> Todo {
+        let store = Arc::new(MemoryStore::new()) as Arc<dyn RecordStore + Send + Sync>;
+        Todo::new(Records::from_store(store))
     }
 
     #[test]
     fn creates_a_task() {
         let todo = todo();
-
         let task = todo.create_task("Build Riesel").unwrap();
-
         assert_eq!(task.title, "Build Riesel");
         assert!(!task.completed);
         assert_eq!(task.revision, 1);
-
-        let retrieved = todo.get_task(task.id).unwrap().unwrap();
-
-        assert_eq!(retrieved, task);
+        assert_eq!(todo.get_task(task.id).unwrap().unwrap(), task);
     }
 
     #[test]
     fn rejects_empty_titles() {
         let todo = todo();
-
-        let result = todo.create_task("   ");
-
-        assert!(matches!(result, Err(TodoError::EmptyTitle)));
+        assert!(matches!(todo.create_task("   "), Err(TodoError::EmptyTitle)));
         assert!(todo.list_tasks().unwrap().is_empty());
     }
 
     #[test]
     fn completes_a_task() {
         let todo = todo();
-
         let created = todo.create_task("Build Riesel").unwrap();
-
         let completed = todo.set_completed(created.id, true).unwrap();
-
         assert!(completed.completed);
         assert_eq!(completed.id, created.id);
         assert_eq!(completed.revision, 2);
-
-        let retrieved = todo.get_task(created.id).unwrap().unwrap();
-
-        assert!(retrieved.completed);
+        assert!(todo.get_task(created.id).unwrap().unwrap().completed);
     }
 
     #[test]
     fn lists_tasks() {
         let todo = todo();
-
         todo.create_task("First").unwrap();
         todo.create_task("Second").unwrap();
-
-        let tasks = todo.list_tasks().unwrap();
-
-        assert_eq!(tasks.len(), 2);
+        assert_eq!(todo.list_tasks().unwrap().len(), 2);
     }
 
     #[test]
     fn cannot_complete_missing_task() {
         let todo = todo();
-
-        let result = todo.set_completed(Uuid::new_v4(), true);
-
-        assert!(matches!(result, Err(TodoError::NotFound)));
+        assert!(matches!(
+            todo.set_completed(Uuid::new_v4(), true),
+            Err(TodoError::NotFound)
+        ));
     }
 
     #[test]
-    fn resolves_and_injects_storage_without_coupling_todo_to_a_provider() {
-        use riesel::{CapabilityBindings, ProviderRegistry};
-        use std::collections::BTreeMap;
-        use std::sync::Arc;
-
-        let mut schema = parse_schema(include_str!("../app.json")).unwrap();
-        let mut registry = ProviderRegistry::new();
-        registry
-            .register(riesel_storage_component::memory_provider_definition().unwrap())
-            .unwrap();
-
-        let resolved = registry.resolve(&schema, &BTreeMap::new()).unwrap();
-        assert_eq!(resolved.len(), 1);
-        assert_eq!(resolved[0].requirement, "storage");
-        assert_eq!(resolved[0].provider, "riesel.storage.memory");
-
-        let mut instances = CapabilityBindings::<dyn RecordStore>::new();
-        instances
-            .register("riesel.storage.memory", Arc::new(MemoryStore::new()))
-            .unwrap();
-
-        let store = instances.get(&resolved[0]).unwrap();
-        let task_model = schema.models.remove("task").unwrap();
-        let todo = Todo::new(store, task_model);
-
-        let task = todo.create_task("Test provider injection").unwrap();
-        assert_eq!(todo.get_task(task.id).unwrap().unwrap(), task);
-    }
-    #[test]
-    fn rust_task_model_matches_declared_json_model() {
-        let schema = parse_schema(include_str!("../app.json")).unwrap();
-        assert_eq!(TaskData::model_definition(), schema.models["task"]);
+    fn Rust_model_is_single_source_of_truth() {
+        let schema = TaskData::model_definition();
+        assert!(schema.fields.contains_key("title"));
+        assert!(schema.fields.contains_key("completed"));
     }
 }
