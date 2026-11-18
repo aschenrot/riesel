@@ -91,6 +91,16 @@ mod tests {
     use riesel_schema::{OperationKind, TypeDefinition, TypeRef};
 
     #[test]
+    fn generated_trait_client_keeps_transport_errors_distinct() {
+        // Non-loopback plaintext calls are rejected before attempting I/O.
+        let client = super::RecordStoreRpcClient::new(
+            riesel_protocol::TcpRpcTransport::new("8.8.8.8:443".parse().unwrap()),
+        );
+        let error = super::RecordStore::list(&client, "task").unwrap_err();
+        assert!(matches!(error, super::StoreError::Transport(_)));
+    }
+
+    #[test]
     fn generates_full_storage_contract_from_rust_declarations() {
         let contract = RecordStoreContract::definition().unwrap();
 
