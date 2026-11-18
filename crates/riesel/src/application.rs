@@ -3,7 +3,7 @@ use riesel_app::{
     App, AppRunError, ConnectorError, ConnectorRegistry, DeploymentConfig, LocalProviderFactory,
     RunningApp, RuntimeError,
 };
-use riesel_schema::{AppDefinition, AppSchema, CapabilityRequirement};
+use riesel_schema::{AppDefinition, AppSchema, CapabilityDescriptor, CapabilityRequirement};
 use riesel_storage::{RecordStore, RecordStoreContract};
 use serde::{Serialize, de::DeserializeOwned};
 use std::collections::BTreeMap;
@@ -39,8 +39,8 @@ pub enum SdkError {
     MissingStorage,
     #[error("multiple record-storage requirements are declared")]
     AmbiguousStorage,
-    #[error("the storage requirement name is already used for a different capability")]
-    RequirementConflict,
+    #[error("requirement {0} is already used for a different capability")]
+    RequirementConflict(String),
     #[error("invalid application arguments: {0}")]
     Arguments(String),
 }
@@ -69,6 +69,30 @@ impl Application {
         }
     }
 
+    /// Declare an arbitrary generated Rust capability without copying its
+    /// identifier or version into JSON or application logic.
+    pub fn require<C: CapabilityDescriptor>(mut self, name: impl Into<String>) -> Result<Self> {
+        let name = name.into();
+        let capability = C::definition()?.capability;
+        if let Some(previous) = self.definition.requires.iter().find(|item| item.name == name) {
+            if previous.capability != capability {
+                return Err(SdkError::RequirementConflict(name));
+            }
+        } else {
+            self.definition.requires.push(CapabilityRequirement { name, capability });
+        }
+        Ok(self)
+    }
+
+    /// Register a custom capability transport adapter.
+    pub fn connector(
+        mut self,
+        connector: impl riesel_app::CapabilityConnector + 'static,
+    ) -> Result<Self> {
+        self.providers.register(connector)?;
+        Ok(self)
+    }
+
     /// Register an authoritative Rust model and its record-storage requirement.
     pub fn records<T: RieselModel>(mut self) -> Result<Self> {
         let name = T::MODEL_NAME.to_owned();
@@ -81,22 +105,10 @@ impl Application {
             self.definition.models.insert(name, definition);
         }
 
-        let capability = RecordStoreContract::definition()?.capability;
-        if let Some(existing) = self
-            .definition
-            .requires
-            .iter()
-            .find(|req| req.name == "storage")
-        {
-            if existing.capability != capability {
-                return Err(SdkError::RequirementConflict);
-            }
-        } else {
-            self.definition.requires.push(CapabilityRequirement {
-                name: "storage".into(),
-                capability,
-            });
-            // Register the transport adapter only once, without connecting.
+        let already_registered = self.definition.requires.iter().any(|req| req.name == "storage");
+        self = self.require::<RecordStoreContract>("storage")?;
+        if !already_registered {
+            // Register transport support without opening a socket.
             self.providers.register(TcpRecordStoreConnector)?;
         }
         Ok(self)
@@ -278,4 +290,16 @@ mod tests {
         assert_eq!(decoded.models["todo"], TodoModel::model_definition());
         assert_eq!(decoded.requires[0].capability.id, "riesel.storage.records");
     }
+    #[test]
+    fn arbitrary_rust_capability_is_declared_by_its_generated_type() {
+        let app = Application::new("Example")
+            .require::<RecordStoreContract>("records")
+            .unwrap();
+        assert_eq!(app.definition().requires[0].name, "records");
+        assert_eq!(
+            app.definition().requires[0].capability,
+            RecordStoreContract::definition().unwrap().capability
+        );
+    }
+
 }
