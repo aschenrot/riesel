@@ -2,12 +2,14 @@ use riesel_storage::{RecordStore, StoreError, StoredRecord};
 
 use serde_json::Value;
 use std::collections::BTreeMap;
-use std::sync::Mutex;
+use std::sync::{Mutex, MutexGuard};
 use uuid::Uuid;
+
+type Records = BTreeMap<(String, Uuid), StoredRecord>;
 
 #[derive(Default)]
 pub struct MemoryStore {
-    records: Mutex<BTreeMap<(String, Uuid), StoredRecord>>,
+    records: Mutex<Records>,
 }
 
 impl MemoryStore {
@@ -17,7 +19,7 @@ impl MemoryStore {
 
     fn lock_records(
         &self,
-    ) -> Result<std::sync::MutexGuard<'_, BTreeMap<(String, Uuid), StoredRecord>>, StoreError> {
+    ) -> Result<MutexGuard<'_, Records>, StoreError> {
         self.records
             .lock()
             .map_err(|_| StoreError::Failed("storage lock poisoned".into()))
