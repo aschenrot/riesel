@@ -12,7 +12,11 @@ The macro generates:
 - `CounterRpcDispatcher<T: Counter + Send + Sync>` — validates operation
   names and arguments and calls the provider implementation
 
-The `LocalRpc` transport connects those generated pieces in process.
+`LocalRpc` connects the generated client and dispatcher in process.
+`TcpRpcTransport` uses the same generated code over a bounded, JSON-line,
+loopback-only TCP connection. A contract-inspection request checks the remote
+API shape before typed calls. Tests cover both transports.
+
 There are **no separately maintained request enums or operation tables**.
 
 Run with:
@@ -28,7 +32,7 @@ domain-specific error `E`. The adapter is not automatically a trait
 implementation, because this would require an explicit policy for converting
 transport errors to every domain error type.
 
-It is a transport-independent reference implementation. The existing Storage
-TCP protocol is maintained during migration; this example does not claim to
-implement authenticated networking, automatic provider discovery or
-production-ready RPC.
+This is the first generic, transport-independent reference implementation.
+The existing Storage TCP protocol is maintained during migration; this example
+does not claim to implement authenticated networking, automatic provider
+discovery, production-ready RPC or automatic Rust trait error conversion.

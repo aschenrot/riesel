@@ -28,7 +28,7 @@ the actual Todo and Storage binaries, including runtime-owned Storage processes.
 | 2 — Provider resolution | Implemented for exact versions | Registration, explicit selection, missing/ambiguous-provider errors |
 | 3 — Capability binding | Initial implementation | In-process factories, typed Rust record handles, verified remote TCP |
 | 4 — Application runtime | End-to-end slice implemented | Application start/run, managed child startup, dynamic local endpoints, cleanup |
-| 5 — Developer experience | Improved, not complete | Rust SDK builder, model derive, common CLI flags, generated schema export, smoke tests |
+| 5 — Developer experience | RPC generation proven; still partial | Rust SDK, model derive, generated typed RPC client and dispatcher, generic bounded TCP transport, schema export |
 | 6 — Production reliability | Not implemented | Persistent Storage, secure transports, authorization, recovery, observability |
 
 Completed stages mean *working within their currently specified scope*, not
@@ -71,21 +71,50 @@ After readiness, the runtime continues draining child stdout.
 Deployment configuration remains optional for local development but is
 necessary when choosing external or managed process execution.
 
+## Generated capability RPC — implemented reference slice
+
+The `#[capability]` macro now generates, from one annotated Rust trait:
+
+- `NameContract` — versioned inspectable contract metadata
+- `NameRpcClient<T: RpcTransport>` — typed RPC methods
+- `NameRpcDispatcher<T: Name + Send + Sync>` — argument validation and
+  implementation dispatch
+
+`crates/riesel_protocol` provides reusable in-process `LocalRpc` and
+bounded loopback-only `TcpRpcTransport`, including contract inspection and
+structural shape verification. Transport failures are represented separately
+from domain errors through `CallError<E>`.
+
+The independent `apps/examples/counter_rpc` example exercises commands,
+queries, borrowed string inputs, domain errors, incorrect arguments, wrong
+capability versions, and real TCP request/response round-trips on Linux and
+Windows. No hand-maintained request enum or per-operation dispatcher is
+needed for that example.
+
+**Compatibility boundary:** The original Storage TCP protocol and `TcpStore`
+remain intact. Migrating Storage to the generic generated protocol, preserving
+or explicitly versioning the old wire API, and integrating generic client
+adapters into Riesel's provider registry are **not complete**. Generated
+client methods return `Result<Output, CallError<DomainError>>`; they do not
+silently implement the original trait, which lacks transport-error semantics.
+The first generator supports synchronous, non-generic methods with owned
+serializable inputs or borrowed `&str` and serde-compatible result types.
+
 ## Remaining engineering work, in priority order
 
-1. **Model and capability ergonomics:** generate higher-level typed API
-   adapters and compatibility checks for independently developed providers;
-   add richer model fields and an explicit model evolution policy.
-2. **Lifecycle robustness:** service dependency graph, startup ordering,
-   graceful and reverse-order shutdown, exit monitoring, cancellation,
-   structured errors and multi-service rollback tests.
-3. **Developer tooling:** inspect providers and bindings without launching
-   services; grow the CLI coherently; generate RPC client/proxy and dispatcher
-   code from authoritative capability traits rather than maintaining
-   duplicate operation definitions.
-4. **Production operation:** persistent Storage with migrations; secure,
-   authenticated transports; authorization and secrets; resource limits,
-   observability, repeatable deployment and recovery policies.
+1. **Storage migration and generic provider integration:** replace
+   handwritten Storage protocol/client/dispatch wiring behind a compatible,
+   tested migration strategy; register generated adapters in the runtime.
+   Preserve explicit transport-error semantics and verify contract shapes.
+2. **Lifecycle robustness:** dependency ordering, graceful and reverse-order
+   shutdown, exit monitoring, cancellation, structured errors and multi-service
+   rollback tests.
+3. **Developer tooling and models:** inspect provider bindings without
+   launching services, improve type coverage, add schema evolution rules,
+   and add stable generated adapter compatibility tests.
+4. **Production operation:** persistent Storage, migrations, secure and
+   authenticated transports, authorization and secrets, resource limits,
+   observability, repeatable deployments and recovery policies.
 
 ## Architectural and security boundaries
 
