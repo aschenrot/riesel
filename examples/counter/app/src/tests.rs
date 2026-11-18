@@ -269,3 +269,47 @@ fn handler_parameters_share_explicit_contract_metadata_without_name_based_aliase
         Err(riesel::SdkError::RequirementConflict(name)) if name == "shared"
     ));
 }
+
+#[test]
+fn generated_async_client_preserves_domain_and_transport_errors() {
+    use riesel_protocol::{AsyncRpcTransport, CallError, RpcError};
+    use riesel_schema::CapabilityRef;
+    use serde_json::Value;
+    use std::future::Future;
+    use std::pin::Pin;
+    use std::task::{Context, Poll, Waker};
+
+    struct ReadyTransport(CounterRpcDispatcher<MemoryCounter>);
+
+    impl AsyncRpcTransport for ReadyTransport {
+        fn call<'a>(
+            &'a self,
+            capability: &'a CapabilityRef,
+            operation: &'a str,
+            arguments: Value,
+        ) -> Pin<Box<dyn Future<Output = Result<Value, RpcError>> + Send + 'a>> {
+            // A ready, in-memory test double; real network transport must
+            // use nonblocking I/O rather than this synchronous dispatcher.
+            Box::pin(async move { self.0.dispatch_for(capability, operation, arguments) })
+        }
+    }
+
+    fn run_ready<F: Future>(future: F) -> F::Output {
+        let mut pinned = std::pin::pin!(future);
+        match pinned.as_mut().poll(&mut Context::from_waker(Waker::noop())) {
+            Poll::Ready(result) => result,
+            Poll::Pending => panic!("ready test transport unexpectedly blocked"),
+        }
+    }
+
+    let client = riesel_counter::CounterAsyncClient::new(ReadyTransport(
+        CounterRpcDispatcher::new(MemoryCounter::default()),
+    ));
+    assert_eq!(run_ready(client.value()).unwrap(), 0);
+    assert_eq!(run_ready(client.add(4)).unwrap(), 4);
+    assert!(matches!(
+        run_ready(client.add(0)),
+        Err(CallError::Domain(CounterError::ZeroIncrement))
+    ));
+    assert_eq!(run_ready(client.label("v")).unwrap(), "v: 4");
+}

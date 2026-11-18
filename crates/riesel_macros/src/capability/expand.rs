@@ -33,11 +33,13 @@ pub(crate) fn expand_capability(
     let id_expr = crate::identity::declaration_id(id.as_ref(), &trait_name);
     let descriptor_name = format_ident!("{}Contract", trait_name);
     let client_name = format_ident!("{}RpcClient", trait_name);
+    let async_client_name = format_ident!("{}AsyncClient", trait_name);
     let dispatcher_name = format_ident!("{}RpcDispatcher", trait_name);
     let guarded_name = format_ident!("{}ScopedClient", trait_name);
     let visibility = item.vis.clone();
     let mut generated_operations = Vec::new();
     let mut client_methods = Vec::new();
+    let mut async_client_methods = Vec::new();
     let mut trait_methods = Vec::new();
     let mut scoped_methods = Vec::new();
     let mut arc_methods = Vec::new();
@@ -261,6 +263,25 @@ pub(crate) fn expand_capability(
                 ::riesel_protocol::decode_result::<#result_type, #error_type>(response)
             }
         });
+        async_client_methods.push(quote! {
+            #[doc = #docs]
+            pub async fn #method_name(
+                &self,
+                #(#client_arguments),*
+            ) -> Result<#result_type, ::riesel_protocol::CallError<#error_type>> {
+                let mut arguments = ::serde_json::Map::new();
+                #(#client_encoding)*
+                let response = self.transport.call(
+                    &::riesel_schema::CapabilityRef {
+                        id: #id_expr,
+                        version: #version,
+                    },
+                    stringify!(#method_name),
+                    ::serde_json::Value::Object(arguments),
+                ).await?;
+                ::riesel_protocol::decode_result::<#result_type, #error_type>(response)
+            }
+        });
         dispatch_arms.push(quote! {
             stringify!(#method_name) => {
                 #[derive(::serde::Deserialize)]
@@ -415,6 +436,25 @@ pub(crate) fn expand_capability(
             }
 
             #(#client_methods)*
+        }
+
+        /// Async client generated from the same capability contract as the
+        /// synchronous API. Uses a real AsyncRpcTransport, never blocking
+        /// RpcTransport calls inside a Future.
+        #visibility struct #async_client_name<T> {
+            transport: T,
+        }
+
+        impl<T: ::riesel_protocol::AsyncRpcTransport> #async_client_name<T> {
+            pub fn new(transport: T) -> Self {
+                Self { transport }
+            }
+
+            pub fn into_inner(self) -> T {
+                self.transport
+            }
+
+            #(#async_client_methods)*
         }
 
         /// RPC dispatcher generated from the same trait as the client.

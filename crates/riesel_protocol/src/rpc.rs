@@ -11,6 +11,8 @@ use std::any::Any;
 use std::collections::BTreeMap;
 use std::error::Error;
 use std::fmt;
+use std::future::Future;
+use std::pin::Pin;
 use std::sync::Arc;
 use thiserror::Error;
 
@@ -87,6 +89,32 @@ impl<T: RpcTransport + ?Sized> RpcTransport for Arc<T> {
         operation: &str,
         arguments: Value,
     ) -> Result<Value, RpcError> {
+        self.as_ref().call(capability, operation, arguments)
+    }
+}
+
+/// A nonblocking transport that can be used by generated typed async clients.
+///
+/// Futures are *not* a wrapper around the synchronous RpcTransport. Each
+/// implementation must perform I/O without blocking the calling executor.
+/// Dropping the returned future cancels its pending request; callers must not
+/// infer whether a previously sent command executed.
+pub trait AsyncRpcTransport: Send + Sync {
+    fn call<'a>(
+        &'a self,
+        capability: &'a CapabilityRef,
+        operation: &'a str,
+        arguments: Value,
+    ) -> Pin<Box<dyn Future<Output = Result<Value, RpcError>> + Send + 'a>>;
+}
+
+impl<T: AsyncRpcTransport + ?Sized> AsyncRpcTransport for Arc<T> {
+    fn call<'a>(
+        &'a self,
+        capability: &'a CapabilityRef,
+        operation: &'a str,
+        arguments: Value,
+    ) -> Pin<Box<dyn Future<Output = Result<Value, RpcError>> + Send + 'a>> {
         self.as_ref().call(capability, operation, arguments)
     }
 }

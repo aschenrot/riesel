@@ -56,3 +56,20 @@ fn published_contracts_keep_explicit_stable_identity() {
     assert!(!output.contains("private_rust_id"));
     assert!(output.contains("example.contract"));
 }
+
+#[test]
+fn capability_emits_async_client_using_async_transport() {
+    let args: CapabilityArgs = syn::parse_quote! {};
+    let source: ItemTrait = parse_quote! {
+        trait Probe {
+            /// Get a value.
+            #[query]
+            fn value(&self) -> Result<u64, String>;
+        }
+    };
+    let tokens = expand_capability(args, source).unwrap().to_string();
+    assert!(tokens.contains("ProbeAsyncClient"));
+    assert!(tokens.contains("AsyncRpcTransport"));
+    assert!(tokens.contains(". await"));
+    assert!(tokens.contains("CallError"));
+}
