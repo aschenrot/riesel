@@ -3,8 +3,8 @@ use riesel_app::{
     App, AppRunError, ConnectorError, ConnectorRegistry, DeploymentConfig, LocalProviderFactory,
     RunningApp, RuntimeError,
 };
-use riesel_schema::{AppDefinition, AppSchema, CapabilityDescriptor, CapabilityRequirement};
 use riesel_protocol::RpcClientBinding;
+use riesel_schema::{AppDefinition, AppSchema, CapabilityDescriptor, CapabilityRequirement};
 use riesel_storage::RecordStoreContract;
 use serde::{Serialize, de::DeserializeOwned};
 use std::collections::BTreeMap;
