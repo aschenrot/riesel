@@ -71,7 +71,10 @@ pub fn has_untracked_files() -> Result<bool, String> {
         .output()
         .map_err(|error| error.to_string())?;
     if !output.status.success() {
-        return Err(format!("Could not inspect untracked files: {}", output.status));
+        return Err(format!(
+            "Could not inspect untracked files: {}",
+            output.status
+        ));
     }
     Ok(!output.stdout.is_empty())
 }

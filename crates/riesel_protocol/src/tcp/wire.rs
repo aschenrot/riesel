@@ -47,9 +47,8 @@ pub(super) fn write_json_line<T: Serialize>(
 }
 
 pub(super) fn read_json_line<T: DeserializeOwned>(stream: &mut TcpStream) -> Result<T, RpcError> {
-    read_json_line_optional(stream)?.ok_or_else(|| {
-        RpcError::Transport("RPC connection closed before complete frame".into())
-    })
+    read_json_line_optional(stream)?
+        .ok_or_else(|| RpcError::Transport("RPC connection closed before complete frame".into()))
 }
 
 pub(super) fn read_json_line_optional<T: DeserializeOwned>(

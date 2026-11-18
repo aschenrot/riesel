@@ -118,7 +118,9 @@ fn application_transport_reuses_a_connection_for_sequential_calls() {
     };
     for _ in 0..2 {
         assert_eq!(
-            transport.call(&capability, "fast", serde_json::json!({})).unwrap(),
+            transport
+                .call(&capability, "fast", serde_json::json!({}))
+                .unwrap(),
             serde_json::json!(7)
         );
     }

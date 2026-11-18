@@ -51,12 +51,15 @@ impl CounterObserver for MemoryCounter {
 }
 
 pub fn memory_counter_provider() -> Result<impl LocalProviderFactory, ConnectorError> {
-    LocalComponentFactory::new("riesel.counter.memory", |definition: &ProviderDefinition| {
-        let state = Arc::new(MemoryCounter::default());
-        LocalProviderInstance::new(definition.clone())
-            .bind::<CounterContract>(Arc::clone(&state) as Arc<dyn Counter + Send + Sync>)?
-            .bind::<CounterObserverContract>(state as Arc<dyn CounterObserver + Send + Sync>)
-    })
+    LocalComponentFactory::new(
+        "riesel.counter.memory",
+        |definition: &ProviderDefinition| {
+            let state = Arc::new(MemoryCounter::default());
+            LocalProviderInstance::new(definition.clone())
+                .bind::<CounterContract>(Arc::clone(&state) as Arc<dyn Counter + Send + Sync>)?
+                .bind::<CounterObserverContract>(state as Arc<dyn CounterObserver + Send + Sync>)
+        },
+    )
     .exposes::<CounterContract>()?
     .exposes::<CounterObserverContract>()
 }
