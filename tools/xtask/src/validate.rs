@@ -1,4 +1,4 @@
-use crate::command::{TaskResult, cargo};
+use crate::command::{TaskResult, cargo, git};
 
 pub enum FormatMode {
     Fix,
@@ -6,6 +6,7 @@ pub enum FormatMode {
 }
 
 pub fn run(mode: FormatMode) -> TaskResult {
+    let check_lockfile = matches!(mode, FormatMode::Check);
     println!("\n==> Formatting");
 
     match mode {
@@ -14,11 +15,12 @@ pub fn run(mode: FormatMode) -> TaskResult {
     }
 
     let checks: &[(&str, &[&str])] = &[
-        ("Check", &["check", "--workspace", "--all-targets"]),
+        ("Check", &["check", "--locked", "--workspace", "--all-targets"]),
         (
             "Clippy",
             &[
                 "clippy",
+                "--locked",
                 "--workspace",
                 "--all-targets",
                 "--",
@@ -26,13 +28,18 @@ pub fn run(mode: FormatMode) -> TaskResult {
                 "warnings",
             ],
         ),
-        ("Tests", &["test", "--workspace"]),
-        ("Documentation", &["doc", "--workspace", "--no-deps"]),
+        ("Tests", &["test", "--locked", "--workspace"]),
+        ("Documentation", &["doc", "--locked", "--workspace", "--no-deps"]),
     ];
 
     for &(name, args) in checks {
         println!("\n==> {name}");
         cargo(args)?;
+    }
+
+    if check_lockfile {
+        println!("\n==> Checking committed dependency lockfile");
+        git(&["diff", "--exit-code", "--", "Cargo.lock"])?;
     }
 
     println!("\nAll validation checks passed.");

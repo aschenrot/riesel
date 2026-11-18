@@ -47,20 +47,22 @@ pub fn run() -> TaskResult {
     println!("\n==> Building Storage and Todo binaries");
     cargo(&[
         "build",
+        "--locked",
         "-p",
         "riesel_storage_component",
         "--bin",
         "storage_service",
     ])?;
-    cargo(&["build", "-p", "todo", "--bin", "todo_client"])?;
+    cargo(&["build", "--locked", "-p", "todo", "--bin", "todo_client"])?;
     cargo(&[
         "build",
+        "--locked",
         "-p",
         "riesel_counter_component",
         "--bin",
         "counter_service",
     ])?;
-    cargo(&["build", "-p", "riesel_counter_example", "--bins"])?;
+    cargo(&["build", "--locked", "-p", "riesel_counter_example", "--bins"])?;
 
     // No pre-bind/drop reservation race and no fixed port in deployment.
     let path = env::temp_dir().join(format!("riesel-managed-smoke-{}.json", std::process::id()));
