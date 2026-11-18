@@ -82,7 +82,12 @@ impl Application {
         }
 
         let capability = RecordStoreContract::definition()?.capability;
-        if let Some(existing) = self.definition.requires.iter().find(|req| req.name == "storage") {
+        if let Some(existing) = self
+            .definition
+            .requires
+            .iter()
+            .find(|req| req.name == "storage")
+        {
             if existing.capability != capability {
                 return Err(SdkError::RequirementConflict);
             }
@@ -123,8 +128,7 @@ impl Application {
     pub fn run(self, entrypoint: impl FnOnce(&Context<'_>) -> Result<()>) -> Result<()> {
         let app = App::from_definition(self.definition)?;
         let invoke = |running: &RunningApp| -> std::result::Result<(), ConnectorError> {
-            entrypoint(&Context { running })
-                .map_err(|error| Box::new(error) as ConnectorError)
+            entrypoint(&Context { running }).map_err(|error| Box::new(error) as ConnectorError)
         };
         if let Some(deployment) = self.deployment {
             app.run(&deployment, &self.providers, invoke)?;
@@ -171,8 +175,13 @@ impl Context<'_> {
     where
         T: RieselModel + Serialize + DeserializeOwned,
     {
-        let schema = self.running.app().definition().ok_or(SdkError::MissingStorage)?;
-        let registered = schema.models
+        let schema = self
+            .running
+            .app()
+            .definition()
+            .ok_or(SdkError::MissingStorage)?;
+        let registered = schema
+            .models
             .get(T::MODEL_NAME)
             .ok_or_else(|| SdkError::MissingModel(T::MODEL_NAME.into()))?;
         if registered != &T::model_definition() {
@@ -180,7 +189,8 @@ impl Context<'_> {
         }
 
         let contract = RecordStoreContract::definition()?.capability;
-        let requirements: Vec<_> = schema.requires
+        let requirements: Vec<_> = schema
+            .requires
             .iter()
             .filter(|requirement| requirement.capability == contract)
             .collect();
@@ -189,7 +199,8 @@ impl Context<'_> {
             [only] => only.name.as_str(),
             _ => return Err(SdkError::AmbiguousStorage),
         };
-        let store = self.running
+        let store = self
+            .running
             .service::<Arc<dyn RecordStore + Send + Sync>>(requirement)?
             .clone();
         Ok(Records::from_store(store))

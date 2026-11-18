@@ -11,15 +11,14 @@ pub use storage_connector::TcpRecordStoreConnector;
 pub use riesel_app::{
     App, AppConfig, AppError, AppRunError, BindingError, CapabilityBindings, CapabilityConnector,
     ConnectedProvider, ConnectorError, ConnectorRegistry, DeploymentConfig, DeploymentError,
-    ProviderRegistry, ResolutionError, ResolvedCapability, RunningApp, RuntimeError,
-    LocalProviderFactory,
-    ServiceEndpoint,
+    LocalProviderFactory, ProviderRegistry, ResolutionError, ResolvedCapability, RunningApp,
+    RuntimeError, ServiceEndpoint,
 };
 pub use riesel_macros::{RieselModel, RieselType, capability};
 pub use riesel_schema::{ModelField, RieselModel};
 
 pub mod prelude {
-    pub use super::{Application, RieselModel, Result};
+    pub use super::{Application, Result, RieselModel};
 }
 pub use riesel_schema as schema;
 pub use riesel_storage as storage;

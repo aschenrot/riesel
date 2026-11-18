@@ -56,16 +56,25 @@ where
     }
 
     pub fn create(&self, value: T) -> Result<Record<T>, SdkError> {
-        let record = self.store.create(T::MODEL_NAME, Self::checked_json(&value)?)?;
+        let record = self
+            .store
+            .create(T::MODEL_NAME, Self::checked_json(&value)?)?;
         Self::decode(record)
     }
 
     pub fn get(&self, id: Uuid) -> Result<Option<Record<T>>, SdkError> {
-        self.store.get(T::MODEL_NAME, id)?.map(Self::decode).transpose()
+        self.store
+            .get(T::MODEL_NAME, id)?
+            .map(Self::decode)
+            .transpose()
     }
 
     pub fn list(&self) -> Result<Vec<Record<T>>, SdkError> {
-        self.store.list(T::MODEL_NAME)?.into_iter().map(Self::decode).collect()
+        self.store
+            .list(T::MODEL_NAME)?
+            .into_iter()
+            .map(Self::decode)
+            .collect()
     }
 
     pub fn update(
