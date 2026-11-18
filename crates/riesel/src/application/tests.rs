@@ -250,19 +250,22 @@ fn application_arguments_coexist_with_framework_flags() {
 
     let mut invoked = false;
     Application::new("ArgDemo")
-        .run_with_args(["--mode", "review", "--", "--deployment", "not-a-file"], |_, args| {
-            invoked = true;
-            assert_eq!(
-                args,
-                [
-                    OsString::from("--mode"),
-                    OsString::from("review"),
-                    OsString::from("--deployment"),
-                    OsString::from("not-a-file"),
-                ]
-            );
-            Ok(())
-        })
+        .run_with_args(
+            ["--mode", "review", "--", "--deployment", "not-a-file"],
+            |_, args| {
+                invoked = true;
+                assert_eq!(
+                    args,
+                    [
+                        OsString::from("--mode"),
+                        OsString::from("review"),
+                        OsString::from("--deployment"),
+                        OsString::from("not-a-file"),
+                    ]
+                );
+                Ok(())
+            },
+        )
         .unwrap();
     assert!(invoked);
 }

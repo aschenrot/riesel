@@ -67,7 +67,9 @@ impl Application {
             }
             if option == "--" {
                 if !allow_custom {
-                    return Err(SdkError::Arguments("application arguments are not enabled".into()));
+                    return Err(SdkError::Arguments(
+                        "application arguments are not enabled".into(),
+                    ));
                 }
                 custom.extend_from_slice(&args[index + 1..]);
                 break;
