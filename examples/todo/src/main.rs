@@ -1,9 +1,9 @@
 use riesel::Application;
-use todo::{TaskData, run_demo};
+use todo::run_demo;
 
 fn main() -> riesel::Result<()> {
     Application::new("Todo")
-        .records::<TaskData>()?
+        .handler(run_demo)?
         .development()?
-        .run_from_env(run_demo)
+        .run_from_env()
 }

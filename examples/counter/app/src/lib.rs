@@ -6,8 +6,7 @@ pub use riesel_counter::{
 pub use riesel_counter_component::MemoryCounter;
 
 /// Shared example work for local and runtime-managed deployments.
-pub fn run_demo(ctx: &riesel::Context<'_>) -> Result<(), riesel::ConnectorError> {
-    let counter = ctx.capability::<CounterContract>("counter")?;
+pub fn run_demo(counter: riesel::Capability<CounterContract>) -> Result<(), CounterError> {
     assert_eq!(counter.value()?, 0);
     assert_eq!(counter.add(3)?, 3);
     assert_eq!(counter.label("count")?, "count: 3");

@@ -9,25 +9,25 @@ use std::time::{Duration, Instant};
 
 #[test]
 fn two_local_capabilities_share_one_component_state() {
-    use riesel::Application;
+    use riesel::{Application, Capability};
     use riesel_counter::{CounterObserver, CounterObserverContract};
     use riesel_counter_component::memory_counter_provider;
 
     Application::new("DualLocal")
-        .rpc::<CounterContract>("counter")
-        .unwrap()
-        .rpc::<CounterObserverContract>("observer")
+        .handler_with_aliases(
+            |writer: Capability<CounterContract>,
+             reader: Capability<CounterObserverContract>| -> Result<(), CounterError> {
+                assert_eq!(reader.observe()?, 0);
+                assert_eq!(writer.add(13)?, 13);
+                assert_eq!(reader.observe()?, 13);
+                Ok(())
+            },
+            ["counter", "observer"],
+        )
         .unwrap()
         .provider(memory_counter_provider().unwrap())
         .unwrap()
-        .run(|ctx| {
-            let writer = ctx.capability::<CounterContract>("counter")?;
-            let reader = ctx.capability::<CounterObserverContract>("observer")?;
-            assert_eq!(reader.observe()?, 0);
-            assert_eq!(writer.add(13)?, 13);
-            assert_eq!(reader.observe()?, 13);
-            Ok(())
-        })
+        .run()
         .unwrap();
 }
 
@@ -37,13 +37,13 @@ fn typed_sdk_provider_shortcut_requires_no_factory_implementation() {
     use std::sync::Arc;
 
     Application::new("Counter")
-        .rpc::<CounterContract>("counter")
+        .handler_with_aliases(run_demo, ["counter"])
         .unwrap()
         .provide::<CounterContract, _>("riesel.counter.memory", || {
             Arc::new(MemoryCounter::default()) as Arc<dyn Counter + Send + Sync>
         })
         .unwrap()
-        .run(run_demo)
+        .run()
         .unwrap();
 }
 
@@ -213,4 +213,56 @@ fn generated_client_and_dispatcher_work_over_real_tcp() {
         Err(CallError::Domain(CounterError::ZeroIncrement))
     ));
     server.join().unwrap();
+}
+
+#[test]
+fn handler_parameters_share_explicit_contract_metadata_without_name_based_aliases() {
+    use riesel::{Application, Capability};
+    use riesel_counter::CounterObserverContract;
+
+    let prepared = Application::new("Parity")
+        .handler_with_aliases(
+            |_counter: Capability<CounterContract>| -> Result<(), CounterError> { Ok(()) },
+            ["counter"],
+        )
+        .unwrap();
+    let existing = Application::new("Parity")
+        .rpc::<CounterContract>("counter")
+        .unwrap();
+    assert_eq!(
+        prepared.definition_json().unwrap(),
+        existing.definition_json().unwrap()
+    );
+
+    let implicit = Application::new("Implicit")
+        .handler(|_renamed_variable: Capability<CounterContract>| -> Result<(), CounterError> {
+            Ok(())
+        })
+        .unwrap();
+    assert_eq!(
+        implicit.definition().requires[0].name,
+        CounterContract::definition()
+            .unwrap()
+            .capability
+            .default_requirement_alias()
+    );
+
+    let distinct_instances = Application::new("TwoCounters")
+        .handler_with_aliases(
+            |_first: Capability<CounterContract>,
+             _second: Capability<CounterContract>| -> Result<(), CounterError> { Ok(()) },
+            ["first", "second"],
+        )
+        .unwrap();
+    assert_eq!(distinct_instances.definition().requires.len(), 2);
+
+    let conflict = Application::new("Conflict").handler_with_aliases(
+        |_writer: Capability<CounterContract>,
+         _reader: Capability<CounterObserverContract>| -> Result<(), CounterError> { Ok(()) },
+        ["shared", "shared"],
+    );
+    assert!(matches!(
+        conflict,
+        Err(riesel::SdkError::RequirementConflict(name)) if name == "shared"
+    ));
 }

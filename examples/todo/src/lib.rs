@@ -2,8 +2,8 @@ mod task;
 
 pub use task::{Task, TaskData, Todo, TodoError};
 
-pub fn run_demo(ctx: &riesel::Context<'_>) -> Result<(), riesel::ConnectorError> {
-    let todo = Todo::new(ctx.records::<TaskData>()?);
+pub fn run_demo(records: riesel::Records<TaskData>) -> Result<(), TodoError> {
+    let todo = Todo::new(records);
 
     let created = todo.create_task("Build Riesel")?;
     assert!(!created.value.completed);
