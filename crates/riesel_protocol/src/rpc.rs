@@ -11,6 +11,7 @@ use std::any::Any;
 use std::collections::BTreeMap;
 use std::error::Error;
 use std::fmt;
+use std::sync::Arc;
 use thiserror::Error;
 
 /// Failures outside the domain method's declared error type.
@@ -77,6 +78,19 @@ pub trait RpcTransport: Send + Sync {
     ) -> Result<Value, RpcError>;
 }
 
+/// A shared transport session can be passed into any generated typed binding.
+/// Arc forwarding avoids TCP-specific generic parameters at SDK boundaries.
+impl<T: RpcTransport + ?Sized> RpcTransport for Arc<T> {
+    fn call(
+        &self,
+        capability: &CapabilityRef,
+        operation: &str,
+        arguments: Value,
+    ) -> Result<Value, RpcError> {
+        self.as_ref().call(capability, operation, arguments)
+    }
+}
+
 /// Server-side adapter generated for a single capability trait.
 pub trait RpcHandler: Send + Sync {
     fn contract(&self) -> Result<CapabilityContract, RpcError>;
@@ -117,7 +131,7 @@ pub trait RpcHandler: Send + Sync {
 /// Bindings that omit session guarding are rejected at compile time:
 ///
 /// ```compile_fail
-/// use riesel_protocol::{RpcClientBinding, TcpRpcTransport};
+/// use riesel_protocol::{RpcClientBinding, RpcTransport};
 /// use riesel_schema::{CapabilityContract, CapabilityDescriptor, ContractError};
 ///
 /// struct UnsafeBinding;
@@ -128,14 +142,14 @@ pub trait RpcHandler: Send + Sync {
 /// }
 /// impl RpcClientBinding for UnsafeBinding {
 ///     type Service = ();
-///     fn bind(_: TcpRpcTransport) -> Self::Service {}
+///     fn bind(_: std::sync::Arc<dyn RpcTransport>) -> Self::Service {}
 ///     // Missing guard_local must be a compilation error.
 /// }
 /// ```
 pub trait RpcClientBinding: CapabilityDescriptor {
     type Service: Any + Send + Sync;
 
-    fn bind(transport: crate::TcpRpcTransport) -> Self::Service;
+    fn bind(transport: Arc<dyn RpcTransport>) -> Self::Service;
 
     /// Every binding must return a session-aware service handle. The
     /// contract may use a generated scoped trait proxy, but it must never
@@ -147,6 +161,7 @@ pub trait RpcClientBinding: CapabilityDescriptor {
 /// Host-supplied provider identity and generated dispatcher, checked once.
 pub struct RpcHost<H> {
     provider: ProviderDefinition,
+    contract: CapabilityContract,
     handler: H,
 }
 
@@ -164,13 +179,17 @@ impl<H: RpcHandler> RpcHost<H> {
                 "provider does not advertise the hosted capability".into(),
             ));
         }
-        Ok(Self { provider, handler })
+        Ok(Self {
+            provider,
+            contract,
+            handler,
+        })
     }
 }
 
 impl<H: RpcHandler> RpcHandler for RpcHost<H> {
     fn contract(&self) -> Result<CapabilityContract, RpcError> {
-        self.handler.contract()
+        Ok(self.contract.clone())
     }
 
     fn dispatch(&self, operation: &str, arguments: Value) -> Result<Value, RpcError> {

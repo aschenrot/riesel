@@ -51,10 +51,11 @@ impl<C: RpcClientBinding> CapabilityConnector for RpcConnector<C> {
         // An advertised ID is selection metadata, not authentication. An
         // untrusted remote requires authenticated transport before production.
         let provider = transport.provider(&expected.capability)?;
+        let client = C::bind(std::sync::Arc::new(transport));
         Ok(ConnectedProvider {
             definition: provider,
             contract,
-            service: Box::new(C::bind(transport)),
+            service: Box::new(C::guard_local(client, session.clone())),
         })
     }
 }

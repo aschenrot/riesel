@@ -320,7 +320,9 @@ pub(crate) fn expand_capability(
             impl ::riesel_protocol::RpcClientBinding for #descriptor_name {
                 type Service = ::std::sync::Arc<dyn #trait_name + Send + Sync>;
 
-                fn bind(transport: ::riesel_protocol::TcpRpcTransport) -> Self::Service {
+                fn bind(
+                    transport: ::std::sync::Arc<dyn ::riesel_protocol::RpcTransport>,
+                ) -> Self::Service {
                     ::std::sync::Arc::new(#client_name::new(transport))
                 }
 
