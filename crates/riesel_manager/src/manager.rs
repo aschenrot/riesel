@@ -1,8 +1,8 @@
 use std::collections::HashMap;
 use std::io::{self, Write};
+use std::process::{Child, ChildStdout, Command, ExitStatus};
 use std::thread;
 use std::time::{Duration, Instant};
-use std::process::{Child, ChildStdout, Command, ExitStatus};
 
 /// Uniquely identifies a process instance owned by this registry.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
@@ -84,7 +84,10 @@ impl ProcessRegistry {
         timeout: Duration,
     ) -> io::Result<()> {
         let process = self.processes.get_mut(key).ok_or_else(|| {
-            io::Error::new(io::ErrorKind::NotFound, format!("process not found: {key:?}"))
+            io::Error::new(
+                io::ErrorKind::NotFound,
+                format!("process not found: {key:?}"),
+            )
         })?;
         if process.child.stdin.is_none() || timeout.is_zero() {
             return Err(io::Error::new(
@@ -286,10 +289,14 @@ mod tests {
     fn cooperative_child_exits_cleanly_without_force_kill() {
         let key = ProcessKey::new(21, Some("cooperative".into()));
         let mut command = test_child();
-        command.stdin(Stdio::piped()).env("RIESEL_PROCESS_GRACEFUL", "1");
+        command
+            .stdin(Stdio::piped())
+            .env("RIESEL_PROCESS_GRACEFUL", "1");
         let mut registry = ProcessRegistry::new();
         registry.spawn(key.clone(), &mut command).unwrap();
-        registry.enable_graceful_shutdown(&key, Duration::from_secs(5)).unwrap();
+        registry
+            .enable_graceful_shutdown(&key, Duration::from_secs(5))
+            .unwrap();
         assert!(registry.stop(&key).unwrap().success());
     }
 
@@ -300,7 +307,9 @@ mod tests {
         command.stdin(Stdio::piped());
         let mut registry = ProcessRegistry::new();
         registry.spawn(key.clone(), &mut command).unwrap();
-        registry.enable_graceful_shutdown(&key, Duration::from_millis(30)).unwrap();
+        registry
+            .enable_graceful_shutdown(&key, Duration::from_millis(30))
+            .unwrap();
         assert!(!registry.stop(&key).unwrap().success());
     }
 
@@ -310,7 +319,8 @@ mod tests {
         let mut registry = ProcessRegistry::new();
         registry.spawn(key.clone(), &mut test_child()).unwrap();
         assert_eq!(
-            registry.enable_graceful_shutdown(&key, Duration::from_millis(10))
+            registry
+                .enable_graceful_shutdown(&key, Duration::from_millis(10))
                 .unwrap_err()
                 .kind(),
             io::ErrorKind::InvalidInput

@@ -68,7 +68,7 @@ pub fn run_storage_server(address: &str) -> io::Result<()> {
                 Err(error) if error.kind() == io::ErrorKind::WouldBlock => {
                     thread::sleep(Duration::from_millis(10));
                 }
-                other => serve(other),
+                other => serve(other.map(|(stream, _)| stream)),
             }
         }
     } else {
