@@ -198,6 +198,7 @@ name = "riesel_storage_component"
 version = "0.1.0"
 dependencies = [
  "riesel_app",
+ "riesel_protocol",
  "riesel_schema",
  "riesel_storage",
  "serde_json",

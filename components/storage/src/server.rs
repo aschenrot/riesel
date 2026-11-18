@@ -1,21 +1,21 @@
-use crate::dispatch::dispatch;
-use crate::memory::MemoryStore;
-use crate::memory_service_info;
-use riesel_storage::{StorageMessage, StorageServiceInfo};
-
-use std::io::{self, BufRead, BufReader, Write};
-use std::net::{TcpListener, TcpStream};
-use std::time::Duration;
-
-const MAX_REQUEST_BYTES: usize = 64 * 1024;
+//! Storage's host implementation. The protocol, dispatcher and typed client
+//! are generated/shared; no per-operation wire code is maintained here.
+use crate::{MemoryStore, memory_provider_definition};
+use riesel_protocol::{RpcHost, handle_tcp_connection};
+use riesel_storage::RecordStoreRpcDispatcher;
+use std::io::{self, Write};
+use std::net::TcpListener;
 
 pub fn run_storage_server(address: &str) -> io::Result<()> {
     let listener = TcpListener::bind(address)?;
-    let store = MemoryStore::new();
-    let info = memory_service_info().map_err(io::Error::other)?;
+    let handler = RpcHost::new(
+        memory_provider_definition().map_err(io::Error::other)?,
+        RecordStoreRpcDispatcher::new(MemoryStore::new()),
+    )
+    .map_err(io::Error::other)?;
 
-    // Machine-readable startup handshake used by managed local deployments.
-    // The listener is already bound, so the OS-selected port is authoritative.
+    // The listener is already bound. Report the actual OS-assigned endpoint
+    // through a bounded private startup pipe for managed local deployments.
     let ready = serde_json::json!({
         "protocol": 1,
         "address": listener.local_addr()?.to_string()
@@ -26,131 +26,62 @@ pub fn run_storage_server(address: &str) -> io::Result<()> {
     for connection in listener.incoming() {
         match connection {
             Ok(mut stream) => {
-                if let Err(error) = handle_connection(&store, &info, &mut stream) {
+                if let Err(error) = handle_tcp_connection(&handler, &mut stream) {
                     eprintln!("Storage request failed: {error}");
                 }
             }
-            Err(error) => eprintln!("Connection failed: {error}"),
+            Err(error) => eprintln!("Storage connection failed: {error}"),
         }
     }
 
     Ok(())
-}
-
-fn handle_connection(
-    store: &MemoryStore,
-    info: &StorageServiceInfo,
-    stream: &mut TcpStream,
-) -> io::Result<()> {
-    stream.set_read_timeout(Some(Duration::from_secs(5)))?;
-    stream.set_write_timeout(Some(Duration::from_secs(5)))?;
-
-    let request_bytes = read_request(stream)?;
-
-    let message: StorageMessage =
-        serde_json::from_slice(&request_bytes).map_err(io::Error::other)?;
-
-    let response = dispatch(store, message, info);
-
-    let response_bytes = serde_json::to_vec(&response).map_err(io::Error::other)?;
-
-    stream.write_all(&response_bytes)?;
-    stream.write_all(b"\n")?;
-
-    Ok(())
-}
-
-fn read_request(stream: &mut TcpStream) -> io::Result<Vec<u8>> {
-    let mut reader = BufReader::new(stream);
-    let mut request = Vec::new();
-
-    loop {
-        let buffer = reader.fill_buf()?;
-
-        if buffer.is_empty() {
-            return Err(io::Error::new(
-                io::ErrorKind::UnexpectedEof,
-                "incomplete storage request",
-            ));
-        }
-
-        let end = buffer
-            .iter()
-            .position(|&byte| byte == b'\n')
-            .map(|index| index + 1)
-            .unwrap_or(buffer.len());
-
-        if request.len() + end > MAX_REQUEST_BYTES {
-            return Err(io::Error::new(
-                io::ErrorKind::InvalidData,
-                "storage request too large",
-            ));
-        }
-
-        request.extend_from_slice(&buffer[..end]);
-        reader.consume(end);
-
-        if request.last() == Some(&b'\n') {
-            return Ok(request);
-        }
-    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use riesel_storage::{RecordStore, RecordStoreContract, TcpStore};
+    use riesel_protocol::{CallError, RpcError, RpcTransport, TcpRpcTransport};
+    use riesel_storage::{RecordStoreContract, RecordStoreRpcClient, StoreError};
     use serde_json::json;
     use std::thread;
 
     #[test]
-    fn remote_storage_round_trip_verifies_contract_and_performs_crud() {
-        // Bind port zero to avoid fixed ports and background services in tests.
+    fn generated_storage_remote_crud_and_error_round_trip() {
         let listener = TcpListener::bind("127.0.0.1:0").unwrap();
         let address = listener.local_addr().unwrap();
         let server = thread::spawn(move || {
-            let store = MemoryStore::new();
-            let info = memory_service_info().unwrap();
-            // Describe + Create + Get + Update + List.
-            for _ in 0..5 {
+            let handler = RpcHost::new(
+                memory_provider_definition().unwrap(),
+                RecordStoreRpcDispatcher::new(MemoryStore::new()),
+            )
+            .unwrap();
+            // Inspect contract + provider, four normal operations, revision
+            // conflict, missing record, unknown operation and wrong version.
+            for _ in 0..10 {
                 let (mut stream, _) = listener.accept().unwrap();
-                handle_connection(&store, &info, &mut stream).unwrap();
+                handle_tcp_connection(&handler, &mut stream).unwrap();
             }
         });
 
-        let client = TcpStore::new(address);
-        let service_info = client.describe().unwrap();
+        let transport = TcpRpcTransport::new(address);
         let contract = RecordStoreContract::definition().unwrap();
-        TcpStore::verify_service_info(&service_info, "riesel.storage.memory", &contract.capability)
-            .unwrap();
+        let actual = transport.describe(&contract.capability).unwrap();
+        assert!(actual.has_same_api_shape(&contract));
+        let provider = transport.provider(&contract.capability).unwrap();
+        assert_eq!(provider.id, "riesel.storage.memory");
+        assert!(provider.capabilities.contains(&contract.capability));
 
-        assert!(
-            TcpStore::verify_service_info(
-                &service_info,
-                "riesel.storage.wrong",
-                &contract.capability,
-            )
-            .is_err()
-        );
-
-        let mut wrong_version = contract.capability.clone();
-        wrong_version.version += 1;
-        assert!(
-            TcpStore::verify_service_info(&service_info, "riesel.storage.memory", &wrong_version,)
-                .is_err()
-        );
-
-        let created = client.create("task", json!({"title":"From TCP"})).unwrap();
+        let client = RecordStoreRpcClient::new(TcpRpcTransport::new(address));
+        let created = client.create("task", json!({"title": "From RPC"})).unwrap();
         assert_eq!(created.revision, 1);
         let loaded = client.get("task", created.id).unwrap().unwrap();
         assert_eq!(loaded.id, created.id);
-
         let updated = client
             .update(
                 "task",
                 created.id,
                 loaded.revision,
-                json!({"title":"Updated"}),
+                json!({"title": "Updated"}),
             )
             .unwrap();
         assert_eq!(updated.revision, 2);
@@ -158,6 +89,23 @@ mod tests {
         assert_eq!(all.len(), 1);
         assert_eq!(all[0].data, updated.data);
 
+        assert!(matches!(
+            client.update("task", created.id, 1, json!({"title": "Stale"})),
+            Err(CallError::Domain(StoreError::RevisionConflict))
+        ));
+        assert!(client.get("task", uuid::Uuid::new_v4()).unwrap().is_none());
+
+        let transport = TcpRpcTransport::new(address);
+        assert!(matches!(
+            transport.call(&contract.capability, "unknown", json!({})),
+            Err(RpcError::UnknownOperation(_))
+        ));
+        let mut bad_version = contract.capability;
+        bad_version.version += 1;
+        assert!(matches!(
+            transport.call(&bad_version, "list", json!({"model": "task"})),
+            Err(RpcError::WrongCapability { .. })
+        ));
         server.join().unwrap();
     }
 }
