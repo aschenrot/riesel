@@ -111,7 +111,10 @@ mod tests {
             provider.id,
             riesel_schema::CapabilityRef::private_rust_id(module_path!(), "PrivateCounter")
         );
-        assert_eq!(provider.capabilities, vec![CounterContract::definition().unwrap().capability]);
+        assert_eq!(
+            provider.capabilities,
+            vec![CounterContract::definition().unwrap().capability]
+        );
         assert_eq!(PrivateCounter.value().unwrap(), 0);
     }
 
