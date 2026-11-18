@@ -1,18 +1,18 @@
 [workspace]
 resolver = "3"
 members = [
-  "apps/examples/simple_app",
-  "apps/examples/todo",
-  "apps/examples/counter_rpc",
-  "components/storage",
-  "components/counter",
+  "examples/hello",
+  "examples/todo",
+  "examples/counter/app",
+  "packages/storage/memory",
+  "examples/counter/component",
   "crates/riesel",
-  "crates/riesel_counter",
+  "examples/counter/contract",
   "crates/riesel_app",
   "crates/riesel_macros",
   "crates/riesel_manager",
   "crates/riesel_protocol",
-  "crates/riesel_schema", "crates/riesel_storage",
+  "crates/riesel_schema", "packages/storage/contract",
   "tools/xtask",
 ]
 
@@ -24,14 +24,14 @@ repository = "https://github.com/aschenrot/riesel"
 
 [workspace.dependencies]
 riesel = { path = "crates/riesel" }
-riesel_counter = { path = "crates/riesel_counter" }
-riesel_counter_component = { path = "components/counter" }
+riesel_counter = { path = "examples/counter/contract" }
+riesel_counter_component = { path = "examples/counter/component" }
 riesel_app = { path = "crates/riesel_app" }
 riesel_macros = { path = "crates/riesel_macros" }
 riesel_manager = { path = "crates/riesel_manager" }
 riesel_protocol = { path = "crates/riesel_protocol" }
 riesel_schema = { path = "crates/riesel_schema" }
-riesel_storage = { path = "crates/riesel_storage" }
+riesel_storage = { path = "packages/storage/contract" }
 
 thiserror = "2.0.21"
 serde = { version = "1", features = ["derive"] }

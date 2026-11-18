@@ -12,4 +12,4 @@ uuid.workspace = true
 serde.workspace = true
 
 [dev-dependencies]
-riesel_storage_component = { path = "../../../components/storage" }
+riesel_storage_component = { path = "../../packages/storage/memory" }
