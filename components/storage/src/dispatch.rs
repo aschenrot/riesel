@@ -1,9 +1,13 @@
 use riesel_storage::{
     PROTOCOL_VERSION, RecordStore, StorageMessage, StorageRequest, StorageResponse, StorageResult,
-    StoreError,
+    StorageServiceInfo, StoreError,
 };
 
-pub(crate) fn dispatch(store: &impl RecordStore, message: StorageMessage) -> StorageResponse {
+pub(crate) fn dispatch(
+    store: &impl RecordStore,
+    message: StorageMessage,
+    info: &StorageServiceInfo,
+) -> StorageResponse {
     if message.version != PROTOCOL_VERSION {
         return StorageResponse::Failure(StoreError::Failed(format!(
             "unsupported storage protocol version: {}",
@@ -12,6 +16,7 @@ pub(crate) fn dispatch(store: &impl RecordStore, message: StorageMessage) -> Sto
     }
 
     let result = match message.request {
+        StorageRequest::Describe => Ok(StorageResult::ServiceInfo(info.clone())),
         StorageRequest::Create { model, data } => {
             store.create(&model, data).map(StorageResult::Record)
         }
@@ -41,7 +46,7 @@ pub(crate) fn dispatch(store: &impl RecordStore, message: StorageMessage) -> Sto
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::MemoryStore;
+    use crate::{MemoryStore, memory_service_info};
     use serde_json::json;
 
     #[test]
@@ -59,7 +64,7 @@ mod tests {
             },
         };
 
-        let response = dispatch(&store, message);
+        let response = dispatch(&store, message, &memory_service_info().unwrap());
 
         let StorageResponse::Success(StorageResult::Record(record)) = response else {
             panic!("expected a created record");
@@ -84,11 +89,27 @@ mod tests {
             },
         };
 
-        let response = dispatch(&store, message);
+        let response = dispatch(&store, message, &memory_service_info().unwrap());
 
         assert!(matches!(
             response,
             StorageResponse::Failure(StoreError::Failed(_))
         ));
     }
+    #[test]
+    fn describes_generated_provider_and_contract() {
+        let store = MemoryStore::new();
+        let message = StorageMessage {
+            version: PROTOCOL_VERSION,
+            request: StorageRequest::Describe,
+        };
+        let result = dispatch(&store, message, &memory_service_info().unwrap());
+        let StorageResponse::Success(StorageResult::ServiceInfo(info)) = result else {
+            panic!("expected advertised service info");
+        };
+        assert_eq!(info.provider.id, "riesel.storage.memory");
+        assert_eq!(info.contract.capability, info.provider.capabilities[0]);
+        info.contract.validate().unwrap();
+    }
+
 }

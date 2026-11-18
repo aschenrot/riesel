@@ -6,6 +6,7 @@ pub use memory::MemoryStore;
 pub use server::run_storage_server;
 
 use riesel_schema::{ContractError, ProviderDefinition};
+use riesel_storage::{RecordStoreContract, StorageServiceInfo};
 
 /// Metadata for the built-in memory provider. Its capability reference
 /// comes directly from the generated Rust trait contract.
@@ -27,4 +28,11 @@ mod provider_tests {
         let contract = riesel_storage::RecordStoreContract::definition().unwrap();
         assert_eq!(provider.capabilities, vec![contract.capability]);
     }
+}
+
+pub(crate) fn memory_service_info() -> Result<StorageServiceInfo, ContractError> {
+    Ok(StorageServiceInfo {
+        provider: memory_provider_definition()?,
+        contract: RecordStoreContract::definition()?,
+    })
 }

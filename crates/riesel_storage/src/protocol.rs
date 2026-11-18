@@ -1,10 +1,19 @@
 use crate::storage::{StoreError, StoredRecord};
+use riesel_schema::{CapabilityContract, ProviderDefinition};
 
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use uuid::Uuid;
 
 pub const PROTOCOL_VERSION: u32 = 1;
+
+/// Provider identity and the full Rust-derived contract exposed by this service.
+/// This is a compatibility advertisement, not an authentication mechanism.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct StorageServiceInfo {
+    pub provider: ProviderDefinition,
+    pub contract: CapabilityContract,
+}
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct StorageMessage {
@@ -15,6 +24,8 @@ pub struct StorageMessage {
 #[derive(Debug, Serialize, Deserialize)]
 #[serde(tag = "operation", rename_all = "snake_case")]
 pub enum StorageRequest {
+    /// Inspect the service before constructing a remote capability binding.
+    Describe,
     Create {
         model: String,
         data: Value,
@@ -36,6 +47,7 @@ pub enum StorageRequest {
 
 #[derive(Debug, Serialize, Deserialize)]
 pub enum StorageResult {
+    ServiceInfo(StorageServiceInfo),
     Record(StoredRecord),
     OptionalRecord(Option<StoredRecord>),
     Records(Vec<StoredRecord>),

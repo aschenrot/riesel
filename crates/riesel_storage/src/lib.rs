@@ -6,6 +6,7 @@ pub use client::TcpStore;
 
 pub use protocol::{
     PROTOCOL_VERSION, StorageMessage, StorageRequest, StorageResponse, StorageResult,
+    StorageServiceInfo,
 };
 
 pub use storage::{RecordStore, RecordStoreContract, StoreError, StoredRecord};

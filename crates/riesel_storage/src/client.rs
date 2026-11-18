@@ -1,7 +1,9 @@
 use crate::protocol::{
     PROTOCOL_VERSION, StorageMessage, StorageRequest, StorageResponse, StorageResult,
 };
-use crate::storage::{RecordStore, StoreError, StoredRecord};
+use crate::storage::{RecordStore, RecordStoreContract, StoreError, StoredRecord};
+use crate::protocol::StorageServiceInfo;
+use riesel_schema::CapabilityRef;
 
 use serde_json::Value;
 use std::io::{BufRead, BufReader, Write};
@@ -18,6 +20,53 @@ pub struct TcpStore {
 impl TcpStore {
     pub fn new(address: SocketAddr) -> Self {
         Self { address }
+    }
+
+    /// Read the remote provider identity and generated capability definition.
+    pub fn describe(&self) -> Result<StorageServiceInfo, StoreError> {
+        match self.send(StorageRequest::Describe)? {
+            StorageResult::ServiceInfo(info) => Ok(info),
+            _ => Err(unexpected_response()),
+        }
+    }
+
+    /// Reject endpoints whose advertised provider or contract is not the
+    /// one selected by application resolution. Does not authenticate the server.
+    pub fn verify(
+        &self,
+        expected_provider: &str,
+        expected_capability: &CapabilityRef,
+    ) -> Result<(), StoreError> {
+        let info = self.describe()?;
+        info.provider
+            .validate()
+            .map_err(|e| failed("invalid provider advertisement", e))?;
+        info.contract
+            .validate()
+            .map_err(|e| failed("invalid contract advertisement", e))?;
+
+        if info.provider.id != expected_provider {
+            return Err(StoreError::Failed(format!(
+                "unexpected storage provider: expected {expected_provider}, got {}",
+                info.provider.id
+            )));
+        }
+        if !info.provider.capabilities.contains(expected_capability)
+            || info.contract.capability != *expected_capability
+        {
+            return Err(StoreError::Failed(format!(
+                "storage provider does not implement {}@{}",
+                expected_capability.id, expected_capability.version
+            )));
+        }
+        let local = RecordStoreContract::definition()
+            .map_err(|e| failed("local storage contract", e))?;
+        if info.contract != local {
+            return Err(StoreError::Failed(
+                "remote storage contract differs from the local Rust contract".into(),
+            ));
+        }
+        Ok(())
     }
 
     fn send(&self, request: StorageRequest) -> Result<StorageResult, StoreError> {
