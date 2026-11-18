@@ -233,9 +233,7 @@ impl ServiceMonitor {
             Some(worker) => worker.join().map_err(|_| RuntimeError::MonitorPanicked),
             None => Ok(()),
         };
-        if was_monitoring
-            && let Some(observed) = Self::scan(&self.processes, &self.managed)
-        {
+        if was_monitoring && let Some(observed) = Self::scan(&self.processes, &self.managed) {
             Self::record(&self.failure, &self.cancellation, observed);
         }
         self.cancellation.cancel();
