@@ -56,7 +56,13 @@ impl Counter for MemoryCounter {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use riesel_protocol::{CallError, LocalRpc, RpcError, RpcHandler, RpcTransport};
+    use riesel_protocol::{
+        CallError, LocalRpc, RpcError, RpcHandler, RpcTransport, TcpRpcTransport,
+        handle_tcp_connection,
+    };
+    use std::net::TcpListener;
+    use std::thread;
+    use std::time::{Duration, Instant};
     use serde_json::json;
 
     #[test]
@@ -116,4 +122,48 @@ mod tests {
             Err(CallError::Domain(CounterError::Overflow))
         ));
     }
+    #[test]
+    fn generated_client_and_dispatcher_work_over_real_tcp() {
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let address = listener.local_addr().unwrap();
+        listener.set_nonblocking(true).unwrap();
+
+        let server = thread::spawn(move || {
+            let handler = CounterRpcDispatcher::new(MemoryCounter::default());
+            let deadline = Instant::now() + Duration::from_secs(8);
+            let mut handled = 0;
+            while handled < 6 {
+                match listener.accept() {
+                    Ok((mut stream, _)) => {
+                        handle_tcp_connection(&handler, &mut stream).unwrap();
+                        handled += 1;
+                    }
+                    Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => {
+                        assert!(Instant::now() < deadline, "timed out waiting for RPC requests");
+                        thread::sleep(Duration::from_millis(10));
+                    }
+                    Err(error) => panic!("could not accept RPC connection: {error}"),
+                }
+            }
+        });
+
+        let transport = TcpRpcTransport::new(address);
+        let contract = CounterContract::definition().unwrap();
+        transport.verify(&contract).unwrap();
+        assert!(matches!(
+            transport.call(&contract.capability, "not_an_operation", json!({})),
+            Err(RpcError::UnknownOperation(_))
+        ));
+
+        let client = CounterRpcClient::new(transport);
+        assert_eq!(client.value().unwrap(), 0);
+        assert_eq!(client.add(7).unwrap(), 7);
+        assert_eq!(client.label("value").unwrap(), "value: 7");
+        assert!(matches!(
+            client.add(0),
+            Err(CallError::Domain(CounterError::ZeroIncrement))
+        ));
+        server.join().unwrap();
+    }
+
 }
