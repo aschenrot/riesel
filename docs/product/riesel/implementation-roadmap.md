@@ -164,8 +164,8 @@ Cargo package names stable:
   split out of application logic.
 - Todo uses `Record<TaskData>` instead of copying infrastructure fields into
   a duplicate domain type. `Records::update_with` avoids manual revision
-  plumbing without retrying concurrent writes or replaying callbacks. Model-to-Storage requirement bindings are retained
-  in exported application metadata and honored by typed record lookup.
+  plumbing without retrying concurrent writes or replaying callbacks.
+  Model-to-Storage requirement bindings are retained in exported application metadata and honored by typed record lookup.
 - `run_from_env_with_args` composes infrastructure options with
   application-specific tokens; strict `run_from_env` preserves early rejection
   of unknown arguments.
@@ -373,12 +373,12 @@ from domain errors through `CallError<E>`.
 The Counter capability contract (version 2) lives in
 `examples/counter/contract`, with
 its independent in-memory implementation in `examples/counter/component`. The
-`apps/examples/counter_rpc` application tests generated clients and
+`examples/counter/app` application tests generated clients and
 dispatchers, commands, queries, borrowed string inputs, domain errors,
 incorrect arguments, wrong capability versions, and real TCP round-trips.
 The same application exercises a typed local provider and the runtime-managed
-Counter executable through `RpcConnector<CounterContract>`. Its server uses
-the shared `run_tcp_rpc_host` helper.
+Counter executable through `RpcConnector<CounterContract>`. Its managed host
+uses `ComponentDefinition::serve` and the shared RPC router infrastructure.
 
 Storage and Counter both register their capabilities once using
 `ComponentDefinition`, which supplies local factory creation and managed
@@ -435,7 +435,7 @@ Managed service endpoints are restricted to loopback. The built-in Storage
 server and generated RPC client also enforce loopback-only plaintext TCP.
 Only execute trusted deployment files and binaries. Do not treat the provider
 advertisement as cryptographic authentication.
-Components remain separate from contracts in the **flat** repository structure:
+Components remain separate from contracts in the **grouped package** layout:
 `packages/storage/contract` is the API contract; `packages/storage/memory` is an
 implementation. The optional development SDK convenience may include the
 reference implementation but does not change that contract boundary.

@@ -8,7 +8,7 @@ are not specific to Storage.
 | Contract | `examples/counter/contract` | `Counter` trait, domain error, generated client/dispatcher |
 | Implementation | `examples/counter/component` | In-memory Counter, local factory, executable server |
 | Runtime | `crates/riesel_app`, `crates/riesel_protocol` | Provider selection, managed launch, shared TCP host |
-| Example | `apps/examples/counter_rpc` | Local application, managed RPC client, contract tests |
+| Example | `examples/counter/app` | Local application, managed RPC client, contract tests |
 
 ## Run locally
 
