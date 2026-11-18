@@ -47,7 +47,9 @@ pub use riesel_macros::{RieselModel, RieselType, capability, component};
 pub use riesel_schema::{CapabilityDescriptor, ModelField, RieselModel};
 
 pub mod prelude {
-    pub use super::{App, AppError, Application, Capability, Result, RieselModel, capability, component};
+    pub use super::{
+        App, AppError, Application, Capability, Result, RieselModel, capability, component,
+    };
     #[cfg(feature = "records")]
     pub use super::{Record, Records};
 }
