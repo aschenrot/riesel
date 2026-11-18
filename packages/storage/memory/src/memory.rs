@@ -13,7 +13,8 @@ const MAX_RECORD_BYTES: usize = 64 * 1024;
 #[derive(Default)]
 pub struct MemoryStore {
     records: Mutex<Records>,
-    models: Option<BTreeMap<String, ModelDefinition>>,}
+    models: Option<BTreeMap<String, ModelDefinition>>,
+}
 
 impl MemoryStore {
     pub fn new() -> Self {
@@ -353,5 +354,4 @@ mod tests {
             Err(StoreError::Failed(_))
         ));
     }
-
 }
