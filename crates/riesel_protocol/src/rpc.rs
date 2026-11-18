@@ -27,6 +27,8 @@ pub enum RpcError {
     Contract(String),
     #[error("RPC transport failed: {0}")]
     Transport(String),
+    #[error("capability handle belongs to an expired application session")]
+    SessionExpired,
 }
 
 /// A domain error is distinct from a wire, codec, or transport failure.
@@ -90,6 +92,12 @@ pub trait RpcClientBinding: CapabilityDescriptor {
     type Service: Any + Send + Sync;
 
     fn bind(transport: crate::TcpRpcTransport) -> Self::Service;
+
+    /// Generated implementations wrap local trait objects so escaped handles
+    /// reject calls after their owning application session is shut down.
+    fn guard_local(service: Self::Service, _session: crate::SessionToken) -> Self::Service {
+        service
+    }
 }
 
 /// Host-supplied provider identity and generated dispatcher, checked once.

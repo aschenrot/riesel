@@ -1,7 +1,7 @@
 //! Generated-contract-first remote connector: no Storage-specific methods or
 //! protocol adapter. Capability macros opt into RpcClientBinding once.
 use riesel_app::{CapabilityConnector, ConnectedProvider, ConnectorError, ServiceEndpoint};
-use riesel_protocol::{RpcClientBinding, TcpRpcTransport};
+use riesel_protocol::{RpcClientBinding, SessionToken, TcpRpcTransport};
 use riesel_schema::CapabilityContract;
 use std::io;
 use std::marker::PhantomData;
@@ -25,7 +25,11 @@ impl<C: RpcClientBinding> CapabilityConnector for RpcConnector<C> {
         Ok(C::definition()?)
     }
 
-    fn connect(&self, endpoint: &ServiceEndpoint) -> Result<ConnectedProvider, ConnectorError> {
+    fn connect(
+        &self,
+        endpoint: &ServiceEndpoint,
+        session: &SessionToken,
+    ) -> Result<ConnectedProvider, ConnectorError> {
         let address = endpoint.address().ok_or_else(|| {
             io::Error::new(
                 io::ErrorKind::InvalidInput,
@@ -33,7 +37,7 @@ impl<C: RpcClientBinding> CapabilityConnector for RpcConnector<C> {
             )
         })?;
         let expected = C::definition()?;
-        let transport = TcpRpcTransport::new(address);
+        let transport = TcpRpcTransport::with_session(address, session.clone());
 
         let contract = transport.describe(&expected.capability)?;
         if !contract.has_same_api_shape(&expected) {

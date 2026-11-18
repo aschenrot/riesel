@@ -1,7 +1,7 @@
 //! Bounded JSON-line TCP transport for generated capability RPC.
 //! This first transport is **loopback-only** and has no authentication.
 
-use crate::{RpcError, RpcHandler, RpcTransport};
+use crate::{RpcError, RpcHandler, RpcTransport, SessionToken};
 use riesel_schema::{CapabilityContract, CapabilityRef, ProviderDefinition};
 use serde::{Deserialize, Serialize, de::DeserializeOwned};
 use serde_json::Value;
@@ -39,11 +39,16 @@ struct WireResponse {
 /// Each call opens one connection; connection pooling can be added later.
 pub struct TcpRpcTransport {
     address: SocketAddr,
+    session: SessionToken,
 }
 
 impl TcpRpcTransport {
     pub fn new(address: SocketAddr) -> Self {
-        Self { address }
+        Self::with_session(address, SessionToken::new())
+    }
+
+    pub fn with_session(address: SocketAddr, session: SessionToken) -> Self {
+        Self { address, session }
     }
 
     /// Inspect the server's contract before making typed calls.
@@ -94,6 +99,7 @@ impl RpcTransport for TcpRpcTransport {
         operation: &str,
         arguments: Value,
     ) -> Result<Value, RpcError> {
+        self.session.check()?;
         if !self.address.ip().is_loopback() {
             return Err(RpcError::Transport(
                 "plaintext RPC is restricted to loopback addresses".into(),
