@@ -108,18 +108,18 @@ impl DeploymentConfig {
                     reason: "port zero is not a valid client endpoint",
                 });
             }
-            if let ServiceEndpoint::ManagedTcpDynamic {
-                program,
-                startup_timeout_ms,
-                ..
-            } = endpoint
-            {
-                if program.as_os_str().is_empty() || !(1..=120_000).contains(startup_timeout_ms) {
-                    return Err(DeploymentError::InvalidEndpoint {
-                        name: name.clone(),
-                        reason: "dynamic managed service requires a program and a valid timeout",
-                    });
-                }
+            if matches!(
+                endpoint,
+                ServiceEndpoint::ManagedTcpDynamic {
+                    program,
+                    startup_timeout_ms,
+                    ..
+                } if program.as_os_str().is_empty() || !(1..=120_000).contains(startup_timeout_ms)
+            ) {
+                return Err(DeploymentError::InvalidEndpoint {
+                    name: name.clone(),
+                    reason: "dynamic managed service requires a program and a valid timeout",
+                });
             }
             if let ServiceEndpoint::ManagedTcp {
                 address,
