@@ -1,7 +1,7 @@
 # Todo — Rust-first Riesel SDK example
 
 Todo is the first reference application for Riesel's typed model,
-capability composition, and runtime lifecycle.
+generated capability RPC, and runtime lifecycle.
 
 ## Run locally — no JSON or TCP required
 
@@ -33,14 +33,11 @@ cargo validate --check
 cargo smoke
 ```
 
-`cargo smoke` tests the real Todo and Storage binaries in two modes:
-
-1. Legacy managed TCP with an explicitly selected temporary port. It
-   verifies the listener closes after the app exits.
-2. Two concurrent managed TCP instances whose Storage processes bind
-   to `127.0.0.1:0`, letting the OS allocate distinct ports. The runtime
-   reads a bounded, versioned `RIESEL_READY` message and verifies the
-   running provider's contract.
+`cargo smoke` starts **two concurrent** Todo clients with independently
+managed Storage services. Both services bind `127.0.0.1:0`, letting the OS
+allocate ports without a pre-bind reservation race. The runtime reads a
+bounded `RIESEL_READY` announcement and verifies each provider identity and
+generated contract before executing Todo.
 
 Linux and Windows CI execute these tests.
 
@@ -71,20 +68,19 @@ Use it with:
 cargo run -p todo --bin todo_client -- --deployment path/to/external.json
 ```
 
-For a runtime-owned service without a configured port, choose
-`transport: "managed_tcp_dynamic"` and provide the trusted compiled
-service executable in `program`. `cargo smoke` generates such a
-deployment file with the correct platform-specific executable path.
+For a runtime-owned service, choose `transport: "managed"` and supply
+the trusted compiled service executable in `program`. It chooses its own
+loopback port and advertises it after binding. `cargo smoke` generates such
+a deployment file with the correct platform-specific executable path.
 
-The old `managed_tcp` endpoint mode remains available for compatibility,
-but no fixed port is required for an in-process provider or dynamic managed
-service.
+The earlier `managed_tcp` and `managed_tcp_dynamic` names, along with the
+old handwritten Storage TCP wire protocol, were intentionally **removed**.
+Rebuild any clients and regenerate managed deployment files.
 
 ## Boundaries
 
 Current Storage is in-memory, so state is lost on process termination.
-The TCP transport is unencrypted and unauthenticated. Dynamic endpoint
-announcements and contract verification do not establish cryptographic
-service identity. Use managed executables and deployment files only
-when trusted, and do not expose the current TCP server to untrusted
-networks.
+The TCP transport is unencrypted and unauthenticated. Both the client and
+Storage server enforce loopback addresses. Endpoint announcements and
+contract verification do not authenticate a service. Use only trusted
+managed executables and deployment files.

@@ -28,7 +28,7 @@ the actual Todo and Storage binaries, including runtime-owned Storage processes.
 | 2 — Provider resolution | Implemented for exact versions | Registration, explicit selection, missing/ambiguous-provider errors |
 | 3 — Capability binding | Initial implementation | In-process factories, typed Rust record handles, verified remote TCP |
 | 4 — Application runtime | End-to-end slice implemented | Application start/run, managed child startup, dynamic local endpoints, cleanup |
-| 5 — Developer experience | RPC generation proven; still partial | Rust SDK, model derive, generated typed RPC client and dispatcher, generic bounded TCP transport, schema export |
+| 5 — Developer experience | Generic RPC integration implemented; still partial | Rust SDK, model derive, generated Storage and Counter RPC, generic typed connectors, schema export |
 | 6 — Production reliability | Not implemented | Persistent Storage, secure transports, authorization, recovery, observability |
 
 Completed stages mean *working within their currently specified scope*, not
@@ -46,9 +46,13 @@ ephemeral in-process MemoryStore. `Context::records::<TaskData>()` gives a
 typed CRUD handle. `--print-definition` exports the canonical generated
 schema; `--deployment FILE` allows explicit external or managed providers.
 
-`Application::require::<SomeContract>("alias")` supports other generated
-capability contracts. Their provider factories and client adapters still need
-to be registered explicitly until a provider catalog is available.
+`Application::rpc::<SomeContract>("alias")` declares a generated RPC
+capability and automatically registers a shared transport connector.
+`Context::capability::<SomeContract>("alias")` returns the typed service.
+Implementations opt in using `#[capability(..., client_trait)]` and define an
+explicit conversion from `RpcError` into their public error type. Custom
+providers can still be registered explicitly. A general provider catalog and
+automatic deployment discovery are not implemented.
 
 `development()` is an **explicit opt-in** to ephemeral in-memory storage,
 not a production default or persistence guarantee.
@@ -57,15 +61,14 @@ not a production default or persistence guarantee.
 
 - `local`: in-process implementation, no socket or process required.
 - `tcp`: explicit remote address, owned by an external manager.
-- `managed_tcp`: process started by Riesel on a configured loopback port
-  (retained for compatibility).
-- `managed_tcp_dynamic`: service binds `127.0.0.1:0` and sends a bounded
-  `RIESEL_READY` message through child stdout. Riesel then verifies the
-  advertised capability contract. Concurrent instances do not need distinct
-  configured ports.
+- `managed`: starts a trusted process that binds `127.0.0.1:0` and sends
+  a bounded `RIESEL_READY` announcement through its startup pipe. Riesel
+  verifies its advertised provider ID and generated capability contract.
 
-The smoke suite covers explicitly configured managed TCP and two concurrent
-dynamic managed instances. The local factory is covered by unit tests.
+The fixed-port `managed_tcp` mode, its pre-bind race, and the earlier
+`managed_tcp_dynamic` naming have been removed. The smoke suite runs two
+concurrent independently managed Storage instances with OS-assigned ports.
+The local factory is covered by unit tests.
 After readiness, the runtime continues draining child stdout.
 
 Deployment configuration remains optional for local development but is
@@ -91,30 +94,35 @@ capability versions, and real TCP request/response round-trips on Linux and
 Windows. No hand-maintained request enum or per-operation dispatcher is
 needed for that example.
 
-**Compatibility boundary:** The original Storage TCP protocol and `TcpStore`
-remain intact. Migrating Storage to the generic generated protocol, preserving
-or explicitly versioning the old wire API, and integrating generic client
-adapters into Riesel's provider registry are **not complete**. Generated
-client methods return `Result<Output, CallError<DomainError>>`; they do not
-silently implement the original trait, which lacks transport-error semantics.
+**Storage RPC migration completed:** `RecordStoreRpcClient` and
+`RecordStoreRpcDispatcher` are generated from the Rust trait. The macro's
+opt-in `client_trait` mode generates the original capability-trait
+implementation, with an explicit `From<RpcError>` conversion. Storage uses
+`StoreError::Transport` to distinguish transport from domain failures.
+`RpcConnector<C>` provides generic remote binding, while
+`RpcHost<H>` advertises and validates provider identity. The handwritten
+Storage request/response enums, `TcpStore`, manual dispatcher, and
+Storage-only connector are deleted. The old wire protocol is intentionally
+incompatible with the new version and has **no compatibility shim**.
+
 The first generator supports synchronous, non-generic methods with owned
-serializable inputs or borrowed `&str` and serde-compatible result types.
+serializable arguments or borrowed `&str` and serde-compatible result types.
+Generated inherent client methods still offer `CallError<E>` for callers
+that need the original separated domain/transport error representation.
+Additional client transports, asynchronous methods and backend-neutral
+provider discovery remain future work.
 
 ## Remaining engineering work, in priority order
 
-1. **Storage migration and generic provider integration:** replace
-   handwritten Storage protocol/client/dispatch wiring behind a compatible,
-   tested migration strategy; register generated adapters in the runtime.
-   Preserve explicit transport-error semantics and verify contract shapes.
-2. **Lifecycle robustness:** dependency ordering, graceful and reverse-order
-   shutdown, exit monitoring, cancellation, structured errors and multi-service
-   rollback tests.
-3. **Developer tooling and models:** inspect provider bindings without
-   launching services, improve type coverage, add schema evolution rules,
-   and add stable generated adapter compatibility tests.
-4. **Production operation:** persistent Storage, migrations, secure and
+1. **Lifecycle robustness (next):** service dependencies and startup
+   ordering; graceful reverse-order shutdown; child exit monitoring,
+   cancellation, failure policy, and multi-service rollback tests.
+2. **Developer tooling and models:** inspect provider selection before
+   launching services; improve model field types and schema evolution; test
+   generated adapter compatibility with a second runtime-integrated provider.
+3. **Production operation:** persistent Storage, migration strategy, secure
    authenticated transports, authorization and secrets, resource limits,
-   observability, repeatable deployments and recovery policies.
+   observability, repeatable deployments, and recovery policies.
 
 ## Architectural and security boundaries
 
@@ -122,11 +130,10 @@ The present Storage server is **in-memory**, **single-process** and communicates
 using **unencrypted and unauthenticated TCP**. A pipe-based startup announcement
 and contract-shape check do **not** authenticate a network service.
 
-Managed TCP defaults and dynamic endpoints are restricted to loopback.
-Only execute trusted deployment files and binaries. External TCP endpoints
-remain configurable but are not secured by the current implementation.
-
-Do not expose the current TCP Storage server to untrusted networks.
+Managed service endpoints are restricted to loopback. The built-in Storage
+server and generated RPC client also enforce loopback-only plaintext TCP.
+Only execute trusted deployment files and binaries. Do not treat the provider
+advertisement as cryptographic authentication.
 Components remain separate from contracts in the **flat** repository structure:
 `crates/riesel_storage` is the API contract; `components/storage` is an
 implementation. The optional development SDK convenience may include the
