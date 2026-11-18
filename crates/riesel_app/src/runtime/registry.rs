@@ -25,13 +25,14 @@ pub(super) struct RegisteredConnector {
 }
 
 /// One executable binding for a capability advertised by a local component.
+type ErasedLocalService = Box<dyn Any + Send + Sync>;
+type SessionGuardAdapter =
+    fn(ErasedLocalService, SessionToken) -> Result<ErasedLocalService, ConnectorError>;
+
 pub struct LocalCapabilityBinding {
     pub contract: CapabilityContract,
-    service: Box<dyn Any + Send + Sync>,
-    guard: fn(
-        Box<dyn Any + Send + Sync>,
-        SessionToken,
-    ) -> Result<Box<dyn Any + Send + Sync>, ConnectorError>,
+    service: ErasedLocalService,
+    guard: SessionGuardAdapter,
 }
 
 impl LocalCapabilityBinding {
