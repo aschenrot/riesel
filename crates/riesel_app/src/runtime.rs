@@ -444,7 +444,12 @@ impl App {
         let mut processes = ProcessRegistry::new();
         let mut managed = BTreeMap::new();
 
-        for (index, requirement) in schema.requires.iter().enumerate() {
+        for (index, requirement) in schema
+            .startup_order()
+            .map_err(DeploymentError::from)?
+            .into_iter()
+            .enumerate()
+        {
             let endpoint = &deployment.services[&requirement.name];
             if let ServiceEndpoint::Local { provider } = endpoint {
                 let local = connectors
@@ -866,6 +871,67 @@ mod tests {
                 service: Box::new(Arc::new(123_u64)),
             })
         }
+    }
+
+
+    struct TrackedLocal {
+        id: &'static str,
+        created: Arc<std::sync::Mutex<Vec<String>>>,
+    }
+
+    impl LocalProviderFactory for TrackedLocal {
+        fn definition(&self) -> Result<ProviderDefinition, ConnectorError> {
+            Ok(ProviderDefinition {
+                id: self.id.into(),
+                capabilities: vec![contract(1).capability],
+            })
+        }
+
+        fn contract(&self) -> Result<CapabilityContract, ConnectorError> {
+            Ok(contract(1))
+        }
+
+        fn create(&self) -> Result<ConnectedProvider, ConnectorError> {
+            self.created.lock().unwrap().push(self.id.into());
+            Ok(ConnectedProvider {
+                definition: self.definition()?,
+                contract: self.contract()?,
+                service: Box::new(Arc::new(123_u64)),
+            })
+        }
+    }
+
+    #[test]
+    fn dependency_order_controls_actual_provider_startup() {
+        let app = App::from_schema(
+            r#"{"version":1,"app":{"name":"Example"},"models":{},
+                "requires":[
+                    {"name":"frontend","capability":{"id":"example.counter","version":1},
+                     "depends_on":["worker"]},
+                    {"name":"worker","capability":{"id":"example.counter","version":1},
+                     "depends_on":["storage"]},
+                    {"name":"storage","capability":{"id":"example.counter","version":1}}
+                ]}"#,
+        ).unwrap();
+        let created = Arc::new(std::sync::Mutex::new(Vec::new()));
+        let mut registry = ConnectorRegistry::new();
+        let mut services = BTreeMap::new();
+        for alias in ["frontend", "worker", "storage"] {
+            let provider = format!("example.provider.{alias}");
+            registry.register_local(TrackedLocal {
+                id: match alias {
+                    "frontend" => "example.provider.frontend",
+                    "worker" => "example.provider.worker",
+                    _ => "example.provider.storage",
+                },
+                created: Arc::clone(&created),
+            }).unwrap();
+            services.insert(alias.into(), ServiceEndpoint::Local { provider });
+        }
+        let running = app.start(&DeploymentConfig { services }, &registry).unwrap();
+        assert_eq!(*created.lock().unwrap(),
+            ["example.provider.storage", "example.provider.worker", "example.provider.frontend"]);
+        assert_eq!(running.resolved().len(), 3);
     }
 
     #[test]

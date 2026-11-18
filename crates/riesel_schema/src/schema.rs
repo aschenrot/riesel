@@ -25,6 +25,9 @@ pub struct AppSchema {
 pub struct CapabilityRequirement {
     pub name: String,
     pub capability: CapabilityRef,
+    /// Requirement aliases that must be ready before this requirement starts.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub depends_on: Vec<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -59,6 +62,14 @@ pub enum SchemaError {
         #[source]
         source: CapabilityRefError,
     },
+    #[error("requirement {requirement} cannot depend on itself")]
+    SelfDependency { requirement: String },
+    #[error("requirement {requirement} depends on undeclared requirement {dependency}")]
+    UnknownDependency { requirement: String, dependency: String },
+    #[error("requirement {requirement} repeats dependency {dependency}")]
+    DuplicateDependency { requirement: String, dependency: String },
+    #[error("cyclic requirement dependencies prevent startup: {requirements:?}")]
+    DependencyCycle { requirements: Vec<String> },
 }
 
 impl AppSchema {
@@ -90,7 +101,76 @@ impl AppSchema {
                 })?;
         }
 
+        for requirement in &self.requires {
+            let mut dependencies = BTreeSet::new();
+            for dependency in &requirement.depends_on {
+                if dependency == &requirement.name {
+                    return Err(SchemaError::SelfDependency {
+                        requirement: requirement.name.clone(),
+                    });
+                }
+                if !names.contains(dependency.as_str()) {
+                    return Err(SchemaError::UnknownDependency {
+                        requirement: requirement.name.clone(),
+                        dependency: dependency.clone(),
+                    });
+                }
+                if !dependencies.insert(dependency) {
+                    return Err(SchemaError::DuplicateDependency {
+                        requirement: requirement.name.clone(),
+                        dependency: dependency.clone(),
+                    });
+                }
+            }
+        }
+        self.order_indices()?;
         Ok(())
+    }
+
+    /// Stable topological ordering: dependencies first, declaration order for
+    /// independent requirements. No service is started during validation.
+    pub fn startup_order(&self) -> Result<Vec<&CapabilityRequirement>, SchemaError> {
+        self.validate()?;
+        Ok(self
+            .order_indices()?
+            .into_iter()
+            .map(|index| &self.requires[index])
+            .collect())
+    }
+
+    fn order_indices(&self) -> Result<Vec<usize>, SchemaError> {
+        let positions: BTreeMap<&str, usize> = self
+            .requires
+            .iter()
+            .enumerate()
+            .map(|(index, requirement)| (requirement.name.as_str(), index))
+            .collect();
+        let mut started = vec![false; self.requires.len()];
+        let mut order = Vec::with_capacity(self.requires.len());
+        while order.len() < self.requires.len() {
+            let next = self.requires.iter().enumerate().find(|(index, requirement)| {
+                !started[*index]
+                    && requirement.depends_on.iter().all(|dependency| {
+                        positions
+                            .get(dependency.as_str())
+                            .is_some_and(|position| started[*position])
+                    })
+            });
+            let Some((index, _)) = next else {
+                return Err(SchemaError::DependencyCycle {
+                    requirements: self
+                        .requires
+                        .iter()
+                        .enumerate()
+                        .filter(|(index, _)| !started[*index])
+                        .map(|(_, requirement)| requirement.name.clone())
+                        .collect(),
+                });
+            };
+            started[index] = true;
+            order.push(index);
+        }
+        Ok(order)
     }
 }
 
@@ -242,6 +322,57 @@ mod tests {
         assert!(matches!(
             schema.validate(),
             Err(SchemaError::InvalidRequirementName { .. })
+        ));
+    }
+
+    #[test]
+    fn starts_dependencies_before_consumers_with_stable_independent_order() {
+        let schema = parse_schema(r#"{
+            "version": 1, "app": {"name":"Example"}, "models": {},
+            "requires": [
+                {"name":"frontend", "capability":{"id":"example.frontend","version":1},
+                 "depends_on":["worker","storage"]},
+                {"name":"worker", "capability":{"id":"example.worker","version":1},
+                 "depends_on":["storage"]},
+                {"name":"independent", "capability":{"id":"example.other","version":1}},
+                {"name":"storage", "capability":{"id":"example.storage","version":1}}
+            ]
+        }"#).unwrap();
+        let names: Vec<_> = schema.startup_order().unwrap().iter()
+            .map(|requirement| requirement.name.as_str()).collect();
+        assert_eq!(names, ["independent", "storage", "worker", "frontend"]);
+        assert!(!serde_json::to_string(&schema.requires[2]).unwrap().contains("depends_on"));
+    }
+
+    #[test]
+    fn rejects_missing_self_duplicate_and_cyclic_dependencies() {
+        let schema_with = |depends_on: Vec<&str>, other: Vec<&str>| {
+            let source = serde_json::json!({
+                "version": 1, "app": {"name": "Example"}, "models": {},
+                "requires": [
+                    {"name":"one", "capability":{"id":"example.first","version":1},
+                     "depends_on": depends_on},
+                    {"name":"two", "capability":{"id":"example.second","version":1},
+                     "depends_on": other}
+                ]
+            });
+            parse_schema(&source.to_string()).unwrap()
+        };
+        assert!(matches!(
+            schema_with(vec!["unknown"], vec![]).validate(),
+            Err(SchemaError::UnknownDependency { .. })
+        ));
+        assert!(matches!(
+            schema_with(vec!["one"], vec![]).validate(),
+            Err(SchemaError::SelfDependency { .. })
+        ));
+        assert!(matches!(
+            schema_with(vec!["two", "two"], vec![]).validate(),
+            Err(SchemaError::DuplicateDependency { .. })
+        ));
+        assert!(matches!(
+            schema_with(vec!["two"], vec!["one"]).validate(),
+            Err(SchemaError::DependencyCycle { .. })
         ));
     }
 }

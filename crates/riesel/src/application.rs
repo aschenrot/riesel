@@ -29,6 +29,8 @@ pub enum SdkError {
     Serialization(#[from] serde_json::Error),
     #[error(transparent)]
     Deployment(#[from] riesel_app::DeploymentError),
+    #[error(transparent)]
+    Schema(#[from] riesel_schema::SchemaError),
     #[error("model {0} has already been registered with different metadata")]
     DuplicateModel(String),
     #[error("model {0} was not registered")]
@@ -90,8 +92,29 @@ impl Application {
         } else {
             self.definition
                 .requires
-                .push(CapabilityRequirement { name, capability });
+                .push(CapabilityRequirement {
+                    name,
+                    capability,
+                    depends_on: Vec::new(),
+                });
         }
+        Ok(self)
+    }
+
+    /// Declare startup dependencies by requirement alias. This expresses
+    /// lifecycle order, not a new capability contract or provider dependency.
+    pub fn depends_on<I, S>(mut self, name: &str, dependencies: I) -> Result<Self>
+    where
+        I: IntoIterator<Item = S>,
+        S: Into<String>,
+    {
+        let requirement = self
+            .definition
+            .requires
+            .iter_mut()
+            .find(|requirement| requirement.name == name)
+            .ok_or_else(|| SdkError::MissingCapability(name.into()))?;
+        requirement.depends_on = dependencies.into_iter().map(Into::into).collect();
         Ok(self)
     }
 
@@ -157,6 +180,7 @@ impl Application {
     /// This is suitable for tools and visual builders; it is not a second
     /// authoritative file that a Rust developer has to edit.
     pub fn definition_json(&self) -> Result<String> {
+        self.definition.validate()?;
         Ok(serde_json::to_string_pretty(&self.definition)?)
     }
 
@@ -346,5 +370,24 @@ mod tests {
             app.definition().requires[0].capability,
             RecordStoreContract::definition().unwrap().capability
         );
+    }
+    #[test]
+    fn rust_sdk_exports_validated_startup_dependencies() {
+        let app = Application::new("Example")
+            .rpc::<RecordStoreContract>("consumer").unwrap()
+            .rpc::<RecordStoreContract>("storage").unwrap()
+            .depends_on("consumer", ["storage"]).unwrap();
+        let generated = app.definition_json().unwrap();
+        let schema = riesel_schema::parse_schema(&generated).unwrap();
+        let order: Vec<_> = schema.startup_order().unwrap()
+            .into_iter().map(|req| req.name.as_str()).collect();
+        assert_eq!(order, ["storage", "consumer"]);
+        assert!(matches!(
+            Application::new("Example")
+                .rpc::<RecordStoreContract>("consumer").unwrap()
+                .depends_on("consumer", ["missing"]).unwrap()
+                .definition_json(),
+            Err(SdkError::Schema(riesel_schema::SchemaError::UnknownDependency { .. }))
+        ));
     }
 }
