@@ -2,11 +2,12 @@
 //! Connectors implement transport-specific discovery and typed service creation;
 //! this module owns validation, resolution, and the resulting service lifetimes.
 
+use crate::supervisor::{CancellationToken, ServiceMonitor};
 use crate::{
     App, DeploymentConfig, DeploymentError, ProviderRegistry, ResolutionError, ResolvedCapability,
     ServiceEndpoint,
 };
-use riesel_manager::{ProcessKey, ProcessRegistry, ProcessStatus};
+use riesel_manager::{ProcessKey, ProcessRegistry};
 use riesel_schema::{CapabilityContract, ProviderDefinition};
 use serde::Deserialize;
 use std::any::Any;
@@ -15,7 +16,7 @@ use std::error::Error;
 use std::io::{self, BufRead, BufReader, Read};
 use std::net::SocketAddr;
 use std::process::{Command, ExitStatus, Stdio};
-use std::sync::{Arc, mpsc};
+use std::sync::{Arc, Mutex, PoisonError, mpsc};
 use std::thread;
 use std::time::Duration;
 use thiserror::Error;
@@ -303,6 +304,12 @@ pub enum RuntimeError {
     },
     #[error("failed to shut down managed processes: {0}")]
     Shutdown(io::Error),
+    #[error("could not launch managed service monitor: {0}")]
+    MonitorStart(io::Error),
+    #[error("managed service monitor thread panicked")]
+    MonitorPanicked,
+    #[error("managed service registry was poisoned during monitoring")]
+    MonitorRegistryPoisoned,
 }
 
 /// Errors from running application business logic and shutting down its services.
@@ -317,6 +324,12 @@ pub enum AppRunError {
         entry: ConnectorError,
         shutdown: RuntimeError,
     },
+    #[error("required managed service failed: {failure}; entrypoint: {entry:?}; shutdown: {shutdown:?}")]
+    Supervision {
+        failure: RuntimeError,
+        entry: Option<ConnectorError>,
+        shutdown: Option<RuntimeError>,
+    },
 }
 
 /// Active application with verified services and owned child processes.
@@ -325,8 +338,8 @@ pub struct RunningApp {
     app: App,
     resolved: Vec<ResolvedCapability>,
     services: BTreeMap<String, Arc<dyn Any + Send + Sync>>,
-    processes: ProcessRegistry,
-    managed: BTreeMap<String, ProcessKey>,
+    processes: Arc<Mutex<ProcessRegistry>>,
+    supervisor: ServiceMonitor,
 }
 
 impl RunningApp {
@@ -338,34 +351,34 @@ impl RunningApp {
         &self.resolved
     }
 
-    /// Check currently owned child processes. This is an on-demand health
-    /// inspection, not background supervision or automatic recovery.
-    pub fn check_processes(&mut self) -> Result<(), RuntimeError> {
-        for (requirement, key) in &self.managed {
-            let status =
-                self.processes
-                    .status(key)
-                    .map_err(|source| RuntimeError::ServiceStatus {
-                        requirement: requirement.clone(),
-                        source,
-                    })?;
-            if let ProcessStatus::Exited(status) = status {
-                return Err(RuntimeError::ServiceExited {
-                    requirement: requirement.clone(),
-                    status,
-                });
-            }
+    /// Check for already-observed failures and immediately inspect running
+    /// managed processes. Failure remains observable until shutdown.
+    pub fn check_processes(&self) -> Result<(), RuntimeError> {
+        match self.supervisor.check_now() {
+            Some(failure) => Err(failure),
+            None => Ok(()),
         }
-        Ok(())
     }
 
-    /// Drop connected adapters and explicitly terminate all owned services.
-    /// External TCP services remain untouched.
+    /// Share a cooperative cancellation token with long-running application
+    /// work. When a required managed service exits, the token becomes set.
+    pub fn cancellation_token(&self) -> CancellationToken {
+        self.supervisor.cancellation_token()
+    }
+
+    /// Join monitoring first, then drop clients and stop owned children in
+    /// reverse startup order. External TCP services remain untouched.
     pub fn shutdown(&mut self) -> Result<(), RuntimeError> {
+        let monitor = self.supervisor.stop();
         self.services.clear();
-        self.processes.stop_all().map_err(RuntimeError::Shutdown)?;
-        self.managed.clear();
-        Ok(())
+        let stopped = self
+            .processes
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .stop_all()
+            .map_err(RuntimeError::Shutdown);
+        monitor?;
+        stopped
     }
 
     /// Get a typed, already-verified service by its application requirement name.
@@ -376,6 +389,14 @@ impl RunningApp {
             .ok_or_else(|| RuntimeError::MissingService(requirement.into()))?
             .downcast_ref::<T>()
             .ok_or_else(|| RuntimeError::WrongServiceType(requirement.into()))
+    }
+}
+
+impl Drop for RunningApp {
+    fn drop(&mut self) {
+        // An explicitly started application must also clean up when it is
+        // dropped without a corresponding run() or shutdown() call.
+        let _ = self.shutdown();
     }
 }
 
@@ -637,12 +658,15 @@ impl App {
         }
 
         let resolved = registry.resolve(schema, &selected)?;
+        let processes = Arc::new(Mutex::new(processes));
+        let supervisor = ServiceMonitor::start(Arc::clone(&processes), managed)
+            .map_err(RuntimeError::MonitorStart)?;
         Ok(RunningApp {
             app: self,
             resolved,
             services,
             processes,
-            managed,
+            supervisor,
         })
     }
 
@@ -665,13 +689,23 @@ impl RunningApp {
         entrypoint: impl FnOnce(&RunningApp) -> Result<(), ConnectorError>,
     ) -> Result<(), AppRunError> {
         let outcome = entrypoint(&running);
-        let shutdown = running.shutdown();
+        // Recheck synchronously: a child may exit just before the callback
+        // returns, before the background polling interval elapses.
+        let failure = running.check_processes().err();
+        let shutdown = running.shutdown().err();
 
+        if let Some(failure) = failure {
+            return Err(AppRunError::Supervision {
+                failure,
+                entry: outcome.err(),
+                shutdown,
+            });
+        }
         match (outcome, shutdown) {
-            (Ok(()), Ok(())) => Ok(()),
-            (Err(entry), Ok(())) => Err(AppRunError::Entrypoint(entry)),
-            (Ok(()), Err(shutdown)) => Err(AppRunError::Startup(shutdown)),
-            (Err(entry), Err(shutdown)) => {
+            (Ok(()), None) => Ok(()),
+            (Err(entry), None) => Err(AppRunError::Entrypoint(entry)),
+            (Ok(()), Some(shutdown)) => Err(AppRunError::Startup(shutdown)),
+            (Err(entry), Some(shutdown)) => {
                 Err(AppRunError::EntrypointAndShutdown { entry, shutdown })
             }
         }

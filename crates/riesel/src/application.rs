@@ -1,4 +1,4 @@
-use crate::{Records, RieselModel, RpcConnector};
+use crate::{CancellationToken, Records, RieselModel, RpcConnector};
 use riesel_app::{
     App, AppRunError, ConnectorError, ConnectorRegistry, DeploymentConfig, LocalProviderFactory,
     RunningApp, RuntimeError,
@@ -233,6 +233,12 @@ pub struct Context<'a> {
 }
 
 impl Context<'_> {
+    /// Cooperative cancellation triggered by an unexpected managed-service
+    /// exit (or application shutdown). User code must observe this token.
+    pub fn cancellation_token(&self) -> CancellationToken {
+        self.running.cancellation_token()
+    }
+
     /// Retrieve a typed capability service generated from a Rust contract.
     /// The requirement's declared version is checked before downcasting.
     pub fn capability<C: RpcClientBinding>(&self, name: &str) -> Result<&C::Service> {

@@ -3,6 +3,7 @@ pub mod config;
 mod deployment;
 mod resolver;
 mod runtime;
+mod supervisor;
 
 pub use app::{App, AppError};
 pub use config::AppConfig;
@@ -13,3 +14,5 @@ pub use runtime::{
     AppRunError, CapabilityConnector, ConnectedProvider, ConnectorError, ConnectorRegistry,
     LocalProviderFactory, RunningApp, RuntimeError,
 };
+
+pub use supervisor::CancellationToken;
