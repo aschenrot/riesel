@@ -3,16 +3,15 @@
 
 use crate::{MemoryCounter, memory_provider_definition};
 use riesel_counter::CounterRpcDispatcher;
-use riesel_protocol::{RpcHost, run_tcp_rpc_host};
+use riesel_protocol::serve_component;
 use std::io;
 
 pub fn run_counter_server(address: &str) -> io::Result<()> {
-    let handler = RpcHost::new(
+    serve_component(
+        address,
         memory_provider_definition().map_err(io::Error::other)?,
         CounterRpcDispatcher::new(MemoryCounter::default()),
     )
-    .map_err(io::Error::other)?;
-    run_tcp_rpc_host(address, &handler)
 }
 
 #[cfg(test)]
