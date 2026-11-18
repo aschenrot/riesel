@@ -204,8 +204,8 @@ pub(super) struct RunningLocalProvider {
     pub(super) services: BTreeMap<(String, u32), Arc<dyn Any + Send + Sync>>,
 }
 
-/// Explicit runtime adapter registry. Contract IDs (not Rust types or TCP
-/// addresses) are the stable lookup keys.
+/// Explicit runtime adapter registry. Capability ID and exact version
+/// (not Rust types or TCP addresses) form each transport adapter key.
 #[derive(Default)]
 pub struct ConnectorRegistry {
     pub(super) adapters: BTreeMap<(String, u32), RegisteredConnector>,
@@ -267,8 +267,8 @@ impl ConnectorRegistry {
         Ok(())
     }
 
-    /// Whether a transport adapter has already been registered for this
-    /// capability ID. Allows Rust-first builders to avoid duplicate wiring.
+    /// Whether a transport adapter is registered for the exact capability
+    /// ID and version. Allows Rust-first builders to avoid duplicate wiring.
     pub fn has_connector(&self, capability: &riesel_schema::CapabilityRef) -> bool {
         self.adapters
             .contains_key(&(capability.id.clone(), capability.version))
