@@ -54,10 +54,9 @@ impl Todo {
     }
 
     pub fn set_completed(&self, id: Uuid, completed: bool) -> Result<Task, TodoError> {
-        let current = self.records.get(id)?.ok_or(TodoError::NotFound)?;
-        let mut data = current.value;
-        data.completed = completed;
-        Ok(self.records.update(id, current.revision, data)?)
+        self.records
+            .update_with(id, |task| task.completed = completed)?
+            .ok_or(TodoError::NotFound)
     }
 
     pub fn delete_task(&self, id: Uuid, expected_revision: u64) -> Result<(), TodoError> {
