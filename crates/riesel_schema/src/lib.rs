@@ -7,8 +7,8 @@ mod schema;
 
 pub use capability::{CapabilityRef, CapabilityRefError};
 pub use capability_contract::{
-    CapabilityContract, CapabilityDescriptor, ContractError, OperationDefinition, OperationKind, ParameterDefinition,
-    RieselType, TypeDefinition, TypeRef,
+    CapabilityContract, CapabilityDescriptor, ContractError, OperationDefinition, OperationKind,
+    ParameterDefinition, RieselType, TypeDefinition, TypeRef,
 };
 pub use model::{ModelField, RieselModel};
 pub use provider::{ProviderDefinition, ProviderError};

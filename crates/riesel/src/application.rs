@@ -74,12 +74,19 @@ impl Application {
     pub fn require<C: CapabilityDescriptor>(mut self, name: impl Into<String>) -> Result<Self> {
         let name = name.into();
         let capability = C::definition()?.capability;
-        if let Some(previous) = self.definition.requires.iter().find(|item| item.name == name) {
+        if let Some(previous) = self
+            .definition
+            .requires
+            .iter()
+            .find(|item| item.name == name)
+        {
             if previous.capability != capability {
                 return Err(SdkError::RequirementConflict(name));
             }
         } else {
-            self.definition.requires.push(CapabilityRequirement { name, capability });
+            self.definition
+                .requires
+                .push(CapabilityRequirement { name, capability });
         }
         Ok(self)
     }
@@ -105,7 +112,11 @@ impl Application {
             self.definition.models.insert(name, definition);
         }
 
-        let already_registered = self.definition.requires.iter().any(|req| req.name == "storage");
+        let already_registered = self
+            .definition
+            .requires
+            .iter()
+            .any(|req| req.name == "storage");
         self = self.require::<RecordStoreContract>("storage")?;
         if !already_registered {
             // Register transport support without opening a socket.
@@ -301,5 +312,4 @@ mod tests {
             RecordStoreContract::definition().unwrap().capability
         );
     }
-
 }
