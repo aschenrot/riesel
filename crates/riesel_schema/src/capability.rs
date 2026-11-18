@@ -69,10 +69,18 @@ mod tests {
             id: "riesel.storage.records".into(),
             version: 0,
         };
-        assert_eq!(reference.validate(), Err(CapabilityRefError::InvalidVersion));
+        assert_eq!(
+            reference.validate(),
+            Err(CapabilityRefError::InvalidVersion)
+        );
 
         reference.version = 1;
-        for id in ["storage", "Riesel.storage", "riesel..storage", "riesel.storage-raw"] {
+        for id in [
+            "storage",
+            "Riesel.storage",
+            "riesel..storage",
+            "riesel.storage-raw",
+        ] {
             reference.id = id.into();
             assert_eq!(
                 reference.validate(),

@@ -54,7 +54,9 @@ impl ProcessRegistry {
     /// An exited child remains registered until stop() or stop_all().
     pub fn status(&mut self, key: &ProcessKey) -> io::Result<ProcessStatus> {
         let process = self.processes.get_mut(key).ok_or_else(|| {
-            io::Error::new(io::ErrorKind::NotFound, format!("process not found: {key:?}"))
+            io::Error::new(
+                io::ErrorKind::NotFound,
+                format!("process not found: {key:?}"),
         })?;
 
         Ok(match process.child.try_wait()? {
@@ -66,7 +68,10 @@ impl ProcessRegistry {
     /// Force-stop and reap a child, or reap it if it has already exited.
     pub fn stop(&mut self, key: &ProcessKey) -> io::Result<ExitStatus> {
         let process = self.processes.get_mut(key).ok_or_else(|| {
-            io::Error::new(io::ErrorKind::NotFound, format!("process not found: {key:?}"))
+            io::Error::new(
+                io::ErrorKind::NotFound,
+                format!("process not found: {key:?}"),
+            )
         })?;
         let exit = match process.child.try_wait()? {
             Some(status) => status,
@@ -134,14 +139,23 @@ mod tests {
         let mut registry = ProcessRegistry::new();
         registry.spawn(key.clone(), &mut test_child()).unwrap();
 
-        assert!(matches!(registry.status(&key).unwrap(), ProcessStatus::Running));
+        assert!(matches!(
+            registry.status(&key).unwrap(),
+            ProcessStatus::Running
+        ));
         assert_eq!(
-            registry.spawn(key.clone(), &mut test_child()).unwrap_err().kind(),
+            registry
+                .spawn(key.clone(), &mut test_child())
+                .unwrap_err()
+                .kind(),
             io::ErrorKind::AlreadyExists
         );
 
         registry.stop(&key).unwrap();
-        assert_eq!(registry.status(&key).unwrap_err().kind(), io::ErrorKind::NotFound);
+        assert_eq!(
+            registry.status(&key).unwrap_err().kind(),
+            io::ErrorKind::NotFound
+        );
     }
 
     #[test]
@@ -155,7 +169,10 @@ mod tests {
             .unwrap();
         registry.stop_all().unwrap();
         assert_eq!(
-            registry.status(&ProcessKey::new(1, None)).unwrap_err().kind(),
+            registry
+                .status(&ProcessKey::new(1, None))
+                .unwrap_err()
+                .kind(),
             io::ErrorKind::NotFound
         );
     }

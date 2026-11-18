@@ -244,5 +244,4 @@ mod tests {
             Err(SchemaError::InvalidRequirementName { .. })
         ));
     }
-
 }

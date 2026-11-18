@@ -6,8 +6,8 @@ use crate::{
     App, DeploymentConfig, DeploymentError, ProviderRegistry, ResolutionError, ResolvedCapability,
     ServiceEndpoint,
 };
-use riesel_schema::{CapabilityContract, ProviderDefinition};
 use riesel_manager::{ProcessKey, ProcessRegistry, ProcessStatus};
+use riesel_schema::{CapabilityContract, ProviderDefinition};
 use std::any::Any;
 use std::collections::BTreeMap;
 use std::error::Error;
@@ -188,10 +188,13 @@ impl RunningApp {
     /// inspection, not background supervision or automatic recovery.
     pub fn check_processes(&mut self) -> Result<(), RuntimeError> {
         for (requirement, key) in &self.managed {
-            let status = self.processes.status(key).map_err(|source| RuntimeError::ServiceStatus {
-                requirement: requirement.clone(),
-                source,
-            })?;
+            let status =
+                self.processes
+                    .status(key)
+                    .map_err(|source| RuntimeError::ServiceStatus {
+                        requirement: requirement.clone(),
+                        source,
+                    })?;
             if let ProcessStatus::Exited(status) = status {
                 return Err(RuntimeError::ServiceExited {
                     requirement: requirement.clone(),
@@ -243,13 +246,15 @@ impl App {
 
         for (index, requirement) in schema.requires.iter().enumerate() {
             let id = &requirement.capability.id;
-            let adapter = connectors.adapters.get(id).ok_or_else(|| {
-                RuntimeError::MissingConnector {
-                    requirement: requirement.name.clone(),
-                    id: id.clone(),
-                    version: requirement.capability.version,
-                }
-            })?;
+            let adapter =
+                connectors
+                    .adapters
+                    .get(id)
+                    .ok_or_else(|| RuntimeError::MissingConnector {
+                        requirement: requirement.name.clone(),
+                        id: id.clone(),
+                        version: requirement.capability.version,
+                    })?;
 
             if adapter.contract.capability != requirement.capability {
                 return Err(RuntimeError::LocalContractMismatch {
@@ -282,25 +287,24 @@ impl App {
                     })?;
                     drop(reservation);
 
-                    let key = ProcessKey::new(
-                        index as u64 + 1,
-                        Some(requirement.name.clone()),
-                    );
+                    let key = ProcessKey::new(index as u64 + 1, Some(requirement.name.clone()));
                     let mut command = Command::new(program);
                     command.args(args);
-                    processes.spawn(key.clone(), &mut command).map_err(|source| {
-                        RuntimeError::ServiceStart {
+                    processes
+                        .spawn(key.clone(), &mut command)
+                        .map_err(|source| RuntimeError::ServiceStart {
                             requirement: requirement.name.clone(),
                             source,
-                        }
-                    })?;
+                        })?;
 
                     let deadline = Instant::now() + Duration::from_millis(*startup_timeout_ms);
                     let verified_connection = loop {
                         if let ProcessStatus::Exited(status) =
-                            processes.status(&key).map_err(|source| RuntimeError::ServiceStatus {
-                                requirement: requirement.name.clone(),
-                                source,
+                            processes.status(&key).map_err(|source| {
+                                RuntimeError::ServiceStatus {
+                                    requirement: requirement.name.clone(),
+                                    source,
+                                }
                             })?
                         {
                             return Err(RuntimeError::ServiceExited {
@@ -398,9 +402,7 @@ impl App {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use riesel_schema::{
-        CapabilityRef, OperationDefinition, OperationKind, TypeRef,
-    };
+    use riesel_schema::{CapabilityRef, OperationDefinition, OperationKind, TypeRef};
     use std::net::SocketAddr;
     use std::sync::Arc;
 
@@ -433,7 +435,10 @@ mod tests {
         fn contract(&self) -> Result<CapabilityContract, ConnectorError> {
             Ok(contract(self.local_version))
         }
-        fn connect(&self, _endpoint: &ServiceEndpoint) -> Result<ConnectedProvider, ConnectorError> {
+        fn connect(
+            &self,
+            _endpoint: &ServiceEndpoint,
+        ) -> Result<ConnectedProvider, ConnectorError> {
             Ok(ConnectedProvider {
                 definition: ProviderDefinition {
                     id: "example.counter.local".into(),
@@ -540,7 +545,10 @@ mod tests {
             Ok(contract(1))
         }
 
-        fn connect(&self, _endpoint: &ServiceEndpoint) -> Result<ConnectedProvider, ConnectorError> {
+        fn connect(
+            &self,
+            _endpoint: &ServiceEndpoint,
+        ) -> Result<ConnectedProvider, ConnectorError> {
             Err(io::Error::new(io::ErrorKind::ConnectionRefused, "service not ready").into())
         }
     }
@@ -593,5 +601,4 @@ mod tests {
             Err(RuntimeError::ServiceExited { .. })
         ));
     }
-
 }

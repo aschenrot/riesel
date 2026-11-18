@@ -19,7 +19,13 @@ fn binary(name: &str) -> PathBuf {
     let root = workspace_root();
     let target = env::var_os("CARGO_TARGET_DIR")
         .map(PathBuf::from)
-        .map(|path| if path.is_absolute() { path } else { root.join(path) })
+        .map(|path| {
+            if path.is_absolute() {
+                path
+            } else {
+                root.join(path)
+            }
+        })
         .unwrap_or_else(|| root.join("target"));
 
     target
@@ -29,7 +35,13 @@ fn binary(name: &str) -> PathBuf {
 
 pub fn run() -> TaskResult {
     println!("\n==> Building Storage and Todo binaries");
-    cargo(&["build", "-p", "riesel_storage_component", "--bin", "storage_service"])?;
+    cargo(&[
+        "build",
+        "-p",
+        "riesel_storage_component",
+        "--bin",
+        "storage_service",
+    ])?;
     cargo(&["build", "-p", "todo", "--bin", "todo_client"])?;
 
     // A temporary port avoids hardcoded test resources. The runtime performs
@@ -55,8 +67,11 @@ pub fn run() -> TaskResult {
             }
         }
     });
-    fs::write(&path, serde_json::to_vec_pretty(&deployment).map_err(|e| e.to_string())?)
-        .map_err(|e| format!("cannot write deployment file: {e}"))?;
+    fs::write(
+        &path,
+        serde_json::to_vec_pretty(&deployment).map_err(|e| e.to_string())?,
+    )
+    .map_err(|e| format!("cannot write deployment file: {e}"))?;
     let temporary = TemporaryConfig(path);
 
     println!("\n==> Running Todo with runtime-managed Storage at {address}");

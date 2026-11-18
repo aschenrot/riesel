@@ -1,6 +1,4 @@
-use riesel_schema::{
-    AppSchema, CapabilityRef, ProviderDefinition, ProviderError, SchemaError,
-};
+use riesel_schema::{AppSchema, CapabilityRef, ProviderDefinition, ProviderError, SchemaError};
 use std::collections::BTreeMap;
 use thiserror::Error;
 
@@ -173,7 +171,9 @@ mod tests {
     #[test]
     fn resolves_exactly_one_compatible_provider() {
         let mut registry = ProviderRegistry::new();
-        registry.register(provider("riesel.storage.memory", 1)).unwrap();
+        registry
+            .register(provider("riesel.storage.memory", 1))
+            .unwrap();
 
         let result = registry.resolve(&app(), &BTreeMap::new()).unwrap();
         assert_eq!(result.len(), 1);
@@ -184,16 +184,15 @@ mod tests {
     #[test]
     fn rejects_missing_or_incompatible_versions() {
         let mut registry = ProviderRegistry::new();
-        registry.register(provider("riesel.storage.memory", 2)).unwrap();
+        registry
+            .register(provider("riesel.storage.memory", 2))
+            .unwrap();
         assert!(matches!(
             registry.resolve(&app(), &BTreeMap::new()),
             Err(ResolutionError::NoCompatibleProvider { version: 1, .. })
         ));
 
-        let selection = BTreeMap::from([(
-            "storage".into(),
-            "riesel.storage.memory".into(),
-        )]);
+        let selection = BTreeMap::from([("storage".into(), "riesel.storage.memory".into())]);
         assert!(matches!(
             registry.resolve(&app(), &selection),
             Err(ResolutionError::IncompatibleProvider { version: 1, .. })
@@ -203,18 +202,19 @@ mod tests {
     #[test]
     fn rejects_ambiguous_matches_and_allows_explicit_selection() {
         let mut registry = ProviderRegistry::new();
-        registry.register(provider("riesel.storage.memory", 1)).unwrap();
-        registry.register(provider("riesel.storage.disk", 1)).unwrap();
+        registry
+            .register(provider("riesel.storage.memory", 1))
+            .unwrap();
+        registry
+            .register(provider("riesel.storage.disk", 1))
+            .unwrap();
 
         assert!(matches!(
             registry.resolve(&app(), &BTreeMap::new()),
             Err(ResolutionError::AmbiguousProvider { .. })
         ));
 
-        let selection = BTreeMap::from([(
-            "storage".into(),
-            "riesel.storage.memory".into(),
-        )]);
+        let selection = BTreeMap::from([("storage".into(), "riesel.storage.memory".into())]);
         let resolved = registry.resolve(&app(), &selection).unwrap();
         assert_eq!(resolved[0].provider, "riesel.storage.memory");
     }
@@ -222,10 +222,7 @@ mod tests {
     #[test]
     fn rejects_unknown_provider_and_binding() {
         let registry = ProviderRegistry::new();
-        let selection = BTreeMap::from([(
-            "storage".into(),
-            "riesel.storage.unknown".into(),
-        )]);
+        let selection = BTreeMap::from([("storage".into(), "riesel.storage.unknown".into())]);
         assert!(matches!(
             registry.resolve(&app(), &selection),
             Err(ResolutionError::UnknownProvider { .. })
@@ -241,7 +238,9 @@ mod tests {
     #[test]
     fn rejects_duplicate_provider_ids() {
         let mut registry = ProviderRegistry::new();
-        registry.register(provider("riesel.storage.memory", 1)).unwrap();
+        registry
+            .register(provider("riesel.storage.memory", 1))
+            .unwrap();
         assert!(matches!(
             registry.register(provider("riesel.storage.memory", 1)),
             Err(ResolutionError::DuplicateProvider(_))

@@ -1,8 +1,8 @@
+use crate::protocol::StorageServiceInfo;
 use crate::protocol::{
     PROTOCOL_VERSION, StorageMessage, StorageRequest, StorageResponse, StorageResult,
 };
 use crate::storage::{RecordStore, RecordStoreContract, StoreError, StoredRecord};
-use crate::protocol::StorageServiceInfo;
 use riesel_schema::CapabilityRef;
 
 use serde_json::Value;
@@ -68,8 +68,8 @@ impl TcpStore {
                 expected_capability.id, expected_capability.version
             )));
         }
-        let local = RecordStoreContract::definition()
-            .map_err(|e| failed("local storage contract", e))?;
+        let local =
+            RecordStoreContract::definition().map_err(|e| failed("local storage contract", e))?;
         if !info.contract.has_same_api_shape(&local) {
             return Err(StoreError::Failed(
                 "remote storage API shape differs from the local Rust contract".into(),

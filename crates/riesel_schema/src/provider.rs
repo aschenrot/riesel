@@ -43,10 +43,12 @@ impl ProviderDefinition {
         }
         let mut seen = BTreeSet::new();
         for capability in &self.capabilities {
-            capability.validate().map_err(|source| ProviderError::InvalidCapability {
-                provider: self.id.clone(),
-                source,
-            })?;
+            capability
+                .validate()
+                .map_err(|source| ProviderError::InvalidCapability {
+                    provider: self.id.clone(),
+                    source,
+                })?;
             if !seen.insert((&capability.id, capability.version)) {
                 return Err(ProviderError::DuplicateCapability {
                     provider: self.id.clone(),
@@ -96,7 +98,10 @@ mod tests {
     fn rejects_invalid_provider_and_empty_capabilities() {
         let mut provider = definition();
         provider.id = "MemoryStore".into();
-        assert!(matches!(provider.validate(), Err(ProviderError::InvalidId(_))));
+        assert!(matches!(
+            provider.validate(),
+            Err(ProviderError::InvalidId(_))
+        ));
         provider.id = "riesel.storage.memory".into();
         provider.capabilities.clear();
         assert!(matches!(

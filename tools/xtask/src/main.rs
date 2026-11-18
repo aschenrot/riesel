@@ -1,6 +1,6 @@
 mod command;
-mod smoke;
 mod ship;
+mod smoke;
 mod validate;
 use std::{env, process::ExitCode};
 fn main() -> ExitCode {

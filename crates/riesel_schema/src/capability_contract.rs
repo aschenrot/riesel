@@ -311,5 +311,4 @@ mod tests {
         contract.capability.version = 2;
         assert!(!contract.has_same_api_shape(&original));
     }
-
 }
