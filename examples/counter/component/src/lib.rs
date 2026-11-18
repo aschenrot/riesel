@@ -8,7 +8,6 @@ pub use server::run_counter_server;
 use riesel_app::{ComponentDefinition, ConnectorError, LocalProviderFactory};
 use riesel_counter::{
     Counter, CounterContract, CounterError, CounterObserver, CounterObserverContract,
-    CounterObserverRpcDispatcher, CounterRpcDispatcher,
 };
 use riesel_schema::ProviderDefinition;
 use std::sync::{Arc, Mutex};
@@ -51,14 +50,8 @@ impl CounterObserver for MemoryCounter {
 
 pub fn memory_counter_provider() -> Result<ComponentDefinition<MemoryCounter>, ConnectorError> {
     ComponentDefinition::new("riesel.counter.memory", MemoryCounter::default)
-        .exposes::<CounterContract, _>(
-            |state| state as Arc<dyn Counter + Send + Sync>,
-            CounterRpcDispatcher::new,
-        )?
-        .exposes::<CounterObserverContract, _>(
-            |state| state as Arc<dyn CounterObserver + Send + Sync>,
-            CounterObserverRpcDispatcher::new,
-        )
+        .exposes_contract::<CounterContract>()?
+        .exposes_contract::<CounterObserverContract>()
 }
 
 /// One authoritative provider definition, produced by the same registration

@@ -158,6 +158,17 @@ pub trait RpcClientBinding: CapabilityDescriptor {
     fn guard_local(service: Self::Service, session: crate::SessionToken) -> Self::Service;
 }
 
+/// Connect a generated capability contract to a concrete component's Rust
+/// implementation. The contract macro generates this adapter, so components
+/// do not handwrite trait-object coercions or RPC dispatcher construction.
+/// This binds one capability, not an instance or a deployment.
+pub trait ComponentAdapter<S>: RpcClientBinding {
+    type Handler: RpcHandler + 'static;
+
+    fn local(state: Arc<S>) -> Self::Service;
+    fn hosted(state: Arc<S>) -> Self::Handler;
+}
+
 /// Host-supplied provider identity and generated dispatcher, checked once.
 pub struct RpcHost<H> {
     provider: ProviderDefinition,

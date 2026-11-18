@@ -328,6 +328,21 @@ pub(crate) fn expand_capability(
                 #(#trait_methods)*
             }
 
+            impl<T> ::riesel_protocol::ComponentAdapter<T> for #descriptor_name
+            where
+                T: #trait_name + Send + Sync + 'static,
+            {
+                type Handler = #dispatcher_name<::std::sync::Arc<T>>;
+
+                fn local(state: ::std::sync::Arc<T>) -> <Self as ::riesel_protocol::RpcClientBinding>::Service {
+                    state
+                }
+
+                fn hosted(state: ::std::sync::Arc<T>) -> Self::Handler {
+                    #dispatcher_name::new(state)
+                }
+            }
+
             impl ::riesel_protocol::RpcClientBinding for #descriptor_name {
                 type Service = ::std::sync::Arc<dyn #trait_name + Send + Sync>;
 

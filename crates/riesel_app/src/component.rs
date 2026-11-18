@@ -3,7 +3,9 @@
 //! capability binding uses that same Arc-backed state in either mode.
 
 use crate::{ConnectorError, LocalProviderFactory, LocalProviderInstance};
-use riesel_protocol::{RpcClientBinding, RpcError, RpcHandler, RpcRouter, serve_router};
+use riesel_protocol::{
+    ComponentAdapter, RpcClientBinding, RpcError, RpcHandler, RpcRouter, serve_router,
+};
 use riesel_schema::{CapabilityContract, ProviderDefinition};
 use std::io;
 use std::sync::Arc;
@@ -66,6 +68,15 @@ impl<S: Send + Sync + 'static> ComponentDefinition<S> {
             }),
         });
         Ok(self)
+    }
+
+    /// Bind a capability without repeating its trait-object conversion or
+    /// generated dispatcher. The binding derives from the contract macro.
+    pub fn exposes_contract<C>(self) -> Result<Self, ConnectorError>
+    where
+        C: ComponentAdapter<S> + 'static,
+    {
+        self.exposes::<C, C::Handler>(C::local, C::hosted)
     }
 
     fn provider_definition(&self) -> ProviderDefinition {
