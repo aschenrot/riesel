@@ -13,10 +13,10 @@ pub fn run_storage_server(address: &str) -> io::Result<()> {
 mod tests {
     use super::*;
     use crate::{MemoryStore, memory_provider_definition};
-    use riesel_storage::RecordStoreRpcDispatcher;
     use riesel_protocol::{
         CallError, RpcError, RpcHost, RpcTransport, TcpRpcTransport, handle_tcp_connection,
     };
+    use riesel_storage::RecordStoreRpcDispatcher;
     use riesel_storage::{RecordStoreContract, RecordStoreRpcClient, StoreError};
     use serde_json::json;
     use std::net::TcpListener;
