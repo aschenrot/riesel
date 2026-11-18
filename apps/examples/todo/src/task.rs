@@ -1,8 +1,8 @@
 use riesel::storage::{RecordStore, StoreError, StoredRecord};
 
+use riesel::RieselModel;
 use riesel::schema::{ModelDefinition, RecordError};
 use serde::{Deserialize, Serialize};
-use riesel::RieselModel;
 use serde_json::json;
 use thiserror::Error;
 use uuid::Uuid;
@@ -235,5 +235,4 @@ mod tests {
         let schema = parse_schema(include_str!("../app.json")).unwrap();
         assert_eq!(TaskData::model_definition(), schema.models["task"]);
     }
-
 }

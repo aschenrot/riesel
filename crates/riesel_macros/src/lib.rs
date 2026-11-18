@@ -477,10 +477,12 @@ fn expand_riesel_model(input: DeriveInput) -> syn::Result<proc_macro2::TokenStre
         }
     }
 
-    let model = model.ok_or_else(|| syn::Error::new(
-        name.span(),
-        "RieselModel requires #[riesel(model = \"name\")]",
-    ))?;
+    let model = model.ok_or_else(|| {
+        syn::Error::new(
+            name.span(),
+            "RieselModel requires #[riesel(model = \"name\")]",
+        )
+    })?;
     let value = model.value();
     let mut chars = value.chars();
     if !matches!(chars.next(), Some(c) if c.is_ascii_lowercase())
@@ -490,15 +492,25 @@ fn expand_riesel_model(input: DeriveInput) -> syn::Result<proc_macro2::TokenStre
     }
 
     let Data::Struct(data) = input.data else {
-        return Err(syn::Error::new(name.span(), "RieselModel requires a named struct"));
+        return Err(syn::Error::new(
+            name.span(),
+            "RieselModel requires a named struct",
+        ));
     };
     let Fields::Named(fields) = data.fields else {
-        return Err(syn::Error::new(name.span(), "RieselModel requires named fields"));
+        return Err(syn::Error::new(
+            name.span(),
+            "RieselModel requires named fields",
+        ));
     };
 
     let mut generated_fields = Vec::new();
     for field in fields.named {
-        if field.attrs.iter().any(|attribute| attribute.path().is_ident("serde")) {
+        if field
+            .attrs
+            .iter()
+            .any(|attribute| attribute.path().is_ident("serde"))
+        {
             return Err(syn::Error::new(
                 field.span(),
                 "Serde field attributes are not supported by RieselModel yet",

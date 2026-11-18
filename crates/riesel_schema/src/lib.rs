@@ -10,8 +10,8 @@ pub use capability_contract::{
     CapabilityContract, ContractError, OperationDefinition, OperationKind, ParameterDefinition,
     RieselType, TypeDefinition, TypeRef,
 };
-pub use provider::{ProviderDefinition, ProviderError};
 pub use model::{ModelField, RieselModel};
+pub use provider::{ProviderDefinition, ProviderError};
 
 pub use schema::{
     AppDefinition, AppSchema, CapabilityRequirement, FieldType, ModelDefinition, RecordError,
