@@ -2,7 +2,9 @@
 resolver = "3"
 members = [
   "apps/examples/simple_app",
-  "apps/examples/todo", "components/storage",
+  "apps/examples/todo",
+  "apps/examples/counter_rpc",
+  "components/storage",
   "crates/riesel",
   "crates/riesel_app",
   "crates/riesel_macros",
