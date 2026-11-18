@@ -1,11 +1,13 @@
 use crate::command::{TaskResult, cargo, workspace_root};
 use std::env;
 use std::fs;
+use std::io::{BufRead, BufReader, Write};
 use std::net::{SocketAddr, TcpStream};
 use std::path::PathBuf;
-use std::process::Command;
-use std::sync::{Arc, Mutex};
-use std::time::Duration;
+use std::process::{Child, Command, Stdio};
+use std::sync::{Arc, Mutex, mpsc};
+use std::thread;
+use std::time::{Duration, Instant};
 
 use riesel::schema::CapabilityContract;
 use riesel::storage::RecordStoreContract;
@@ -99,6 +101,10 @@ pub fn run() -> TaskResult {
     println!("\n==> Verifying multi-service startup rollback");
     verify_multi_service_rollback()?;
     println!("\nMulti-service rollback smoke test passed.");
+
+    println!("\n==> Verifying cooperative Storage shutdown");
+    verify_graceful_storage_exit()?;
+    println!("\nCooperative Storage shutdown smoke test passed.");
     Ok(())
 }
 
@@ -180,4 +186,70 @@ fn verify_multi_service_rollback() -> TaskResult {
         ));
     }
     Ok(())
+}
+
+/// Kill and reap the child even if readiness, protocol validation, or graceful
+/// shutdown fails partway through a smoke test.
+struct ChildCleanup(Child);
+
+impl Drop for ChildCleanup {
+    fn drop(&mut self) {
+        let _ = self.0.kill();
+        let _ = self.0.wait();
+    }
+}
+
+fn verify_graceful_storage_exit() -> TaskResult {
+    let mut child = ChildCleanup(
+        Command::new(binary("storage_service"))
+            .env("RIESEL_BIND_ADDRESS", "127.0.0.1:0")
+            .env("RIESEL_CONTROL_STDIN", "1")
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .spawn()
+            .map_err(|error| format!("cannot spawn cooperative Storage: {error}"))?,
+    );
+
+    let stdout = child.0.stdout.take().ok_or("managed Storage stdout not piped")?;
+    let (sender, receiver) = mpsc::sync_channel(1);
+    thread::spawn(move || {
+        let mut line = String::new();
+        let result = BufReader::new(stdout).read_line(&mut line).map(|_| line);
+        let _ = sender.send(result);
+    });
+    let ready_line = receiver
+        .recv_timeout(Duration::from_secs(10))
+        .map_err(|error| format!("Storage readiness timed out: {error}"))?
+        .map_err(|error| format!("Storage readiness pipe failed: {error}"))?;
+    let payload = ready_line
+        .strip_prefix("RIESEL_READY ")
+        .ok_or("Storage omitted RIESEL_READY startup frame")?;
+    let ready: serde_json::Value = serde_json::from_str(payload)
+        .map_err(|error| format!("invalid Storage ready frame: {error}"))?;
+    if ready["shutdown"] != "stdin_line" || !ready["address"].is_string() {
+        return Err(format!("Storage did not negotiate stdin_line shutdown: {ready}"));
+    }
+
+    child
+        .0
+        .stdin
+        .take()
+        .ok_or("managed Storage stdin not piped")?
+        .write_all(b"RIESEL_SHUTDOWN\n")
+        .map_err(|error| format!("cannot request Storage shutdown: {error}"))?;
+
+    let deadline = Instant::now() + Duration::from_secs(5);
+    loop {
+        if let Some(status) = child.0.try_wait().map_err(|error| error.to_string())? {
+            return if status.success() {
+                Ok(())
+            } else {
+                Err(format!("cooperative Storage exited unsuccessfully: {status}"))
+            };
+        }
+        if Instant::now() >= deadline {
+            return Err("Storage did not exit after cooperative shutdown request".into());
+        }
+        thread::sleep(Duration::from_millis(10));
+    }
 }
