@@ -97,6 +97,7 @@ pub(crate) fn expand_capability(
     let mut client_methods = Vec::new();
     let mut trait_methods = Vec::new();
     let mut scoped_methods = Vec::new();
+    let mut arc_methods = Vec::new();
     let mut dispatch_arms = Vec::new();
 
     for entry in &mut item.items {
@@ -279,6 +280,14 @@ pub(crate) fn expand_capability(
                     })
             }
         });
+        arc_methods.push(quote! {
+            fn #method_name(
+                &self,
+                #(#client_arguments),*
+            ) -> Result<#result_type, #error_type> {
+                self.as_ref().#method_name(#(#arg_names),*)
+            }
+        });
         scoped_methods.push(quote! {
             fn #method_name(
                 &self,
@@ -389,6 +398,12 @@ pub(crate) fn expand_capability(
 
     Ok(quote! {
         #item
+
+        /// Automatically forward capability methods through shared Arc
+        /// implementations. Component authors never duplicate these methods.
+        impl<T: #trait_name + ?Sized> #trait_name for ::std::sync::Arc<T> {
+            #(#arc_methods)*
+        }
 
         #[derive(Debug, Clone, Copy)]
         #visibility struct #descriptor_name;

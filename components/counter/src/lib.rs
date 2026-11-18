@@ -65,6 +65,8 @@ mod tests {
         assert_eq!(counter.value().unwrap(), 0);
         assert_eq!(counter.add(7).unwrap(), 7);
         assert_eq!(counter.label("count").unwrap(), "count: 7");
+        let shared = Arc::new(MemoryCounter::default());
+        assert_eq!(riesel_counter::Counter::add(&shared, 2).unwrap(), 2);
         assert_eq!(counter.add(0), Err(CounterError::ZeroIncrement));
     }
 }
