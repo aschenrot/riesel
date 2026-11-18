@@ -122,6 +122,11 @@ dependencies = [
  "riesel_macros",
  "riesel_schema",
  "riesel_storage",
+ "riesel_storage_component",
+ "serde",
+ "serde_json",
+ "thiserror",
+ "uuid",
 ]
 
 [[package]]
