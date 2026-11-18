@@ -1,20 +1,55 @@
-use riesel_storage::{RecordStore, StoreError, StoredRecord};
+use riesel_schema::ModelDefinition;
+use riesel_storage::{MAX_PAGE_SIZE, RecordPage, RecordStore, StoreError, StoredRecord};
 
 use serde_json::Value;
 use std::collections::BTreeMap;
+use std::ops::Bound;
 use std::sync::{Mutex, MutexGuard};
 use uuid::Uuid;
 
 type Records = BTreeMap<(String, Uuid), StoredRecord>;
+const MAX_RECORD_BYTES: usize = 64 * 1024;
 
 #[derive(Default)]
 pub struct MemoryStore {
     records: Mutex<Records>,
+    models: Option<BTreeMap<String, ModelDefinition>>,
 }
 
 impl MemoryStore {
     pub fn new() -> Self {
         Self::default()
+    }
+
+    /// Bind this instance to authoritative application model metadata.
+    /// Standalone reference hosts without a schema remain permissive and
+    /// must not be treated as production schema-enforcing providers.
+    pub fn with_models(models: BTreeMap<String, ModelDefinition>) -> Self {
+        Self {
+            records: Mutex::new(BTreeMap::new()),
+            models: Some(models),
+        }
+    }
+
+    fn validate_data(&self, model: &str, data: &Value) -> Result<(), StoreError> {
+        if !data.is_object() {
+            return Err(StoreError::Failed("record data must be a JSON object".into()));
+        }
+        let size = serde_json::to_vec(data)
+            .map_err(|error| StoreError::Failed(error.to_string()))?
+            .len();
+        if size > MAX_RECORD_BYTES {
+            return Err(StoreError::Failed("record exceeds 64 KiB".into()));
+        }
+        if let Some(models) = &self.models {
+            let definition = models
+                .get(model)
+                .ok_or_else(|| StoreError::Failed(format!("unknown model: {model}")))?;
+            definition
+                .validate_record(data)
+                .map_err(|error| StoreError::Failed(error.to_string()))?;
+        }
+        Ok(())
     }
 
     fn lock_records(&self) -> Result<MutexGuard<'_, Records>, StoreError> {
@@ -26,6 +61,7 @@ impl MemoryStore {
 
 impl RecordStore for MemoryStore {
     fn create(&self, model: &str, data: Value) -> Result<StoredRecord, StoreError> {
+        self.validate_data(model, &data)?;
         let mut records = self.lock_records()?;
 
         loop {
@@ -54,14 +90,38 @@ impl RecordStore for MemoryStore {
         Ok(records.get(&(model.to_owned(), id)).cloned())
     }
 
-    fn list(&self, model: &str) -> Result<Vec<StoredRecord>, StoreError> {
+    fn list_page(
+        &self,
+        model: &str,
+        after: Option<Uuid>,
+        limit: u64,
+    ) -> Result<RecordPage, StoreError> {
+        if !(1..=MAX_PAGE_SIZE).contains(&limit) {
+            return Err(StoreError::InvalidPageSize);
+        }
         let records = self.lock_records()?;
-
-        Ok(records
-            .iter()
-            .filter(|((name, _), _)| name == model)
-            .map(|(_, record)| record.clone())
-            .collect())
+        let lower = match after {
+            Some(cursor) => Bound::Excluded((model.to_owned(), cursor)),
+            None => Bound::Included((model.to_owned(), Uuid::nil())),
+        };
+        let mut page: Vec<StoredRecord> = Vec::new();
+        for ((name, _), record) in records.range((lower, Bound::Unbounded)) {
+            if name != model {
+                break;
+            }
+            if page.len() == limit as usize {
+                let next_cursor = page.last().map(|record| record.id);
+                return Ok(RecordPage {
+                    records: page,
+                    next_cursor,
+                });
+            }
+            page.push(record.clone());
+        }
+        Ok(RecordPage {
+            records: page,
+            next_cursor: None,
+        })
     }
 
     fn update(
@@ -71,6 +131,7 @@ impl RecordStore for MemoryStore {
         expected_revision: u64,
         data: Value,
     ) -> Result<StoredRecord, StoreError> {
+        self.validate_data(model, &data)?;
         let mut records = self.lock_records()?;
 
         let record = records
@@ -90,6 +151,17 @@ impl RecordStore for MemoryStore {
         record.revision = next_revision;
 
         Ok(record.clone())
+    }
+
+    fn delete(&self, model: &str, id: Uuid, expected_revision: u64) -> Result<(), StoreError> {
+        let mut records = self.lock_records()?;
+        let key = (model.to_owned(), id);
+        let current = records.get(&key).ok_or(StoreError::NotFound)?;
+        if current.revision != expected_revision {
+            return Err(StoreError::RevisionConflict);
+        }
+        records.remove(&key);
+        Ok(())
     }
 }
 

@@ -11,6 +11,18 @@ pub struct StoredRecord {
     pub revision: u64,
 }
 
+/// A bounded page in stable record-id order. next_cursor is Some only
+/// when another page currently exists.
+#[derive(Debug, Clone, Serialize, Deserialize, RieselType)]
+pub struct RecordPage {
+    pub records: Vec<StoredRecord>,
+    pub next_cursor: Option<Uuid>,
+}
+
+/// Reference transport page limit; this pairs with the memory provider's
+/// record payload bound so one page stays below the RPC frame budget.
+pub const MAX_PAGE_SIZE: u64 = 32;
+
 #[derive(Debug, Error, Serialize, Deserialize, RieselType)]
 pub enum StoreError {
     #[error("record not found")]
@@ -18,6 +30,9 @@ pub enum StoreError {
 
     #[error("record was modified since it was read")]
     RevisionConflict,
+
+    #[error("page size must be between 1 and 32 records")]
+    InvalidPageSize,
 
     #[error("storage operation failed: {0}")]
     Failed(String),
@@ -35,7 +50,7 @@ impl From<riesel_protocol::RpcError> for StoreError {
 /// The public, versioned record-storage capability contract.
 ///
 /// API metadata is generated from this trait and the RieselType derives above.
-#[capability(id = "riesel.storage.records", version = 1, client_trait)]
+#[capability(id = "riesel.storage.records", version = 2, client_trait)]
 pub trait RecordStore {
     /// Create a record in a model with a generated identifier and initial revision.
     #[command]
@@ -45,9 +60,15 @@ pub trait RecordStore {
     #[query]
     fn get(&self, model: &str, id: Uuid) -> Result<Option<StoredRecord>, StoreError>;
 
-    /// List all records belonging to a model.
+    /// Read a bounded page in ascending record-id order. Use the returned
+    /// cursor for the next page; pages are not a transaction snapshot.
     #[query]
-    fn list(&self, model: &str) -> Result<Vec<StoredRecord>, StoreError>;
+    fn list_page(
+        &self,
+        model: &str,
+        after: Option<Uuid>,
+        limit: u64,
+    ) -> Result<RecordPage, StoreError>;
 
     /// Replace record data if the expected revision matches its current revision.
     #[command]
@@ -58,6 +79,11 @@ pub trait RecordStore {
         expected_revision: u64,
         data: Value,
     ) -> Result<StoredRecord, StoreError>;
+
+    /// Delete only the revision previously read by the caller.
+    #[command]
+    fn delete(&self, model: &str, id: Uuid, expected_revision: u64)
+        -> Result<(), StoreError>;
 }
 
 #[cfg(test)]
