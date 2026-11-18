@@ -44,7 +44,11 @@ impl TaskGroup {
         if state.closed || self.cancellation.is_cancelled() {
             return Err(RuntimeError::TaskGroupClosed);
         }
-        if name.is_empty() || state.handles.iter().any(|(existing, _)| existing == &name) {
+        if name.is_empty()
+            || name.len() > 128
+            || name.chars().any(char::is_control)
+            || state.handles.iter().any(|(existing, _)| existing == &name)
+        {
             return Err(RuntimeError::InvalidTaskName(name));
         }
         let token = self.cancellation.clone();

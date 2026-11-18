@@ -325,6 +325,8 @@ pub enum RuntimeError {
     TaskGroupClosed,
     #[error("application task {name} failed: {message}")]
     TaskFailed { name: String, message: String },
+    #[error("multiple application shutdown failures: {errors:?}")]
+    ShutdownFailures { errors: Vec<RuntimeError> },
 }
 
 /// Errors from running application business logic and shutting down its services.
@@ -425,9 +427,17 @@ impl RunningApp {
             .unwrap_or_else(PoisonError::into_inner)
             .stop_all()
             .map_err(RuntimeError::Shutdown);
-        monitor?;
-        tasks?;
-        stopped
+        let mut failures = Vec::new();
+        for result in [monitor, tasks, stopped] {
+            if let Err(failure) = result {
+                failures.push(failure);
+            }
+        }
+        match failures.len() {
+            0 => Ok(()),
+            1 => Err(failures.remove(0)),
+            _ => Err(RuntimeError::ShutdownFailures { errors: failures }),
+        }
     }
 
     /// Get a typed, already-verified service by its application requirement name.
@@ -1132,6 +1142,61 @@ mod tests {
                 shutdown: None,
                 ..
             })
+        ));
+    }
+
+
+    #[test]
+    fn delayed_exit_child() {
+        if std::env::var_os("RIESEL_RUNTIME_TEST_DELAYED_EXIT").is_some() {
+            std::thread::sleep(Duration::from_millis(400));
+        }
+    }
+
+    #[test]
+    fn managed_failure_during_task_join_is_not_missed() {
+        let key = ProcessKey::new(55, Some("counter".into()));
+        let mut command = Command::new(std::env::current_exe().unwrap());
+        command
+            .args(["--exact", "runtime::tests::delayed_exit_child"])
+            .env("RIESEL_RUNTIME_TEST_DELAYED_EXIT", "1")
+            .stdin(Stdio::null())
+            .stdout(Stdio::null())
+            .stderr(Stdio::null());
+        let mut registry = ProcessRegistry::new();
+        registry.spawn(key.clone(), &mut command).unwrap();
+        let processes = Arc::new(Mutex::new(registry));
+        let supervisor = ServiceMonitor::start(
+            Arc::clone(&processes),
+            BTreeMap::from([("counter".into(), key)]),
+        )
+        .unwrap();
+        let tasks = TaskGroup::new(supervisor.cancellation_token());
+        let running = RunningApp {
+            app: app(),
+            resolved: vec![],
+            services: BTreeMap::new(),
+            processes,
+            supervisor,
+            tasks,
+        };
+        let result = RunningApp::execute(running, |running| {
+            running.spawn_task("finishing", |cancel| {
+                assert!(cancel.wait_cancelled_timeout(Duration::from_secs(5)));
+                // The child exits while this task is still joining. The
+                // monitor must not stop until joining finishes.
+                std::thread::sleep(Duration::from_millis(1_200));
+                Ok(())
+            })?;
+            Ok(())
+        });
+        assert!(matches!(
+            result,
+            Err(AppRunError::Supervision {
+                failure,
+                entry: None,
+                shutdown: None,
+            }) if matches!(*failure, RuntimeError::ServiceExited { .. })
         ));
     }
 
