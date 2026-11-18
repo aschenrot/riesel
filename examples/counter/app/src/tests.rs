@@ -1,7 +1,6 @@
 use super::*;
 use riesel_protocol::{
-    CallError, LocalRpc, RpcError, RpcHandler, RpcTransport, TcpRpcTransport,
-    handle_tcp_connection,
+    CallError, LocalRpc, RpcError, RpcHandler, RpcTransport, TcpRpcTransport, handle_tcp_connection,
 };
 use serde_json::json;
 use std::net::TcpListener;
@@ -80,8 +79,7 @@ fn generated_local_capability_handles_expire_with_their_session() {
 fn managed_component_router_rejects_missing_and_duplicate_capability_handlers() {
     use riesel_protocol::RpcRouter;
     let router =
-        RpcRouter::new(riesel_counter_component::memory_provider_definition().unwrap())
-            .unwrap();
+        RpcRouter::new(riesel_counter_component::memory_provider_definition().unwrap()).unwrap();
     assert!(matches!(
         router.validate_routes(),
         Err(RpcError::Contract(_))
