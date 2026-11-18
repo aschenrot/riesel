@@ -256,6 +256,19 @@ impl Context<'_> {
         self.running.cancellation_token()
     }
 
+    /// Start work owned by this application. On service failure or shutdown
+    /// the task's cancellation token is signalled; all tasks must finish
+    /// before managed providers can be torn down or restarted.
+    pub fn spawn_task(
+        &self,
+        name: impl Into<String>,
+        task: impl FnOnce(CancellationToken) -> std::result::Result<(), ConnectorError>
+            + Send
+            + 'static,
+    ) -> Result<()> {
+        Ok(self.running.spawn_task(name, task)?)
+    }
+
     /// Retrieve a typed capability service generated from a Rust contract.
     /// The requirement's declared version is checked before downcasting.
     pub fn capability<C: RpcClientBinding>(&self, name: &str) -> Result<&C::Service> {

@@ -6,6 +6,7 @@ mod recovery;
 mod resolver;
 mod runtime;
 mod supervisor;
+mod tasks;
 
 pub use app::{App, AppError};
 pub use config::AppConfig;

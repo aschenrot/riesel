@@ -5,6 +5,7 @@
 use crate::plan::{DeploymentPlan, PlannedService, PlannedTarget};
 use crate::recovery::run_with_recovery;
 use crate::supervisor::{CancellationToken, ServiceMonitor};
+use crate::tasks::TaskGroup;
 use crate::{
     App, DeploymentConfig, DeploymentError, ProviderRegistry, ResolutionError, ResolvedCapability,
     ServiceEndpoint,
@@ -312,6 +313,18 @@ pub enum RuntimeError {
     MonitorPanicked,
     #[error("managed service registry was poisoned during monitoring")]
     MonitorRegistryPoisoned,
+    #[error("cannot start application task {name}: {source}")]
+    TaskStart {
+        name: String,
+        #[source]
+        source: io::Error,
+    },
+    #[error("invalid or duplicate application task name: {0}")]
+    InvalidTaskName(String),
+    #[error("application task group is already closing")]
+    TaskGroupClosed,
+    #[error("application task {name} failed: {message}")]
+    TaskFailed { name: String, message: String },
 }
 
 /// Errors from running application business logic and shutting down its services.
@@ -339,6 +352,12 @@ pub enum AppRunError {
         restarts: u32,
         last: Box<AppRunError>,
     },
+    #[error("application background task failed: {failure}; entrypoint: {entry:?}; shutdown: {shutdown:?}")]
+    TaskFailure {
+        failure: Box<RuntimeError>,
+        entry: Option<ConnectorError>,
+        shutdown: Option<Box<RuntimeError>>,
+    },
 }
 
 /// Active application with verified services and owned child processes.
@@ -349,6 +368,7 @@ pub struct RunningApp {
     services: BTreeMap<String, Arc<dyn Any + Send + Sync>>,
     processes: Arc<Mutex<ProcessRegistry>>,
     supervisor: ServiceMonitor,
+    tasks: TaskGroup,
 }
 
 impl RunningApp {
@@ -363,10 +383,21 @@ impl RunningApp {
     /// Check for already-observed failures and immediately inspect running
     /// managed processes. Failure remains observable until shutdown.
     pub fn check_processes(&self) -> Result<(), RuntimeError> {
-        match self.supervisor.check_now() {
-            Some(failure) => Err(failure),
-            None => Ok(()),
+        if let Some(failure) = self.supervisor.check_now() {
+            return Err(failure);
         }
+        self.tasks.failure().map_or(Ok(()), Err)
+    }
+
+    /// Start an application-owned task. The task receives cooperative
+    /// cancellation and is always joined before providers are stopped.
+    /// Task errors and panics cancel the session and remain observable.
+    pub fn spawn_task(
+        &self,
+        name: impl Into<String>,
+        task: impl FnOnce(CancellationToken) -> Result<(), ConnectorError> + Send + 'static,
+    ) -> Result<(), RuntimeError> {
+        self.tasks.spawn(name.into(), task)
     }
 
     /// Share a cooperative cancellation token with long-running application
@@ -379,6 +410,9 @@ impl RunningApp {
     /// reverse startup order. External TCP services remain untouched.
     pub fn shutdown(&mut self) -> Result<(), RuntimeError> {
         let monitor = self.supervisor.stop();
+        // Cancellation is now signalled. Join application tasks before
+        // destroying their providers or reaping managed processes.
+        let tasks = self.tasks.join();
         self.services.clear();
         let stopped = self
             .processes
@@ -387,6 +421,7 @@ impl RunningApp {
             .stop_all()
             .map_err(RuntimeError::Shutdown);
         monitor?;
+        tasks?;
         stopped
     }
 
@@ -756,12 +791,14 @@ impl App {
         let processes = Arc::new(Mutex::new(processes));
         let supervisor = ServiceMonitor::start(Arc::clone(&processes), managed)
             .map_err(RuntimeError::MonitorStart)?;
+        let tasks = TaskGroup::new(supervisor.cancellation_token());
         Ok(RunningApp {
             app: self,
             resolved,
             services,
             processes,
             supervisor,
+            tasks,
         })
     }
 
@@ -791,12 +828,24 @@ impl RunningApp {
         // before terminating children, avoiding a check/teardown race.
         let shutdown = running.shutdown().err();
         let failure = running.supervisor.observed_failure();
+        let task_failure = running.tasks.failure();
 
         if let Some(failure) = failure {
             return Err(AppRunError::Supervision {
                 failure: Box::new(failure),
                 entry: outcome.err(),
                 shutdown: shutdown.map(Box::new),
+            });
+        }
+        if let Some(failure) = task_failure {
+            return Err(AppRunError::TaskFailure {
+                failure: Box::new(failure),
+                entry: outcome.err(),
+                // The primary task error has its own field; do not duplicate
+                // that same error as a secondary shutdown failure.
+                shutdown: shutdown
+                    .filter(|error| !matches!(error, RuntimeError::TaskFailed { .. }))
+                    .map(Box::new),
             });
         }
         match (outcome, shutdown) {
@@ -1025,12 +1074,14 @@ mod tests {
             BTreeMap::from([("counter".into(), key)]),
         )
         .unwrap();
+        let tasks = TaskGroup::new(supervisor.cancellation_token());
         RunningApp {
             app: app(),
             resolved: vec![],
             services: BTreeMap::new(),
             processes,
             supervisor,
+            tasks,
         }
     }
 

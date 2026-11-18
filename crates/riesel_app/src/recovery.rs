@@ -43,7 +43,9 @@ impl RecoveryPolicy {
                 || !(1..=120_000).contains(max_backoff_ms)
                 || initial_backoff_ms > max_backoff_ms
             {
-                return Err("restart backoff must be positive, <= 120000 ms and initial <= maximum");
+                return Err(
+                    "restart backoff must be positive, <= 120000 ms and initial <= maximum",
+                );
             }
         }
         Ok(())
