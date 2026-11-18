@@ -7,8 +7,6 @@ repository.workspace = true
 
 [dependencies]
 riesel.workspace = true
-anyhow.workspace = true
-serde_json.workspace = true
 thiserror.workspace = true
 uuid.workspace = true
 serde.workspace = true
