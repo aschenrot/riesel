@@ -2,7 +2,7 @@
 //! protocol adapter. Capability macros opt into RpcClientBinding once.
 use riesel_app::{CapabilityConnector, ConnectedProvider, ConnectorError, ServiceEndpoint};
 use riesel_protocol::{RpcClientBinding, TcpRpcTransport};
-use riesel_schema::{CapabilityContract, CapabilityDescriptor};
+use riesel_schema::CapabilityContract;
 use std::io;
 use std::marker::PhantomData;
 
