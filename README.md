@@ -36,6 +36,27 @@ to become ready before `consumer` starts. Dependencies are validated for
 missing aliases and cycles. They govern startup and reverse teardown order,
 not provider discovery or automatic recovery.
 
+## Inspecting deployment plans
+
+You can validate every requirement, local provider selection, registered
+connector contract, and dependency ordering **without starting any services**:
+
+```sh
+cargo run -p todo --bin todo_client -- --inspect-deployment path/to/deployment.json
+```
+
+The output is a JSON startup plan, with dependency-ordered requirement aliases
+and selected local, TCP, or managed targets. The same preflight runs
+automatically before `App::start` creates its first component, so invalid
+late bindings do not leave earlier services running. Low-level callers can
+use `App::preflight(&deployment, &connectors)`; the Rust SDK provides
+`Application::deployment_plan(&deployment)`.
+
+Preflight checks **local definitions only**. It cannot prove a remote
+service exists, verify the server's advertised contract, authenticate a
+provider, inspect a binary's behavior, or guarantee that a process will
+become ready. Those checks still occur at actual startup.
+
 ## Observing and cancelling managed applications
 
 A single runtime-owned monitor watches child process exits. An unexpected

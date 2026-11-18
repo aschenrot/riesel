@@ -20,7 +20,9 @@ Clippy (warnings denied), tests, and documentation. `cargo smoke` executes
 the actual Todo and Storage binaries, including runtime-owned Storage processes,
 then verifies a failed second managed service launch cleans up the first one,
 and that the Storage binary cooperatively exits on a bounded private stdin
-shutdown request. Workspace tests also exercise a real child exiting during
+shutdown request. A separate smoke check runs the `--inspect-deployment`
+CLI with a nonexistent service executable and validates the generated plan
+without invoking that executable. Workspace tests also exercise a real child exiting during
 application execution, cancellation delivery, preservation of concurrent
 business errors, normal shutdown without false crash reports, and cleanup
 of a healthy sibling when another managed child exits.
@@ -34,7 +36,7 @@ of a healthy sibling when another managed child exits.
 | 2 — Provider resolution | Implemented for exact versions | Registration, explicit selection, missing/ambiguous-provider errors |
 | 3 — Capability binding | Initial implementation | In-process factories, typed Rust record handles, verified remote TCP |
 | 4 — Application runtime | End-to-end slice implemented; lifecycle hardening underway | Managed startup, dependency ordering, rollback, bounded shutdown, continuous process exit monitoring, cooperative cancellation and supervised run errors |
-| 5 — Developer experience | Generic RPC integration implemented; still partial | Rust SDK, model derive, generated Storage and Counter RPC, generic typed connectors, schema export |
+| 5 — Developer experience | Generic RPC and deployment inspection implemented; still partial | Rust SDK, model derive, generated Storage and Counter RPC, typed connectors, schema export, preflight and JSON startup plans |
 | 6 — Production reliability | Not implemented | Persistent Storage, secure transports, authorization, recovery, observability |
 
 Completed stages mean *working within their currently specified scope*, not
@@ -137,6 +139,36 @@ internal dependencies or discover providers automatically.
 Deployment configuration remains optional for local development but is
 necessary when choosing external or managed process execution.
 
+### Side-effect-free provider preflight
+
+`App::preflight(&deployment, &connectors)` validates all declared
+requirements and the complete selected dependency order before starting any
+components. It catches unknown local providers, missing adapters, wrong
+local contract versions, missing endpoints, invalid managed timeouts and
+cyclic dependencies. It does not call local factories or connect to TCP
+services. `App::start` now executes the preflighted plan rather than
+recomputing startup order; a late configuration error is reported before an
+earlier managed process is spawned.
+
+`Application::deployment_plan(&deployment)` exposes the same inspection to
+Rust SDK applications, and `--inspect-deployment FILE` emits a machine-readable
+JSON plan without executing application logic. The output includes ordered
+requirement aliases, capability IDs/versions and selected local, TCP or
+managed targets; it deliberately omits managed process arguments.
+
+Provider identity and remote contract claims **cannot** be established by
+a no-I/O preflight. They are verified at runtime after connecting. Preflight
+does not authenticate remote services or prove a managed binary is trustworthy.
+
+### Recovery architecture boundary
+
+Generated RPC clients still retain the TCP endpoint established at initial
+connection. Merely relaunching a managed process after a crash would leave
+existing application handles pointing to a stale port. Until an explicit
+rebindable transport and dependency/state recovery contract are implemented,
+Riesel intentionally retains the fail-fast policy. Do not advertise
+transparent restart or silently reuse stale client handles.
+
 ## Generated capability RPC — implemented reference slice
 
 The `#[capability]` macro now generates, from one annotated Rust trait:
@@ -184,9 +216,10 @@ provider discovery remain future work.
    Remaining: explicit configurable failure/restart policy, dependency-aware
    recovery, cancellation coordination for application-owned tasks, further
    resilience/fault-injection scenarios, and operational metrics.
-2. **Developer tooling and models:** inspect provider selection before
-   launching services; improve model field types and schema evolution; test
-   generated adapter compatibility with a second runtime-integrated provider.
+2. **Developer tooling and models:** provider preflight, dependency ordering
+   and JSON inspection plans are implemented. Remaining: richer model field
+   types, schema evolution, and generated adapter compatibility with a
+   second runtime-integrated provider.
 3. **Production operation:** persistent Storage, migration strategy, secure
    authenticated transports, authorization and secrets, resource limits,
    observability, repeatable deployments, and recovery policies.

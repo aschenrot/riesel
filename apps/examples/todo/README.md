@@ -44,6 +44,17 @@ Storage exits normally on the managed runtime's private stdin shutdown request.
 
 Linux and Windows CI execute these tests.
 
+## Inspect a deployment before launching services
+
+```sh
+cargo run -p todo --bin todo_client -- --inspect-deployment path/to/deployment.json
+```
+
+This prints a JSON plan with the selected provider endpoint and dependency
+order, without creating Storage processes or opening network connections.
+It validates the local application definition and connector declarations,
+**not** the real identity or availability of an external provider.
+
 ## Remote or managed deployments
 
 To run against an *externally managed* Storage instance, first launch it:
