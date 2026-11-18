@@ -6,9 +6,11 @@ or runtime-managed providers. The runtime handles provider validation,
 generated typed RPC, managed child startup, and dependency-ordered teardown
 with optional bounded cooperative shutdown.
 
-**Status:** reference applications work; production persistence, authenticated
-remote transport, continuous service supervision and UI tooling are not
-implemented. Do not use the in-memory Storage reference as durable storage.
+**Status:** reference applications work and runtime-owned children are
+supervised with cooperative cancellation. Production persistence,
+authenticated remote transport, automatic service recovery, and UI tooling
+are not implemented. Do not use the in-memory Storage reference as durable
+storage.
 
 ## Run and validate
 
@@ -32,7 +34,38 @@ capability. Once an alias is declared, use
 `Application::depends_on("consumer", ["storage"])` to require `storage`
 to become ready before `consumer` starts. Dependencies are validated for
 missing aliases and cycles. They govern startup and reverse teardown order,
-not provider discovery or background recovery.
+not provider discovery or automatic recovery.
+
+## Observing and cancelling managed applications
+
+A single runtime-owned monitor watches child process exits. An unexpected
+exit of any required **managed** service (including exit code 0) cancels the
+running application's shared `CancellationToken`. Both
+`RunningApp::cancellation_token()` and `Context::cancellation_token()`
+provide access to the same signal. Workers can use
+`wait_cancelled_timeout(Duration)` instead of busy waiting, and application
+code can call `cancel()` explicitly. `RunningApp::check_processes()` exposes
+the recorded service failure.
+
+For long-running application code:
+
+```rust
+let cancellation = ctx.cancellation_token();
+while !cancellation.wait_cancelled_timeout(std::time::Duration::from_millis(100)) {
+    // Perform one bounded unit of application work.
+}
+```
+
+The existing synchronous `run` entrypoint reports an `AppRunError::Supervision`
+when a required managed child fails, **once the entrypoint returns**. Rust
+closures cannot be preempted safely: application code must check its
+cancellation token and return cooperatively. The runtime joins monitoring
+before shutting down children and records their final exit state.
+
+There is currently **no automatic restart**, background monitoring of
+externally owned TCP providers, or cancellation of arbitrary blocking I/O.
+The default policy for required managed providers is to cancel and fail the
+application rather than silently reuse a dead client.
 
 ## Documentation
 
