@@ -1,4 +1,4 @@
-use crate::storage::{RecordStore, StoreError, StoredRecord};
+use crate::storage::{StoreError, StoredRecord};
 
 use serde::{Deserialize, Serialize};
 use serde_json::Value;

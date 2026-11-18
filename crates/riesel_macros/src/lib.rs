@@ -4,8 +4,8 @@ use quote::{format_ident, quote};
 use syn::parse::{Parse, ParseStream};
 use syn::spanned::Spanned;
 use syn::{
-    parse_macro_input, Data, DeriveInput, Expr, Fields, FnArg, GenericArgument, Ident, ItemTrait,
-    Lit, LitInt, LitStr, Meta, Pat, PathArguments, ReturnType, Token, TraitItem, Type,
+    Data, DeriveInput, Expr, Fields, FnArg, GenericArgument, Ident, ItemTrait, Lit, LitInt, LitStr,
+    Meta, Pat, PathArguments, ReturnType, Token, TraitItem, Type, parse_macro_input,
 };
 
 struct CapabilityArgs {
@@ -64,7 +64,10 @@ fn expand_capability(
     let version = args.version;
     let parsed_version: u32 = version.base10_parse()?;
     if parsed_version == 0 {
-        return Err(syn::Error::new(version.span(), "version must be greater than zero"));
+        return Err(syn::Error::new(
+            version.span(),
+            "version must be greater than zero",
+        ));
     }
     let segments: Vec<_> = id.value().split('.').map(str::to_owned).collect();
     if segments.len() < 2
@@ -74,10 +77,16 @@ fn expand_capability(
                 || !chars.all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '_')
         })
     {
-        return Err(syn::Error::new(id.span(), "invalid dotted capability identifier"));
+        return Err(syn::Error::new(
+            id.span(),
+            "invalid dotted capability identifier",
+        ));
     }
     if !item.generics.params.is_empty() || item.generics.where_clause.is_some() {
-        return Err(syn::Error::new(item.generics.span(), "generic capability traits are not supported"));
+        return Err(syn::Error::new(
+            item.generics.span(),
+            "generic capability traits are not supported",
+        ));
     }
     let trait_name = item.ident.clone();
     let descriptor_name = format_ident!("{}Contract", trait_name);
@@ -86,7 +95,10 @@ fn expand_capability(
 
     for entry in &mut item.items {
         let TraitItem::Fn(method) = entry else {
-            return Err(syn::Error::new(entry.span(), "only methods are supported in capability traits"));
+            return Err(syn::Error::new(
+                entry.span(),
+                "only methods are supported in capability traits",
+            ));
         };
         if !method.sig.generics.params.is_empty()
             || method.sig.generics.where_clause.is_some()
@@ -95,20 +107,33 @@ fn expand_capability(
             || method.sig.abi.is_some()
             || method.default.is_some()
         {
-            return Err(syn::Error::new(method.sig.span(), "capability methods must be synchronous, non-generic declarations without default bodies"));
+            return Err(syn::Error::new(
+                method.sig.span(),
+                "capability methods must be synchronous, non-generic declarations without default bodies",
+            ));
         }
 
         let mut markers = Vec::new();
         for attr in &method.attrs {
             if attr.path().is_ident("command") || attr.path().is_ident("query") {
                 if !matches!(&attr.meta, Meta::Path(_)) {
-                    return Err(syn::Error::new(attr.span(), "operation marker takes no arguments"));
+                    return Err(syn::Error::new(
+                        attr.span(),
+                        "operation marker takes no arguments",
+                    ));
                 }
-                markers.push(if attr.path().is_ident("command") { "command" } else { "query" });
+                markers.push(if attr.path().is_ident("command") {
+                    "command"
+                } else {
+                    "query"
+                });
             }
         }
         if markers.len() != 1 {
-            return Err(syn::Error::new(method.sig.span(), "each capability method requires exactly one #[command] or #[query]"));
+            return Err(syn::Error::new(
+                method.sig.span(),
+                "each capability method requires exactly one #[command] or #[query]",
+            ));
         }
         let kind = if markers[0] == "command" {
             quote!(::riesel_schema::OperationKind::Command)
@@ -134,17 +159,29 @@ fn expand_capability(
             .collect::<Vec<_>>()
             .join(" ");
         if docs.is_empty() {
-            return Err(syn::Error::new(method.sig.span(), "capability operation needs a Rust doc comment"));
+            return Err(syn::Error::new(
+                method.sig.span(),
+                "capability operation needs a Rust doc comment",
+            ));
         }
-        method.attrs.retain(|attr| {
-            !attr.path().is_ident("command") && !attr.path().is_ident("query")
-        });
+        method
+            .attrs
+            .retain(|attr| !attr.path().is_ident("command") && !attr.path().is_ident("query"));
 
         let Some(FnArg::Receiver(receiver)) = method.sig.inputs.first() else {
-            return Err(syn::Error::new(method.sig.span(), "capability methods require &self"));
+            return Err(syn::Error::new(
+                method.sig.span(),
+                "capability methods require &self",
+            ));
         };
-        if receiver.reference.is_none() || receiver.mutability.is_some() || receiver.colon_token.is_some() {
-            return Err(syn::Error::new(receiver.span(), "capability methods require an immutable &self receiver"));
+        if receiver.reference.is_none()
+            || receiver.mutability.is_some()
+            || receiver.colon_token.is_some()
+        {
+            return Err(syn::Error::new(
+                receiver.span(),
+                "capability methods require an immutable &self receiver",
+            ));
         }
 
         let mut arguments = Vec::new();
@@ -154,10 +191,16 @@ fn expand_capability(
                 return Err(syn::Error::new(argument.span(), "unexpected receiver"));
             };
             let Pat::Ident(param) = &*arg.pat else {
-                return Err(syn::Error::new(arg.pat.span(), "parameters must be named identifiers"));
+                return Err(syn::Error::new(
+                    arg.pat.span(),
+                    "parameters must be named identifiers",
+                ));
             };
             if param.by_ref.is_some() || param.subpat.is_some() {
-                return Err(syn::Error::new(param.span(), "unsupported parameter pattern"));
+                return Err(syn::Error::new(
+                    param.span(),
+                    "unsupported parameter pattern",
+                ));
             }
             let name = &param.ident;
             let ty = &arg.ty;
@@ -191,7 +234,10 @@ fn expand_capability(
         });
     }
     if generated_operations.is_empty() {
-        return Err(syn::Error::new(trait_name.span(), "capability must contain operations"));
+        return Err(syn::Error::new(
+            trait_name.span(),
+            "capability must contain operations",
+        ));
     }
 
     Ok(quote! {
@@ -226,26 +272,45 @@ fn expand_capability(
 
 fn result_parts(output: &ReturnType) -> syn::Result<(&Type, &Type)> {
     let ReturnType::Type(_, result) = output else {
-        return Err(syn::Error::new(output.span(), "capability methods must return Result<T, E>"));
+        return Err(syn::Error::new(
+            output.span(),
+            "capability methods must return Result<T, E>",
+        ));
     };
     let Type::Path(path) = &**result else {
-        return Err(syn::Error::new(result.span(), "capability methods must return Result<T, E>"));
+        return Err(syn::Error::new(
+            result.span(),
+            "capability methods must return Result<T, E>",
+        ));
     };
     let Some(last) = path.path.segments.last() else {
         return Err(syn::Error::new(path.span(), "expected Result<T, E>"));
     };
     if last.ident != "Result" {
-        return Err(syn::Error::new(last.span(), "capability methods must return Result<T, E>"));
+        return Err(syn::Error::new(
+            last.span(),
+            "capability methods must return Result<T, E>",
+        ));
     }
     let PathArguments::AngleBracketed(args) = &last.arguments else {
-        return Err(syn::Error::new(last.span(), "Result requires output and error types"));
+        return Err(syn::Error::new(
+            last.span(),
+            "Result requires output and error types",
+        ));
     };
-    let types: Vec<_> = args.args.iter().filter_map(|item| match item {
-        GenericArgument::Type(ty) => Some(ty),
-        _ => None,
-    }).collect();
+    let types: Vec<_> = args
+        .args
+        .iter()
+        .filter_map(|item| match item {
+            GenericArgument::Type(ty) => Some(ty),
+            _ => None,
+        })
+        .collect();
     if types.len() != 2 || args.args.len() != 2 {
-        return Err(syn::Error::new(args.span(), "Result requires two concrete types"));
+        return Err(syn::Error::new(
+            args.span(),
+            "Result requires two concrete types",
+        ));
     }
     Ok((types[0], types[1]))
 }
@@ -264,14 +329,20 @@ pub fn derive_riesel_type(input: TokenStream) -> TokenStream {
 fn expand_riesel_type(input: DeriveInput) -> syn::Result<proc_macro2::TokenStream> {
     let name = input.ident;
     if !input.generics.params.is_empty() || input.generics.where_clause.is_some() {
-        return Err(syn::Error::new(input.generics.span(), "generic public API types are not supported yet"));
+        return Err(syn::Error::new(
+            input.generics.span(),
+            "generic public API types are not supported yet",
+        ));
     }
 
     let mut dependencies = Vec::new();
     let definition = match input.data {
         Data::Struct(data) => {
             let Fields::Named(named) = data.fields else {
-                return Err(syn::Error::new(name.span(), "RieselType requires a struct with named fields"));
+                return Err(syn::Error::new(
+                    name.span(),
+                    "RieselType requires a struct with named fields",
+                ));
             };
             let mut fields = Vec::new();
             for field in named.named {
@@ -324,7 +395,10 @@ fn expand_riesel_type(input: DeriveInput) -> syn::Result<proc_macro2::TokenStrea
             }
         }
         Data::Union(_) => {
-            return Err(syn::Error::new(name.span(), "unions cannot be public capability types"));
+            return Err(syn::Error::new(
+                name.span(),
+                "unions cannot be public capability types",
+            ));
         }
     };
 

@@ -54,9 +54,13 @@ pub enum TypeRef {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum TypeDefinition {
-    Struct { fields: BTreeMap<String, TypeRef> },
+    Struct {
+        fields: BTreeMap<String, TypeRef>,
+    },
     /// None is a unit variant; Some is a single-field tuple variant.
-    Enum { variants: BTreeMap<String, Option<TypeRef>> },
+    Enum {
+        variants: BTreeMap<String, Option<TypeRef>>,
+    },
 }
 
 #[derive(Debug, Error, PartialEq, Eq)]
@@ -72,7 +76,10 @@ pub enum ContractError {
     #[error("operation {0} must have a description")]
     MissingDescription(String),
     #[error("duplicate parameter {parameter} in operation {operation}")]
-    DuplicateParameter { operation: String, parameter: String },
+    DuplicateParameter {
+        operation: String,
+        parameter: String,
+    },
     #[error("reference to undeclared type: {0}")]
     UnknownType(String),
     #[error("different Rust types claim the same contract type name: {0}")]
@@ -82,7 +89,9 @@ pub enum ContractError {
 impl CapabilityContract {
     pub fn validate(&self) -> Result<(), ContractError> {
         if !valid_capability_id(&self.capability.id) {
-            return Err(ContractError::InvalidCapabilityId(self.capability.id.clone()));
+            return Err(ContractError::InvalidCapabilityId(
+                self.capability.id.clone(),
+            ));
         }
         if self.capability.version == 0 {
             return Err(ContractError::InvalidVersion);

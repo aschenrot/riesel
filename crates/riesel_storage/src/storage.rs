@@ -70,12 +70,26 @@ mod tests {
 
         let update = &contract.operations["update"];
         assert_eq!(
-            update.inputs.iter().map(|arg| arg.name.as_str()).collect::<Vec<_>>(),
+            update
+                .inputs
+                .iter()
+                .map(|arg| arg.name.as_str())
+                .collect::<Vec<_>>(),
             vec!["model", "id", "expected_revision", "data"],
         );
         assert_eq!(update.inputs[2].kind, TypeRef::U64);
-        assert_eq!(update.output, TypeRef::Named { name: "StoredRecord".into() });
-        assert_eq!(update.error, TypeRef::Named { name: "StoreError".into() });
+        assert_eq!(
+            update.output,
+            TypeRef::Named {
+                name: "StoredRecord".into()
+            }
+        );
+        assert_eq!(
+            update.error,
+            TypeRef::Named {
+                name: "StoreError".into()
+            }
+        );
 
         assert_eq!(
             contract.operations["get"].output,
