@@ -90,10 +90,7 @@ impl Application {
 
     /// Register a Rust model and explicitly name its storage requirement.
     /// Multiple storage aliases can coexist without implicit selection.
-    pub fn records_at<T: RieselModel>(
-        mut self,
-        storage_alias: impl Into<String>,
-    ) -> Result<Self> {
+    pub fn records_at<T: RieselModel>(mut self, storage_alias: impl Into<String>) -> Result<Self> {
         let name = T::MODEL_NAME.to_owned();
         let definition = T::model_definition();
         if let Some(previous) = self.definition.models.get(&name) {
