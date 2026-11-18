@@ -30,6 +30,7 @@ struct ManagedProcess {
 #[derive(Default)]
 pub struct ProcessRegistry {
     processes: HashMap<ProcessKey, ManagedProcess>,
+    start_order: Vec<ProcessKey>,
 }
 
 impl ProcessRegistry {
@@ -47,7 +48,8 @@ impl ProcessRegistry {
             ));
         }
         let child = command.spawn()?;
-        self.processes.insert(key, ManagedProcess { child });
+        self.processes.insert(key.clone(), ManagedProcess { child });
+        self.start_order.push(key);
         Ok(())
     }
 
@@ -96,29 +98,42 @@ impl ProcessRegistry {
             }
         };
         self.processes.remove(key);
+        self.start_order.retain(|registered| registered != key);
         Ok(exit)
     }
 
-    /// Stop every registered child; leave a failed entry registered so that
-    /// cleanup can be retried rather than silently losing its handle.
+    /// Process start order is the ownership order. Stop in reverse order;
+    /// fail one child without skipping the rest.
+    fn shutdown_order(&self) -> Vec<ProcessKey> {
+        self.start_order.iter().rev().cloned().collect()
+    }
+
+    /// Exhaustively stop children in reverse registration order. Keep handles
+    /// whose stop failed so a later cleanup attempt can retry them.
     pub fn stop_all(&mut self) -> io::Result<()> {
-        for key in self.processes.keys().cloned().collect::<Vec<_>>() {
-            self.stop(&key)?;
+        let mut first_error = None;
+        for key in self.shutdown_order() {
+            if let Err(error) = self.stop(&key) {
+                if first_error.is_none() {
+                    first_error = Some(error);
+                }
+            }
         }
-        Ok(())
+        match first_error {
+            Some(error) => Err(error),
+            None => Ok(()),
+        }
     }
 }
 
 impl Drop for ProcessRegistry {
     fn drop(&mut self) {
-        for process in self.processes.values_mut() {
-            // Best-effort cleanup on scope exit. Explicit stop() reports errors.
-            match process.child.try_wait() {
-                Ok(Some(_)) => {}
-                Ok(None) | Err(_) => {
-                    let _ = process.child.kill();
-                    let _ = process.child.wait();
-                }
+        let _ = self.stop_all();
+        // Last resort if a managed child failed the normal stop path.
+        for key in self.shutdown_order() {
+            if let Some(process) = self.processes.get_mut(&key) {
+                let _ = process.child.kill();
+                let _ = process.child.wait();
             }
         }
     }
@@ -171,6 +186,24 @@ mod tests {
             registry.status(&key).unwrap_err().kind(),
             io::ErrorKind::NotFound
         );
+    }
+
+    #[test]
+    fn stop_order_is_reverse_of_registration_even_with_unordered_keys() {
+        let mut registry = ProcessRegistry::new();
+        let first = ProcessKey::new(12, Some("first".into()));
+        let second = ProcessKey::new(4, Some("second".into()));
+        let third = ProcessKey::new(8, Some("third".into()));
+        for key in [&first, &second, &third] {
+            registry.spawn(key.clone(), &mut test_child()).unwrap();
+        }
+        assert_eq!(
+            registry.shutdown_order(),
+            vec![third.clone(), second.clone(), first.clone()]
+        );
+        registry.stop(&second).unwrap();
+        assert_eq!(registry.shutdown_order(), vec![third, first]);
+        registry.stop_all().unwrap();
     }
 
     #[test]
