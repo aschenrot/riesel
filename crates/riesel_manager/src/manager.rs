@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 use std::io;
-use std::process::{Child, Command, ExitStatus};
+use std::process::{Child, ChildStdout, Command, ExitStatus};
 
 /// Uniquely identifies a process instance owned by this registry.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
@@ -49,6 +49,17 @@ impl ProcessRegistry {
         let child = command.spawn()?;
         self.processes.insert(key, ManagedProcess { child });
         Ok(())
+    }
+
+    /// Take the child's piped stdout for a bounded startup handshake.
+    /// Requires the command to use Stdio::piped() before spawning.
+    pub fn take_stdout(&mut self, key: &ProcessKey) -> io::Result<ChildStdout> {
+        let process = self.processes.get_mut(key).ok_or_else(|| {
+            io::Error::new(io::ErrorKind::NotFound, format!("process not found: {key:?}"))
+        })?;
+        process.child.stdout.take().ok_or_else(|| {
+            io::Error::new(io::ErrorKind::InvalidInput, "child stdout was not piped")
+        })
     }
 
     /// An exited child remains registered until stop() or stop_all().

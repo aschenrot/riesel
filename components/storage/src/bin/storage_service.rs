@@ -3,21 +3,24 @@ use std::net::SocketAddr;
 
 fn main() -> io::Result<()> {
     let mut args = std::env::args().skip(1);
-    let address = args.next().ok_or_else(|| {
-        io::Error::new(
-            io::ErrorKind::InvalidInput,
-            "usage: storage_service <bind-address>",
-        )
-    })?;
+    let address = match args.next() {
+        Some(address) => address,
+        None => std::env::var("RIESEL_BIND_ADDRESS").map_err(|_| {
+            io::Error::new(
+                io::ErrorKind::InvalidInput,
+                "usage: storage_service <bind-address> (or set RIESEL_BIND_ADDRESS)",
+            )
+        })?,
+    };
     if args.next().is_some() {
         return Err(io::Error::new(
             io::ErrorKind::InvalidInput,
             "usage: storage_service <bind-address>",
         ));
     }
-    let address: SocketAddr = address
-        .parse()
-        .map_err(|error| io::Error::new(io::ErrorKind::InvalidInput, error))?;
+    let address: SocketAddr = address.parse().map_err(|error| {
+        io::Error::new(io::ErrorKind::InvalidInput, error)
+    })?;
 
     riesel_storage_component::run_storage_server(&address.to_string())
 }

@@ -14,7 +14,14 @@ pub fn run_storage_server(address: &str) -> io::Result<()> {
     let store = MemoryStore::new();
     let info = memory_service_info().map_err(io::Error::other)?;
 
-    println!("Storage listening on {}", listener.local_addr()?);
+    // Machine-readable startup handshake used by managed local deployments.
+    // The listener is already bound, so the OS-selected port is authoritative.
+    let ready = serde_json::json!({
+        "protocol": 1,
+        "address": listener.local_addr()?.to_string()
+    });
+    println!("RIESEL_READY {}", ready);
+    io::stdout().flush()?;
 
     for connection in listener.incoming() {
         match connection {
