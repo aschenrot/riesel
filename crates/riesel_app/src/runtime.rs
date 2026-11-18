@@ -11,6 +11,7 @@ use crate::{
     ServiceEndpoint,
 };
 use riesel_manager::{ProcessKey, ProcessRegistry};
+use riesel_protocol::SessionToken;
 use riesel_schema::{CapabilityContract, ProviderDefinition};
 use serde::Deserialize;
 use std::any::Any;
@@ -106,7 +107,11 @@ pub struct ConnectedProvider {
 /// A connector is registered by its local Rust-generated capability contract.
 pub trait CapabilityConnector: Send + Sync {
     fn contract(&self) -> Result<CapabilityContract, ConnectorError>;
-    fn connect(&self, endpoint: &ServiceEndpoint) -> Result<ConnectedProvider, ConnectorError>;
+    fn connect(
+        &self,
+        endpoint: &ServiceEndpoint,
+        session: &SessionToken,
+    ) -> Result<ConnectedProvider, ConnectorError>;
 }
 
 struct RegisteredConnector {
@@ -117,7 +122,39 @@ struct RegisteredConnector {
 /// One executable binding for a capability advertised by a local component.
 pub struct LocalCapabilityBinding {
     pub contract: CapabilityContract,
-    pub service: Box<dyn Any + Send + Sync>,
+    service: Box<dyn Any + Send + Sync>,
+    guard: fn(
+        Box<dyn Any + Send + Sync>,
+        SessionToken,
+    ) -> Result<Box<dyn Any + Send + Sync>, ConnectorError>,
+}
+
+impl LocalCapabilityBinding {
+    /// Convert the registered typed local service into a session-scoped
+    /// capability handle. Consumers cannot directly construct unguarded
+    /// bindings through the public component factory API.
+    fn attach(self, session: SessionToken) -> Result<Box<dyn Any + Send + Sync>, ConnectorError> {
+        (self.guard)(self.service, session)
+    }
+
+    #[cfg(test)]
+    fn raw(contract: CapabilityContract, service: Box<dyn Any + Send + Sync>) -> Self {
+        Self {
+            contract,
+            service,
+            guard: |service, _| Ok(service),
+        }
+    }
+}
+
+fn guard_local_binding<C: riesel_protocol::RpcClientBinding>(
+    value: Box<dyn Any + Send + Sync>,
+    session: SessionToken,
+) -> Result<Box<dyn Any + Send + Sync>, ConnectorError> {
+    let service = value.downcast::<C::Service>().map_err(|_| {
+        io::Error::new(io::ErrorKind::InvalidData, "invalid typed local component binding")
+    })?;
+    Ok(Box::new(C::guard_local(*service, session)))
 }
 
 /// An instantiated local component can expose multiple capability interfaces
@@ -142,6 +179,7 @@ impl LocalProviderInstance {
         self.bindings.push(LocalCapabilityBinding {
             contract: C::definition()?,
             service: Box::new(service),
+            guard: guard_local_binding::<C>,
         });
         Ok(self)
     }
@@ -518,6 +556,7 @@ pub struct RunningApp {
     processes: Arc<Mutex<ProcessRegistry>>,
     supervisor: ServiceMonitor,
     tasks: TaskGroup,
+    session: SessionToken,
 }
 
 impl RunningApp {
@@ -562,6 +601,7 @@ impl RunningApp {
         // supervisor running during task joins: a managed child can still
         // exit unexpectedly while application-owned work is finishing.
         let tasks = self.tasks.join();
+        self.session.invalidate();
         // The monitor takes its final snapshot only after every task joined,
         // but before intentional managed-process teardown.
         let monitor = self.supervisor.stop();
@@ -763,6 +803,7 @@ impl App {
             .map(|requirement| (requirement.name.as_str(), requirement))
             .collect();
 
+        let session = SessionToken::new();
         let mut registry = ProviderRegistry::new();
         let mut provider_definitions = BTreeMap::new();
         let mut selected = BTreeMap::new();
@@ -813,7 +854,14 @@ impl App {
                         if !registered
                             .is_some_and(|expected| binding.contract.has_same_api_shape(expected))
                             || bound
-                                .insert(key, Arc::<dyn Any + Send + Sync>::from(binding.service))
+                                .insert(
+                                    key,
+                                    Arc::<dyn Any + Send + Sync>::from(
+                                        binding.attach(session.clone()).map_err(|_| {
+                                            RuntimeError::LocalProviderChanged(provider.clone())
+                                        })?,
+                                    ),
+                                )
                                 .is_some()
                         {
                             return Err(RuntimeError::LocalProviderChanged(provider.clone()));
@@ -919,7 +967,7 @@ impl App {
                     let endpoint = ServiceEndpoint::Tcp {
                         address: ready.address,
                     };
-                    let connection = adapter.connector.connect(&endpoint).map_err(|source| {
+                    let connection = adapter.connector.connect(&endpoint, &session).map_err(|source| {
                         RuntimeError::Connection {
                             requirement: requirement.name.clone(),
                             source,
@@ -929,7 +977,7 @@ impl App {
                     connection
                 }
                 ServiceEndpoint::Tcp { .. } => {
-                    adapter.connector.connect(endpoint).map_err(|source| {
+                    adapter.connector.connect(endpoint, &session).map_err(|source| {
                         RuntimeError::Connection {
                             requirement: requirement.name.clone(),
                             source,
@@ -988,6 +1036,7 @@ impl App {
             processes,
             supervisor,
             tasks,
+            session,
         })
     }
 
@@ -1087,6 +1136,7 @@ mod tests {
         fn connect(
             &self,
             _endpoint: &ServiceEndpoint,
+            _session: &SessionToken,
         ) -> Result<ConnectedProvider, ConnectorError> {
             Ok(ConnectedProvider {
                 definition: ProviderDefinition {
@@ -1235,6 +1285,7 @@ mod tests {
         fn connect(
             &self,
             _endpoint: &ServiceEndpoint,
+            _session: &SessionToken,
         ) -> Result<ConnectedProvider, ConnectorError> {
             Err(io::Error::new(io::ErrorKind::ConnectionRefused, "service not ready").into())
         }
@@ -1311,6 +1362,7 @@ mod tests {
             processes,
             supervisor,
             tasks,
+            session: SessionToken::new(),
         }
     }
 
@@ -1392,6 +1444,7 @@ mod tests {
             processes,
             supervisor,
             tasks,
+            session: SessionToken::new(),
         };
         let result = RunningApp::execute(running, |running| {
             running.spawn_task("finishing", |cancel| {
@@ -1719,10 +1772,7 @@ mod tests {
         fn create(&self) -> Result<LocalProviderInstance, ConnectorError> {
             Ok(LocalProviderInstance {
                 definition: self.definition()?,
-                bindings: vec![LocalCapabilityBinding {
-                    contract: contract(1),
-                    service: Box::new(Arc::new(123_u64)),
-                }],
+                bindings: vec![LocalCapabilityBinding::raw(contract(1), Box::new(Arc::new(123_u64)))],
             })
         }
     }
@@ -1748,10 +1798,7 @@ mod tests {
             self.created.lock().unwrap().push(self.id.into());
             Ok(LocalProviderInstance {
                 definition: self.definition()?,
-                bindings: vec![LocalCapabilityBinding {
-                    contract: contract(1),
-                    service: Box::new(Arc::new(123_u64)),
-                }],
+                bindings: vec![LocalCapabilityBinding::raw(contract(1), Box::new(Arc::new(123_u64)))],
             })
         }
     }
@@ -1825,9 +1872,11 @@ mod tests {
                 definition: self.definition()?,
                 bindings: vec![1, 2]
                     .into_iter()
-                    .map(|version| LocalCapabilityBinding {
-                        contract: contract(version),
-                        service: Box::new(Arc::clone(&shared)),
+                    .map(|version| {
+                        LocalCapabilityBinding::raw(
+                            contract(version),
+                            Box::new(Arc::clone(&shared)),
+                        )
                     })
                     .collect(),
             })
