@@ -131,7 +131,10 @@ mod native_async_capability_tests {
 
     fn ready<F: Future>(future: F) -> F::Output {
         let mut future = std::pin::pin!(future);
-        match future.as_mut().poll(&mut Context::from_waker(Waker::noop())) {
+        match future
+            .as_mut()
+            .poll(&mut Context::from_waker(Waker::noop()))
+        {
             Poll::Ready(value) => value,
             Poll::Pending => panic!("native async test unexpectedly requires a scheduler"),
         }
@@ -167,13 +170,11 @@ mod native_async_capability_tests {
                 .unwrap(),
             serde_json::json!({"Ok":5})
         );
-        let result = ready(handler.dispatch_for(&reference, "value", serde_json::json!({})))
-            .unwrap();
+        let result =
+            ready(handler.dispatch_for(&reference, "value", serde_json::json!({}))).unwrap();
         assert_eq!(result, serde_json::json!({"Ok":5}));
         assert!(matches!(
-            ready(handler.dispatch_for(
-                &reference, "missing", serde_json::json!({})
-            )),
+            ready(handler.dispatch_for(&reference, "missing", serde_json::json!({}))),
             Err(RpcError::UnknownOperation(_))
         ));
     }

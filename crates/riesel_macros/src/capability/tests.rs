@@ -92,5 +92,8 @@ fn mixed_sync_and_async_capability_methods_are_rejected() {
         }
     };
     let err = expand_capability(args, method).unwrap_err();
-    assert!(err.to_string().contains("mixing synchronous and asynchronous"));
+    assert!(
+        err.to_string()
+            .contains("mixing synchronous and asynchronous")
+    );
 }

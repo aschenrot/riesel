@@ -148,10 +148,7 @@ pub trait AsyncRpcHandler: Send + Sync {
             let contract = self.contract()?;
             if &contract.capability != capability {
                 return Err(RpcError::WrongCapability {
-                    expected: format!(
-                        "{}@{}",
-                        contract.capability.id, contract.capability.version
-                    ),
+                    expected: format!("{}@{}", contract.capability.id, contract.capability.version),
                     received: format!("{}@{}", capability.id, capability.version),
                 });
             }
