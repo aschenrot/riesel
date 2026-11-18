@@ -14,7 +14,11 @@ cargo run -p todo --bin todo
 `TaskData` in `src/task.rs` is the authoritative data model.
 `Application::new("Todo").records::<TaskData>()?.development()?`
 registers the generated model metadata and selects ephemeral in-process
-MemoryStore. This mode is **explicitly for development**, not persistent storage.
+MemoryStore. This mode is **explicitly for development**, not persistent
+storage. The Todo package enables the SDK's `dev-memory-storage` Cargo
+feature explicitly; Riesel itself no longer enables it by default.
+For multiple Storage bindings, use `records_at::<T>("alias")` in the
+application builder and Context.
 
 ## Inspect the generated application definition
 

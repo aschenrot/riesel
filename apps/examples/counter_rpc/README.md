@@ -42,9 +42,16 @@ Counter process to crash and verifies that a new application session binds
 to its replacement without reusing a stale endpoint. Linux runs in required
 CI; Windows can be checked manually in the Validate workflow.
 
-Counter uses the same `serve_component` and
-`run_component_from_env` helpers as Storage for readiness, bind-address
-selection and cooperative shutdown. Its capability contract is **version 2**.
+Counter now exposes a second, independently versioned
+`CounterObserverContract`. Both local and managed components bind it to the
+same `Arc<MemoryCounter>` as the writable `CounterContract`. The managed
+component uses a `RpcRouter` to serve both over one socket and process.
+`cargo smoke` includes a dual-capability client that confirms a write
+through Counter is observed through Observer from one explicitly named
+managed instance.
+
+Counter uses the same `run_component_from_env` helper as Storage for
+readiness, bind-address selection and cooperative shutdown. Its capability contract is **version 2**.
 Generated `Arc<dyn Counter>` handles reject calls after their application
 session expires.
 

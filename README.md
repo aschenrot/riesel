@@ -29,6 +29,9 @@ cargo smoke
 The Todo example derives its model directly from Rust and opts in to an
 ephemeral local MemoryStore for development. The smoke suite exercises
 managed TCP Storage, multi-service cleanup and real Counter crash recovery.
+The framework's development Storage feature is disabled by default.
+The Todo example explicitly opts into `dev-memory-storage`, and validation
+also tests `riesel` independently with `--no-default-features`.
 Linux CI runs on every push and pull request; run the optional Windows job
 manually using Actions > Validate > Run workflow (enable Windows) before
 releases.
@@ -80,16 +83,60 @@ duplicating process CLI and service startup code.
 
 The loopback TCP server serves requests through **four worker threads** with
 a maximum **32 pending connections**. It has bounded JSON framing and socket
-timeouts; busy connections may be rejected. These limits are reference
-defaults, not configurable production resource policies.
+timeouts; busy connections may be rejected. Application-owned TCP transport
+sessions reuse at most four idle sockets (750 ms maximum idle age); standalone
+`TcpRpcTransport::new` clients still use one connection per call. Failed
+requests are never replayed automatically because a command might already
+have executed. These are reference defaults, not configurable production
+resource policies.
+
+`RpcClientBinding` now accepts `Arc<dyn RpcTransport>`; typed services can
+bind to an in-memory or future transport without depending on TCP. Hosted
+contracts are validated at registration and cached for request handling.
 
 `RieselModel` supports `bool`, `String`, `Uuid`, `u64`, `i64`, `f64`,
 JSON values, `Option<T>` and `Vec<T>`, with recursive value validation.
+Model fields and RPC signatures now share the `TypeRef` description; model
+schema JSON uses tagged field values such as `{"kind":"string"}` rather than
+the previous bare `"string"`. Existing generated schemas must be regenerated.
 Unsupported Serde renaming and field/variant modifiers are rejected by
 the derive macros to avoid inconsistent generated contract metadata.
 Compile-fail documentation tests verify those restrictions, invalid async
 capability signatures and the required session guarding of custom
 `RpcClientBinding` implementations.
+
+### Shared component instances
+
+Local and managed components can both expose several capability interfaces
+backed by the same state. `Counter` exposes a write interface
+(`CounterContract`) and a read-only interface (`CounterObserverContract`)
+from one shared `MemoryCounter`.
+
+For managed deployment, use the same explicit `instance` name and identical
+launch settings for each requirement:
+
+```json
+{
+  "services": {
+    "counter": {
+      "transport": "managed",
+      "instance": "counter_shared",
+      "program": "/absolute/path/to/counter_service"
+    },
+    "observer": {
+      "transport": "managed",
+      "instance": "counter_shared",
+      "program": "/absolute/path/to/counter_service"
+    }
+  }
+}
+```
+
+The runtime launches **one** process for `counter_shared` and resolves
+both capabilities over its endpoint. Omitted instance names continue to
+create independent managed processes. Conflicting launch settings are
+rejected before process startup. `RunningApp::resolved()` distinguishes
+the provider implementation ID from concrete `InstanceIdentity`.
 
 ### Capability handle lifetimes
 
@@ -102,6 +149,11 @@ custom connectors still require their own lifetime handling, and an in-flight
 call cannot be forcibly cancelled by revocation.
 
 ## Defining lifecycle dependencies
+
+Use `Application::records_at::<Model>("storage_alias")` and
+`Context::records_at::<Model>("storage_alias")` to select among multiple
+Storage requirements explicitly. `records::<Model>()` retains the single
+Storage convenience path and rejects ambiguous storage selections.
 
 Call `Application::rpc::<Contract>("alias")` to declare a generated RPC
 capability. Once an alias is declared, use

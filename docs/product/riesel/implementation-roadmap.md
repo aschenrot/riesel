@@ -95,6 +95,50 @@ connectors are responsible for their own session enforcement; provider
 state remains non-durable. These issues belong to later production
 hardening, not this refactoring checkpoint.
 
+## Component/transport follow-on refactoring checkpoint
+
+This stage corrects cross-deployment component ownership rather than creating
+additional crates or compatibility shims:
+
+- A `RpcRouter` serves multiple capability contracts over one managed port.
+  Counter and Observer now use the same in-memory state in both local and
+  explicitly grouped managed deployments. Named managed instances launch
+  once; conflicting definitions fail during preflight.
+- `InstanceIdentity` distinguishes the actual local, managed or external
+  endpoint from the provider implementation ID in resolved bindings.
+- Generated `RpcClientBinding` accepts a transport-neutral
+  `Arc<dyn RpcTransport>`. Validated host contracts are cached; application
+  TCP sessions reuse a bounded pool of sockets without automatic command
+  retries. Standalone one-shot clients remain supported.
+- Models and capability contracts share one `TypeRef` type algebra,
+  including `i64` and `f64`. Model JSON now uses tagged type values:
+  `{"kind":"string"}`, `{"kind":"optional","item":{"kind":"u64"}}`.
+  Old schema serialization is intentionally incompatible.
+- Development MemoryStore is an opt-in Cargo feature of the SDK, enabled
+  explicitly by Todo. Typed `records_at` registration and Context lookup
+  support named Storage requirements.
+- Provider definitions for Storage and Counter derive from their runtime
+  registration; the same provider metadata powers local and managed hosting.
+- `cargo ship` rejects unstaged or untracked inputs before validating the
+  exact source staged for commit. Smoke child invocations have bounded waits,
+  and minimal-feature SDK builds are checked independently.
+- Application task failures preserve their concrete error sources for
+  inspection instead of reducing all errors to strings.
+
+The pass is tested with explicit instance conflicts, shared Counter state
+across both local and real managed RPC, transport-independent generated
+bindings, pooled TCP session reuse, typed model round trips, cooperative
+lifecycle recovery and executable smoke tests. Windows CI remains on-demand
+and must be exercised before release.
+
+**Remaining production boundaries:** A cooperative Rust task may never
+return, and Rust threads cannot be forcibly terminated safely. The
+reference Storage backend is ephemeral and does not independently enforce
+all application-defined model schemas for arbitrary RPC callers. TCP is
+still plaintext, unauthenticated and loopback-only. Per-instance rolling
+restart, persistent state recovery, transport security, configurable executor
+budgets, and distributed networking are future milestones.
+
 ## Recommended Rust authoring workflow
 
 `apps/examples/todo/src/task.rs` defines a Rust `TaskData` model, annotated
