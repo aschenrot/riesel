@@ -93,11 +93,11 @@ pub trait RpcClientBinding: CapabilityDescriptor {
 
     fn bind(transport: crate::TcpRpcTransport) -> Self::Service;
 
-    /// Generated implementations wrap local trait objects so escaped handles
-    /// reject calls after their owning application session is shut down.
-    fn guard_local(service: Self::Service, _session: crate::SessionToken) -> Self::Service {
-        service
-    }
+    /// Every binding must return a session-aware service handle. The
+    /// contract may use a generated scoped trait proxy, but it must never
+    /// silently pass an unguarded provider through to application code.
+    /// A breaking compile-time requirement is safer than stale handles.
+    fn guard_local(service: Self::Service, session: crate::SessionToken) -> Self::Service;
 }
 
 /// Host-supplied provider identity and generated dispatcher, checked once.

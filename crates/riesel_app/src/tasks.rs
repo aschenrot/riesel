@@ -6,6 +6,10 @@ use std::panic::{self, AssertUnwindSafe};
 use std::sync::{Arc, Mutex, PoisonError};
 use std::thread::{self, JoinHandle};
 
+/// Maximum number of concurrently registered application-owned OS threads.
+/// They are joined on shutdown and cannot be forcibly interrupted.
+const MAX_APPLICATION_TASKS: usize = 64;
+
 #[derive(Debug, Clone)]
 struct TaskFailure {
     name: String,
@@ -43,6 +47,11 @@ impl TaskGroup {
         let mut state = self.state.lock().unwrap_or_else(PoisonError::into_inner);
         if state.closed || self.cancellation.is_cancelled() {
             return Err(RuntimeError::TaskGroupClosed);
+        }
+        if state.handles.len() >= MAX_APPLICATION_TASKS {
+            return Err(RuntimeError::TaskLimitExceeded {
+                limit: MAX_APPLICATION_TASKS,
+            });
         }
         if name.is_empty()
             || name.len() > 128
@@ -170,6 +179,27 @@ mod tests {
             group.failure(),
             Some(RuntimeError::TaskFailed { .. })
         ));
+    }
+
+    #[test]
+    fn task_budget_blocks_unbounded_os_thread_creation() {
+        let token = CancellationToken::default();
+        let group = TaskGroup::new(token);
+        for i in 0..MAX_APPLICATION_TASKS {
+            group
+                .spawn(format!("worker-{i}"), |cancel| {
+                    cancel.wait_cancelled_timeout(Duration::from_secs(5));
+                    Ok(())
+                })
+                .unwrap();
+        }
+        assert!(matches!(
+            group.spawn("over-budget".into(), |_| Ok(())),
+            Err(RuntimeError::TaskLimitExceeded {
+                limit: MAX_APPLICATION_TASKS
+            })
+        ));
+        group.join().unwrap();
     }
 
     #[test]

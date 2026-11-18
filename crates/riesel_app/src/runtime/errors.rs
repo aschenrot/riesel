@@ -110,6 +110,8 @@ pub enum RuntimeError {
     InvalidTaskName(String),
     #[error("application task group is already closing")]
     TaskGroupClosed,
+    #[error("application task limit exceeded (maximum {limit} registered tasks)")]
+    TaskLimitExceeded { limit: usize },
     #[error("application task {name} failed: {message}")]
     TaskFailed { name: String, message: String },
     #[error("multiple application shutdown failures: {errors:?}")]
