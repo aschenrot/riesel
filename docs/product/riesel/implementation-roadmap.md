@@ -17,7 +17,8 @@ cargo smoke
 
 `cargo validate --check` checks committed formatting, all workspace targets,
 Clippy (warnings denied), tests, and documentation. `cargo smoke` executes
-the actual Todo and Storage binaries, including runtime-owned Storage processes.
+the actual Todo and Storage binaries, including runtime-owned Storage processes,
+then verifies a failed second managed service launch cleans up the first one.
 
 ## Milestone status
 
@@ -27,7 +28,7 @@ the actual Todo and Storage binaries, including runtime-owned Storage processes.
 | 1 — Declarative requirements | Implemented | Versioned requirements; Rust-generated application definitions |
 | 2 — Provider resolution | Implemented for exact versions | Registration, explicit selection, missing/ambiguous-provider errors |
 | 3 — Capability binding | Initial implementation | In-process factories, typed Rust record handles, verified remote TCP |
-| 4 — Application runtime | End-to-end slice implemented | Application start/run, managed child startup, dynamic local endpoints, cleanup |
+| 4 — Application runtime | End-to-end slice implemented; lifecycle hardening underway | Application start/run, managed child startup, dynamic local endpoints, dependency-ordered startup, rollback and reverse-order cleanup |
 | 5 — Developer experience | Generic RPC integration implemented; still partial | Rust SDK, model derive, generated Storage and Counter RPC, generic typed connectors, schema export |
 | 6 — Production reliability | Not implemented | Persistent Storage, secure transports, authorization, recovery, observability |
 
@@ -70,6 +71,29 @@ The fixed-port `managed_tcp` mode, its pre-bind race, and the earlier
 concurrent independently managed Storage instances with OS-assigned ports.
 The local factory is covered by unit tests.
 After readiness, the runtime continues draining child stdout.
+
+Applications can declare dependencies between requirement **aliases** using
+`depends_on`. Riesel rejects missing, self-referential, duplicated, and cyclic
+dependencies before launching providers. Startup follows a stable topological
+order; independent requirements preserve declaration order. Managed children
+are terminated in reverse **actual startup** order, including on partial
+startup failure. The rollback smoke test confirms that a previously connected
+Storage server no longer listens after a dependent launch fails. This is
+forceful teardown, **not yet graceful shutdown or automatic crash recovery**.
+
+For example, in a Rust-authored application:
+
+```rust
+let app = Application::new("Example")
+    .rpc::<RecordStoreContract>("frontend")?
+    .rpc::<RecordStoreContract>("storage")?
+    .depends_on("frontend", ["storage"])?;
+```
+
+The emitted schema carries `"depends_on": ["storage"]` on the `frontend`
+requirement. All referenced aliases must exist in the final definition.
+Dependencies express lifecycle ordering; they do not infer a component's
+internal dependencies or discover providers automatically.
 
 Deployment configuration remains optional for local development but is
 necessary when choosing external or managed process execution.
@@ -114,9 +138,12 @@ provider discovery remain future work.
 
 ## Remaining engineering work, in priority order
 
-1. **Lifecycle robustness (next):** service dependencies and startup
-   ordering; graceful reverse-order shutdown; child exit monitoring,
-   cancellation, failure policy, and multi-service rollback tests.
+1. **Lifecycle robustness (in progress):** dependency validation,
+   deterministic startup ordering, reverse-order forceful cleanup, and
+   multi-service rollback are implemented and tested. Remaining:
+   cooperative graceful shutdown with deadlines and kill fallback;
+   continuous child exit monitoring, cancellation, explicit failure/restart
+   policies, and multi-service recovery scenarios.
 2. **Developer tooling and models:** inspect provider selection before
    launching services; improve model field types and schema evolution; test
    generated adapter compatibility with a second runtime-integrated provider.

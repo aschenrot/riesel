@@ -37,7 +37,9 @@ cargo smoke
 managed Storage services. Both services bind `127.0.0.1:0`, letting the OS
 allocate ports without a pre-bind reservation race. The runtime reads a
 bounded `RIESEL_READY` announcement and verifies each provider identity and
-generated contract before executing Todo.
+generated contract before executing Todo. It also exercises multi-service
+rollback: when a dependent managed process cannot spawn, the already running
+Storage process must be terminated.
 
 Linux and Windows CI execute these tests.
 
