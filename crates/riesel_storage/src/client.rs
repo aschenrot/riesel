@@ -37,7 +37,16 @@ impl TcpStore {
         expected_provider: &str,
         expected_capability: &CapabilityRef,
     ) -> Result<(), StoreError> {
-        let info = self.describe()?;
+        Self::verify_service_info(&self.describe()?, expected_provider, expected_capability)
+    }
+
+    /// Verify an already received service advertisement without a second
+    /// network round trip. This checks compatibility, not authenticity.
+    pub fn verify_service_info(
+        info: &StorageServiceInfo,
+        expected_provider: &str,
+        expected_capability: &CapabilityRef,
+    ) -> Result<(), StoreError> {
         info.provider
             .validate()
             .map_err(|e| failed("invalid provider advertisement", e))?;

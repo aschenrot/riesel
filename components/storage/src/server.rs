@@ -88,3 +88,68 @@ fn read_request(stream: &mut TcpStream) -> io::Result<Vec<u8>> {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use riesel_storage::{RecordStore, RecordStoreContract, TcpStore};
+    use serde_json::json;
+    use std::thread;
+
+    #[test]
+    fn remote_storage_round_trip_verifies_contract_and_performs_crud() {
+        // Bind port zero to avoid fixed ports and background services in tests.
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let address = listener.local_addr().unwrap();
+        let server = thread::spawn(move || {
+            let store = MemoryStore::new();
+            let info = memory_service_info().unwrap();
+            // Describe + Create + Get + Update + List.
+            for _ in 0..5 {
+                let (mut stream, _) = listener.accept().unwrap();
+                handle_connection(&store, &info, &mut stream).unwrap();
+            }
+        });
+
+        let client = TcpStore::new(address);
+        let service_info = client.describe().unwrap();
+        let contract = RecordStoreContract::definition().unwrap();
+        TcpStore::verify_service_info(
+            &service_info,
+            "riesel.storage.memory",
+            &contract.capability,
+        )
+        .unwrap();
+
+        assert!(TcpStore::verify_service_info(
+            &service_info,
+            "riesel.storage.wrong",
+            &contract.capability,
+        )
+        .is_err());
+
+        let mut wrong_version = contract.capability.clone();
+        wrong_version.version += 1;
+        assert!(TcpStore::verify_service_info(
+            &service_info,
+            "riesel.storage.memory",
+            &wrong_version,
+        )
+        .is_err());
+
+        let created = client.create("task", json!({"title":"From TCP"})).unwrap();
+        assert_eq!(created.revision, 1);
+        let loaded = client.get("task", created.id).unwrap().unwrap();
+        assert_eq!(loaded.id, created.id);
+
+        let updated = client
+            .update("task", created.id, loaded.revision, json!({"title":"Updated"}))
+            .unwrap();
+        assert_eq!(updated.revision, 2);
+        let all = client.list("task").unwrap();
+        assert_eq!(all.len(), 1);
+        assert_eq!(all[0].data, updated.data);
+
+        server.join().unwrap();
+    }
+}
