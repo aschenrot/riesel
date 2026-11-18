@@ -14,8 +14,9 @@ cargo run -p todo --bin todo
 `TaskData` in `src/task.rs` is the authoritative data model.
 The domain exposes `Record<TaskData>` directly rather than duplicating
 identifier, revision, and payload fields in a second Task structure.
-`Application::new("Todo").records::<TaskData>()?.development()?`
-registers the generated model metadata and selects ephemeral in-process
+`Application::new("Todo").handler(run_demo)?.development()?`
+registers the model and Storage requirement from the typed
+`Records<TaskData>` function parameter, then selects ephemeral in-process
 MemoryStore. This mode is **explicitly for development**, not persistent
 storage. The Todo package enables the SDK's `dev-memory-storage` Cargo
 feature explicitly; Riesel itself no longer enables it by default.

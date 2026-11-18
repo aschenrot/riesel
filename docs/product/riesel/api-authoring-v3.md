@@ -125,7 +125,23 @@ high-level async app macro. Track actual status only after CI passes.
 - SDK `ApplicationParam` describes a dependency's declaration and owned
   extraction. `Capability<C>` and `Records<T>` implement the initial
   binding; the capability wrapper preserves generated session guards.
-- The actual executable function-signature injection, component attribute,
-  async generated handle and declarative `#[riesel::app]` remain future work.
+- Typed synchronous function-signature handlers are implemented through
+  `Application::handler` and `handler_with_aliases`; Counter and Todo now use
+  these handlers locally and in managed smoke tests. Explicit duplicate aliases
+  and model bindings are checked before startup.
+- Component attributes, async generated handles and declarative
+  `#[riesel::app]` remain future work.
 - Linux CI validated the changes, including workspace tests and runtime smoke
   tests: https://github.com/aschenrot/riesel/actions/runs/44411860685
+
+## Stage 5.2 verified (2026-11-18)
+
+`Application::new("Counter").handler_with_aliases(run_demo, ["counter"])?`
+registers a typed `Capability<CounterContract>` parameter without separate
+`.rpc` declarations or `Context::capability` lookups. `Todo` uses
+`Application::handler(run_demo)?` with `Records<TaskData>`; two separate
+model types may intentionally share one Storage requirement. Explicit aliases
+are positional at this low-level stage; the future app macro will bind names
+to parameters at compile time. The synchronous handler implementation is not
+a substitute for genuine async transport or the proposed async entrypoint.
+Linux validation and smoke: https://github.com/aschenrot/riesel/actions/runs/44414421066

@@ -16,8 +16,10 @@ are not specific to Storage.
 cargo run -p riesel_counter_example --bin riesel_counter_example
 ```
 
-The application registers `CounterContract` and
-`memory_counter_provider()` through the Rust SDK. Alternatively,
+The application registers the typed `Capability<CounterContract>` parameter
+through `Application::handler_with_aliases`, then selects
+`memory_counter_provider()` for local execution. No separate `.rpc()` call or
+manual `Context::capability()` lookup is required. Alternatively,
 `Application::provide::<CounterContract, _>("riesel.counter.memory", || ...)`
 registers an implementation without handwritten provider/factory metadata.
 No JSON, TCP endpoint, per-operation RPC client or explicit process management
@@ -46,7 +48,7 @@ Counter now exposes a second, independently versioned
 `CounterObserverContract`. Both local and managed components bind it to the
 same `Arc<MemoryCounter>` as the writable `CounterContract`. The managed
 component uses a `RpcRouter` to serve both over one socket and process.
-`cargo smoke` includes a dual-capability client that confirms a write
+`cargo smoke` includes a dual-capability typed handler that confirms a write
 through Counter is observed through Observer from one explicitly named
 managed instance.
 

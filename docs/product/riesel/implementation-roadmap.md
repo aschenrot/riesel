@@ -57,7 +57,7 @@ examples in that document do not imply macros or async handles already exist.
 | Step | Scope | Status | Validation / exit gate |
 | --- | --- | --- | --- |
 | 5.1 | Identity and injection semantics, API contract, compatibility and lifecycle rules | Complete on Linux | Contract recorded; deterministic private ID and stable external Counter/Storage IDs verified |
-| 5.2 | Type-driven dependency extraction, aliases, record-model bindings | In progress | Owned typed Capability and Records parameters are tested; handler-signature registration and ambiguous-alias checks remain |
+| 5.2 | Type-driven dependency extraction, aliases, record-model bindings | Complete on Linux | Function handlers register/extract typed dependencies; Counter (local/managed), Todo, alias/error and schema-equivalence tests pass |
 | 5.3 | Generated local/managed component adapters | Not started | One Counter implementation provides Counter and Observer without manual casts/dispatchers |
 | 5.4 | Async transport, generated handles, cancellation and error propagation | Not started | Real nonblocking RPC; local and managed calls preserve domain vs transport errors and session expiry |
 | 5.5 | Deterministic provider catalog and deployment configuration | Not started | Linked, managed and remote providers selected explicitly; preflight rejects missing/ambiguous/untrusted choices |
@@ -77,11 +77,24 @@ binding, typed Records and stale-session rejection. CI run
 passed `cargo validate --check` and `cargo smoke` on Linux. **This is not yet
 function-signature injection or the high-level app macro.**
 
-**Next Stage 5.2 slice:** register zero-/one-/multi-parameter Rust functions
-without manually calling `ApplicationParam::declare` or `extract`, reject
-duplicate/ambiguous bindings before launch, validate equivalent generated
-schema/selection, and test local/managed lifecycle handling. Preserve the
-`Application` builder as a lower-level escape hatch.
+**Stage 5.2 verified (2026-11-18):** `Application::handler` and
+`handler_with_aliases` now accept ordinary synchronous Rust functions. They
+register typed requirements from parameter types, validate alias collisions
+before startup, and extract fresh owned values for each session. Zero- through
+four-parameter handlers are supported. Two distinct `Records<T>` models can
+share one Storage alias; repeated identical bindings are rejected unless
+given separate explicit aliases. Counter and Todo have been migrated to typed
+handlers; the existing managed Counter and Storage smoke scenarios now execute
+these handlers without explicit `Context` lookups. CI run
+[44414421066](https://github.com/aschenrot/riesel/actions/runs/44414421066)
+passed Linux validation and executable smoke tests.
+
+**Next Stage 5.3 slice:** generate component capability adapters and
+registration from one explicit `provides` declaration, retain existing
+shared-state semantics, validate hosted/local equivalence and negative trait
+bounds, and keep the manual component builder as the lower-level escape hatch.
+The final `#[riesel::app]` macro and nonblocking async handles remain separate
+future milestones.
 
 **Sequencing:** 5.1 is a gate for 5.2–5.8. Component adapters can follow
 parallel to dependency extraction after their shared contract is settled;
