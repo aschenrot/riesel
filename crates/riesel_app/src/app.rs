@@ -58,9 +58,6 @@ impl App {
         self.definition.as_ref()
     }
 
-    pub fn run(self) -> Result<(), AppError> {
-        Ok(())
-    }
 }
 
 impl Default for App {

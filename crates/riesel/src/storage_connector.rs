@@ -16,7 +16,7 @@ impl CapabilityConnector for TcpRecordStoreConnector {
     }
 
     fn connect(&self, endpoint: &ServiceEndpoint) -> Result<ConnectedProvider, ConnectorError> {
-        let ServiceEndpoint::Tcp { address } = endpoint;
+        let address = endpoint.address();
         if address.port() == 0 {
             return Err(io::Error::new(
                 io::ErrorKind::InvalidInput,
@@ -24,7 +24,7 @@ impl CapabilityConnector for TcpRecordStoreConnector {
             )
             .into());
         }
-        let store = TcpStore::new(*address);
+        let store = TcpStore::new(address);
         let info = store.describe()?;
         Ok(ConnectedProvider {
             definition: info.provider,

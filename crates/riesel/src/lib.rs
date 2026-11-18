@@ -5,7 +5,7 @@ pub use storage_connector::TcpRecordStoreConnector;
 pub use riesel_app::{
     App, AppConfig, AppError, BindingError, CapabilityBindings, DeploymentConfig, DeploymentError,
     ProviderRegistry, ResolutionError, ResolvedCapability, ServiceEndpoint,
-    CapabilityConnector, ConnectedProvider, ConnectorError, ConnectorRegistry, RunningApp, RuntimeError,
+    AppRunError, CapabilityConnector, ConnectedProvider, ConnectorError, ConnectorRegistry, RunningApp, RuntimeError,
 };
 pub use riesel_macros::{RieselType, capability};
 

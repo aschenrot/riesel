@@ -7,9 +7,15 @@ use crate::{
     ServiceEndpoint,
 };
 use riesel_schema::{CapabilityContract, ProviderDefinition};
+use riesel_manager::{ProcessKey, ProcessRegistry, ProcessStatus};
 use std::any::Any;
 use std::collections::BTreeMap;
 use std::error::Error;
+use std::io;
+use std::net::TcpListener;
+use std::process::{Command, ExitStatus};
+use std::thread;
+use std::time::{Duration, Instant};
 use thiserror::Error;
 
 pub type ConnectorError = Box<dyn Error + Send + Sync>;
@@ -119,14 +125,54 @@ pub enum RuntimeError {
     MissingService(String),
     #[error("wrong service type for requirement: {0}")]
     WrongServiceType(String),
+    #[error("could not start managed service {requirement}: {source}")]
+    ServiceStart {
+        requirement: String,
+        #[source]
+        source: io::Error,
+    },
+    #[error("managed service {requirement} exited: {status}")]
+    ServiceExited {
+        requirement: String,
+        status: ExitStatus,
+    },
+    #[error("managed service {requirement} did not become ready within {timeout_ms} ms")]
+    ReadinessTimeout {
+        requirement: String,
+        timeout_ms: u64,
+    },
+    #[error("cannot inspect managed service {requirement}: {source}")]
+    ServiceStatus {
+        requirement: String,
+        #[source]
+        source: io::Error,
+    },
+    #[error("failed to shut down managed processes: {0}")]
+    Shutdown(io::Error),
 }
 
-/// Active application with resolved, typed services. Dropping this value drops
-/// its client adapters. Managed process ownership is added separately.
+/// Errors from running application business logic and shutting down its services.
+#[derive(Debug, Error)]
+pub enum AppRunError {
+    #[error("application startup failed: {0}")]
+    Startup(#[from] RuntimeError),
+    #[error("application entrypoint failed: {0}")]
+    Entrypoint(ConnectorError),
+    #[error("application entrypoint failed: {entry}; shutdown also failed: {shutdown}")]
+    EntrypointAndShutdown {
+        entry: ConnectorError,
+        shutdown: RuntimeError,
+    },
+}
+
+/// Active application with verified services and owned child processes.
+/// ProcessRegistry guarantees best-effort cleanup if startup or execution fails.
 pub struct RunningApp {
     app: App,
     resolved: Vec<ResolvedCapability>,
     services: BTreeMap<String, Box<dyn Any + Send + Sync>>,
+    processes: ProcessRegistry,
+    managed: BTreeMap<String, ProcessKey>,
 }
 
 impl RunningApp {
@@ -136,6 +182,33 @@ impl RunningApp {
 
     pub fn resolved(&self) -> &[ResolvedCapability] {
         &self.resolved
+    }
+
+    /// Check currently owned child processes. This is an on-demand health
+    /// inspection, not background supervision or automatic recovery.
+    pub fn check_processes(&mut self) -> Result<(), RuntimeError> {
+        for (requirement, key) in &self.managed {
+            let status = self.processes.status(key).map_err(|source| RuntimeError::ServiceStatus {
+                requirement: requirement.clone(),
+                source,
+            })?;
+            if let ProcessStatus::Exited(status) = status {
+                return Err(RuntimeError::ServiceExited {
+                    requirement: requirement.clone(),
+                    status,
+                });
+            }
+        }
+        Ok(())
+    }
+
+    /// Drop connected adapters and explicitly terminate all owned services.
+    /// External TCP services remain untouched.
+    pub fn shutdown(&mut self) -> Result<(), RuntimeError> {
+        self.services.clear();
+        self.processes.stop_all().map_err(RuntimeError::Shutdown)?;
+        self.managed.clear();
+        Ok(())
     }
 
     /// Get a typed, already-verified service by its application requirement name.
@@ -150,9 +223,9 @@ impl RunningApp {
 }
 
 impl App {
-    /// Prepare all declared requirements using configured external services.
-    /// Connections and metadata are verified before the application receives
-    /// any provider instances. This function never starts a child process.
+    /// Start a validated application. For managed endpoints, spawn the
+    /// configured trusted executable and wait for a valid provider handshake.
+    /// On any startup failure, already spawned children are stopped on drop.
     pub fn start(
         self,
         deployment: &DeploymentConfig,
@@ -165,8 +238,10 @@ impl App {
         let mut provider_definitions = BTreeMap::new();
         let mut selected = BTreeMap::new();
         let mut services = BTreeMap::new();
+        let mut processes = ProcessRegistry::new();
+        let mut managed = BTreeMap::new();
 
-        for requirement in &schema.requires {
+        for (index, requirement) in schema.requires.iter().enumerate() {
             let id = &requirement.capability.id;
             let adapter = connectors.adapters.get(id).ok_or_else(|| {
                 RuntimeError::MissingConnector {
@@ -182,12 +257,72 @@ impl App {
                 });
             }
             let endpoint = &deployment.services[&requirement.name];
-            let connected = adapter.connector.connect(endpoint).map_err(|source| {
-                RuntimeError::Connection {
-                    requirement: requirement.name.clone(),
-                    source,
+            let connected = match endpoint {
+                ServiceEndpoint::Tcp { .. } => {
+                    adapter.connector.connect(endpoint).map_err(|source| {
+                        RuntimeError::Connection {
+                            requirement: requirement.name.clone(),
+                            source,
+                        }
+                    })?
                 }
-            })?;
+                ServiceEndpoint::ManagedTcp {
+                    address,
+                    program,
+                    args,
+                    startup_timeout_ms,
+                } => {
+                    // Fail before spawning if another listener already holds this
+                    // address. The bind check is not an authorization boundary.
+                    let reservation = TcpListener::bind(address).map_err(|source| {
+                        RuntimeError::ServiceStart {
+                            requirement: requirement.name.clone(),
+                            source,
+                        }
+                    })?;
+                    drop(reservation);
+
+                    let key = ProcessKey::new(
+                        index as u64 + 1,
+                        Some(requirement.name.clone()),
+                    );
+                    let mut command = Command::new(program);
+                    command.args(args);
+                    processes.spawn(key.clone(), &mut command).map_err(|source| {
+                        RuntimeError::ServiceStart {
+                            requirement: requirement.name.clone(),
+                            source,
+                        }
+                    })?;
+
+                    let deadline = Instant::now() + Duration::from_millis(*startup_timeout_ms);
+                    let verified_connection = loop {
+                        if let ProcessStatus::Exited(status) =
+                            processes.status(&key).map_err(|source| RuntimeError::ServiceStatus {
+                                requirement: requirement.name.clone(),
+                                source,
+                            })?
+                        {
+                            return Err(RuntimeError::ServiceExited {
+                                requirement: requirement.name.clone(),
+                                status,
+                            });
+                        }
+                        if let Ok(connection) = adapter.connector.connect(endpoint) {
+                            break connection;
+                        }
+                        if Instant::now() >= deadline {
+                            return Err(RuntimeError::ReadinessTimeout {
+                                requirement: requirement.name.clone(),
+                                timeout_ms: *startup_timeout_ms,
+                            });
+                        }
+                        thread::sleep(Duration::from_millis(50));
+                    };
+                    managed.insert(requirement.name.clone(), key);
+                    verified_connection
+                }
+            };
 
             connected
                 .definition
@@ -232,7 +367,31 @@ impl App {
             app: self,
             resolved,
             services,
+            processes,
+            managed,
         })
+    }
+
+    /// Run application logic with services available, then shut down owned
+    /// processes whether the entrypoint succeeds or returns an error.
+    pub fn run(
+        self,
+        deployment: &DeploymentConfig,
+        connectors: &ConnectorRegistry,
+        entrypoint: impl FnOnce(&RunningApp) -> Result<(), ConnectorError>,
+    ) -> Result<(), AppRunError> {
+        let mut running = self.start(deployment, connectors)?;
+        let outcome = entrypoint(&running);
+        let shutdown = running.shutdown();
+
+        match (outcome, shutdown) {
+            (Ok(()), Ok(())) => Ok(()),
+            (Err(entry), Ok(())) => Err(AppRunError::Entrypoint(entry)),
+            (Ok(()), Err(shutdown)) => Err(AppRunError::Startup(shutdown)),
+            (Err(entry), Err(shutdown)) => {
+                Err(AppRunError::EntrypointAndShutdown { entry, shutdown })
+            }
+        }
     }
 }
 

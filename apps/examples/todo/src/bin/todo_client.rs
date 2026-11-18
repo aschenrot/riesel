@@ -29,7 +29,13 @@ fn main() -> Result<(), Box<dyn Error>> {
     connectors.register(TcpRecordStoreConnector)?;
 
     // Riesel owns discovery, compatibility checks, resolution and binding.
-    let running = app.start(&deployment, &connectors)?;
+    app.run(&deployment, &connectors, |running| {
+        run_todo(running)
+    })?;
+    Ok(())
+}
+
+fn run_todo(running: &riesel::RunningApp) -> Result<(), riesel::ConnectorError> {
 
     let task_model: ModelDefinition = running
         .app()

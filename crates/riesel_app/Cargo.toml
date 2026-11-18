@@ -8,6 +8,7 @@ publish = false
 
 [dependencies]
 riesel_schema.workspace = true
+riesel_manager.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 thiserror.workspace = true

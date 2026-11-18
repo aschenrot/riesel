@@ -11,4 +11,4 @@ pub use deployment::{DeploymentConfig, DeploymentError, ServiceEndpoint};
 pub use config::AppConfig;
 pub use resolver::{ProviderRegistry, ResolutionError, ResolvedCapability};
 
-pub use runtime::{CapabilityConnector, ConnectedProvider, ConnectorError, ConnectorRegistry, RunningApp, RuntimeError};
+pub use runtime::{AppRunError, CapabilityConnector, ConnectedProvider, ConnectorError, ConnectorRegistry, RunningApp, RuntimeError};

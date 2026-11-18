@@ -1,12 +1,16 @@
-use riesel::prelude::*;
-pub fn main() -> Result<(), AppError> {
-    // Setup
-    let config = AppConfig {
-        name: "Riesel".to_string(),
-    };
+use riesel::{App, ConnectorRegistry, DeploymentConfig};
+use std::error::Error;
 
-    let app = App::with_config(config);
+pub fn main() -> Result<(), Box<dyn Error>> {
+    let app = App::from_schema(
+        r#"{"version":1,"app":{"name":"Riesel"},"models":{}}"#,
+    )?;
+    let deployment = DeploymentConfig::from_json(r#"{"services":{}}"#)?;
+    let connectors = ConnectorRegistry::new();
 
-    // Launch
-    app.run()
+    app.run(&deployment, &connectors, |running| {
+        println!("Application: {}", running.app().config().name);
+        Ok(())
+    })?;
+    Ok(())
 }
