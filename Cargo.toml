@@ -5,6 +5,7 @@ members = [
   "apps/examples/todo", "components/storage",
   "crates/riesel",
   "crates/riesel_app",
+  "crates/riesel_macros",
   "crates/riesel_manager",
   "crates/riesel_protocol",
   "crates/riesel_schema", "crates/riesel_storage",
@@ -19,7 +20,8 @@ repository = "https://codeberg.org/Riesel/riesel"
 
 [workspace.dependencies]
 riesel = { path = "crates/riesel" }
-riesel_app =  { path = "crates/riesel_app" }
+riesel_app = { path = "crates/riesel_app" }
+riesel_macros = { path = "crates/riesel_macros" }
 riesel_schema = { path = "crates/riesel_schema" }
 riesel_storage = { path = "crates/riesel_storage" }
 
