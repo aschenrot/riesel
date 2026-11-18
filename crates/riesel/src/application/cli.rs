@@ -1,42 +1,107 @@
 use super::*;
+use std::ffi::OsString;
 
 impl Application {
-    /// Parse infrastructure flags, keeping application-specific commands separate.
-    /// Supported: --deployment FILE and --help.
+    /// Strict infrastructure CLI for applications that accept no custom args.
+    /// Unknown arguments are rejected before any component is started.
     pub fn run_from_env(
-        mut self,
+        self,
         entrypoint: impl FnMut(&Context<'_>) -> std::result::Result<(), ConnectorError>,
     ) -> Result<()> {
         let args: Vec<_> = std::env::args_os().skip(1).collect();
-        match args.as_slice() {
-            [] => {}
-            [option] if option == "--help" || option == "-h" => {
-                println!(
-                    "Usage: <application> [--deployment FILE | --inspect-deployment FILE | --print-definition]"
-                );
-                return Ok(());
-            }
-            [option] if option == "--print-definition" => {
-                println!("{}", self.definition_json()?);
-                return Ok(());
-            }
-            [option, path] if option == "--deployment" => {
-                self.deployment = Some(DeploymentConfig::load(PathBuf::from(path))?);
-            }
-            [option, path] if option == "--inspect-deployment" => {
-                let config = DeploymentConfig::load(PathBuf::from(path))?;
-                println!(
-                    "{}",
-                    serde_json::to_string_pretty(&self.deployment_plan(&config)?)?
-                );
-                return Ok(());
-            }
-            _ => {
-                return Err(SdkError::Arguments(
-                    "expected --deployment FILE, --inspect-deployment FILE, --print-definition or --help".into(),
-                ));
-            }
+        if let Some((application, _)) = self.configure_args(&args, false)? {
+            application.run(entrypoint)?;
         }
-        self.run(entrypoint)
+        Ok(())
+    }
+
+    /// Parse Riesel infrastructure flags from the process command line while
+    /// forwarding application-specific arguments to user code unchanged.
+    pub fn run_from_env_with_args(
+        self,
+        entrypoint: impl FnMut(&Context<'_>, &[OsString]) -> std::result::Result<(), ConnectorError>,
+    ) -> Result<()> {
+        self.run_with_args(std::env::args_os().skip(1), entrypoint)
+    }
+
+    /// Testable CLI entrypoint: Riesel owns --deployment, --print-definition,
+    /// --inspect-deployment and --help. Other tokens are application-owned.
+    /// A bare -- passes through the entire remainder without flag parsing.
+    pub fn run_with_args<I, A>(
+        self,
+        args: I,
+        mut entrypoint: impl FnMut(&Context<'_>, &[OsString]) -> std::result::Result<(), ConnectorError>,
+    ) -> Result<()>
+    where
+        I: IntoIterator<Item = A>,
+        A: Into<OsString>,
+    {
+        let args: Vec<OsString> = args.into_iter().map(Into::into).collect();
+        if let Some((application, custom)) = self.configure_args(&args, true)? {
+            application.run(move |ctx| entrypoint(ctx, &custom))?;
+        }
+        Ok(())
+    }
+
+    /// Return None for inspection/help commands that intentionally do not
+    /// start an application. Parse and validate every infrastructure flag
+    /// before runtime startup to avoid launching on invalid arguments.
+    pub(super) fn configure_args(
+        mut self,
+        args: &[OsString],
+        allow_custom: bool,
+    ) -> Result<Option<(Self, Vec<OsString>)>> {
+        let mut custom = Vec::new();
+        let mut index = 0;
+        while index < args.len() {
+            let option = &args[index];
+            if option == "--help" || option == "-h" {
+                println!(
+                    "Usage: <application> [--deployment FILE | --inspect-deployment FILE | --print-definition] [-- APP_ARGS...]"
+                );
+                return Ok(None);
+            }
+            if option == "--print-definition" {
+                println!("{}", self.definition_json()?);
+                return Ok(None);
+            }
+            if option == "--" {
+                if !allow_custom {
+                    return Err(SdkError::Arguments("application arguments are not enabled".into()));
+                }
+                custom.extend_from_slice(&args[index + 1..]);
+                break;
+            }
+            if option == "--deployment" || option == "--inspect-deployment" {
+                let path = args.get(index + 1).ok_or_else(|| {
+                    SdkError::Arguments(format!("{} requires a file", option.to_string_lossy()))
+                })?;
+                let config = DeploymentConfig::load(PathBuf::from(path))?;
+                if option == "--inspect-deployment" {
+                    println!(
+                        "{}",
+                        serde_json::to_string_pretty(&self.deployment_plan(&config)?)?
+                    );
+                    return Ok(None);
+                }
+                if self.deployment.is_some() {
+                    return Err(SdkError::Arguments(
+                        "deployment was configured more than once".into(),
+                    ));
+                }
+                self.deployment = Some(config);
+                index += 2;
+                continue;
+            }
+            if !allow_custom {
+                return Err(SdkError::Arguments(format!(
+                    "unknown application argument: {}",
+                    option.to_string_lossy()
+                )));
+            }
+            custom.push(option.clone());
+            index += 1;
+        }
+        Ok(Some((self, custom)))
     }
 }
