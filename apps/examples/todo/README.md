@@ -1,5 +1,20 @@
 # Todo — remote Storage composition
 
+## Automated integration test
+
+From the repository root, run:
+
+```sh
+cargo smoke
+```
+
+This builds both executables, starts Storage on a temporary loopback port
+through Riesel's `ProcessRegistry`, generates a temporary deployment config,
+runs Todo through the real TCP transport, and stops the managed service.
+CI runs this check on Linux and Windows.
+
+## Manual execution
+
 This example declares `riesel.storage.records@1` in `app.json`, but keeps
 transport details in `deployment.json`. The application does not import the
 MemoryStore implementation or hardcode a TCP endpoint.
