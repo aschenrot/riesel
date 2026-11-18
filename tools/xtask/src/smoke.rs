@@ -1,12 +1,10 @@
 use crate::command::{TaskResult, cargo, workspace_root};
 use std::env;
 use std::fs;
-use std::net::{SocketAddr, TcpListener, TcpStream};
 use std::path::PathBuf;
 use std::process::Command;
-use std::time::Duration;
 
-/// Clean up temporary deployment config on both success and failure.
+/// Remove generated deployment config on success and failure.
 struct TemporaryConfig(PathBuf);
 
 impl Drop for TemporaryConfig {
@@ -44,74 +42,32 @@ pub fn run() -> TaskResult {
     ])?;
     cargo(&["build", "-p", "todo", "--bin", "todo_client"])?;
 
-    // A temporary port avoids hardcoded test resources. The runtime performs
-    // its own pre-spawn bind check and validates a real service handshake.
-    let listener = TcpListener::bind("127.0.0.1:0")
-        .map_err(|e| format!("cannot reserve loopback port: {e}"))?;
-    let address: SocketAddr = listener.local_addr().map_err(|e| e.to_string())?;
-    drop(listener);
-
+    // No pre-bind/drop reservation race and no fixed port in deployment.
     let path = env::temp_dir().join(format!(
-        "riesel-smoke-{}-{}.json",
-        std::process::id(),
-        address.port()
+        "riesel-managed-smoke-{}.json",
+        std::process::id()
     ));
     let deployment = serde_json::json!({
         "services": {
             "storage": {
-                "transport": "managed_tcp",
-                "address": address.to_string(),
+                "transport": "managed",
                 "program": binary("storage_service"),
-                "args": [address.to_string()],
                 "startup_timeout_ms": 10_000
             }
         }
     });
     fs::write(
         &path,
-        serde_json::to_vec_pretty(&deployment).map_err(|e| e.to_string())?,
+        serde_json::to_vec_pretty(&deployment).map_err(|error| error.to_string())?,
     )
-    .map_err(|e| format!("cannot write deployment file: {e}"))?;
+    .map_err(|error| format!("cannot write managed deployment: {error}"))?;
     let temporary = TemporaryConfig(path);
 
-    println!("\n==> Running Todo with runtime-managed Storage at {address}");
-    let status = Command::new(binary("todo_client"))
-        .arg("--deployment")
-        .arg(&temporary.0)
-        .current_dir(workspace_root())
-        .status()
-        .map_err(|e| format!("cannot start Todo: {e}"))?;
-    if !status.success() {
-        return Err(format!("Todo smoke test failed: {status}"));
-    }
-
-    // Once Todo exits, the runtime must have stopped the child.
-    if TcpStream::connect_timeout(&address, Duration::from_millis(250)).is_ok() {
-        return Err("Storage listener remains reachable after application exit".into());
-    }
-    println!("\n==> Running two Todo instances with OS-assigned service ports");
-    let dynamic_path =
-        env::temp_dir().join(format!("riesel-dynamic-smoke-{}.json", std::process::id()));
-    let dynamic_config = serde_json::json!({
-        "services": {
-            "storage": {
-                "transport": "managed_tcp_dynamic",
-                "program": binary("storage_service"),
-                "startup_timeout_ms": 10_000
-            }
-        }
-    });
-    fs::write(
-        &dynamic_path,
-        serde_json::to_vec_pretty(&dynamic_config).map_err(|error| error.to_string())?,
-    )
-    .map_err(|error| format!("cannot write dynamic deployment: {error}"))?;
-    let dynamic = TemporaryConfig(dynamic_path);
-
+    println!("\n==> Running two concurrent Todo instances with OS-assigned Storage ports");
     let start_client = || {
         Command::new(binary("todo_client"))
             .arg("--deployment")
-            .arg(&dynamic.0)
+            .arg(&temporary.0)
             .current_dir(workspace_root())
             .spawn()
     };
@@ -122,7 +78,7 @@ pub fn run() -> TaskResult {
         Err(error) => {
             let _ = first.kill();
             let _ = first.wait();
-            return Err(format!("cannot launch second dynamic client: {error}"));
+            return Err(format!("cannot launch second managed Todo: {error}"));
         }
     };
     let first_result = first.wait().map_err(|error| error.to_string());
@@ -131,6 +87,6 @@ pub fn run() -> TaskResult {
     if !first_result?.success() || !second_result?.success() {
         return Err("concurrent OS-assigned Storage smoke test failed".into());
     }
-    println!("\nFixed and dynamic remote Todo smoke tests passed.");
+    println!("\nConcurrent managed Storage smoke test passed.");
     Ok(())
 }

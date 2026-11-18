@@ -13,11 +13,11 @@ use std::any::Any;
 use std::collections::BTreeMap;
 use std::error::Error;
 use std::io::{self, BufRead, BufReader, Read};
-use std::net::{SocketAddr, TcpListener};
+use std::net::SocketAddr;
 use std::process::{Command, ExitStatus, Stdio};
 use std::sync::{Arc, mpsc};
 use std::thread;
-use std::time::{Duration, Instant};
+use std::time::Duration;
 use thiserror::Error;
 
 pub type ConnectorError = Box<dyn Error + Send + Sync>;
@@ -499,7 +499,7 @@ impl App {
             }
             let connected = match endpoint {
                 ServiceEndpoint::Local { .. } => unreachable!("local endpoint handled above"),
-                ServiceEndpoint::ManagedTcpDynamic {
+                ServiceEndpoint::Managed {
                     program,
                     args,
                     startup_timeout_ms,
@@ -560,61 +560,7 @@ impl App {
                         }
                     })?
                 }
-                ServiceEndpoint::ManagedTcp {
-                    address,
-                    program,
-                    args,
-                    startup_timeout_ms,
-                } => {
-                    // Fail before spawning if another listener already holds this
-                    // address. The bind check is not an authorization boundary.
-                    let reservation = TcpListener::bind(address).map_err(|source| {
-                        RuntimeError::ServiceStart {
-                            requirement: requirement.name.clone(),
-                            source,
-                        }
-                    })?;
-                    drop(reservation);
 
-                    let key = ProcessKey::new(index as u64 + 1, Some(requirement.name.clone()));
-                    let mut command = Command::new(program);
-                    command.args(args);
-                    processes
-                        .spawn(key.clone(), &mut command)
-                        .map_err(|source| RuntimeError::ServiceStart {
-                            requirement: requirement.name.clone(),
-                            source,
-                        })?;
-
-                    let deadline = Instant::now() + Duration::from_millis(*startup_timeout_ms);
-                    let verified_connection = loop {
-                        if let ProcessStatus::Exited(status) =
-                            processes.status(&key).map_err(|source| {
-                                RuntimeError::ServiceStatus {
-                                    requirement: requirement.name.clone(),
-                                    source,
-                                }
-                            })?
-                        {
-                            return Err(RuntimeError::ServiceExited {
-                                requirement: requirement.name.clone(),
-                                status,
-                            });
-                        }
-                        if let Ok(connection) = adapter.connector.connect(endpoint) {
-                            break connection;
-                        }
-                        if Instant::now() >= deadline {
-                            return Err(RuntimeError::ReadinessTimeout {
-                                requirement: requirement.name.clone(),
-                                timeout_ms: *startup_timeout_ms,
-                            });
-                        }
-                        thread::sleep(Duration::from_millis(50));
-                    };
-                    managed.insert(requirement.name.clone(), key);
-                    verified_connection
-                }
             };
 
             connected
@@ -873,16 +819,11 @@ mod tests {
     }
 
     #[test]
-    fn runtime_detects_managed_service_exit_before_readiness() {
-        let port_reservation = TcpListener::bind("127.0.0.1:0").unwrap();
-        let address = port_reservation.local_addr().unwrap();
-        drop(port_reservation);
-
+    fn runtime_rejects_managed_service_without_ready_announcement() {
         let mut config = deployment();
         config.services.insert(
             "counter".into(),
-            ServiceEndpoint::ManagedTcp {
-                address,
+            ServiceEndpoint::Managed {
                 program: std::env::current_exe().unwrap(),
                 args: vec![
                     "--exact".into(),
@@ -896,7 +837,7 @@ mod tests {
 
         assert!(matches!(
             app().start(&config, &connectors),
-            Err(RuntimeError::ServiceExited { .. })
+            Err(RuntimeError::ServiceStart { .. })
         ));
     }
     struct LocalCounter(&'static str);

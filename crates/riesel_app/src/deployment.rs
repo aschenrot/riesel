@@ -23,17 +23,7 @@ pub enum ServiceEndpoint {
     Local { provider: String },
     /// Managed loopback service that chooses its own port at bind time.
     /// The provider must implement the RIESEL_READY startup announcement.
-    ManagedTcpDynamic {
-        program: PathBuf,
-        #[serde(default)]
-        args: Vec<String>,
-        #[serde(default = "default_startup_timeout_ms")]
-        startup_timeout_ms: u64,
-    },
-    /// Riesel owns the child process and terminates it on shutdown.
-    /// The deployment file must be trusted; its program is executable code.
-    ManagedTcp {
-        address: SocketAddr,
+    Managed {
         program: PathBuf,
         #[serde(default)]
         args: Vec<String>,
@@ -49,8 +39,8 @@ fn default_startup_timeout_ms() -> u64 {
 impl ServiceEndpoint {
     pub fn address(&self) -> Option<SocketAddr> {
         match self {
-            Self::Tcp { address } | Self::ManagedTcp { address, .. } => Some(*address),
-            Self::Local { .. } | Self::ManagedTcpDynamic { .. } => None,
+            Self::Tcp { address } => Some(*address),
+            Self::Local { .. } | Self::Managed { .. } => None,
         }
     }
 }
@@ -110,7 +100,7 @@ impl DeploymentConfig {
             }
             if matches!(
                 endpoint,
-                ServiceEndpoint::ManagedTcpDynamic {
+                ServiceEndpoint::Managed {
                     program,
                     startup_timeout_ms,
                     ..
@@ -121,32 +111,7 @@ impl DeploymentConfig {
                     reason: "dynamic managed service requires a program and a valid timeout",
                 });
             }
-            if let ServiceEndpoint::ManagedTcp {
-                address,
-                program,
-                startup_timeout_ms,
-                ..
-            } = endpoint
-            {
-                if !address.ip().is_loopback() {
-                    return Err(DeploymentError::InvalidEndpoint {
-                        name: name.clone(),
-                        reason: "managed unauthenticated services must use a loopback address",
-                    });
-                }
-                if program.as_os_str().is_empty() {
-                    return Err(DeploymentError::InvalidEndpoint {
-                        name: name.clone(),
-                        reason: "managed program path cannot be empty",
-                    });
-                }
-                if !(1..=120_000).contains(startup_timeout_ms) {
-                    return Err(DeploymentError::InvalidEndpoint {
-                        name: name.clone(),
-                        reason: "startup timeout must be between 1 and 120000 ms",
-                    });
-                }
-            }
+
         }
         Ok(())
     }
@@ -215,54 +180,31 @@ mod tests {
         ).is_err());
     }
     #[test]
-    fn validates_trusted_managed_process_settings() {
-        let source = r#"{"services":{"storage":{
-            "transport":"managed_tcp",
-            "address":"127.0.0.1:47911",
-            "program":"storage_service",
-            "args":["127.0.0.1:47911"]
-        }}}"#;
-        let config = DeploymentConfig::from_json(source).unwrap();
-        config.validate(&app()).unwrap();
-        assert!(matches!(
-            &config.services["storage"],
-            ServiceEndpoint::ManagedTcp {
-                startup_timeout_ms: 10_000,
-                ..
-            }
-        ));
-    }
+    fn rejects_invalid_managed_endpoints_and_removed_fixed_port_mode() {
+        assert!(DeploymentConfig::from_json(
+            r#"{"services":{"storage":{"transport":"managed_tcp","address":"127.0.0.1:47911","program":"storage_service"}}}"#
+        ).is_err());
 
-    #[test]
-    fn rejects_dangerous_or_invalid_managed_endpoints() {
-        for (address, program, timeout) in [
-            ("0.0.0.0:47911", "service", 1000),
-            ("127.0.0.1:0", "service", 1000),
-            ("127.0.0.1:47911", "", 1000),
-            ("127.0.0.1:47911", "service", 0),
-            ("127.0.0.1:47911", "service", 120001),
-        ] {
-            let value = serde_json::json!({
-                "services": {
-                    "storage": {
-                        "transport": "managed_tcp",
-                        "address": address,
-                        "program": program,
-                        "startup_timeout_ms": timeout
-                    }
-                }
+        for (program, timeout) in [("", 1000), ("storage_service", 0), ("storage_service", 120001)] {
+            let source = serde_json::json!({
+                "services": {"storage": {
+                    "transport": "managed",
+                    "program": program,
+                    "startup_timeout_ms": timeout
+                }}
             });
-            let config = DeploymentConfig::from_json(&value.to_string()).unwrap();
+            let config = DeploymentConfig::from_json(&source.to_string()).unwrap();
             assert!(matches!(
                 config.validate(&app()),
                 Err(DeploymentError::InvalidEndpoint { .. })
             ));
         }
     }
+
     #[test]
-    fn dynamic_managed_service_requires_no_port() {
+    fn managed_service_requires_no_fixed_port() {
         let source = r#"{"services":{"storage":{
-            "transport":"managed_tcp_dynamic",
+            "transport":"managed",
             "program":"storage_service",
             "startup_timeout_ms":3000
         }}}"#;
