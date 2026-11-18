@@ -58,7 +58,7 @@ examples in that document do not imply macros or async handles already exist.
 | --- | --- | --- | --- |
 | 5.1 | Identity and injection semantics, API contract, compatibility and lifecycle rules | Complete on Linux | Contract recorded; deterministic private ID and stable external Counter/Storage IDs verified |
 | 5.2 | Type-driven dependency extraction, aliases, record-model bindings | Complete on Linux | Function handlers register/extract typed dependencies; Counter (local/managed), Todo, alias/error and schema-equivalence tests pass |
-| 5.3 | Generated local/managed component adapters | Not started | One Counter implementation provides Counter and Observer without manual casts/dispatchers |
+| 5.3 | Generated local/managed component adapters | Complete on Linux | `#[component]` generates registration; Counter/Observer share state locally and managed; custom factories, private IDs and missing-impl compile-fail test validated |
 | 5.4 | Async transport, generated handles, cancellation and error propagation | Not started | Real nonblocking RPC; local and managed calls preserve domain vs transport errors and session expiry |
 | 5.5 | Deterministic provider catalog and deployment configuration | Not started | Linked, managed and remote providers selected explicitly; preflight rejects missing/ambiguous/untrusted choices |
 | 5.6 | `#[riesel::app]` and ergonomic model/Records injection | Not started | Minimal Counter and Todo examples compile with generated requirements; builder equivalent |
@@ -89,12 +89,26 @@ these handlers without explicit `Context` lookups. CI run
 [44414421066](https://github.com/aschenrot/riesel/actions/runs/44414421066)
 passed Linux validation and executable smoke tests.
 
-**Next Stage 5.3 slice:** generate component capability adapters and
-registration from one explicit `provides` declaration, retain existing
-shared-state semantics, validate hosted/local equivalence and negative trait
-bounds, and keep the manual component builder as the lower-level escape hatch.
-The final `#[riesel::app]` macro and nonblocking async handles remain separate
-future milestones.
+**Stage 5.3 verified (2026-11-18):** Generated capability adapters now
+provide the typed local trait binding and managed RPC dispatcher. The
+`#[riesel::component(provides = [...])]` attribute builds the existing
+`ComponentDefinition` and supports a private auto-derived ID, an explicit
+published ID, and optional non-`Default` factories. `Application::component::<C>()`
+registers a linked implementation; Counter now uses this path without
+manual dispatcher creation or trait-object conversion. Counter and Observer
+retain one shared state in local and managed executions. Tests cover
+invalid component declarations, custom factories, generated identities and
+a missing capability implementation compile-fail case. CI run
+[44416458416](https://github.com/aschenrot/riesel/actions/runs/44416458416)
+passed Linux validation and executable smoke tests.
+
+**Next Stage 5.4 gate:** Specify real async contract method semantics,
+structured error propagation, cancellation and task ownership, nonblocking
+transport and executor/backpressure requirements **before** changing the
+existing synchronous generator. Compare runtime/executor integration options
+without forcing ECS into core or claiming that a blocking call in a Future is
+nonblocking. Preserve the no-automatic-command-retry rule, local/managed
+parity, and the current regression suite.
 
 **Sequencing:** 5.1 is a gate for 5.2–5.8. Component adapters can follow
 parallel to dependency extraction after their shared contract is settled;
@@ -262,10 +276,11 @@ required before a release.
 with `#[derive(RieselModel)]` and `#[riesel(model = "task")]`.
 There is no hand-maintained `examples/todo/app.json`.
 
-`Application::new("Todo").records::<TaskData>()?.development()?`
-registers the model and versioned Storage requirement and selects the
-ephemeral in-process MemoryStore. `Context::records::<TaskData>()` gives a
-typed CRUD handle. `--print-definition` exports the canonical generated
+`Application::new("Todo").handler(run_demo)?.development()?`
+derives the model and versioned Storage requirement from the
+`Records<TaskData>` handler parameter and selects the ephemeral in-process
+MemoryStore. The low-level `Context::records::<TaskData>()` remains available
+for programmatic composition. `--print-definition` exports the canonical generated
 schema; `--deployment FILE` allows explicit external or managed providers.
 
 `Application::rpc::<SomeContract>("alias")` declares a generated RPC

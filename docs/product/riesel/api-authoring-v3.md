@@ -129,8 +129,11 @@ high-level async app macro. Track actual status only after CI passes.
   `Application::handler` and `handler_with_aliases`; Counter and Todo now use
   these handlers locally and in managed smoke tests. Explicit duplicate aliases
   and model bindings are checked before startup.
-- Component attributes, async generated handles and declarative
-  `#[riesel::app]` remain future work.
+- `#[riesel::component(provides = [...])]` now generates local/managed
+  binding registration from the explicit contract list, and the SDK offers
+  `.component::<MyComponent>()` for statically linked components. Optional
+  stable IDs and factory paths are supported; no global discovery is added.
+- Async generated handles and declarative `#[riesel::app]` remain future work.
 - Linux CI validated the changes, including workspace tests and runtime smoke
   tests: https://github.com/aschenrot/riesel/actions/runs/44411860685
 
@@ -145,3 +148,21 @@ are positional at this low-level stage; the future app macro will bind names
 to parameters at compile time. The synchronous handler implementation is not
 a substitute for genuine async transport or the proposed async entrypoint.
 Linux validation and smoke: https://github.com/aschenrot/riesel/actions/runs/44414421066
+
+## Stage 5.3 verified (2026-11-18)
+
+`#[riesel::component(provides = [CounterContract, CounterObserverContract])]`
+now derives `DeclarativeComponent`, backed by the same `ComponentDefinition`
+used by local and hosted execution. Published components can provide an
+explicit `id`; private ones derive a deterministic Rust declaration-path ID.
+A `factory = function_path` supports non-`Default` state constructors.
+Capability macros generate the local and RPC dispatcher adapters so the
+component author doesn't manually cast `Arc` or instantiate handlers.
+The existing Counter integration checks both capabilities share state locally
+and in a managed process; compile-fail tests reject missing trait implementations.
+Linux validation and smoke: https://github.com/aschenrot/riesel/actions/runs/44416458416
+
+**Remaining:** No general provider discovery, async generated handles,
+`#[riesel::app]` entrypoint, or module scheduler has been added. The next
+milestone is a genuine async transport/structured-concurrency design and
+implementation, not a Future wrapper around synchronous TCP.

@@ -61,30 +61,32 @@ tests now have separate internal modules for distinct responsibilities.
 Connectors are indexed by **capability ID plus version**; one local provider
 instance can implement several versioned capabilities using shared state.
 
-For a single local capability, applications can avoid handwritten
-`LocalProviderFactory`, contract definitions and `ConnectedProvider` wiring:
+Applications can now declare their dependencies once through ordinary Rust
+function parameters. The linked Counter component is registered through its
+generated provider definition:
 
 ```rust
 Application::new("Counter")
-    .rpc::<CounterContract>("counter")?
-    .provide::<CounterContract, _>("riesel.counter.memory", || {
-        std::sync::Arc::new(MemoryCounter::default())
-            as std::sync::Arc<dyn Counter + Send + Sync>
-    })?
-    .run(|ctx| {
-        ctx.capability::<CounterContract>("counter")?.add(1)?;
-        Ok(())
-    })
+    .handler_with_aliases(
+        |counter: Capability<CounterContract>| -> Result<(), CounterError> {
+            counter.add(1)?;
+            Ok(())
+        },
+        ["counter"],
+    )?
+    .component::<MemoryCounter>()?
+    .run()
 ```
 
-The code assumes the relevant `riesel`, `riesel_counter` and
-`riesel_counter_component` imports. Lower-level single-capability factories remain available. For reusable
-multi-capability components, `ComponentDefinition::new(...).exposes(...)`
-declares the state factory, typed local view and generated RPC dispatcher once.
-The same descriptor implements the local provider factory and hosts all
-contracts with `ComponentDefinition::serve`. Storage and Counter use this
-path, plus `run_component_from_env` for the thin executable entrypoint.
-One instance supplies shared state to every exposed capability.
+This code assumes the relevant `riesel`, `riesel_counter`, and
+`riesel_counter_component` imports. `#[component(provides = [...])]`
+on `MemoryCounter` generates the local and managed adapters from the same
+contract list. An explicit stable provider ID is used for published Counter;
+private component IDs are inferred from their Rust declaration path.
+The lower-level `ComponentDefinition` and `Application::provide` APIs remain
+available for custom factories and dynamic composition. Storage retains its
+direct `ComponentDefinition` builder. One component instance supplies shared
+state to every exposed capability.
 
 The loopback TCP server serves requests through **four worker threads** with
 a maximum **32 pending connections**. It has bounded JSON framing and socket

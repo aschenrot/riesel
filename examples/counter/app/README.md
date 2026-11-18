@@ -17,11 +17,13 @@ cargo run -p riesel_counter_example --bin riesel_counter_example
 ```
 
 The application registers the typed `Capability<CounterContract>` parameter
-through `Application::handler_with_aliases`, then selects
-`memory_counter_provider()` for local execution. No separate `.rpc()` call or
-manual `Context::capability()` lookup is required. Alternatively,
-`Application::provide::<CounterContract, _>("riesel.counter.memory", || ...)`
-registers an implementation without handwritten provider/factory metadata.
+through `Application::handler_with_aliases`, then selects the linked
+`MemoryCounter` via `.component::<MemoryCounter>()`. The
+`#[component(id = "riesel.counter.memory", provides = [...])]` declaration
+generates local/managed adapters and provider metadata. No separate `.rpc()`
+call, `Context::capability()` lookup, cast or dispatcher factory is required.
+Lower-level `ComponentDefinition` and `Application::provide` APIs remain
+available for specialized composition.
 No JSON, TCP endpoint, per-operation RPC client or explicit process management
 is needed.
 
@@ -69,5 +71,6 @@ The contract, component implementation and application live together in
 Riesel's framework core. The application has one local or deployment-aware
 binary. The crash, recovery and shared-instance binaries are explicit
 `tests/fixtures` targets, rather than normal application commands.
-`ComponentDefinition` produces both local provider registration and managed
-RPC hosting from one capability list.
+`#[component]` builds the existing `ComponentDefinition` for local and
+managed hosting from one explicit capability list. No global implementation
+discovery occurs.
