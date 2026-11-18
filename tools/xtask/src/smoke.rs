@@ -1,7 +1,6 @@
 use crate::command::{TaskResult, cargo, workspace_root};
 use std::env;
 use std::fs;
-use std::path::PathBuf;
 use std::net::{SocketAddr, TcpStream};
 use std::process::Command;
 use std::sync::{Arc, Mutex};
@@ -135,7 +134,8 @@ fn verify_multi_service_rollback() -> TaskResult {
                 {"name":"first","capability":{"id":"riesel.storage.records","version":1}}
             ]
         }"#,
-    ).map_err(|error| error.to_string())?;
+    )
+    .map_err(|error| error.to_string())?;
     let missing_program = workspace_root().join("riesel-nonexistent-service-for-rollback");
     if missing_program.exists() {
         return Err("rollback test executable unexpectedly exists".into());
@@ -146,14 +146,16 @@ fn verify_multi_service_rollback() -> TaskResult {
             "second": {"transport":"managed","program":missing_program}
         }
     });
-    let config = DeploymentConfig::from_json(&deployment.to_string())
-        .map_err(|error| error.to_string())?;
+    let config =
+        DeploymentConfig::from_json(&deployment.to_string()).map_err(|error| error.to_string())?;
     let connected = Arc::new(Mutex::new(Vec::new()));
     let mut connectors = ConnectorRegistry::new();
-    connectors.register(ObservedConnector {
-        rpc: RpcConnector::new(),
-        connected: Arc::clone(&connected),
-    }).map_err(|error| error.to_string())?;
+    connectors
+        .register(ObservedConnector {
+            rpc: RpcConnector::new(),
+            connected: Arc::clone(&connected),
+        })
+        .map_err(|error| error.to_string())?;
 
     match app.start(&config, &connectors) {
         Err(RuntimeError::ServiceStart { requirement, .. }) if requirement == "second" => {}
@@ -166,10 +168,15 @@ fn verify_multi_service_rollback() -> TaskResult {
 
     let addresses = connected.lock().map_err(|error| error.to_string())?;
     let [address] = addresses.as_slice() else {
-        return Err(format!("expected one verified live service, found {}", addresses.len()));
+        return Err(format!(
+            "expected one verified live service, found {}",
+            addresses.len()
+        ));
     };
     if TcpStream::connect_timeout(address, Duration::from_millis(250)).is_ok() {
-        return Err(format!("first managed service survived rollback at {address}"));
+        return Err(format!(
+            "first managed service survived rollback at {address}"
+        ));
     }
     Ok(())
 }
