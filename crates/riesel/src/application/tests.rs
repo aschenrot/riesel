@@ -371,3 +371,121 @@ fn typed_records_parameter_derives_storage_requirement_and_model_binding() {
     })
     .unwrap();
 }
+
+#[test]
+fn zero_parameter_handler_derives_empty_requirements() {
+    let mut invoked = false;
+    let handler = Application::new("Empty")
+        .handler(|| -> std::io::Result<()> {
+            invoked = true;
+            Ok(())
+        })
+        .unwrap();
+    assert!(handler.definition().requires.is_empty());
+    handler.run().unwrap();
+    assert!(invoked);
+}
+
+#[cfg(feature = "dev-memory-storage")]
+#[test]
+fn handler_signature_registers_and_extracts_counterpart_capability() {
+    use crate::Capability;
+
+    let mut captured = None;
+    let prepared = Application::new("Signature")
+        .handler(|store: Capability<RecordStoreContract>| -> std::io::Result<()> {
+            assert!(store.list_page("task", None, 1).unwrap().records.is_empty());
+            captured = Some(store);
+            Ok(())
+        })
+        .unwrap();
+    let expected = RecordStoreContract::definition()
+        .unwrap()
+        .capability
+        .default_requirement_alias();
+    assert_eq!(prepared.definition().requires.len(), 1);
+    assert_eq!(prepared.definition().requires[0].name, expected);
+    prepared.development().unwrap().run().unwrap();
+    assert!(matches!(
+        captured.unwrap().list_page("task", None, 1),
+        Err(crate::storage::StoreError::Transport(_))
+    ));
+}
+
+#[cfg(feature = "dev-memory-storage")]
+#[test]
+fn handler_multiple_models_share_one_storage_provider() {
+    use crate::{Capability, Records};
+
+    let prepared = Application::new("TwoModels")
+        .handler(
+            |tasks: Records<TodoModel>, notes: Records<ExtendedModel>| -> crate::Result<()> {
+                let task = tasks.create(TodoModel {
+                    title: "One".into(),
+                    completed: false,
+                })?;
+                let note = notes.create(ExtendedModel {
+                    count: 1,
+                    delta: 0,
+                    ratio: 1.0,
+                    note: None,
+                    tags: Vec::new(),
+                    payload: serde_json::Value::Null,
+                })?;
+                assert_eq!(tasks.get(task.id)?.unwrap().value.title, "One");
+                assert_eq!(notes.get(note.id)?.unwrap().value.count, 1);
+                Ok(())
+            },
+        )
+        .unwrap();
+    assert_eq!(prepared.definition().requires.len(), 1);
+    assert_eq!(prepared.definition().model_bindings["todo"], ["storage"]);
+    assert_eq!(prepared.definition().model_bindings["extended"], ["storage"]);
+    prepared.development().unwrap().run().unwrap();
+
+    let result = Application::new("Duplicate")
+        .handler(
+            |_first: Capability<RecordStoreContract>,
+             _second: Capability<RecordStoreContract>| -> crate::Result<()> { Ok(()) },
+        );
+    assert!(matches!(result, Err(SdkError::DuplicateParameterBinding(_))));
+}
+
+#[cfg(feature = "records")]
+#[test]
+fn handler_binding_validation_runs_before_provider_startup() {
+    use crate::Records;
+    let wrong_count = Application::new("WrongCount").handler_with_aliases(
+        |_tasks: Records<TodoModel>| -> crate::Result<()> { Ok(()) },
+        ["first", "second"],
+    );
+    assert!(matches!(
+        wrong_count,
+        Err(SdkError::ParameterCount {
+            expected: 1,
+            actual: 2
+        })
+    ));
+
+    let invalid = Application::new("Invalid").handler_with_aliases(
+        |_tasks: Records<TodoModel>| -> crate::Result<()> { Ok(()) },
+        ["Bad Alias"],
+    );
+    assert!(matches!(
+        invalid,
+        Err(SdkError::Schema(riesel_schema::SchemaError::InvalidRequirementName { .. }))
+    ));
+
+    let prepared = Application::new("Named")
+        .handler_with_aliases(
+            |_tasks: Records<TodoModel>| -> crate::Result<()> { Ok(()) },
+            ["primary"],
+        )
+        .unwrap();
+    assert_eq!(prepared.definition().model_bindings["todo"], ["primary"]);
+    let expected = Application::new("Named").records_at::<TodoModel>("primary").unwrap();
+    assert_eq!(
+        prepared.definition_json().unwrap(),
+        expected.definition_json().unwrap()
+    );
+}

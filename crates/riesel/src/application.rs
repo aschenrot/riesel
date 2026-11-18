@@ -19,6 +19,7 @@ mod builder;
 mod cli;
 mod context;
 mod errors;
+mod handler;
 mod parameter;
 #[cfg(test)]
 mod tests;
@@ -26,4 +27,5 @@ mod tests;
 pub use builder::Application;
 pub use context::Context;
 pub use errors::{Result, SdkError};
+pub use handler::{ApplicationHandler, HandlerParams, PreparedApplication};
 pub use parameter::{ApplicationParam, Capability};

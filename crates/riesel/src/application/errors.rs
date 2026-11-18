@@ -44,6 +44,10 @@ pub enum SdkError {
     RequirementConflict(String),
     #[error("invalid application arguments: {0}")]
     Arguments(String),
+    #[error("handler requires {expected} parameter aliases, but received {actual}")]
+    ParameterCount { expected: usize, actual: usize },
+    #[error("the same handler parameter is bound more than once to {0}; use explicit distinct aliases")]
+    DuplicateParameterBinding(String),
 }
 
 pub type Result<T> = std::result::Result<T, SdkError>;
