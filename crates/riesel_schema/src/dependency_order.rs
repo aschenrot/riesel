@@ -3,7 +3,7 @@ use crate::{AppSchema, SchemaError};
 use std::collections::BTreeMap;
 
 impl AppSchema {
-    fn order_indices(&self) -> Result<Vec<usize>, SchemaError> {
+    pub(crate) fn order_indices(&self) -> Result<Vec<usize>, SchemaError> {
         let positions: BTreeMap<&str, usize> = self
             .requires
             .iter()

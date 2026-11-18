@@ -171,6 +171,7 @@ fn valid_model_field_name(name: &str) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::FieldType;
 
     #[test]
     fn parses_valid_schema() {
