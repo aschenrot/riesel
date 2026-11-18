@@ -233,7 +233,10 @@ pub(crate) fn expand_capability(
             });
         }
 
+        // Own these AST nodes because native async methods rewrite
+        // their signature below; references would borrow method.sig.output.
         let (result_type, error_type) = result_parts(&method.sig.output)?;
+        let (result_type, error_type) = (result_type.clone(), error_type.clone());
         let method_name = &method.sig.ident;
         if method_async {
             // The user can still implement this trait using ordinary
