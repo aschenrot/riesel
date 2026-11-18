@@ -15,6 +15,7 @@ impl Application {
                 version: 1,
                 app: AppDefinition { name: name.into() },
                 models: BTreeMap::new(),
+                model_bindings: BTreeMap::new(),
                 requires: vec![],
             },
             providers: ConnectorRegistry::new(),
@@ -91,6 +92,7 @@ impl Application {
     /// Register a Rust model and explicitly name its storage requirement.
     /// Multiple storage aliases can coexist without implicit selection.
     pub fn records_at<T: RieselModel>(mut self, storage_alias: impl Into<String>) -> Result<Self> {
+        let storage_alias = storage_alias.into();
         let name = T::MODEL_NAME.to_owned();
         let definition = T::model_definition();
         if let Some(previous) = self.definition.models.get(&name) {
@@ -98,10 +100,15 @@ impl Application {
                 return Err(SdkError::DuplicateModel(name));
             }
         } else {
-            self.definition.models.insert(name, definition);
+            self.definition.models.insert(name.clone(), definition);
         }
 
-        self.rpc::<RecordStoreContract>(storage_alias)
+        self = self.rpc::<RecordStoreContract>(storage_alias.clone())?;
+        let bindings = self.definition.model_bindings.entry(name).or_default();
+        if !bindings.contains(&storage_alias) {
+            bindings.push(storage_alias);
+        }
+        Ok(self)
     }
 
     /// Register a single generated local capability without handwritten

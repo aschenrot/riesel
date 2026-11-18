@@ -15,6 +15,11 @@ pub struct AppSchema {
     pub version: u32,
     pub app: AppDefinition,
     pub models: BTreeMap<String, ModelDefinition>,
+    /// Model names mapped to the declared capability requirement aliases
+    /// selected for their record storage. An empty map denotes a schema
+    /// without explicit model-to-provider selection.
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub model_bindings: BTreeMap<String, Vec<String>>,
     #[serde(default)]
     pub requires: Vec<CapabilityRequirement>,
 }
@@ -62,6 +67,12 @@ pub enum SchemaError {
     },
     #[error("cyclic requirement dependencies prevent startup: {requirements:?}")]
     DependencyCycle { requirements: Vec<String> },
+    #[error("model binding refers to undeclared model {model}")]
+    UnknownBoundModel { model: String },
+    #[error("model {model} binds undeclared requirement {requirement}")]
+    UnknownModelBinding { model: String, requirement: String },
+    #[error("model {model} binds requirement {requirement} more than once")]
+    DuplicateModelBinding { model: String, requirement: String },
     #[error("invalid model identifier: {0}")]
     InvalidModelName(String),
     #[error("model {0} must declare at least one field")]
@@ -122,6 +133,29 @@ impl AppSchema {
                     name: requirement.name.clone(),
                     source,
                 })?;
+        }
+
+        for (model, bindings) in &self.model_bindings {
+            if !self.models.contains_key(model) {
+                return Err(SchemaError::UnknownBoundModel {
+                    model: model.clone(),
+                });
+            }
+            let mut seen = BTreeSet::new();
+            for requirement in bindings {
+                if !names.contains(requirement.as_str()) {
+                    return Err(SchemaError::UnknownModelBinding {
+                        model: model.clone(),
+                        requirement: requirement.clone(),
+                    });
+                }
+                if !seen.insert(requirement) {
+                    return Err(SchemaError::DuplicateModelBinding {
+                        model: model.clone(),
+                        requirement: requirement.clone(),
+                    });
+                }
+            }
         }
 
         for requirement in &self.requires {
