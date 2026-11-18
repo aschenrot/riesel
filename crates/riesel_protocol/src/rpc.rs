@@ -88,6 +88,25 @@ pub trait RpcHandler: Send + Sync {
 
 /// A generated RPC binding translates a transport into a typed service
 /// without writing one adapter method for every capability operation.
+///
+/// Bindings that omit session guarding are rejected at compile time:
+///
+/// ```compile_fail
+/// use riesel_protocol::{RpcClientBinding, TcpRpcTransport};
+/// use riesel_schema::{CapabilityContract, CapabilityDescriptor, ContractError};
+///
+/// struct UnsafeBinding;
+/// impl CapabilityDescriptor for UnsafeBinding {
+///     fn definition() -> Result<CapabilityContract, ContractError> {
+///         unimplemented!()
+///     }
+/// }
+/// impl RpcClientBinding for UnsafeBinding {
+///     type Service = ();
+///     fn bind(_: TcpRpcTransport) -> Self::Service {}
+///     // Missing guard_local must be a compilation error.
+/// }
+/// ```
 pub trait RpcClientBinding: CapabilityDescriptor {
     type Service: Any + Send + Sync;
 
