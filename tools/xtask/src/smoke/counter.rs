@@ -91,7 +91,8 @@ pub(super) fn verify_managed_session_recovery() -> TaskResult {
 
 pub(super) fn verify_shared_managed_component() -> TaskResult {
     let path = env::temp_dir().join(format!(
-        "riesel-shared-component-smoke-{}.json", std::process::id()
+        "riesel-shared-component-smoke-{}.json",
+        std::process::id()
     ));
     let managed = serde_json::json!({
         "transport": "managed",
