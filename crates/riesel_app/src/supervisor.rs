@@ -341,9 +341,11 @@ mod tests {
             ]),
         )
         .unwrap();
-        assert!(supervisor
-            .cancellation_token()
-            .wait_cancelled_timeout(Duration::from_secs(8)));
+        assert!(
+            supervisor
+                .cancellation_token()
+                .wait_cancelled_timeout(Duration::from_secs(8))
+        );
         assert!(matches!(
             supervisor.check_now(),
             Some(RuntimeError::ServiceExited { requirement, .. })
