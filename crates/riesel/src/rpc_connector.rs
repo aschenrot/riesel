@@ -27,7 +27,10 @@ impl<C: RpcClientBinding> CapabilityConnector for RpcConnector<C> {
 
     fn connect(&self, endpoint: &ServiceEndpoint) -> Result<ConnectedProvider, ConnectorError> {
         let address = endpoint.address().ok_or_else(|| {
-            io::Error::new(io::ErrorKind::InvalidInput, "RPC connector needs a TCP endpoint")
+            io::Error::new(
+                io::ErrorKind::InvalidInput,
+                "RPC connector needs a TCP endpoint",
+            )
         })?;
         let expected = C::definition()?;
         let transport = TcpRpcTransport::new(address);
@@ -37,7 +40,8 @@ impl<C: RpcClientBinding> CapabilityConnector for RpcConnector<C> {
             return Err(io::Error::new(
                 io::ErrorKind::InvalidData,
                 "remote capability contract differs from Rust declaration",
-            ).into());
+            )
+            .into());
         }
 
         // An advertised ID is selection metadata, not authentication. An

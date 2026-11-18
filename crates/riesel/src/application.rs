@@ -120,7 +120,8 @@ impl Application {
         self = self.require::<RecordStoreContract>("storage")?;
         if !already_registered {
             // Register transport support without opening a socket.
-            self.providers.register(RpcConnector::<RecordStoreContract>::new())?;
+            self.providers
+                .register(RpcConnector::<RecordStoreContract>::new())?;
         }
         Ok(self)
     }

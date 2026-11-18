@@ -100,11 +100,17 @@ pub struct RpcHost<H> {
 
 impl<H: RpcHandler> RpcHost<H> {
     pub fn new(provider: ProviderDefinition, handler: H) -> Result<Self, RpcError> {
-        provider.validate().map_err(|error| RpcError::Contract(error.to_string()))?;
+        provider
+            .validate()
+            .map_err(|error| RpcError::Contract(error.to_string()))?;
         let contract = handler.contract()?;
-        contract.validate().map_err(|error| RpcError::Contract(error.to_string()))?;
+        contract
+            .validate()
+            .map_err(|error| RpcError::Contract(error.to_string()))?;
         if !provider.capabilities.contains(&contract.capability) {
-            return Err(RpcError::Contract("provider does not advertise the hosted capability".into()));
+            return Err(RpcError::Contract(
+                "provider does not advertise the hosted capability".into(),
+            ));
         }
         Ok(Self { provider, handler })
     }

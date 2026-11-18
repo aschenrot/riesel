@@ -39,7 +39,10 @@ impl Parse for CapabilityArgs {
                 }
                 version = Some(input.parse::<LitInt>()?);
             } else {
-                return Err(syn::Error::new(key.span(), "expected id, version or client_trait"));
+                return Err(syn::Error::new(
+                    key.span(),
+                    "expected id, version or client_trait",
+                ));
             }
             if !input.is_empty() {
                 input.parse::<Token![,]>()?;

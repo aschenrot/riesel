@@ -57,11 +57,15 @@ impl TcpRpcTransport {
     /// advertise it. The identity is not cryptographic authentication.
     pub fn provider(&self, capability: &CapabilityRef) -> Result<ProviderDefinition, RpcError> {
         let value = self.call(capability, PROVIDER, serde_json::json!({}))?;
-        let provider: ProviderDefinition = serde_json::from_value(value)
-            .map_err(|error| RpcError::Codec(error.to_string()))?;
-        provider.validate().map_err(|error| RpcError::Contract(error.to_string()))?;
+        let provider: ProviderDefinition =
+            serde_json::from_value(value).map_err(|error| RpcError::Codec(error.to_string()))?;
+        provider
+            .validate()
+            .map_err(|error| RpcError::Contract(error.to_string()))?;
         if !provider.capabilities.contains(capability) {
-            return Err(RpcError::Contract("provider does not implement the requested capability".into()));
+            return Err(RpcError::Contract(
+                "provider does not implement the requested capability".into(),
+            ));
         }
         Ok(provider)
     }
@@ -139,12 +143,13 @@ pub fn handle_tcp_connection(
                     "provider inspection takes no arguments".into(),
                 ))
             } else {
-                handler.provider().ok_or_else(|| {
-                    RpcError::Contract("service has no registered provider".into())
-                }).and_then(|provider| {
-                    serde_json::to_value(provider)
-                        .map_err(|error| RpcError::Codec(error.to_string()))
-                })
+                handler
+                    .provider()
+                    .ok_or_else(|| RpcError::Contract("service has no registered provider".into()))
+                    .and_then(|provider| {
+                        serde_json::to_value(provider)
+                            .map_err(|error| RpcError::Codec(error.to_string()))
+                    })
             }
         } else if request.operation == DESCRIBE {
             if request.arguments != serde_json::json!({}) {
