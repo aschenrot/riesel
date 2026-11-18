@@ -124,7 +124,10 @@ impl Application {
     /// Production applications never fall back to MemoryStore automatically.
     #[cfg(feature = "dev-memory-storage")]
     pub fn development(self) -> Result<Self> {
-        self.provider(riesel_storage_component::memory_storage_provider())
+        self.provider(
+            riesel_storage_component::memory_storage_provider()
+                .map_err(|source| RuntimeError::ProviderFactory { source })?,
+        )
     }
 
     /// Configure an explicit local provider or external/managed service.

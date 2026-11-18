@@ -1,16 +1,10 @@
 //! Storage's host implementation. The runtime-managed TCP lifecycle,
 //! framing, readiness, and cooperative shutdown are shared by every RPC host.
-use crate::{MemoryStore, memory_provider_definition};
-use riesel_protocol::serve_component;
-use riesel_storage::RecordStoreRpcDispatcher;
+use crate::memory_storage_provider;
 use std::io;
 
 pub fn run_storage_server(address: &str) -> io::Result<()> {
-    serve_component(
-        address,
-        memory_provider_definition().map_err(io::Error::other)?,
-        RecordStoreRpcDispatcher::new(MemoryStore::new()),
-    )
+    memory_storage_provider().map_err(io::Error::other)?.serve(address)
 }
 
 #[cfg(test)]

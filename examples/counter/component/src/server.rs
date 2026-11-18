@@ -1,24 +1,15 @@
-//! Thin executable host: all framing, readiness and graceful shutdown live
-//! in the shared RPC runtime, not in Counter-specific networking code.
+//! Thin executable host using the same component definition as local use.
 
-use crate::{MemoryCounter, memory_provider_definition};
-use riesel_counter::{CounterObserverRpcDispatcher, CounterRpcDispatcher};
-use riesel_protocol::{RpcRouter, serve_router};
+use crate::memory_counter_provider;
 use std::io;
 
 pub fn run_counter_server(address: &str) -> io::Result<()> {
-    let state = std::sync::Arc::new(MemoryCounter::default());
-    let router = RpcRouter::new(memory_provider_definition().map_err(io::Error::other)?)
-        .and_then(|router| router.route(CounterRpcDispatcher::new(state.clone())))
-        .and_then(|router| router.route(CounterObserverRpcDispatcher::new(state)))
-        .map_err(io::Error::other)?;
-    serve_router(address, router)
+    memory_counter_provider().map_err(io::Error::other)?.serve(address)
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::io;
 
     #[test]
     fn rejects_non_loopback_counter_server() {

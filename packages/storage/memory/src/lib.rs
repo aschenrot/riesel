@@ -7,20 +7,23 @@ pub use server::run_storage_server;
 use riesel_schema::ProviderDefinition;
 use riesel_storage::RecordStoreContract;
 
-use riesel_app::{LocalProviderFactory, local_provider};
-use riesel_storage::RecordStore;
+use riesel_app::{ComponentDefinition, ConnectorError, LocalProviderFactory};
+use riesel_storage::{RecordStore, RecordStoreRpcDispatcher};
 use std::sync::Arc;
 
 /// Metadata for the reference provider comes from its typed registration.
-pub fn memory_provider_definition() -> Result<ProviderDefinition, riesel_app::ConnectorError> {
-    memory_storage_provider().definition()
+pub fn memory_provider_definition() -> Result<ProviderDefinition, ConnectorError> {
+    memory_storage_provider()?.definition()
 }
 
-/// Register this implementation without manual provider/contract wiring.
-pub fn memory_storage_provider() -> impl LocalProviderFactory {
-    local_provider::<RecordStoreContract, _>("riesel.storage.memory", || {
-        Arc::new(MemoryStore::new()) as Arc<dyn RecordStore + Send + Sync>
-    })
+/// One authoritative provider registration serves both local and managed
+/// instances; the Storage implementation is constructed once per instance.
+pub fn memory_storage_provider() -> Result<ComponentDefinition<MemoryStore>, ConnectorError> {
+    ComponentDefinition::new("riesel.storage.memory", MemoryStore::new)
+        .exposes::<RecordStoreContract, _>(
+            |state| state as Arc<dyn RecordStore + Send + Sync>,
+            RecordStoreRpcDispatcher::new,
+        )
 }
 
 #[cfg(test)]
