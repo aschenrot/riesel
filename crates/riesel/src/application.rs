@@ -125,6 +125,13 @@ impl Application {
         &self.definition
     }
 
+    /// Export the canonical application schema generated from Rust types.
+    /// This is suitable for tools and visual builders; it is not a second
+    /// authoritative file that a Rust developer has to edit.
+    pub fn definition_json(&self) -> Result<String> {
+        Ok(serde_json::to_string_pretty(&self.definition)?)
+    }
+
     pub fn run(
         self,
         entrypoint: impl FnOnce(&Context<'_>) -> std::result::Result<(), ConnectorError>,
@@ -149,7 +156,11 @@ impl Application {
         match args.as_slice() {
             [] => {}
             [option] if option == "--help" || option == "-h" => {
-                println!("Usage: <application> [--deployment FILE]");
+                println!("Usage: <application> [--deployment FILE | --print-definition]");
+                return Ok(());
+            }
+            [option] if option == "--print-definition" => {
+                println!("{}", self.definition_json()?);
                 return Ok(());
             }
             [option, path] if option == "--deployment" => {
@@ -157,7 +168,7 @@ impl Application {
             }
             _ => {
                 return Err(SdkError::Arguments(
-                    "expected --deployment FILE or --help".into(),
+                    "expected --deployment FILE, --print-definition or --help".into(),
                 ));
             }
         }
@@ -257,4 +268,15 @@ mod tests {
             )))
         ));
     }
+    #[test]
+    fn sdk_generated_definition_round_trips_without_handwritten_json() {
+        let app = Application::new("Todo").records::<TodoModel>().unwrap();
+        let json = app.definition_json().unwrap();
+        let decoded = riesel_schema::parse_schema(&json).unwrap();
+        decoded.validate().unwrap();
+        assert_eq!(decoded.app.name, "Todo");
+        assert_eq!(decoded.models["todo"], TodoModel::model_definition());
+        assert_eq!(decoded.requires[0].capability.id, "riesel.storage.records");
+    }
+
 }
