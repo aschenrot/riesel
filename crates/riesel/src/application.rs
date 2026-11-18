@@ -5,11 +5,10 @@ use riesel_app::{
 };
 use riesel_schema::{AppDefinition, AppSchema, CapabilityDescriptor, CapabilityRequirement};
 use riesel_protocol::RpcClientBinding;
-use riesel_storage::{RecordStore, RecordStoreContract};
+use riesel_storage::RecordStoreContract;
 use serde::{Serialize, de::DeserializeOwned};
 use std::collections::BTreeMap;
 use std::path::PathBuf;
-use std::sync::Arc;
 use thiserror::Error;
 
 #[derive(Debug, Error)]
@@ -40,6 +39,10 @@ pub enum SdkError {
     MissingStorage,
     #[error("multiple record-storage requirements are declared")]
     AmbiguousStorage,
+    #[error("capability requirement not found: {0}")]
+    MissingCapability(String),
+    #[error("capability requirement {0} does not match the requested contract")]
+    CapabilityMismatch(String),
     #[error("requirement {0} is already used for a different capability")]
     RequirementConflict(String),
     #[error("invalid application arguments: {0}")]
@@ -215,15 +218,15 @@ impl Context<'_> {
             .running
             .app()
             .definition()
-            .ok_or_else(|| SdkError::MissingModel(name.into()))?;
+            .ok_or_else(|| SdkError::MissingCapability(name.into()))?;
         let expected = C::definition()?.capability;
         let requirement = definition
             .requires
             .iter()
             .find(|requirement| requirement.name == name)
-            .ok_or_else(|| SdkError::RequirementConflict(name.into()))?;
+            .ok_or_else(|| SdkError::MissingCapability(name.into()))?;
         if requirement.capability != expected {
-            return Err(SdkError::RequirementConflict(name.into()));
+            return Err(SdkError::CapabilityMismatch(name.into()));
         }
         Ok(self.running.service::<C::Service>(name)?)
     }
@@ -256,10 +259,7 @@ impl Context<'_> {
             [only] => only.name.as_str(),
             _ => return Err(SdkError::AmbiguousStorage),
         };
-        let store = self
-            .running
-            .service::<Arc<dyn RecordStore + Send + Sync>>(requirement)?
-            .clone();
+        let store = self.capability::<RecordStoreContract>(requirement)?.clone();
         Ok(Records::from_store(store))
     }
 }
@@ -295,6 +295,8 @@ mod tests {
                 let got = records.get(created.id)?.unwrap();
                 assert_eq!(got.value.title, "Build Riesel");
                 assert_eq!(records.list()?.len(), 1);
+                let storage = ctx.capability::<RecordStoreContract>("storage")?;
+                assert_eq!(storage.list("todo")?.len(), 1);
                 Ok(())
             })
             .unwrap();
