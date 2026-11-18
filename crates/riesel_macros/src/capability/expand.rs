@@ -9,7 +9,7 @@ pub(crate) fn expand_capability(
     mut item: ItemTrait,
 ) -> syn::Result<proc_macro2::TokenStream> {
     let id = args.id;
-    let version = args.version;
+    let version: syn::LitInt = args.version.unwrap_or_else(|| syn::parse_quote!(1));
     let client_trait = args.client_trait;
     let parsed_version: u32 = version.base10_parse()?;
     if parsed_version == 0 {
@@ -18,18 +18,20 @@ pub(crate) fn expand_capability(
             "version must be greater than zero",
         ));
     }
-    let segments: Vec<_> = id.value().split('.').map(str::to_owned).collect();
-    if segments.len() < 2
-        || segments.iter().any(|s| {
-            let mut chars = s.chars();
-            !matches!(chars.next(), Some(c) if c.is_ascii_lowercase())
-                || !chars.all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '_')
-        })
-    {
-        return Err(syn::Error::new(
-            id.span(),
-            "invalid dotted capability identifier",
-        ));
+    if let Some(id) = &id {
+        let segments: Vec<_> = id.value().split('.').map(str::to_owned).collect();
+        if segments.len() < 2
+            || segments.iter().any(|s| {
+                let mut chars = s.chars();
+                !matches!(chars.next(), Some(c) if c.is_ascii_lowercase())
+                    || !chars.all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '_')
+            })
+        {
+            return Err(syn::Error::new(
+                id.span(),
+                "invalid dotted capability identifier",
+            ));
+        }
     }
     if !item.generics.params.is_empty() || item.generics.where_clause.is_some() {
         return Err(syn::Error::new(
@@ -38,6 +40,15 @@ pub(crate) fn expand_capability(
         ));
     }
     let trait_name = item.ident.clone();
+    // Private IDs derive from the declaration site, not from the call site.
+    // Published contracts must retain an explicit stable ID across renames.
+    let id_expr = match &id {
+        Some(id) => quote!(#id.to_owned()),
+        None => quote!(::riesel_schema::CapabilityRef::private_rust_id(
+            module_path!(),
+            stringify!(#trait_name),
+        )),
+    };
     let descriptor_name = format_ident!("{}Contract", trait_name);
     let client_name = format_ident!("{}RpcClient", trait_name);
     let dispatcher_name = format_ident!("{}RpcDispatcher", trait_name);
@@ -259,7 +270,7 @@ pub(crate) fn expand_capability(
                 #(#client_encoding)*
                 let response = self.transport.call(
                     &::riesel_schema::CapabilityRef {
-                        id: #id.to_owned(),
+                        id: #id_expr,
                         version: #version,
                     },
                     stringify!(#method_name),
@@ -371,7 +382,7 @@ pub(crate) fn expand_capability(
                 #(#generated_operations)*
                 let contract = ::riesel_schema::CapabilityContract {
                     capability: ::riesel_schema::CapabilityRef {
-                        id: #id.to_owned(),
+                        id: #id_expr,
                         version: #version,
                     },
                     operations,

@@ -18,6 +18,41 @@ pub enum CapabilityRefError {
 }
 
 impl CapabilityRef {
+    /// Deterministic identity for an unpublished Rust capability declaration.
+    ///
+    /// The encoding is lossless across different Rust identifiers, including
+    /// case and Unicode. It is intentionally tied to its declaration path:
+    /// moving/renaming the Rust item changes its private identity.
+    /// Published contracts must use an explicit stable external ID.
+    pub fn private_rust_id(module_path: &str, rust_name: &str) -> String {
+        fn segment(identifier: &str) -> String {
+            let mut encoded = String::from("n");
+            for character in identifier.chars() {
+                match character {
+                    'a'..='z' | '0'..='9' => encoded.push(character),
+                    '_' => encoded.push_str("_0"),
+                    'A'..='Z' => {
+                        encoded.push_str("_1");
+                        encoded.push(character.to_ascii_lowercase());
+                    }
+                    other => {
+                        use std::fmt::Write;
+                        write!(&mut encoded, "_2{:x}_", u32::from(other))
+                            .expect("writing to a String cannot fail");
+                    }
+                }
+            }
+            encoded
+        }
+
+        let mut id = String::from("rust");
+        for part in module_path.split("::").chain(std::iter::once(rust_name)) {
+            id.push('.');
+            id.push_str(&segment(part));
+        }
+        id
+    }
+
     pub fn validate(&self) -> Result<(), CapabilityRefError> {
         if !valid_capability_id(&self.id) {
             return Err(CapabilityRefError::InvalidId(self.id.clone()));
@@ -44,6 +79,25 @@ pub(crate) fn valid_capability_id(id: &str) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn generated_private_id_is_valid_deterministic_and_case_sensitive() {
+        let id = CapabilityRef::private_rust_id("my_crate::sample", "Counter");
+        assert_eq!(id, CapabilityRef::private_rust_id("my_crate::sample", "Counter"));
+        assert_ne!(id, CapabilityRef::private_rust_id("my_crate::sample", "counter"));
+        assert_ne!(id, CapabilityRef::private_rust_id("my_crate::other", "Counter"));
+        assert_ne!(
+            CapabilityRef::private_rust_id("my_crate::a_b", "Counter"),
+            CapabilityRef::private_rust_id("my_crate::a0b", "Counter")
+        );
+        for name in ["Counter", "_Counter", "Grüße", "counter"] {
+            let reference = CapabilityRef {
+                id: CapabilityRef::private_rust_id("my_crate::sample", name),
+                version: 1,
+            };
+            reference.validate().unwrap();
+        }
+    }
 
     #[test]
     fn capability_ref_round_trips_through_json() {

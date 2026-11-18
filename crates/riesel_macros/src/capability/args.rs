@@ -2,8 +2,8 @@ use syn::parse::{Parse, ParseStream};
 use syn::{Ident, LitInt, LitStr, Token};
 
 pub(crate) struct CapabilityArgs {
-    pub(crate) id: LitStr,
-    pub(crate) version: LitInt,
+    pub(crate) id: Option<LitStr>,
+    pub(crate) version: Option<LitInt>,
     pub(crate) client_trait: bool,
 }
 
@@ -42,8 +42,8 @@ impl Parse for CapabilityArgs {
             }
         }
         Ok(Self {
-            id: id.ok_or_else(|| input.error("missing id"))?,
-            version: version.ok_or_else(|| input.error("missing version"))?,
+            id,
+            version,
             client_trait,
         })
     }

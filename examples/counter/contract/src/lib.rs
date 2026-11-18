@@ -47,3 +47,42 @@ pub trait CounterObserver {
     #[query]
     fn observe(&self) -> Result<u64, CounterError>;
 }
+
+#[cfg(test)]
+#[allow(dead_code)]
+mod private_identity_tests {
+    use super::*;
+
+    #[capability]
+    pub trait PrivateCounter {
+        /// Read the counter.
+        #[query]
+        fn value(&self) -> Result<u64, CounterError>;
+    }
+
+    struct PrivateImplementation;
+
+    impl PrivateCounter for PrivateImplementation {
+        fn value(&self) -> Result<u64, CounterError> {
+            Ok(7)
+        }
+    }
+
+    #[test]
+    fn private_declaration_needs_no_id_and_supports_generated_dispatch() {
+        use riesel_protocol::RpcHandler;
+
+        let contract = PrivateCounterContract::definition().unwrap();
+        assert_eq!(contract.capability.version, 1);
+        assert_eq!(
+            contract.capability.id,
+            riesel_schema::CapabilityRef::private_rust_id(
+                module_path!(),
+                "PrivateCounter"
+            )
+        );
+        let handler = PrivateCounterRpcDispatcher::new(PrivateImplementation);
+        assert_eq!(handler.contract().unwrap().capability, contract.capability);
+        assert!(handler.dispatch("value", serde_json::json!({})).is_ok());
+    }
+}
