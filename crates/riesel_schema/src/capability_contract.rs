@@ -87,6 +87,22 @@ pub enum ContractError {
 }
 
 impl CapabilityContract {
+    /// Compare declared API shape without treating documentation changes as
+    /// contract-breaking. This is not proof of provider conformance or security.
+    pub fn has_same_api_shape(&self, other: &Self) -> bool {
+        self.capability == other.capability
+            && self.types == other.types
+            && self.operations.len() == other.operations.len()
+            && self.operations.iter().all(|(name, left)| {
+                other.operations.get(name).is_some_and(|right| {
+                    left.kind == right.kind
+                        && left.inputs == right.inputs
+                        && left.output == right.output
+                        && left.error == right.error
+                })
+            })
+    }
+
     pub fn validate(&self) -> Result<(), ContractError> {
         self.capability.validate().map_err(|error| match error {
             CapabilityRefError::InvalidId(id) => ContractError::InvalidCapabilityId(id),
@@ -262,4 +278,38 @@ mod tests {
             Err(ContractError::UnknownType("Missing".into()))
         );
     }
+    #[test]
+    fn contract_signature_comparison_ignores_docs_but_not_api_types() {
+        let mut contract = CapabilityContract {
+            capability: CapabilityRef {
+                id: "example.records".into(),
+                version: 1,
+            },
+            operations: BTreeMap::from([(
+                "read".into(),
+                OperationDefinition {
+                    kind: OperationKind::Query,
+                    description: "Read records".into(),
+                    inputs: vec![ParameterDefinition {
+                        name: "id".into(),
+                        kind: TypeRef::Uuid,
+                    }],
+                    output: TypeRef::Json,
+                    error: TypeRef::Unit,
+                },
+            )]),
+            types: BTreeMap::new(),
+        };
+        let original = contract.clone();
+        contract.operations.get_mut("read").unwrap().description = "Retrieve data".into();
+        assert!(contract.has_same_api_shape(&original));
+
+        contract.operations.get_mut("read").unwrap().inputs[0].kind = TypeRef::String;
+        assert!(!contract.has_same_api_shape(&original));
+
+        contract.operations.get_mut("read").unwrap().inputs[0].kind = TypeRef::Uuid;
+        contract.capability.version = 2;
+        assert!(!contract.has_same_api_shape(&original));
+    }
+
 }

@@ -70,9 +70,9 @@ impl TcpStore {
         }
         let local = RecordStoreContract::definition()
             .map_err(|e| failed("local storage contract", e))?;
-        if info.contract != local {
+        if !info.contract.has_same_api_shape(&local) {
             return Err(StoreError::Failed(
-                "remote storage contract differs from the local Rust contract".into(),
+                "remote storage API shape differs from the local Rust contract".into(),
             ));
         }
         Ok(())
