@@ -15,7 +15,7 @@ pub use riesel_app::{
     RuntimeError, ServiceEndpoint,
 };
 pub use riesel_macros::{RieselModel, RieselType, capability};
-pub use riesel_schema::{ModelField, RieselModel};
+pub use riesel_schema::{CapabilityDescriptor, ModelField, RieselModel};
 
 pub mod prelude {
     pub use super::{App, AppConfig, AppError, Application, Result, RieselModel};
