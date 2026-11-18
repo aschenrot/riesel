@@ -160,7 +160,12 @@ pub fn run_tcp_rpc_host<H: RpcHandler>(address: &str, handler: &H) -> io::Result
 
     let serve = |connection| match connection {
         Ok(mut stream) => {
-            if let Err(error) = handle_tcp_connection(handler, &mut stream) {
+            // On Windows, an accepted stream can inherit the listener's
+            // nonblocking mode. RPC requests use bounded blocking I/O, so
+            // always switch the stream back before handling a frame.
+            if let Err(error) = stream.set_nonblocking(false) {
+                eprintln!("RPC connection configuration failed: {error}");
+            } else if let Err(error) = handle_tcp_connection(handler, &mut stream) {
                 eprintln!("RPC request failed: {error}");
             }
         }
