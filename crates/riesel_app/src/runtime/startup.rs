@@ -1,6 +1,6 @@
-use super::*;
-use super::managed::{await_ready, ShutdownMode};
+use super::managed::{ShutdownMode, await_ready};
 use super::registry::RunningLocalProvider;
+use super::*;
 
 impl App {
     /// Start a validated application. For managed endpoints, spawn the

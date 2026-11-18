@@ -97,7 +97,6 @@ impl Drop for RunningApp {
     }
 }
 
-
 impl RunningApp {
     pub(crate) fn execute(
         mut running: RunningApp,
@@ -138,4 +137,3 @@ impl RunningApp {
         }
     }
 }
-

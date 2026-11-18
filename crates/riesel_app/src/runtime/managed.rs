@@ -19,7 +19,10 @@ pub(super) struct ServiceReady {
 
 /// Read a single bounded startup frame from a private child stdout pipe.
 /// Timeout kills the child through ProcessRegistry's drop cleanup.
-pub(super) fn await_ready<R: Read + Send + 'static>(stdout: R, timeout: Duration) -> io::Result<ServiceReady> {
+pub(super) fn await_ready<R: Read + Send + 'static>(
+    stdout: R,
+    timeout: Duration,
+) -> io::Result<ServiceReady> {
     let (sender, receiver) = mpsc::sync_channel(1);
     thread::spawn(move || {
         let mut reader = BufReader::new(stdout);
@@ -67,4 +70,3 @@ pub(super) fn await_ready<R: Read + Send + 'static>(stdout: R, timeout: Duration
         io::Error::new(kind, "waiting for managed service readiness")
     })?
 }
-

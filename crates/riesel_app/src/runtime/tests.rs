@@ -783,10 +783,7 @@ impl LocalProviderFactory for MultiVersionLocal {
             bindings: vec![1, 2]
                 .into_iter()
                 .map(|version| {
-                    LocalCapabilityBinding::raw(
-                        contract(version),
-                        Box::new(Arc::clone(&shared)),
-                    )
+                    LocalCapabilityBinding::raw(contract(version), Box::new(Arc::clone(&shared)))
                 })
                 .collect(),
         })
@@ -922,8 +919,7 @@ fn two_local_requirements_reuse_the_same_provider_instance() {
 #[test]
 fn startup_message_accepts_only_versioned_loopback_endpoints() {
     let valid = b"RIESEL_READY {\"protocol\":1,\"address\":\"127.0.0.1:52111\"}\n";
-    let ready =
-        await_ready(std::io::Cursor::new(valid.to_vec()), Duration::from_secs(1)).unwrap();
+    let ready = await_ready(std::io::Cursor::new(valid.to_vec()), Duration::from_secs(1)).unwrap();
     assert_eq!(ready.address.port(), 52111);
     assert!(ready.shutdown.is_none());
 

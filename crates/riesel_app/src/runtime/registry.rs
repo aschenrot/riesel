@@ -38,7 +38,10 @@ impl LocalCapabilityBinding {
     /// Convert the registered typed local service into a session-scoped
     /// capability handle. Consumers cannot directly construct unguarded
     /// bindings through the public component factory API.
-    pub(super) fn attach(self, session: SessionToken) -> Result<Box<dyn Any + Send + Sync>, ConnectorError> {
+    pub(super) fn attach(
+        self,
+        session: SessionToken,
+    ) -> Result<Box<dyn Any + Send + Sync>, ConnectorError> {
         (self.guard)(self.service, session)
     }
 
@@ -297,4 +300,3 @@ impl ConnectorRegistry {
         Ok(())
     }
 }
-
