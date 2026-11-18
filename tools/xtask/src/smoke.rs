@@ -306,7 +306,9 @@ fn verify_deployment_preflight() -> TaskResult {
         || plan["services"][0]["target"]["transport"] != "managed"
         || plan["services"][0]["target"]["program"] != config["services"]["storage"]["program"]
     {
-        return Err(format!("deployment plan did not preserve selected target: {plan}"));
+        return Err(format!(
+            "deployment plan did not preserve selected target: {plan}"
+        ));
     }
     Ok(())
 }
