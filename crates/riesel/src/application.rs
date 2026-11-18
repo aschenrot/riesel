@@ -1,4 +1,4 @@
-use crate::{Records, RieselModel, TcpRecordStoreConnector};
+use crate::{Records, RieselModel, RpcConnector};
 use riesel_app::{
     App, AppRunError, ConnectorError, ConnectorRegistry, DeploymentConfig, LocalProviderFactory,
     RunningApp, RuntimeError,
@@ -120,7 +120,7 @@ impl Application {
         self = self.require::<RecordStoreContract>("storage")?;
         if !already_registered {
             // Register transport support without opening a socket.
-            self.providers.register(TcpRecordStoreConnector)?;
+            self.providers.register(RpcConnector::<RecordStoreContract>::new())?;
         }
         Ok(self)
     }

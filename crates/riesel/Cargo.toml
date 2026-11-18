@@ -18,5 +18,6 @@ thiserror.workspace = true
 riesel_storage_component = { path = "../../components/storage", optional = true }
 riesel_app.workspace = true
 riesel_macros.workspace = true
+riesel_protocol.workspace = true
 riesel_schema.workspace = true
 riesel_storage.workspace = true

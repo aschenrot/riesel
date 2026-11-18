@@ -2,11 +2,11 @@
 extern crate self as riesel;
 mod application;
 mod records;
-mod storage_connector;
+mod rpc_connector;
 
 pub use application::{Application, Context, Result, SdkError};
 pub use records::{Record, Records};
-pub use storage_connector::TcpRecordStoreConnector;
+pub use rpc_connector::RpcConnector;
 
 pub use riesel_app::{
     App, AppConfig, AppError, AppRunError, BindingError, CapabilityBindings, CapabilityConnector,
