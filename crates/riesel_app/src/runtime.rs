@@ -114,18 +114,124 @@ struct RegisteredConnector {
     connector: Box<dyn CapabilityConnector>,
 }
 
-/// In-process provider metadata and its implementation factory.
-/// Metadata is available without constructing a service or opening a socket.
+/// One executable binding for a capability advertised by a local component.
+pub struct LocalCapabilityBinding {
+    pub contract: CapabilityContract,
+    pub service: Box<dyn Any + Send + Sync>,
+}
+
+/// An instantiated local component can expose multiple capability interfaces
+/// backed by the same underlying state and lifetime.
+pub struct LocalProviderInstance {
+    pub definition: ProviderDefinition,
+    pub bindings: Vec<LocalCapabilityBinding>,
+}
+
+impl LocalProviderInstance {
+    pub fn new(definition: ProviderDefinition) -> Self {
+        Self {
+            definition,
+            bindings: Vec::new(),
+        }
+    }
+
+    pub fn bind<C: riesel_protocol::RpcClientBinding>(
+        mut self,
+        service: C::Service,
+    ) -> Result<Self, ConnectorError> {
+        self.bindings.push(LocalCapabilityBinding {
+            contract: C::definition()?,
+            service: Box::new(service),
+        });
+        Ok(self)
+    }
+}
+
+/// Provider registration knows all advertised contracts before startup.
 pub trait LocalProviderFactory: Send + Sync {
     fn definition(&self) -> Result<ProviderDefinition, ConnectorError>;
-    fn contract(&self) -> Result<CapabilityContract, ConnectorError>;
-    fn create(&self) -> Result<ConnectedProvider, ConnectorError>;
+    fn contracts(&self) -> Result<Vec<CapabilityContract>, ConnectorError>;
+    fn create(&self) -> Result<LocalProviderInstance, ConnectorError>;
+}
+
+/// Generic local component factory; avoids repeating three handwritten
+/// metadata and instance methods for every component implementation.
+pub struct LocalComponentFactory<F> {
+    id: String,
+    contracts: Vec<CapabilityContract>,
+    create: F,
+}
+
+impl<F> LocalComponentFactory<F> {
+    pub fn new(id: impl Into<String>, create: F) -> Self {
+        Self {
+            id: id.into(),
+            contracts: Vec::new(),
+            create,
+        }
+    }
+
+    pub fn exposes<C: riesel_schema::CapabilityDescriptor>(
+        mut self,
+    ) -> Result<Self, ConnectorError> {
+        self.contracts.push(C::definition()?);
+        Ok(self)
+    }
+}
+
+impl<F> LocalProviderFactory for LocalComponentFactory<F>
+where
+    F: Fn() -> Result<LocalProviderInstance, ConnectorError> + Send + Sync,
+{
+    fn definition(&self) -> Result<ProviderDefinition, ConnectorError> {
+        Ok(ProviderDefinition {
+            id: self.id.clone(),
+            capabilities: self
+                .contracts
+                .iter()
+                .map(|contract| contract.capability.clone())
+                .collect(),
+        })
+    }
+
+    fn contracts(&self) -> Result<Vec<CapabilityContract>, ConnectorError> {
+        Ok(self.contracts.clone())
+    }
+
+    fn create(&self) -> Result<LocalProviderInstance, ConnectorError> {
+        (self.create)()
+    }
+}
+
+/// Single-capability shortcut. The generated Rust contract is authoritative;
+/// no manual provider metadata, boxed service or factory trait is needed.
+pub fn local_provider<C, F>(
+    id: impl Into<String>,
+    create: F,
+) -> Result<impl LocalProviderFactory, ConnectorError>
+where
+    C: riesel_protocol::RpcClientBinding + 'static,
+    F: Fn() -> C::Service + Send + Sync + 'static,
+{
+    let id = id.into();
+    Ok(LocalComponentFactory::new(id.clone(), move || {
+        LocalProviderInstance::new(ProviderDefinition {
+            id: id.clone(),
+            capabilities: vec![C::definition()?.capability],
+        })
+        .bind::<C>(create())
+    })
+    .exposes::<C>()?)
 }
 
 struct RegisteredLocalProvider {
     definition: ProviderDefinition,
-    contract: CapabilityContract,
+    contracts: BTreeMap<(String, u32), CapabilityContract>,
     factory: Box<dyn LocalProviderFactory>,
+}
+
+struct RunningLocalProvider {
+    services: BTreeMap<(String, u32), Arc<dyn Any + Send + Sync>>,
 }
 
 /// Explicit runtime adapter registry. Contract IDs (not Rust types or TCP
@@ -156,13 +262,28 @@ impl ConnectorRegistry {
                 requirement: definition.id.clone(),
                 source,
             })?;
-        let contract = factory
-            .contract()
+        let contracts = factory
+            .contracts()
             .map_err(|source| RuntimeError::ProviderFactory { source })?;
-        contract
-            .validate()
-            .map_err(|source| RuntimeError::InvalidContract { source })?;
-        if !definition.capabilities.contains(&contract.capability) {
+        let mut available = BTreeMap::new();
+        for contract in contracts {
+            contract
+                .validate()
+                .map_err(|source| RuntimeError::InvalidContract { source })?;
+            let key = (
+                contract.capability.id.clone(),
+                contract.capability.version,
+            );
+            if available.insert(key, contract).is_some() {
+                return Err(RuntimeError::ProviderContractMismatch(definition.id));
+            }
+        }
+        if definition.capabilities.len() != available.len()
+            || !definition
+                .capabilities
+                .iter()
+                .all(|capability| available.contains_key(&(capability.id.clone(), capability.version)))
+        {
             return Err(RuntimeError::ProviderContractMismatch(definition.id));
         }
         let id = definition.id.clone();
@@ -173,7 +294,7 @@ impl ConnectorRegistry {
             id,
             RegisteredLocalProvider {
                 definition,
-                contract,
+                contracts: available,
                 factory: Box::new(factory),
             },
         );
@@ -489,7 +610,9 @@ impl App {
                         .definition
                         .capabilities
                         .contains(&requirement.capability)
-                        || local.contract.capability != requirement.capability
+                        || !local
+                            .contracts
+                            .contains_key(&(requirement.capability.id.clone(), requirement.capability.version))
                     {
                         return Err(RuntimeError::LocalContractMismatch {
                             requirement: requirement.name.clone(),
@@ -564,7 +687,9 @@ impl App {
                         .definition
                         .capabilities
                         .contains(&requirement.capability)
-                        && local.contract.capability == requirement.capability
+                        && local
+                            .contracts
+                            .contains_key(&(requirement.capability.id.clone(), requirement.capability.version))
                 })
                 .map(|local| local.definition.id.clone())
                 .collect();
@@ -622,7 +747,7 @@ impl App {
         let mut provider_definitions = BTreeMap::new();
         let mut selected = BTreeMap::new();
         let mut services = BTreeMap::new();
-        let mut local_instances: BTreeMap<String, Arc<dyn Any + Send + Sync>> = BTreeMap::new();
+        let mut local_instances: BTreeMap<String, RunningLocalProvider> = BTreeMap::new();
         let mut processes = ProcessRegistry::new();
         let mut managed = BTreeMap::new();
 
@@ -638,16 +763,16 @@ impl App {
                     .definition
                     .capabilities
                     .contains(&requirement.capability)
-                    || local.contract.capability != requirement.capability
+                    || !local
+                            .contracts
+                            .contains_key(&(requirement.capability.id.clone(), requirement.capability.version))
                 {
                     return Err(RuntimeError::LocalContractMismatch {
                         requirement: requirement.name.clone(),
                     });
                 }
-                let instance = if let Some(existing) = local_instances.get(provider) {
-                    Arc::clone(existing)
-                } else {
-                    let connected =
+                if !local_instances.contains_key(provider) {
+                    let instance =
                         local
                             .factory
                             .create()
@@ -655,17 +780,42 @@ impl App {
                                 requirement: requirement.name.clone(),
                                 source,
                             })?;
-                    if connected.definition != local.definition
-                        || !connected.contract.has_same_api_shape(&local.contract)
-                    {
+                    if instance.definition != local.definition {
                         return Err(RuntimeError::LocalProviderChanged(provider.clone()));
                     }
-                    registry.register(connected.definition.clone())?;
-                    provider_definitions.insert(provider.clone(), connected.definition);
-                    let instance: Arc<dyn Any + Send + Sync> = connected.service.into();
-                    local_instances.insert(provider.clone(), Arc::clone(&instance));
-                    instance
-                };
+                    let mut bound = BTreeMap::new();
+                    for binding in instance.bindings {
+                        let key = (
+                            binding.contract.capability.id.clone(),
+                            binding.contract.capability.version,
+                        );
+                        let registered = local.contracts.get(&key);
+                        if !registered
+                            .is_some_and(|expected| binding.contract.has_same_api_shape(expected))
+                            || bound
+                                .insert(key, Arc::<dyn Any + Send + Sync>::from(binding.service))
+                                .is_some()
+                        {
+                            return Err(RuntimeError::LocalProviderChanged(provider.clone()));
+                        }
+                    }
+                    if bound.len() != local.contracts.len() {
+                        return Err(RuntimeError::LocalProviderChanged(provider.clone()));
+                    }
+                    registry.register(instance.definition.clone())?;
+                    provider_definitions.insert(provider.clone(), instance.definition);
+                    local_instances.insert(provider.clone(), RunningLocalProvider { services: bound });
+                }
+                let key = (
+                    requirement.capability.id.clone(),
+                    requirement.capability.version,
+                );
+                let instance = Arc::clone(
+                    local_instances
+                        .get(provider)
+                        .and_then(|local| local.services.get(&key))
+                        .ok_or_else(|| RuntimeError::LocalProviderChanged(provider.clone()))?,
+                );
                 selected.insert(requirement.name.clone(), provider.clone());
                 services.insert(requirement.name.clone(), instance);
                 continue;
