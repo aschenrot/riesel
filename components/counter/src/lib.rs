@@ -5,9 +5,9 @@ mod server;
 
 pub use server::run_counter_server;
 
-use riesel_app::{ConnectedProvider, ConnectorError, LocalProviderFactory};
+use riesel_app::{LocalProviderFactory, local_provider};
 use riesel_counter::{Counter, CounterContract, CounterError};
-use riesel_schema::{CapabilityContract, ContractError, ProviderDefinition};
+use riesel_schema::{ContractError, ProviderDefinition};
 use std::sync::{Arc, Mutex};
 
 #[derive(Default)]
@@ -41,24 +41,10 @@ pub fn memory_provider_definition() -> Result<ProviderDefinition, ContractError>
     })
 }
 
-pub struct MemoryCounterFactory;
-
-impl LocalProviderFactory for MemoryCounterFactory {
-    fn definition(&self) -> Result<ProviderDefinition, ConnectorError> {
-        Ok(memory_provider_definition()?)
-    }
-
-    fn contract(&self) -> Result<CapabilityContract, ConnectorError> {
-        Ok(CounterContract::definition()?)
-    }
-
-    fn create(&self) -> Result<ConnectedProvider, ConnectorError> {
-        Ok(ConnectedProvider {
-            definition: memory_provider_definition()?,
-            contract: CounterContract::definition()?,
-            service: Box::new(Arc::new(MemoryCounter::default()) as Arc<dyn Counter + Send + Sync>),
-        })
-    }
+pub fn memory_counter_provider() -> impl LocalProviderFactory {
+    local_provider::<CounterContract, _>("riesel.counter.memory", || {
+        Arc::new(MemoryCounter::default()) as Arc<dyn Counter + Send + Sync>
+    })
 }
 
 #[cfg(test)]
