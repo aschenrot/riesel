@@ -389,7 +389,7 @@ mod tests {
             .rpc::<RecordStoreContract>("secondary")
             .unwrap();
         assert_eq!(app.definition().requires.len(), 2);
-        assert!(app.providers.has_connector("riesel.storage.records"));
+        assert!(app.providers.has_connector(&RecordStoreContract::definition().unwrap().capability));
     }
 
     #[test]
