@@ -272,8 +272,8 @@ fn handler_parameters_share_explicit_contract_metadata_without_name_based_aliase
 
 #[test]
 fn generated_async_client_preserves_domain_and_transport_errors() {
-    use riesel_protocol::{AsyncRpcTransport, CallError, RpcError};
     use riesel::schema::CapabilityRef;
+    use riesel_protocol::{AsyncRpcTransport, CallError, RpcError};
     use serde_json::Value;
     use std::future::Future;
     use std::pin::Pin;
