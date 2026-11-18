@@ -16,7 +16,11 @@ pub fn run_demo(ctx: &riesel::Context<'_>) -> Result<(), riesel::ConnectorError>
     assert_eq!(completed.revision, 2);
 
     let tasks = todo.list_tasks()?;
-    assert!(tasks.iter().any(|task| task.id == created.id && task.completed));
+    assert!(
+        tasks
+            .iter()
+            .any(|task| task.id == created.id && task.completed)
+    );
 
     println!("Todo + Riesel Rust SDK: passed");
     Ok(())
