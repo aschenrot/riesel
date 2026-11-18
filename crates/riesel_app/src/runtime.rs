@@ -2,6 +2,7 @@
 //! Connectors implement transport-specific discovery and typed service creation;
 //! this module owns validation, resolution, and the resulting service lifetimes.
 
+use crate::plan::{DeploymentPlan, PlannedService, PlannedTarget};
 use crate::supervisor::{CancellationToken, ServiceMonitor};
 use crate::{
     App, DeploymentConfig, DeploymentError, ProviderRegistry, ResolutionError, ResolvedCapability,
@@ -403,6 +404,90 @@ impl Drop for RunningApp {
 }
 
 impl App {
+    /// Inspect the complete deployment without executing provider factories,
+    /// starting processes, or connecting to network endpoints. Checks every
+    /// requirement in dependency order to catch late configuration errors
+    /// before the first component is created.
+    pub fn preflight(
+        &self,
+        deployment: &DeploymentConfig,
+        connectors: &ConnectorRegistry,
+    ) -> Result<DeploymentPlan, RuntimeError> {
+        let schema = self.definition().ok_or(RuntimeError::MissingDefinition)?;
+        deployment.validate(schema)?;
+
+        let mut services = Vec::with_capacity(schema.requires.len());
+        for requirement in schema
+            .startup_order()
+            .map_err(DeploymentError::from)?
+        {
+            let endpoint = &deployment.services[&requirement.name];
+            let target = match endpoint {
+                ServiceEndpoint::Local { provider } => {
+                    let local = connectors
+                        .local
+                        .get(provider)
+                        .ok_or_else(|| RuntimeError::UnknownLocalProvider(provider.clone()))?;
+                    if !local.definition.capabilities.contains(&requirement.capability)
+                        || local.contract.capability != requirement.capability
+                    {
+                        return Err(RuntimeError::LocalContractMismatch {
+                            requirement: requirement.name.clone(),
+                        });
+                    }
+                    PlannedTarget::Local {
+                        provider: provider.clone(),
+                    }
+                }
+                ServiceEndpoint::Tcp { address } => {
+                    Self::validate_connector(requirement, connectors)?;
+                    PlannedTarget::Tcp { address: *address }
+                }
+                ServiceEndpoint::Managed {
+                    program,
+                    startup_timeout_ms,
+                    shutdown_timeout_ms,
+                    ..
+                } => {
+                    Self::validate_connector(requirement, connectors)?;
+                    PlannedTarget::Managed {
+                        program: program.clone(),
+                        startup_timeout_ms: *startup_timeout_ms,
+                        shutdown_timeout_ms: *shutdown_timeout_ms,
+                    }
+                }
+            };
+            services.push(PlannedService {
+                requirement: requirement.name.clone(),
+                capability: requirement.capability.clone(),
+                depends_on: requirement.depends_on.clone(),
+                target,
+            });
+        }
+        Ok(DeploymentPlan { services })
+    }
+
+    fn validate_connector(
+        requirement: &riesel_schema::CapabilityRequirement,
+        connectors: &ConnectorRegistry,
+    ) -> Result<(), RuntimeError> {
+        let id = &requirement.capability.id;
+        let adapter = connectors
+            .adapters
+            .get(id)
+            .ok_or_else(|| RuntimeError::MissingConnector {
+                requirement: requirement.name.clone(),
+                id: id.clone(),
+                version: requirement.capability.version,
+            })?;
+        if adapter.contract.capability != requirement.capability {
+            return Err(RuntimeError::LocalContractMismatch {
+                requirement: requirement.name.clone(),
+            });
+        }
+        Ok(())
+    }
+
     /// Automatically select local implementations for every declared
     /// capability. This does not allocate sockets or start subprocesses.
     /// Explicit selection remains possible using ServiceEndpoint::Local.
@@ -464,8 +549,8 @@ impl App {
         deployment: &DeploymentConfig,
         connectors: &ConnectorRegistry,
     ) -> Result<RunningApp, RuntimeError> {
+        let _validated_plan = self.preflight(deployment, connectors)?;
         let schema = self.definition().ok_or(RuntimeError::MissingDefinition)?;
-        deployment.validate(schema)?;
 
         let mut registry = ProviderRegistry::new();
         let mut provider_definitions = BTreeMap::new();
@@ -982,6 +1067,130 @@ mod tests {
                 shutdown: None,
                 ..
             })
+        ));
+    }
+
+
+    #[test]
+    fn preflight_orders_all_dependencies_without_connecting_or_starting() {
+        let application = App::from_schema(
+            r#"{"version":1,"app":{"name":"Example"},"models":{},
+                "requires":[
+                    {"name":"consumer","capability":{"id":"example.counter","version":1},
+                     "depends_on":["storage"]},
+                    {"name":"storage","capability":{"id":"example.counter","version":1}}
+                ]}"#,
+        )
+        .unwrap();
+        let deployment = DeploymentConfig {
+            services: BTreeMap::from([
+                (
+                    "consumer".into(),
+                    ServiceEndpoint::Tcp {
+                        address: "127.0.0.1:43911".parse().unwrap(),
+                    },
+                ),
+                (
+                    "storage".into(),
+                    ServiceEndpoint::Managed {
+                        program: "file-that-does-not-exist".into(),
+                        args: vec![],
+                        startup_timeout_ms: 1_000,
+                        shutdown_timeout_ms: 2_000,
+                    },
+                ),
+            ]),
+        };
+        let mut connectors = ConnectorRegistry::new();
+        connectors
+            .register(Dummy {
+                local_version: 1,
+                remote_version: 1,
+            })
+            .unwrap();
+        let plan = application.preflight(&deployment, &connectors).unwrap();
+        assert_eq!(plan.services.len(), 2);
+        assert_eq!(plan.services[0].requirement, "storage");
+        assert_eq!(plan.services[1].requirement, "consumer");
+        assert_eq!(plan.services[1].depends_on, ["storage"]);
+        assert!(matches!(
+            &plan.services[0].target,
+            PlannedTarget::Managed { program, .. }
+                if program.to_str() == Some("file-that-does-not-exist")
+        ));
+        let json = serde_json::to_string(&plan).unwrap();
+        assert!(json.contains("example.counter"));
+        assert!(!json.contains("args"));
+    }
+
+    #[test]
+    fn preflight_rejects_a_late_missing_connector_before_any_process_spawn() {
+        let application = App::from_schema(
+            r#"{"version":1,"app":{"name":"Example"},"models":{},
+                "requires":[
+                    {"name":"first","capability":{"id":"example.counter","version":1}},
+                    {"name":"second","capability":{"id":"example.other","version":1}}
+                ]}"#,
+        )
+        .unwrap();
+        let config = DeploymentConfig::from_json(
+            r#"{"services":{
+                "first":{"transport":"managed","program":"nonexistent-first-child"},
+                "second":{"transport":"managed","program":"nonexistent-second-child"}
+            }}"#,
+        )
+        .unwrap();
+        let mut connectors = ConnectorRegistry::new();
+        connectors
+            .register(Dummy {
+                local_version: 1,
+                remote_version: 1,
+            })
+            .unwrap();
+        assert!(matches!(
+            application.start(&config, &connectors),
+            Err(RuntimeError::MissingConnector { requirement, .. })
+                if requirement == "second"
+        ));
+    }
+
+    #[test]
+    fn preflight_rejects_invalid_local_provider_before_remote_io() {
+        let application = App::from_schema(
+            r#"{"version":1,"app":{"name":"Example"},"models":{},
+                "requires":[
+                    {"name":"first","capability":{"id":"example.counter","version":1}},
+                    {"name":"second","capability":{"id":"example.counter","version":1}}
+                ]}"#,
+        )
+        .unwrap();
+        let config = DeploymentConfig {
+            services: BTreeMap::from([
+                (
+                    "first".into(),
+                    ServiceEndpoint::Tcp {
+                        address: "127.0.0.1:43911".parse().unwrap(),
+                    },
+                ),
+                (
+                    "second".into(),
+                    ServiceEndpoint::Local {
+                        provider: "missing.provider".into(),
+                    },
+                ),
+            ]),
+        };
+        let mut connectors = ConnectorRegistry::new();
+        connectors
+            .register(Dummy {
+                local_version: 1,
+                remote_version: 1,
+            })
+            .unwrap();
+        assert!(matches!(
+            application.start(&config, &connectors),
+            Err(RuntimeError::UnknownLocalProvider(provider))
+                if provider == "missing.provider"
         ));
     }
 

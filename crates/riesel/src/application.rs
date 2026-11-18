@@ -1,7 +1,7 @@
 use crate::{CancellationToken, Records, RieselModel, RpcConnector};
 use riesel_app::{
-    App, AppRunError, ConnectorError, ConnectorRegistry, DeploymentConfig, LocalProviderFactory,
-    RunningApp, RuntimeError,
+    App, AppRunError, ConnectorError, ConnectorRegistry, DeploymentConfig, DeploymentPlan,
+    LocalProviderFactory, RunningApp, RuntimeError,
 };
 use riesel_protocol::RpcClientBinding;
 use riesel_schema::{AppDefinition, AppSchema, CapabilityDescriptor, CapabilityRequirement};
@@ -182,6 +182,13 @@ impl Application {
         Ok(serde_json::to_string_pretty(&self.definition)?)
     }
 
+    /// Inspect selected providers and dependency order without starting a
+    /// service, opening a socket, or invoking application business logic.
+    pub fn deployment_plan(&self, config: &DeploymentConfig) -> Result<DeploymentPlan> {
+        let app = App::from_definition(self.definition.clone())?;
+        Ok(app.preflight(config, &self.providers)?)
+    }
+
     pub fn run(
         self,
         entrypoint: impl FnOnce(&Context<'_>) -> std::result::Result<(), ConnectorError>,
@@ -206,7 +213,9 @@ impl Application {
         match args.as_slice() {
             [] => {}
             [option] if option == "--help" || option == "-h" => {
-                println!("Usage: <application> [--deployment FILE | --print-definition]");
+                println!(
+                    "Usage: <application> [--deployment FILE | --inspect-deployment FILE | --print-definition]"
+                );
                 return Ok(());
             }
             [option] if option == "--print-definition" => {
@@ -216,9 +225,14 @@ impl Application {
             [option, path] if option == "--deployment" => {
                 self.deployment = Some(DeploymentConfig::load(PathBuf::from(path))?);
             }
+            [option, path] if option == "--inspect-deployment" => {
+                let config = DeploymentConfig::load(PathBuf::from(path))?;
+                println!("{}", serde_json::to_string_pretty(&self.deployment_plan(&config)?)?);
+                return Ok(());
+            }
             _ => {
                 return Err(SdkError::Arguments(
-                    "expected --deployment FILE, --print-definition or --help".into(),
+                    "expected --deployment FILE, --inspect-deployment FILE, --print-definition or --help".into(),
                 ));
             }
         }
@@ -404,5 +418,31 @@ mod tests {
                 riesel_schema::SchemaError::UnknownDependency { .. }
             ))
         ));
+    }
+
+    #[test]
+    fn rust_sdk_inspects_deployment_without_starting_configured_executable() {
+        let app = Application::new("Example")
+            .rpc::<RecordStoreContract>("consumer")
+            .unwrap()
+            .rpc::<RecordStoreContract>("storage")
+            .unwrap()
+            .depends_on("consumer", ["storage"])
+            .unwrap();
+        let config = DeploymentConfig::from_json(
+            r#"{"services":{
+                "consumer":{"transport":"tcp","address":"127.0.0.1:41911"},
+                "storage":{"transport":"managed","program":"not-a-real-service"}
+            }}"#,
+        )
+        .unwrap();
+        let plan = app.deployment_plan(&config).unwrap();
+        let ordered: Vec<_> = plan
+            .services
+            .iter()
+            .map(|service| service.requirement.as_str())
+            .collect();
+        assert_eq!(ordered, ["storage", "consumer"]);
+        assert!(serde_json::to_string(&plan).unwrap().contains("not-a-real-service"));
     }
 }
