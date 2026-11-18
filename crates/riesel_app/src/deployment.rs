@@ -120,10 +120,16 @@ impl DeploymentConfig {
         }
         let mut instance_configs: BTreeMap<&str, &ServiceEndpoint> = BTreeMap::new();
         for (name, endpoint) in &self.services {
-            if let ServiceEndpoint::Managed { instance: Some(instance), .. } = endpoint {
+            if let ServiceEndpoint::Managed {
+                instance: Some(instance),
+                ..
+            } = endpoint
+            {
                 if instance.is_empty()
                     || !instance.starts_with(|c: char| c.is_ascii_lowercase())
-                    || !instance.chars().all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '_')
+                    || !instance
+                        .chars()
+                        .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '_')
                 {
                     return Err(DeploymentError::InvalidEndpoint {
                         name: name.clone(),

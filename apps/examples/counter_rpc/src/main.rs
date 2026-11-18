@@ -6,6 +6,9 @@ use riesel_counter_example::run_demo;
 fn main() -> riesel::Result<()> {
     Application::new("Counter")
         .rpc::<CounterContract>("counter")?
-        .provider(memory_counter_provider().map_err(|source| riesel::RuntimeError::ProviderFactory { source })?)?
+        .provider(
+            memory_counter_provider()
+                .map_err(|source| riesel::RuntimeError::ProviderFactory { source })?,
+        )?
         .run(run_demo)
 }

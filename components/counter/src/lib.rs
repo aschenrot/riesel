@@ -5,7 +5,9 @@ mod server;
 
 pub use server::run_counter_server;
 
-use riesel_app::{ConnectorError, LocalComponentFactory, LocalProviderFactory, LocalProviderInstance};
+use riesel_app::{
+    ConnectorError, LocalComponentFactory, LocalProviderFactory, LocalProviderInstance,
+};
 use riesel_counter::{
     Counter, CounterContract, CounterError, CounterObserver, CounterObserverContract,
 };

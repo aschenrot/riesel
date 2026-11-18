@@ -29,7 +29,7 @@ mod tests {
     #[test]
     fn two_local_capabilities_share_one_component_state() {
         use riesel::Application;
-        use riesel_counter::{CounterObserverContract, CounterObserver};
+        use riesel_counter::{CounterObserver, CounterObserverContract};
         use riesel_counter_component::memory_counter_provider;
 
         Application::new("DualLocal")
