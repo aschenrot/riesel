@@ -15,7 +15,8 @@ pub use resolver::{ProviderRegistry, ResolutionError, ResolvedCapability};
 
 pub use runtime::{
     AppRunError, CapabilityConnector, ConnectedProvider, ConnectorError, ConnectorRegistry,
-    LocalProviderFactory, RunningApp, RuntimeError,
+    LocalCapabilityBinding, LocalComponentFactory, LocalProviderFactory, LocalProviderInstance,
+    RunningApp, RuntimeError, SingleLocalProvider, local_provider,
 };
 
 pub use supervisor::CancellationToken;

@@ -205,23 +205,43 @@ where
 
 /// Single-capability shortcut. The generated Rust contract is authoritative;
 /// no manual provider metadata, boxed service or factory trait is needed.
-pub fn local_provider<C, F>(
-    id: impl Into<String>,
+pub struct SingleLocalProvider<C, F> {
+    id: String,
     create: F,
-) -> Result<impl LocalProviderFactory, ConnectorError>
+    contract: std::marker::PhantomData<fn() -> C>,
+}
+
+pub fn local_provider<C, F>(id: impl Into<String>, create: F) -> SingleLocalProvider<C, F>
 where
     C: riesel_protocol::RpcClientBinding + 'static,
     F: Fn() -> C::Service + Send + Sync + 'static,
 {
-    let id = id.into();
-    Ok(LocalComponentFactory::new(id.clone(), move || {
-        LocalProviderInstance::new(ProviderDefinition {
-            id: id.clone(),
+    SingleLocalProvider {
+        id: id.into(),
+        create,
+        contract: std::marker::PhantomData,
+    }
+}
+
+impl<C, F> LocalProviderFactory for SingleLocalProvider<C, F>
+where
+    C: riesel_protocol::RpcClientBinding + 'static,
+    F: Fn() -> C::Service + Send + Sync,
+{
+    fn definition(&self) -> Result<ProviderDefinition, ConnectorError> {
+        Ok(ProviderDefinition {
+            id: self.id.clone(),
             capabilities: vec![C::definition()?.capability],
         })
-        .bind::<C>(create())
-    })
-    .exposes::<C>()?)
+    }
+
+    fn contracts(&self) -> Result<Vec<CapabilityContract>, ConnectorError> {
+        Ok(vec![C::definition()?])
+    }
+
+    fn create(&self) -> Result<LocalProviderInstance, ConnectorError> {
+        LocalProviderInstance::new(self.definition()?).bind::<C>((self.create)())
+    }
 }
 
 struct RegisteredLocalProvider {
