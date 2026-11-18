@@ -23,6 +23,12 @@ struct ComponentCapability<S> {
     hosted: HostedBinding<S>,
 }
 
+/// Implemented by components whose local and hosted bindings are generated
+/// from one explicit list of provided contracts. No implicit discovery occurs.
+pub trait DeclarativeComponent: Sized + Send + Sync + 'static {
+    fn component_definition() -> Result<ComponentDefinition<Self>, ConnectorError>;
+}
+
 /// Declare component state and all its capability interfaces exactly once.
 /// The same instance definition can be registered locally or hosted over
 /// RPC; component code does not maintain a separate router registration.

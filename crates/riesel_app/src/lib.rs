@@ -9,7 +9,7 @@ mod supervisor;
 mod tasks;
 
 pub use app::{App, AppError};
-pub use component::ComponentDefinition;
+pub use component::{ComponentDefinition, DeclarativeComponent};
 pub use deployment::{DeploymentConfig, DeploymentError, ServiceEndpoint};
 pub use resolver::{InstanceIdentity, ProviderRegistry, ResolutionError, ResolvedCapability};
 

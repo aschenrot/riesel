@@ -3,7 +3,7 @@ use crate::{CancellationToken, RpcConnector};
 use crate::{Records, RieselModel};
 use riesel_app::{
     App, AppRunError, ConnectorError, ConnectorRegistry, DeploymentConfig, DeploymentPlan,
-    LocalProviderFactory, RunningApp, RuntimeError,
+    DeclarativeComponent, LocalProviderFactory, RunningApp, RuntimeError,
 };
 use riesel_protocol::RpcClientBinding;
 use riesel_schema::{AppDefinition, AppSchema, CapabilityDescriptor, CapabilityRequirement};

@@ -8,5 +8,6 @@ repository.workspace = true
 [dependencies]
 riesel_counter.workspace = true
 riesel_app.workspace = true
+riesel_macros.workspace = true
 riesel_protocol.workspace = true
 riesel_schema.workspace = true

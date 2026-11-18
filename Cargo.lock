@@ -154,6 +154,7 @@ version = "0.1.0"
 dependencies = [
  "riesel_app",
  "riesel_counter",
+ "riesel_macros",
  "riesel_protocol",
  "riesel_schema",
 ]

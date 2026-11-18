@@ -3,13 +3,28 @@ use proc_macro::TokenStream;
 use syn::parse_macro_input;
 
 mod capability;
+mod component;
 mod derives;
+mod identity;
 
 #[proc_macro_attribute]
 pub fn capability(args: TokenStream, input: TokenStream) -> TokenStream {
     let args = parse_macro_input!(args as capability::CapabilityArgs);
     let item = parse_macro_input!(input as syn::ItemTrait);
     match capability::expand_capability(args, item) {
+        Ok(tokens) => tokens.into(),
+        Err(error) => error.to_compile_error().into(),
+    }
+}
+
+/// Derive one shared component definition from its explicit capability
+/// contracts. A private provider ID is derived from the Rust item path
+/// unless a stable published `id` is supplied.
+#[proc_macro_attribute]
+pub fn component(args: TokenStream, input: TokenStream) -> TokenStream {
+    let args = parse_macro_input!(args as component::ComponentArgs);
+    let item = parse_macro_input!(input as syn::ItemStruct);
+    match component::expand_component(args, item) {
         Ok(tokens) => tokens.into(),
         Err(error) => error.to_compile_error().into(),
     }
