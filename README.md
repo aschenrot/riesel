@@ -21,7 +21,7 @@ The workspace is pinned to Rust 1.100.0. From the repository root:
 
 ```sh
 cargo run -p todo --bin todo
-cargo run -p todo --bin todo_client -- --print-definition
+cargo run -p todo --bin todo -- --print-definition
 cargo validate --check
 cargo smoke
 ```
@@ -38,16 +38,17 @@ releases.
 
 ## Capabilities, components and runtime infrastructure
 
-- `crates/riesel_storage` and `crates/riesel_counter` define the versioned
-  Storage and Counter **capability contracts**.
-- `components/storage` and `components/counter` implement those capabilities,
-  providing local factories and executable RPC hosts.
+- `packages/storage/contract` defines the reusable versioned Storage
+  capability; `packages/storage/memory` is its reference implementation.
+- `examples/counter/contract`, `examples/counter/component`, and
+  `examples/counter/app` form one independent example project.
+- `examples/todo` and `examples/hello` demonstrate the application SDK.
 - `crates/riesel_protocol` provides the generated RPC transport and shared
   managed TCP host; `crates/riesel_app` and `crates/riesel_manager` handle
   application execution, supervision and child process ownership.
 
 The developer supplies a component implementation, not a handwritten server
-loop for each capability. See [Counter example](apps/examples/counter_rpc/README.md)
+loop for each capability. See [Counter example](examples/counter/app/README.md)
 for local and managed execution using the same contract.
 
 ## Component registration and refactoring
@@ -74,13 +75,13 @@ Application::new("Counter")
 ```
 
 The code assumes the relevant `riesel`, `riesel_counter` and
-`riesel_counter_component` imports. Lower-level components use
-`local_provider::<C, F>` or `LocalComponentFactory::new(...).exposes::<C>()`
-for multiple bindings. Generated capability traits automatically forward
-methods through `Arc<T>`. Storage uses `serve_component`, Counter
-uses `serve_router` for multiple contracts, and both use
-`run_component_from_env` rather than duplicating process CLI and service
-startup code.
+`riesel_counter_component` imports. Lower-level single-capability factories remain available. For reusable
+multi-capability components, `ComponentDefinition::new(...).exposes(...)`
+declares the state factory, typed local view and generated RPC dispatcher once.
+The same descriptor implements the local provider factory and hosts all
+contracts with `ComponentDefinition::serve`. Storage and Counter use this
+path, plus `run_component_from_env` for the thin executable entrypoint.
+One instance supplies shared state to every exposed capability.
 
 The loopback TCP server serves requests through **four worker threads** with
 a maximum **32 pending connections**. It has bounded JSON framing and socket
@@ -149,12 +150,33 @@ session-bound handles. This is **not** transparent reconnection: manual or
 custom connectors still require their own lifetime handling, and an in-flight
 call cannot be forcibly cancelled by revocation.
 
+### Storage record API (version 2)
+
+Storage's generated contract uses bounded cursor-based `list_page` queries
+(maximum 32 records per page) and revision-checked `delete` commands.
+The typed `Records<T>` SDK exposes `list_page` and `delete`; `list`
+collects pages for small datasets and should not be used as an unbounded
+production query. The reference MemoryStore rejects record objects larger
+than 64 KiB. `development()` registers Rust model definitions with the
+in-memory provider, which validates writes even through untyped local
+capability calls. Standalone managed Storage has no application model
+registry and does **not** enforce application-specific model shapes.
+
+### Application-specific command-line arguments
+
+`Application::run_from_env_with_args` parses Riesel deployment and inspection
+flags while forwarding application arguments to the entrypoint.
+`run_with_args` provides the same behavior with explicit arguments for tests.
+The strict `run_from_env` entrypoint continues rejecting unknown flags before
+startup. `--` forwards the remaining tokens verbatim.
+
 ## Defining lifecycle dependencies
 
-Use `Application::records_at::<Model>("storage_alias")` and
-`Context::records_at::<Model>("storage_alias")` to select among multiple
-Storage requirements explicitly. `records::<Model>()` retains the single
-Storage convenience path and rejects ambiguous storage selections.
+Use `Application::records_at::<Model>("storage_alias")` to declare which
+requirement stores a model. The exported schema preserves model-to-requirement
+bindings; `Context::records::<Model>()` follows the declared binding even
+when unrelated Storage requirements exist. `Context::records_at` explicitly
+selects an alias when the model has several bindings. Ambiguity is rejected.
 
 Call `Application::rpc::<Contract>("alias")` to declare a generated RPC
 capability. Once an alias is declared, use
@@ -170,7 +192,7 @@ You can validate every requirement, local provider selection, registered
 connector contract, and dependency ordering **without starting any services**:
 
 ```sh
-cargo run -p todo --bin todo_client -- --inspect-deployment path/to/deployment.json
+cargo run -p todo --bin todo -- --inspect-deployment path/to/deployment.json
 ```
 
 The output is a JSON startup plan, with dependency-ordered requirement aliases
@@ -247,8 +269,8 @@ reconnection and persistent-state recovery are not provided.
 
 - [Implementation roadmap](docs/product/riesel/implementation-roadmap.md)
 - [Product definition](docs/product/riesel/riesel.md)
-- [Todo example](apps/examples/todo/README.md)
-- [Counter example](apps/examples/counter_rpc/README.md)
+- [Todo example](examples/todo/README.md)
+- [Counter example](examples/counter/app/README.md)
 
 Riesel is under active development and intentionally permits breaking API
 changes during its initial architecture phase.

@@ -5,8 +5,8 @@ are not specific to Storage.
 
 | Layer | Package | Responsibility |
 | --- | --- | --- |
-| Contract | `crates/riesel_counter` | `Counter` trait, domain error, generated client/dispatcher |
-| Implementation | `components/counter` | In-memory Counter, local factory, executable server |
+| Contract | `examples/counter/contract` | `Counter` trait, domain error, generated client/dispatcher |
+| Implementation | `examples/counter/component` | In-memory Counter, local factory, executable server |
 | Runtime | `crates/riesel_app`, `crates/riesel_protocol` | Provider selection, managed launch, shared TCP host |
 | Example | `apps/examples/counter_rpc` | Local application, managed RPC client, contract tests |
 
@@ -26,7 +26,7 @@ is needed.
 ## Inspect the generated definition
 
 ```sh
-cargo run -p riesel_counter_example --bin counter_client -- --print-definition
+cargo run -p riesel_counter_example --bin riesel_counter_example -- --print-definition
 ```
 
 ## Test managed Counter
@@ -35,7 +35,7 @@ cargo run -p riesel_counter_example --bin counter_client -- --print-definition
 cargo smoke
 ```
 
-The smoke suite builds `counter_service`, `counter_client`,
+The smoke suite builds `counter_service`, `riesel_counter_example`,
 `counter_crash_fixture`, and `counter_recovery_client`. It runs the local
 application, verifies typed managed RPC operations, then forces the first
 Counter process to crash and verifies that a new application session binds
@@ -59,3 +59,13 @@ session expires.
 plaintext and unauthenticated on loopback. Opt-in recovery rebuilds the
 entire application session; it does not live-rebind an existing Counter
 client. Restarted state begins at zero and business operations may replay.
+
+## Project organization
+
+The contract, component implementation and application live together in
+`examples/counter/{contract,component,app}`; no Counter crate is part of
+Riesel's framework core. The application has one local or deployment-aware
+binary. The crash, recovery and shared-instance binaries are explicit
+`tests/fixtures` targets, rather than normal application commands.
+`ComponentDefinition` produces both local provider registration and managed
+RPC hosting from one capability list.

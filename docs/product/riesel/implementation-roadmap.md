@@ -40,7 +40,7 @@ without false crash reports, and healthy-sibling cleanup.
 | 0 — Rust foundations | Initial implementation | Cargo workspace, model and capability macros, Storage contract |
 | 1 — Declarative requirements | Implemented | Versioned requirements; Rust-generated application definitions |
 | 2 — Provider resolution | Implemented for exact versions | Registration, explicit selection, missing/ambiguous-provider errors |
-| 3 — Capability binding | Initial implementation | In-process factories, typed Rust record handles, verified remote TCP |
+| 3 — Capability binding | Implemented reference slice | Unified component definition for local and managed execution; typed generated RPC; verified TCP |
 | 4 — Application runtime | Cooperative lifecycle and bounded whole-session recovery implemented; production hardening remains | Managed startup, DAG ordering, rollback, shutdown, supervision, task joins, restart policies/backoff, failure-injection smoke |
 | 5 — Developer experience | Generic RPC, deployment inspection and second provider integration implemented; still partial | Rust SDK, models, generated Storage/Counter RPC, shared RPC host, local/managed Counter provider, preflight and JSON startup plans |
 | 6 — Production reliability | Not implemented | Persistent Storage, secure transports, authorization, recovery, observability |
@@ -141,11 +141,50 @@ still plaintext, unauthenticated and loopback-only. Per-instance rolling
 restart, persistent state recovery, transport security, configurable executor
 budgets, and distributed networking are future milestones.
 
+## Application/component developer-experience refactor
+
+The third refactoring pass reorganizes products by ownership while keeping
+Cargo package names stable:
+
+- Framework infrastructure stays under `crates/`; Counter's contract,
+  component and consuming app now live together under `examples/counter/`.
+  Todo and the Rust-first Hello example live under `examples/`.
+- The standard Storage contract and reference MemoryStore are grouped under
+  `packages/storage/` rather than appearing as core engine crates.
+- `ComponentDefinition` produces local and managed hosting from a single
+  validated capability declaration. Counter's observer and writer share
+  the same state in either execution mode; Storage uses the same abstraction.
+- Todo and Counter each use one deployment-aware application entrypoint;
+  the Hello example avoids hand-authored JSON. Counter's fault-injection
+  executables now live under test fixtures, and its integration tests are
+  split out of application logic.
+- Todo uses `Record<TaskData>` instead of copying infrastructure fields into
+  a duplicate domain type. Model-to-Storage requirement bindings are retained
+  in exported application metadata and honored by typed record lookup.
+- `run_from_env_with_args` composes infrastructure options with
+  application-specific tokens; strict `run_from_env` preserves early rejection
+  of unknown arguments.
+- The Storage capability advances to **version 2**: bounded cursor pages,
+  revision-checked delete, typed `Records<T>::list_page` and `delete`, and
+  a 64 KiB reference-provider record bound. The typed `list` convenience
+  method gathers pages for small datasets.
+- The in-process development Storage provider is initialized with registered
+  Rust model definitions and validates direct writes. Standalone managed
+  MemoryStore remains schema-unaware until deployment supplies trusted model
+  metadata. This is not a production authorization or persistence solution.
+- Network tests use bounded lifecycle fixtures rather than fragile exact
+  connection counts; page boundaries and revision conflicts are exercised
+  in backend and Todo tests.
+
+The Storage v2 contract intentionally breaks version 1 clients; no
+compatibility adapter is maintained. Windows remains on-demand and is
+required before a release.
+
 ## Recommended Rust authoring workflow
 
-`apps/examples/todo/src/task.rs` defines a Rust `TaskData` model, annotated
+`examples/todo/src/task.rs` defines a Rust `TaskData` model, annotated
 with `#[derive(RieselModel)]` and `#[riesel(model = "task")]`.
-There is no hand-maintained `apps/examples/todo/app.json`.
+There is no hand-maintained `examples/todo/app.json`.
 
 `Application::new("Todo").records::<TaskData>()?.development()?`
 registers the model and versioned Storage requirement and selects the
@@ -163,8 +202,17 @@ implementation without manually implementing the provider-factory trait.
 Custom providers can still be registered explicitly. A general provider catalog and
 automatic deployment discovery are not implemented.
 
-`development()` is an **explicit opt-in** to ephemeral in-memory storage,
-not a production default or persistence guarantee.
+`development()` is an **explicit opt-in** to ephemeral in-memory storage
+that validates registered Rust model shapes; it is not a production default
+or persistence guarantee. The generated schema records each model's
+selected Storage requirement alias so `Context::records::<T>()` does not
+guess among unrelated aliases.
+
+Applications with their own CLI arguments can use
+`Application::run_from_env_with_args` or `run_with_args`; Riesel reserves
+deployment/inspection flags while forwarding the remaining application tokens
+(and all tokens following `--`). Unknown flags remain errors under the strict
+`run_from_env` variant.
 
 ## Runtime-managed service modes
 
@@ -317,9 +365,9 @@ bounded loopback-only `TcpRpcTransport`, including contract inspection and
 structural shape verification. Transport failures are represented separately
 from domain errors through `CallError<E>`.
 
-The Counter capability contract (version 2) now lives in
-`crates/riesel_counter`, with
-its independent in-memory implementation in `components/counter`. The
+The Counter capability contract (version 2) lives in
+`examples/counter/contract`, with
+its independent in-memory implementation in `examples/counter/component`. The
 `apps/examples/counter_rpc` application tests generated clients and
 dispatchers, commands, queries, borrowed string inputs, domain errors,
 incorrect arguments, wrong capability versions, and real TCP round-trips.
@@ -327,8 +375,10 @@ The same application exercises a typed local provider and the runtime-managed
 Counter executable through `RpcConnector<CounterContract>`. Its server uses
 the shared `run_tcp_rpc_host` helper.
 
-Storage uses `serve_component`, Counter uses `serve_router`, and both
-use `run_component_from_env` for shared process hosting and CLI parsing.
+Storage and Counter both register their capabilities once using
+`ComponentDefinition`, which supplies local factory creation and managed
+`serve` routing. Their executable entrypoints use
+`run_component_from_env` for CLI parsing and lifecycle control.
 Readiness, private shutdown, loopback restrictions, bounded TCP request
 workers and accept loops are no longer duplicated in each component. Neither capability has a handwritten request
 enum or per-operation RPC dispatcher.
@@ -381,7 +431,7 @@ server and generated RPC client also enforce loopback-only plaintext TCP.
 Only execute trusted deployment files and binaries. Do not treat the provider
 advertisement as cryptographic authentication.
 Components remain separate from contracts in the **flat** repository structure:
-`crates/riesel_storage` is the API contract; `components/storage` is an
+`packages/storage/contract` is the API contract; `packages/storage/memory` is an
 implementation. The optional development SDK convenience may include the
 reference implementation but does not change that contract boundary.
 

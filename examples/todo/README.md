@@ -12,6 +12,8 @@ cargo run -p todo --bin todo
 ```
 
 `TaskData` in `src/task.rs` is the authoritative data model.
+The domain exposes `Record<TaskData>` directly rather than duplicating
+identifier, revision, and payload fields in a second Task structure.
 `Application::new("Todo").records::<TaskData>()?.development()?`
 registers the generated model metadata and selects ephemeral in-process
 MemoryStore. This mode is **explicitly for development**, not persistent
@@ -23,7 +25,7 @@ application builder and Context.
 ## Inspect the generated application definition
 
 ```sh
-cargo run -p todo --bin todo_client -- --print-definition
+cargo run -p todo --bin todo -- --print-definition
 ```
 
 The Rust SDK generates a portable JSON application schema for the CLI,
@@ -52,7 +54,7 @@ available manually in the Validate workflow and is required before release.
 ## Inspect a deployment before launching services
 
 ```sh
-cargo run -p todo --bin todo_client -- --inspect-deployment path/to/deployment.json
+cargo run -p todo --bin todo -- --inspect-deployment path/to/deployment.json
 ```
 
 This prints a JSON plan with the selected provider endpoint and dependency
@@ -84,7 +86,7 @@ Then create an optional file containing an explicit remote endpoint:
 Use it with:
 
 ```sh
-cargo run -p todo --bin todo_client -- --deployment path/to/external.json
+cargo run -p todo --bin todo -- --deployment path/to/external.json
 ```
 
 For a runtime-owned service, choose `transport: "managed"` and supply
@@ -103,3 +105,12 @@ The TCP transport is unencrypted and unauthenticated. Both the client and
 Storage server enforce loopback addresses. Endpoint announcements and
 contract verification do not authenticate a service. Use only trusted
 managed executables and deployment files.
+
+## Storage v2 example behavior
+
+The reference application uses cursor-paginated storage, revision-checked
+updates and deletion. `Todo::list_tasks` collects pages for the small
+example dataset, while callers handling larger collections can use
+`Records::<TaskData>::list_page` with a bounded page size. Development
+Storage enforces the registered `TaskData` model shape on provider writes;
+a standalone managed reference provider does not receive that model registry.
