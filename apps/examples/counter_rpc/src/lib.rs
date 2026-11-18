@@ -99,8 +99,9 @@ mod tests {
         use riesel_protocol::{RpcClientBinding, RpcTransport};
         use std::sync::Arc;
 
-        let transport: Arc<dyn RpcTransport> =
-            Arc::new(LocalRpc::new(CounterRpcDispatcher::new(MemoryCounter::default())));
+        let transport: Arc<dyn RpcTransport> = Arc::new(LocalRpc::new(CounterRpcDispatcher::new(
+            MemoryCounter::default(),
+        )));
         let client = CounterContract::bind(transport);
         assert_eq!(client.add(19).unwrap(), 19);
         assert_eq!(client.value().unwrap(), 19);
