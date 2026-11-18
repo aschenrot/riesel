@@ -89,6 +89,50 @@ pub fn run() -> TaskResult {
     if TcpStream::connect_timeout(&address, Duration::from_millis(250)).is_ok() {
         return Err("Storage listener remains reachable after application exit".into());
     }
-    println!("\nRuntime-managed remote Todo smoke test passed.");
+    println!("\n==> Running two Todo instances with OS-assigned service ports");
+    let dynamic_path = env::temp_dir().join(format!(
+        "riesel-dynamic-smoke-{}.json",
+        std::process::id()
+    ));
+    let dynamic_config = serde_json::json!({
+        "services": {
+            "storage": {
+                "transport": "managed_tcp_dynamic",
+                "program": binary("storage_service"),
+                "startup_timeout_ms": 10_000
+            }
+        }
+    });
+    fs::write(
+        &dynamic_path,
+        serde_json::to_vec_pretty(&dynamic_config).map_err(|error| error.to_string())?,
+    )
+    .map_err(|error| format!("cannot write dynamic deployment: {error}"))?;
+    let dynamic = TemporaryConfig(dynamic_path);
+
+    let start_client = || {
+        Command::new(binary("todo_client"))
+            .arg("--deployment")
+            .arg(&dynamic.0)
+            .current_dir(workspace_root())
+            .spawn()
+    };
+
+    let mut first = start_client().map_err(|error| error.to_string())?;
+    let mut second = match start_client() {
+        Ok(child) => child,
+        Err(error) => {
+            let _ = first.kill();
+            let _ = first.wait();
+            return Err(format!("cannot launch second dynamic client: {error}"));
+        }
+    };
+    let first_result = first.wait().map_err(|error| error.to_string());
+    let second_result = second.wait().map_err(|error| error.to_string());
+
+    if !first_result?.success() || !second_result?.success() {
+        return Err("concurrent OS-assigned Storage smoke test failed".into());
+    }
+    println!("\nFixed and dynamic remote Todo smoke tests passed.");
     Ok(())
 }
