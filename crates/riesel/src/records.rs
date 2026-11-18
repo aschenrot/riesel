@@ -112,6 +112,22 @@ where
         Ok(self.store.delete(T::MODEL_NAME, id, expected_revision)?)
     }
 
+    /// Fetch and mutate a record once, then use its observed revision for
+    /// compare-and-swap. Revision conflicts remain visible; no callbacks
+    /// or side effects are automatically replayed.
+    pub fn update_with(
+        &self,
+        id: Uuid,
+        update: impl FnOnce(&mut T),
+    ) -> Result<Option<Record<T>>, SdkError> {
+        let Some(current) = self.get(id)? else {
+            return Ok(None);
+        };
+        let mut data = current.value;
+        update(&mut data);
+        self.update(id, current.revision, data).map(Some)
+    }
+
     pub fn update(
         &self,
         id: Uuid,
