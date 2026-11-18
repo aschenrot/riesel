@@ -157,4 +157,3 @@ pub(super) fn verify_graceful_storage_exit() -> TaskResult {
         thread::sleep(Duration::from_millis(10));
     }
 }
-

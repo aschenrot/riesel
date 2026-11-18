@@ -26,4 +26,3 @@ pub(super) fn binary(name: &str) -> PathBuf {
         .join("debug")
         .join(format!("{name}{}", env::consts::EXE_SUFFIX))
 }
-

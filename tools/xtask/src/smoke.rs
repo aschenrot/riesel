@@ -16,7 +16,6 @@ use riesel::{
     DeploymentConfig, RpcConnector, RuntimeError, ServiceEndpoint,
 };
 
-
 mod counter;
 mod fixtures;
 mod inspection;
@@ -119,4 +118,3 @@ pub fn run() -> TaskResult {
     println!("\nManaged Counter recovery smoke test passed.");
     Ok(())
 }
-
