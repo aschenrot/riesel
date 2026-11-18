@@ -1,5 +1,5 @@
 use riesel::Application;
-use riesel_counter::{Counter, CounterContract};
+use riesel_counter::CounterContract;
 
 fn main() -> riesel::Result<()> {
     Application::new("Counter")

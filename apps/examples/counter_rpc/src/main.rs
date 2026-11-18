@@ -1,5 +1,5 @@
 use riesel::Application;
-use riesel_counter::{Counter, CounterContract};
+use riesel_counter::CounterContract;
 use riesel_counter_component::MemoryCounterFactory;
 
 fn main() -> riesel::Result<()> {
