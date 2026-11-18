@@ -13,8 +13,7 @@ type LocalBinding<S> = Box<
         + Send
         + Sync,
 >;
-type HostedBinding<S> =
-    Box<dyn Fn(Arc<S>, RpcRouter) -> Result<RpcRouter, RpcError> + Send + Sync>;
+type HostedBinding<S> = Box<dyn Fn(Arc<S>, RpcRouter) -> Result<RpcRouter, RpcError> + Send + Sync>;
 
 struct ComponentCapability<S> {
     contract: CapabilityContract,
@@ -87,8 +86,7 @@ impl<S: Send + Sync + 'static> ComponentDefinition<S> {
         let state = Arc::new((self.create)());
         let mut router = RpcRouter::new(self.provider_definition()).map_err(io::Error::other)?;
         for capability in &self.capabilities {
-            router = (capability.hosted)(Arc::clone(&state), router)
-                .map_err(io::Error::other)?;
+            router = (capability.hosted)(Arc::clone(&state), router).map_err(io::Error::other)?;
         }
         serve_router(address, router)
     }

@@ -4,7 +4,9 @@ use crate::memory_counter_provider;
 use std::io;
 
 pub fn run_counter_server(address: &str) -> io::Result<()> {
-    memory_counter_provider().map_err(io::Error::other)?.serve(address)
+    memory_counter_provider()
+        .map_err(io::Error::other)?
+        .serve(address)
 }
 
 #[cfg(test)]

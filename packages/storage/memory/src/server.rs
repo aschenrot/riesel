@@ -4,7 +4,9 @@ use crate::memory_storage_provider;
 use std::io;
 
 pub fn run_storage_server(address: &str) -> io::Result<()> {
-    memory_storage_provider().map_err(io::Error::other)?.serve(address)
+    memory_storage_provider()
+        .map_err(io::Error::other)?
+        .serve(address)
 }
 
 #[cfg(test)]
