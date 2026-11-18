@@ -21,6 +21,15 @@ pub enum ServiceEndpoint {
     Tcp { address: SocketAddr },
     /// In-process provider selected by ID; no transport or process is required.
     Local { provider: String },
+    /// Managed loopback service that chooses its own port at bind time.
+    /// The provider must implement the RIESEL_READY startup announcement.
+    ManagedTcpDynamic {
+        program: PathBuf,
+        #[serde(default)]
+        args: Vec<String>,
+        #[serde(default = "default_startup_timeout_ms")]
+        startup_timeout_ms: u64,
+    },
     /// Riesel owns the child process and terminates it on shutdown.
     /// The deployment file must be trusted; its program is executable code.
     ManagedTcp {
@@ -41,7 +50,7 @@ impl ServiceEndpoint {
     pub fn address(&self) -> Option<SocketAddr> {
         match self {
             Self::Tcp { address } | Self::ManagedTcp { address, .. } => Some(*address),
-            Self::Local { .. } => None,
+            Self::Local { .. } | Self::ManagedTcpDynamic { .. } => None,
         }
     }
 }
@@ -98,6 +107,19 @@ impl DeploymentConfig {
                     name: name.clone(),
                     reason: "port zero is not a valid client endpoint",
                 });
+            }
+            if let ServiceEndpoint::ManagedTcpDynamic {
+                program,
+                startup_timeout_ms,
+                ..
+            } = endpoint
+            {
+                if program.as_os_str().is_empty() || !(1..=120_000).contains(startup_timeout_ms) {
+                    return Err(DeploymentError::InvalidEndpoint {
+                        name: name.clone(),
+                        reason: "dynamic managed service requires a program and a valid timeout",
+                    });
+                }
             }
             if let ServiceEndpoint::ManagedTcp {
                 address,
@@ -237,4 +259,16 @@ mod tests {
             ));
         }
     }
+    #[test]
+    fn dynamic_managed_service_requires_no_port() {
+        let source = r#"{"services":{"storage":{
+            "transport":"managed_tcp_dynamic",
+            "program":"storage_service",
+            "startup_timeout_ms":3000
+        }}}"#;
+        let config = DeploymentConfig::from_json(source).unwrap();
+        config.validate(&app()).unwrap();
+        assert!(config.services["storage"].address().is_none());
+    }
+
 }
