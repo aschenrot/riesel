@@ -588,7 +588,7 @@ fn preflight_orders_all_dependencies_without_connecting_or_starting() {
     ));
     let json = serde_json::to_string(&plan).unwrap();
     assert!(json.contains("example.counter"));
-    assert!(!json.contains("args"));
+    assert!(json.contains("\"args\""));
 }
 
 #[test]
