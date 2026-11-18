@@ -2,21 +2,10 @@ use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 use thiserror::Error;
 
-/// Portable record field types. Unit variants retain their original string
-/// serialization; containers use externally tagged recursive JSON shapes.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case")]
-pub enum FieldType {
-    Uuid,
-    String,
-    Bool,
-    U64,
-    I64,
-    F64,
-    Json,
-    Optional(Box<FieldType>),
-    List(Box<FieldType>),
-}
+/// Model fields and capability signatures share one structural type algebra.
+/// The schema now serializes every field using TypeRef's tagged representation,
+/// avoiding contradictory interpretations of primitive and container types.
+pub type FieldType = crate::TypeRef;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]

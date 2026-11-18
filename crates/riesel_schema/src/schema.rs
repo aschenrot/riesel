@@ -68,6 +68,8 @@ pub enum SchemaError {
     EmptyModel(String),
     #[error("model {model} contains invalid field identifier: {field}")]
     InvalidModelField { model: String, field: String },
+    #[error("model {model} contains unsupported field type: {field}")]
+    UnsupportedModelType { model: String, field: String },
 }
 
 impl AppSchema {
@@ -85,9 +87,15 @@ impl AppSchema {
             if model.fields.is_empty() {
                 return Err(SchemaError::EmptyModel(name.clone()));
             }
-            for field in model.fields.keys() {
+            for (field, kind) in &model.fields {
                 if !valid_model_field_name(field) {
                     return Err(SchemaError::InvalidModelField {
+                        model: name.clone(),
+                        field: field.clone(),
+                    });
+                }
+                if !valid_model_type(kind) {
+                    return Err(SchemaError::UnsupportedModelType {
                         model: name.clone(),
                         field: field.clone(),
                     });
@@ -154,6 +162,15 @@ impl AppSchema {
     }
 }
 
+fn valid_model_type(kind: &crate::TypeRef) -> bool {
+    match kind {
+        crate::TypeRef::Unit | crate::TypeRef::Named { .. } => false,
+        crate::TypeRef::Optional { item } | crate::TypeRef::List { item } =>
+            valid_model_type(item),
+        _ => true,
+    }
+}
+
 fn valid_requirement_name(name: &str) -> bool {
     let mut chars = name.chars();
     matches!(chars.next(), Some(c) if c.is_ascii_lowercase())
@@ -182,8 +199,8 @@ mod tests {
             "models": {
                 "entry": {
                     "fields": {
-                        "title": "string",
-                        "active": "bool"
+                        "title": {"kind": "string"},
+                        "active": {"kind": "bool"}
                     }
                 }
             }

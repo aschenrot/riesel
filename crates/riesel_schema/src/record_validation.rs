@@ -7,7 +7,7 @@ impl ModelDefinition {
         let object = record.as_object().ok_or(RecordError::ExpectedObject)?;
 
         for (field, kind) in &self.fields {
-            if !object.contains_key(field) && !matches!(kind, FieldType::Optional(_)) {
+            if !object.contains_key(field) && !matches!(kind, FieldType::Optional { .. }) {
                 return Err(RecordError::MissingField {
                     field: field.clone(),
                 });
@@ -45,10 +45,11 @@ fn valid_field_value(kind: &FieldType, value: &Value) -> bool {
         FieldType::I64 => value.as_i64().is_some(),
         FieldType::F64 => value.as_f64().is_some(),
         FieldType::Json => true,
-        FieldType::Optional(inner) => value.is_null() || valid_field_value(inner, value),
-        FieldType::List(inner) => value
+        FieldType::Optional { item } => value.is_null() || valid_field_value(item, value),
+        FieldType::List { item } => value
             .as_array()
-            .is_some_and(|items| items.iter().all(|value| valid_field_value(inner, value))),
+            .is_some_and(|items| items.iter().all(|value| valid_field_value(item, value))),
+        FieldType::Unit | FieldType::Named { .. } => false,
     }
 }
 
@@ -61,8 +62,9 @@ fn field_type_name(kind: &FieldType) -> &'static str {
         FieldType::I64 => "i64",
         FieldType::F64 => "f64",
         FieldType::Json => "json",
-        FieldType::Optional(_) => "optional",
-        FieldType::List(_) => "list",
+        FieldType::Optional { .. } => "optional",
+        FieldType::List { .. } => "list",
+        FieldType::Unit | FieldType::Named { .. } => "unsupported model field",
     }
 }
 
@@ -108,9 +110,9 @@ mod tests {
                 ("ratio".into(), FieldType::F64),
                 (
                     "notes".into(),
-                    FieldType::Optional(Box::new(FieldType::String)),
+                    FieldType::Optional { item: Box::new(FieldType::String) },
                 ),
-                ("tags".into(), FieldType::List(Box::new(FieldType::String))),
+                ("tags".into(), FieldType::List { item: Box::new(FieldType::String) }),
             ]),
         };
         assert!(
@@ -135,7 +137,7 @@ mod tests {
             ),
             Err(RecordError::InvalidValue { field, .. }) if field == "tags"
         ));
-        let json = serde_json::to_value(FieldType::Optional(Box::new(FieldType::U64))).unwrap();
-        assert_eq!(json, json!({"optional":"u64"}));
+        let json = serde_json::to_value(FieldType::Optional { item: Box::new(FieldType::U64) }).unwrap();
+        assert_eq!(json, json!({"kind":"optional","item":{"kind":"u64"}}));
     }
 }

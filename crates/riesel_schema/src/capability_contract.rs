@@ -50,6 +50,8 @@ pub enum TypeRef {
     Bool,
     Uuid,
     U64,
+    I64,
+    F64,
     Json,
     Named { name: String },
     Optional { item: Box<TypeRef> },
@@ -208,6 +210,8 @@ primitive!(String, String);
 primitive!(&str, String);
 primitive!(bool, Bool);
 primitive!(u64, U64);
+primitive!(i64, I64);
+primitive!(f64, F64);
 primitive!(uuid::Uuid, Uuid);
 primitive!(serde_json::Value, Json);
 
