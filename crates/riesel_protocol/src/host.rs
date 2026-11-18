@@ -19,9 +19,7 @@ pub fn serve_component<H: RpcHandler>(
 
 /// Let an executable accept an explicit bind address or the managed runtime's
 /// RIESEL_BIND_ADDRESS environment setting without repeating startup code.
-pub fn run_component_from_env(
-    serve: impl FnOnce(&str) -> io::Result<()>,
-) -> io::Result<()> {
+pub fn run_component_from_env(serve: impl FnOnce(&str) -> io::Result<()>) -> io::Result<()> {
     let args: Vec<_> = std::env::args_os().skip(1).collect();
     let address = parse_bind_address(&args, std::env::var_os("RIESEL_BIND_ADDRESS"))?;
     serve(&address.to_string())
@@ -41,7 +39,10 @@ fn parse_bind_address(args: &[OsString], env_bind: Option<OsString>) -> io::Resu
         )
     })?;
     let raw = raw.into_string().map_err(|_| {
-        io::Error::new(io::ErrorKind::InvalidInput, "bind-address is not valid UTF-8")
+        io::Error::new(
+            io::ErrorKind::InvalidInput,
+            "bind-address is not valid UTF-8",
+        )
     })?;
     raw.parse::<SocketAddr>()
         .map_err(|error| io::Error::new(io::ErrorKind::InvalidInput, error))

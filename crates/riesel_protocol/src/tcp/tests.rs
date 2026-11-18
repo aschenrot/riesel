@@ -1,6 +1,5 @@
 use super::*;
 
-
 struct ParallelHandler {
     slow_started: Arc<AtomicBool>,
 }
@@ -20,12 +19,9 @@ impl RpcHandler for ParallelHandler {
                 id: "example.concurrent".into(),
                 version: 1,
             },
-            operations: [
-                ("slow".into(), method()),
-                ("fast".into(), method()),
-            ]
-            .into_iter()
-            .collect(),
+            operations: [("slow".into(), method()), ("fast".into(), method())]
+                .into_iter()
+                .collect(),
             types: Default::default(),
         })
     }
@@ -51,13 +47,7 @@ fn slow_connections_do_not_block_independent_requests() {
         let stopping = Arc::clone(&stopping);
         let slow_started = Arc::clone(&slow_started);
         thread::spawn(move || {
-            serve_connections(
-                listener,
-                &ParallelHandler { slow_started },
-                &stopping,
-                true,
-            )
-            .unwrap()
+            serve_connections(listener, &ParallelHandler { slow_started }, &stopping, true).unwrap()
         })
     };
     let capability = CapabilityRef {
@@ -67,8 +57,7 @@ fn slow_connections_do_not_block_independent_requests() {
     let slow_call = {
         let capability = capability.clone();
         thread::spawn(move || {
-            TcpRpcTransport::new(address)
-                .call(&capability, "slow", serde_json::json!({}))
+            TcpRpcTransport::new(address).call(&capability, "slow", serde_json::json!({}))
         })
     };
     let deadline = Instant::now() + Duration::from_secs(5);

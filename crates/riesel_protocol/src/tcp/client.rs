@@ -92,4 +92,3 @@ impl RpcTransport for TcpRpcTransport {
         response.result
     }
 }
-

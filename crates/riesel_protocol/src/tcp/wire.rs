@@ -30,7 +30,10 @@ pub(super) fn configure_timeouts(stream: &TcpStream) -> Result<(), RpcError> {
         .map_err(|error| RpcError::Transport(error.to_string()))
 }
 
-pub(super) fn write_json_line<T: Serialize>(stream: &mut TcpStream, value: &T) -> Result<(), RpcError> {
+pub(super) fn write_json_line<T: Serialize>(
+    stream: &mut TcpStream,
+    value: &T,
+) -> Result<(), RpcError> {
     let mut data = serde_json::to_vec(value).map_err(|error| RpcError::Codec(error.to_string()))?;
     if data.len() + 1 > MAX_FRAME_BYTES {
         return Err(RpcError::Transport(
@@ -68,4 +71,3 @@ pub(super) fn read_json_line<T: DeserializeOwned>(stream: &mut TcpStream) -> Res
     }
     serde_json::from_slice(&bytes).map_err(|error| RpcError::Codec(error.to_string()))
 }
-

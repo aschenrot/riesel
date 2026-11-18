@@ -80,15 +80,13 @@ pub(super) fn serve_connections<H: RpcHandler>(
             });
         }
 
-        let enqueue = |stream| {
-            match sender.try_send(stream) {
-                Ok(()) => {}
-                Err(mpsc::TrySendError::Full(_)) => {
-                    eprintln!("RPC connection rejected: all workers and queue slots are busy");
-                }
-                Err(mpsc::TrySendError::Disconnected(_)) => {
-                    eprintln!("RPC connection rejected: request workers have stopped");
-                }
+        let enqueue = |stream| match sender.try_send(stream) {
+            Ok(()) => {}
+            Err(mpsc::TrySendError::Full(_)) => {
+                eprintln!("RPC connection rejected: all workers and queue slots are busy");
+            }
+            Err(mpsc::TrySendError::Disconnected(_)) => {
+                eprintln!("RPC connection rejected: request workers have stopped");
             }
         };
 
@@ -124,7 +122,6 @@ pub(super) fn serve_connections<H: RpcHandler>(
         drop(sender);
         result
     })
-
 }
 
 /// Handle exactly one framed call on an already accepted TCP connection.
@@ -181,4 +178,3 @@ pub fn handle_tcp_connection(
         },
     )
 }
-
