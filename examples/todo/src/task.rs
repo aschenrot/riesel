@@ -101,7 +101,7 @@ mod tests {
         assert!(completed.value.completed);
         assert_eq!(completed.id, created.id);
         assert_eq!(completed.revision, 2);
-        assert!(todo.get_task(created.id).unwrap().unwrap().completed);
+        assert!(todo.get_task(created.id).unwrap().unwrap().value.completed);
     }
 
     #[test]
