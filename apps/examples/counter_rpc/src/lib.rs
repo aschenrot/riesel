@@ -97,10 +97,9 @@ mod tests {
     #[test]
     fn managed_component_router_rejects_missing_and_duplicate_capability_handlers() {
         use riesel_protocol::RpcRouter;
-        let router = RpcRouter::new(
-            riesel_counter_component::memory_provider_definition().unwrap(),
-        )
-        .unwrap();
+        let router =
+            RpcRouter::new(riesel_counter_component::memory_provider_definition().unwrap())
+                .unwrap();
         assert!(matches!(
             router.validate_routes(),
             Err(RpcError::Contract(_))
