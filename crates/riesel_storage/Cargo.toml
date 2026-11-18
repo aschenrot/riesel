@@ -6,6 +6,8 @@ license.workspace = true
 repository.workspace = true
 
 [dependencies]
+riesel_macros.workspace = true
+riesel_schema.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 thiserror.workspace = true
