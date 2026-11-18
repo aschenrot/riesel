@@ -9,10 +9,9 @@ pub use records::{Record, Records};
 pub use rpc_connector::RpcConnector;
 
 pub use riesel_app::{
-    App, AppConfig, AppError, AppRunError, CapabilityConnector,
-    ConnectedProvider, ConnectorError, ConnectorRegistry, DeploymentConfig, DeploymentError,
-    LocalProviderFactory, ProviderRegistry, ResolutionError, ResolvedCapability, RunningApp,
-    RuntimeError, ServiceEndpoint,
+    App, AppConfig, AppError, AppRunError, CapabilityConnector, ConnectedProvider, ConnectorError,
+    ConnectorRegistry, DeploymentConfig, DeploymentError, LocalProviderFactory, ProviderRegistry,
+    ResolutionError, ResolvedCapability, RunningApp, RuntimeError, ServiceEndpoint,
 };
 pub use riesel_macros::{RieselModel, RieselType, capability};
 pub use riesel_schema::{CapabilityDescriptor, ModelField, RieselModel};

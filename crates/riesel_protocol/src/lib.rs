@@ -6,4 +6,3 @@ pub use rpc::{
     decode_result,
 };
 pub use tcp::{TcpRpcTransport, handle_tcp_connection};
-
