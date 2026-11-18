@@ -405,4 +405,41 @@ mod tests {
             Err(SchemaError::DependencyCycle { .. })
         ));
     }
+    #[test]
+    fn rejects_model_bindings_for_undeclared_models_or_requirements() {
+        let mut schema = parse_schema(
+            r#"{"version":1,"app":{"name":"Models"},
+               "models":{"task":{"fields":{"title":{"kind":"string"}}}},
+               "requires":[{"name":"storage","capability":{
+                 "id":"riesel.storage.records","version":2}}]}"#,
+        )
+        .unwrap();
+        schema.model_bindings.insert("task".into(), vec!["storage".into()]);
+        schema.validate().unwrap();
+
+        schema.model_bindings.insert("unknown".into(), vec!["storage".into()]);
+        assert!(matches!(
+            schema.validate(),
+            Err(SchemaError::UnknownBoundModel { model }) if model == "unknown"
+        ));
+        schema.model_bindings.remove("unknown");
+
+        schema.model_bindings.insert("task".into(), vec!["missing".into()]);
+        assert!(matches!(
+            schema.validate(),
+            Err(SchemaError::UnknownModelBinding { requirement, .. })
+                if requirement == "missing"
+        ));
+
+        schema.model_bindings.insert(
+            "task".into(),
+            vec!["storage".into(), "storage".into()],
+        );
+        assert!(matches!(
+            schema.validate(),
+            Err(SchemaError::DuplicateModelBinding { requirement, .. })
+                if requirement == "storage"
+        ));
+    }
+
 }

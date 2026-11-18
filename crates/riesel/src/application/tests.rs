@@ -283,3 +283,29 @@ fn strict_cli_rejects_unknown_arguments_before_execution() {
         Err(SdkError::Arguments(_))
     ));
 }
+
+#[cfg(feature = "dev-memory-storage")]
+#[test]
+fn development_storage_validates_models_even_for_direct_capability_calls() {
+    Application::new("Checked")
+        .records::<TodoModel>()
+        .unwrap()
+        .development()
+        .unwrap()
+        .run(|ctx| {
+            let store = ctx.capability::<RecordStoreContract>("storage")?;
+            assert!(matches!(
+                store.create("todo", serde_json::json!({"title": "Missing completed"})),
+                Err(crate::storage::StoreError::Failed(_))
+            ));
+            assert!(matches!(
+                store.create(
+                    "unregistered",
+                    serde_json::json!({"title": "Unknown", "completed": false})
+                ),
+                Err(crate::storage::StoreError::Failed(_))
+            ));
+            Ok(())
+        })
+        .unwrap();
+}
