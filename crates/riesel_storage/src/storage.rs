@@ -93,9 +93,9 @@ mod tests {
     #[test]
     fn generated_trait_client_keeps_transport_errors_distinct() {
         // Non-loopback plaintext calls are rejected before attempting I/O.
-        let client = super::RecordStoreRpcClient::new(
-            riesel_protocol::TcpRpcTransport::new("8.8.8.8:443".parse().unwrap()),
-        );
+        let client = super::RecordStoreRpcClient::new(riesel_protocol::TcpRpcTransport::new(
+            "8.8.8.8:443".parse().unwrap(),
+        ));
         let error = super::RecordStore::list(&client, "task").unwrap_err();
         assert!(matches!(error, super::StoreError::Transport(_)));
     }
