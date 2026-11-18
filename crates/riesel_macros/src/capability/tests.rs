@@ -22,7 +22,11 @@ fn invalid_capability_signatures_are_rejected_early() {
             async fn read(&self) -> Result<u64, String>;
         }
     };
-    assert!(expand_capability(args, async_method).is_err());
+    let emitted = expand_capability(args, async_method).unwrap().to_string();
+    assert!(emitted.contains("SampleAsyncRpcDispatcher"));
+    assert!(emitted.contains("SampleAsyncService"));
+    assert!(emitted.contains("Future"));
+    assert!(emitted.contains("Send"));
 }
 
 #[test]
@@ -72,4 +76,21 @@ fn capability_emits_async_client_using_async_transport() {
     assert!(tokens.contains("AsyncRpcTransport"));
     assert!(tokens.contains(". await"));
     assert!(tokens.contains("CallError"));
+}
+
+#[test]
+fn mixed_sync_and_async_capability_methods_are_rejected() {
+    let args: CapabilityArgs = syn::parse_quote! {};
+    let method: ItemTrait = parse_quote! {
+        trait Mixed {
+            /// Return an asynchronous value.
+            #[query]
+            async fn read(&self) -> Result<u64, String>;
+            /// Increment synchronously.
+            #[command]
+            fn write(&self, amount: u64) -> Result<u64, String>;
+        }
+    };
+    let err = expand_capability(args, method).unwrap_err();
+    assert!(err.to_string().contains("mixing synchronous and asynchronous"));
 }

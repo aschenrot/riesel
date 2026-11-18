@@ -128,6 +128,38 @@ pub trait AsyncRpcClientBinding: CapabilityDescriptor {
     fn bind_async(transport: Arc<dyn AsyncRpcTransport>) -> Self::Service;
 }
 
+/// A Send future returned by native async capability dispatch.
+pub type AsyncRpcFuture<'a> = Pin<Box<dyn Future<Output = Result<Value, RpcError>> + Send + 'a>>;
+
+/// Handler for a native asynchronous capability. Its generated implementation
+/// invokes normal Rust async methods without blocking a runtime worker.
+pub trait AsyncRpcHandler: Send + Sync {
+    fn contract(&self) -> Result<CapabilityContract, RpcError>;
+
+    fn dispatch<'a>(&'a self, operation: &'a str, arguments: Value) -> AsyncRpcFuture<'a>;
+
+    fn dispatch_for<'a>(
+        &'a self,
+        capability: &'a CapabilityRef,
+        operation: &'a str,
+        arguments: Value,
+    ) -> AsyncRpcFuture<'a> {
+        Box::pin(async move {
+            let contract = self.contract()?;
+            if &contract.capability != capability {
+                return Err(RpcError::WrongCapability {
+                    expected: format!(
+                        "{}@{}",
+                        contract.capability.id, contract.capability.version
+                    ),
+                    received: format!("{}@{}", capability.id, capability.version),
+                });
+            }
+            self.dispatch(operation, arguments).await
+        })
+    }
+}
+
 /// Server-side adapter generated for a single capability trait.
 pub trait RpcHandler: Send + Sync {
     fn contract(&self) -> Result<CapabilityContract, RpcError>;

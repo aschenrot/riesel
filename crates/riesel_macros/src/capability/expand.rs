@@ -35,6 +35,9 @@ pub(crate) fn expand_capability(
     let client_name = format_ident!("{}RpcClient", trait_name);
     let async_client_name = format_ident!("{}AsyncClient", trait_name);
     let dispatcher_name = format_ident!("{}RpcDispatcher", trait_name);
+    let async_dispatcher_name = format_ident!("{}AsyncRpcDispatcher", trait_name);
+    let async_service_name = format_ident!("{}AsyncService", trait_name);
+    let local_async_name = format_ident!("{}LocalClient", trait_name);
     let guarded_name = format_ident!("{}ScopedClient", trait_name);
     let visibility = item.vis.clone();
     let mut generated_operations = Vec::new();
@@ -44,6 +47,11 @@ pub(crate) fn expand_capability(
     let mut scoped_methods = Vec::new();
     let mut arc_methods = Vec::new();
     let mut dispatch_arms = Vec::new();
+    let mut async_dispatch_arms = Vec::new();
+    let mut async_service_methods = Vec::new();
+    let mut async_service_impls = Vec::new();
+    let mut local_async_methods = Vec::new();
+    let mut is_async: Option<bool> = None;
 
     for entry in &mut item.items {
         let TraitItem::Fn(method) = entry else {
@@ -52,16 +60,26 @@ pub(crate) fn expand_capability(
                 "only methods are supported in capability traits",
             ));
         };
+        let method_async = method.sig.asyncness.is_some();
+        if let Some(existing) = is_async {
+            if existing != method_async {
+                return Err(syn::Error::new(
+                    method.sig.span(),
+                    "mixing synchronous and asynchronous capability operations is not supported",
+                ));
+            }
+        } else {
+            is_async = Some(method_async);
+        }
         if !method.sig.generics.params.is_empty()
             || method.sig.generics.where_clause.is_some()
-            || method.sig.asyncness.is_some()
             || method.sig.unsafety.is_some()
             || method.sig.abi.is_some()
             || method.default.is_some()
         {
             return Err(syn::Error::new(
                 method.sig.span(),
-                "capability methods must be synchronous, non-generic declarations without default bodies",
+                "capability methods must be non-generic, safe declarations without default bodies",
             ));
         }
 
@@ -143,6 +161,7 @@ pub(crate) fn expand_capability(
         let mut client_encoding = Vec::new();
         let mut payload_fields = Vec::new();
         let mut dispatch_arguments = Vec::new();
+        let mut service_arguments = Vec::new();
         for argument in method.sig.inputs.iter().skip(1) {
             let FnArg::Typed(arg) = argument else {
                 return Err(syn::Error::new(argument.span(), "unexpected receiver"));
@@ -163,6 +182,11 @@ pub(crate) fn expand_capability(
             let ty = &arg.ty;
             arg_names.push(quote!(#name));
             client_arguments.push(quote!(#name: #ty));
+            if matches!(&**ty, Type::Reference(_)) {
+                service_arguments.push(quote!(#name: &'a str));
+            } else {
+                service_arguments.push(quote!(#name: #ty));
+            }
             client_encoding.push(quote! {
                 arguments.insert(
                     stringify!(#name).to_owned(),
@@ -211,6 +235,72 @@ pub(crate) fn expand_capability(
 
         let (result_type, error_type) = result_parts(&method.sig.output)?;
         let method_name = &method.sig.ident;
+        if method_async {
+            // The user can still implement this trait using ordinary
+            // async fn syntax. The Send bound makes object-safe adapters
+            // and Tokio-managed dispatch possible without an async-trait
+            // dependency or a blocking Future wrapper.
+            method.sig.asyncness = None;
+            method.sig.output = syn::parse_quote!(
+                -> impl ::std::future::Future<Output = Result<#result_type, #error_type>> + Send
+            );
+
+            async_service_methods.push(quote! {
+                fn #method_name<'a>(
+                    &'a self,
+                    #(#service_arguments),*
+                ) -> ::std::pin::Pin<::std::boxed::Box<
+                    dyn ::std::future::Future<Output = Result<#result_type, #error_type>>
+                        + Send + 'a
+                >>;
+            });
+            async_service_impls.push(quote! {
+                fn #method_name<'a>(
+                    &'a self,
+                    #(#service_arguments),*
+                ) -> ::std::pin::Pin<::std::boxed::Box<
+                    dyn ::std::future::Future<Output = Result<#result_type, #error_type>>
+                        + Send + 'a
+                >> {
+                    ::std::boxed::Box::pin(#trait_name::#method_name(
+                        self, #(#arg_names),*
+                    ))
+                }
+            });
+            local_async_methods.push(quote! {
+                #[doc = #docs]
+                pub async fn #method_name(
+                    &self,
+                    #(#client_arguments),*
+                ) -> Result<#result_type, ::riesel_protocol::CallError<#error_type>> {
+                    self.session.check()?;
+                    let result = #async_service_name::#method_name(
+                        self.provider.as_ref(), #(#arg_names),*
+                    ).await;
+                    self.session.check()?;
+                    result.map_err(::riesel_protocol::CallError::Domain)
+                }
+            });
+            async_dispatch_arms.push(quote! {
+                stringify!(#method_name) => {
+                    #[derive(::serde::Deserialize)]
+                    #[serde(deny_unknown_fields)]
+                    struct Arguments {
+                        #(#payload_fields),*
+                    }
+                    let arguments: Arguments =
+                        ::serde_json::from_value(payload).map_err(|error| {
+                            ::riesel_protocol::RpcError::InvalidArguments(error.to_string())
+                        })?;
+                    let output = #trait_name::#method_name(
+                        &self.provider, #(#dispatch_arguments),*
+                    ).await;
+                    ::serde_json::to_value(output).map_err(|error| {
+                        ::riesel_protocol::RpcError::Codec(error.to_string())
+                    })
+                }
+            });
+        }
         trait_methods.push(quote! {
             fn #method_name(
                 &self,
@@ -314,7 +404,7 @@ pub(crate) fn expand_capability(
             <#error_type as ::riesel_schema::RieselType>::collect_definitions(&mut types)?;
         });
     }
-    let trait_impl = if client_trait {
+    let trait_impl = if client_trait && !is_async.unwrap_or(false) {
         quote! {
             /// Checks session validity even when callers clone the trait Arc
             /// out of the original application Context.
@@ -370,6 +460,77 @@ pub(crate) fn expand_capability(
         quote!()
     };
 
+    let async_provider_impl = if is_async.unwrap_or(false) {
+        quote! {
+            /// Object-safe adapter generated from the native async trait.
+            /// Component implementations only need ordinary Rust async fn.
+            #visibility trait #async_service_name: Send + Sync {
+                #(#async_service_methods)*
+            }
+
+            impl<T: #trait_name + Send + Sync> #async_service_name for T {
+                #(#async_service_impls)*
+            }
+
+            /// In-process, typed, revocable async handle.
+            #visibility struct #local_async_name {
+                provider: ::std::sync::Arc<dyn #async_service_name>,
+                session: ::riesel_protocol::SessionToken,
+            }
+
+            impl #local_async_name {
+                pub fn new(
+                    provider: ::std::sync::Arc<dyn #async_service_name>,
+                    session: ::riesel_protocol::SessionToken,
+                ) -> Self {
+                    Self { provider, session }
+                }
+
+                #(#local_async_methods)*
+            }
+
+            /// Async dispatcher generated from the same versioned contract.
+            #visibility struct #async_dispatcher_name<T> {
+                provider: T,
+            }
+
+            impl<T> #async_dispatcher_name<T> {
+                pub fn new(provider: T) -> Self {
+                    Self { provider }
+                }
+            }
+
+            impl<T: #trait_name + Send + Sync> ::riesel_protocol::AsyncRpcHandler
+                for #async_dispatcher_name<T>
+            {
+                fn contract(
+                    &self,
+                ) -> Result<::riesel_schema::CapabilityContract, ::riesel_protocol::RpcError> {
+                    #descriptor_name::definition().map_err(|error| {
+                        ::riesel_protocol::RpcError::Contract(error.to_string())
+                    })
+                }
+
+                fn dispatch<'a>(
+                    &'a self,
+                    operation: &'a str,
+                    payload: ::serde_json::Value,
+                ) -> ::riesel_protocol::AsyncRpcFuture<'a> {
+                    ::std::boxed::Box::pin(async move {
+                        match operation {
+                            #(#async_dispatch_arms,)*
+                            _ => Err(::riesel_protocol::RpcError::UnknownOperation(
+                                operation.to_owned(),
+                            )),
+                        }
+                    })
+                }
+            }
+        }
+    } else {
+        quote!()
+    };
+
     if generated_operations.is_empty() {
         return Err(syn::Error::new(
             trait_name.span(),
@@ -377,14 +538,63 @@ pub(crate) fn expand_capability(
         ));
     }
 
+    let sync_provider_impl = if !is_async.unwrap_or(false) {
+        quote! {
+            /// Automatically forward capability methods through shared Arc
+            /// implementations.
+            impl<T: #trait_name + ?Sized> #trait_name for ::std::sync::Arc<T> {
+                #(#arc_methods)*
+            }
+
+            /// RPC dispatcher generated from the same trait as the client.
+            #visibility struct #dispatcher_name<T> {
+                provider: T,
+            }
+
+            impl<T> #dispatcher_name<T> {
+                pub fn new(provider: T) -> Self {
+                    Self { provider }
+                }
+
+                pub fn into_inner(self) -> T {
+                    self.provider
+                }
+            }
+
+            impl<T: #trait_name + Send + Sync> ::riesel_protocol::RpcHandler
+                for #dispatcher_name<T>
+            {
+                fn contract(&self) -> Result<
+                    ::riesel_schema::CapabilityContract,
+                    ::riesel_protocol::RpcError
+                > {
+                    #descriptor_name::definition().map_err(|error| {
+                        ::riesel_protocol::RpcError::Contract(error.to_string())
+                    })
+                }
+
+                fn dispatch(
+                    &self,
+                    operation: &str,
+                    payload: ::serde_json::Value,
+                ) -> Result<::serde_json::Value, ::riesel_protocol::RpcError> {
+                    match operation {
+                        #(#dispatch_arms,)*
+                        _ => Err(::riesel_protocol::RpcError::UnknownOperation(
+                            operation.to_owned(),
+                        )),
+                    }
+                }
+            }
+        }
+    } else {
+        quote!()
+    };
+
     Ok(quote! {
         #item
-
-        /// Automatically forward capability methods through shared Arc
-        /// implementations. Component authors never duplicate these methods.
-        impl<T: #trait_name + ?Sized> #trait_name for ::std::sync::Arc<T> {
-            #(#arc_methods)*
-        }
+        #sync_provider_impl
+        #async_provider_impl
 
         #[derive(Debug, Clone, Copy)]
         #visibility struct #descriptor_name;
@@ -457,21 +667,6 @@ pub(crate) fn expand_capability(
             #(#async_client_methods)*
         }
 
-        /// RPC dispatcher generated from the same trait as the client.
-        #visibility struct #dispatcher_name<T> {
-            provider: T,
-        }
-
-        impl<T> #dispatcher_name<T> {
-            pub fn new(provider: T) -> Self {
-                Self { provider }
-            }
-
-            pub fn into_inner(self) -> T {
-                self.provider
-            }
-        }
-
         #trait_impl
 
         impl ::riesel_protocol::AsyncRpcClientBinding for #descriptor_name {
@@ -486,30 +681,5 @@ pub(crate) fn expand_capability(
             }
         }
 
-        impl<T: #trait_name + Send + Sync> ::riesel_protocol::RpcHandler
-            for #dispatcher_name<T>
-        {
-            fn contract(&self) -> Result<
-                ::riesel_schema::CapabilityContract,
-                ::riesel_protocol::RpcError
-            > {
-                #descriptor_name::definition().map_err(|error| {
-                    ::riesel_protocol::RpcError::Contract(error.to_string())
-                })
-            }
-
-            fn dispatch(
-                &self,
-                operation: &str,
-                payload: ::serde_json::Value,
-            ) -> Result<::serde_json::Value, ::riesel_protocol::RpcError> {
-                match operation {
-                    #(#dispatch_arms,)*
-                    _ => Err(::riesel_protocol::RpcError::UnknownOperation(
-                        operation.to_owned(),
-                    )),
-                }
-            }
-        }
     })
 }

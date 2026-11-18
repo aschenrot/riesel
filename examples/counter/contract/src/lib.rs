@@ -83,3 +83,98 @@ mod private_identity_tests {
         assert!(handler.dispatch("value", serde_json::json!({})).is_ok());
     }
 }
+
+#[cfg(test)]
+mod native_async_capability_tests {
+    use super::*;
+    use riesel_protocol::{AsyncRpcHandler, CallError, RpcError, SessionToken};
+    use std::future::Future;
+    use std::sync::{Arc, Mutex};
+    use std::task::{Context, Poll, Waker};
+
+    #[capability]
+    trait AsyncCounter {
+        /// Read the current value without changing it.
+        #[query]
+        async fn value(&self) -> Result<u64, CounterError>;
+
+        /// Add a nonzero increment.
+        #[command]
+        async fn add(&self, increment: u64) -> Result<u64, CounterError>;
+
+        /// Label the value using a borrowed string.
+        #[query]
+        async fn label(&self, prefix: &str) -> Result<String, CounterError>;
+    }
+
+    #[derive(Default)]
+    struct AsyncCounterState(Mutex<u64>);
+
+    impl AsyncCounter for AsyncCounterState {
+        async fn value(&self) -> Result<u64, CounterError> {
+            Ok(*self.0.lock().unwrap())
+        }
+
+        async fn add(&self, increment: u64) -> Result<u64, CounterError> {
+            if increment == 0 {
+                return Err(CounterError::ZeroIncrement);
+            }
+            let mut value = self.0.lock().unwrap();
+            *value += increment;
+            Ok(*value)
+        }
+
+        async fn label(&self, prefix: &str) -> Result<String, CounterError> {
+            Ok(format!("{prefix}: {}", self.value().await?))
+        }
+    }
+
+    fn ready<F: Future>(future: F) -> F::Output {
+        let mut future = std::pin::pin!(future);
+        match future.as_mut().poll(&mut Context::from_waker(Waker::noop())) {
+            Poll::Ready(value) => value,
+            Poll::Pending => panic!("native async test unexpectedly requires a scheduler"),
+        }
+    }
+
+    #[test]
+    fn native_async_capability_uses_generated_local_handle() {
+        let session = SessionToken::new();
+        let state = Arc::new(AsyncCounterState::default());
+        let handle = AsyncCounterLocalClient::new(state, session.clone());
+        assert_eq!(ready(handle.value()).unwrap(), 0);
+        assert_eq!(ready(handle.add(4)).unwrap(), 4);
+        assert_eq!(ready(handle.label("count")).unwrap(), "count: 4");
+        assert!(matches!(
+            ready(handle.add(0)),
+            Err(CallError::Domain(CounterError::ZeroIncrement))
+        ));
+        session.invalidate();
+        assert!(matches!(
+            ready(handle.value()),
+            Err(CallError::Rpc(RpcError::SessionExpired))
+        ));
+    }
+
+    #[test]
+    fn native_async_dispatcher_preserves_wire_contract_and_errors() {
+        let handler = AsyncCounterAsyncRpcDispatcher::new(AsyncCounterState::default());
+        let contract = AsyncCounterContract::definition().unwrap();
+        assert_eq!(handler.contract().unwrap(), contract);
+        let reference = contract.capability.clone();
+        assert_eq!(
+            ready(handler.dispatch_for(&reference, "add", serde_json::json!({"increment": 5})))
+                .unwrap(),
+            serde_json::json!({"Ok":5})
+        );
+        let result = ready(handler.dispatch_for(&reference, "value", serde_json::json!({})))
+            .unwrap();
+        assert_eq!(result, serde_json::json!({"Ok":5}));
+        assert!(matches!(
+            ready(handler.dispatch_for(
+                &reference, "missing", serde_json::json!({})
+            )),
+            Err(RpcError::UnknownOperation(_))
+        ));
+    }
+}
