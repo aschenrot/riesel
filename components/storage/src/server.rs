@@ -4,9 +4,16 @@ use crate::{MemoryStore, memory_provider_definition};
 use riesel_protocol::{RpcHost, handle_tcp_connection};
 use riesel_storage::RecordStoreRpcDispatcher;
 use std::io::{self, Write};
-use std::net::TcpListener;
+use std::net::{SocketAddr, TcpListener};
 
 pub fn run_storage_server(address: &str) -> io::Result<()> {
+    let address: SocketAddr = address.parse().map_err(io::Error::other)?;
+    if !address.ip().is_loopback() {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidInput,
+            "unauthenticated Storage must listen on loopback",
+        ));
+    }
     let listener = TcpListener::bind(address)?;
     let handler = RpcHost::new(
         memory_provider_definition().map_err(io::Error::other)?,
@@ -44,6 +51,12 @@ mod tests {
     use riesel_storage::{RecordStoreContract, RecordStoreRpcClient, StoreError};
     use serde_json::json;
     use std::thread;
+
+    #[test]
+    fn refuses_to_expose_unauthenticated_storage_on_any_interface() {
+        let error = run_storage_server("0.0.0.0:0").unwrap_err();
+        assert_eq!(error.kind(), io::ErrorKind::InvalidInput);
+    }
 
     #[test]
     fn generated_storage_remote_crud_and_error_round_trip() {
