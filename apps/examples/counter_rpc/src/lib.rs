@@ -60,10 +60,10 @@ mod tests {
         CallError, LocalRpc, RpcError, RpcHandler, RpcTransport, TcpRpcTransport,
         handle_tcp_connection,
     };
+    use serde_json::json;
     use std::net::TcpListener;
     use std::thread;
     use std::time::{Duration, Instant};
-    use serde_json::json;
 
     #[test]
     fn generated_client_and_dispatcher_support_commands_and_queries() {
@@ -139,7 +139,10 @@ mod tests {
                         handled += 1;
                     }
                     Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => {
-                        assert!(Instant::now() < deadline, "timed out waiting for RPC requests");
+                        assert!(
+                            Instant::now() < deadline,
+                            "timed out waiting for RPC requests"
+                        );
                         thread::sleep(Duration::from_millis(10));
                     }
                     Err(error) => panic!("could not accept RPC connection: {error}"),
@@ -165,5 +168,4 @@ mod tests {
         ));
         server.join().unwrap();
     }
-
 }
