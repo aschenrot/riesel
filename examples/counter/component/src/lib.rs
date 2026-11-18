@@ -10,7 +10,7 @@ use riesel_counter::{
     Counter, CounterContract, CounterError, CounterObserver, CounterObserverContract,
 };
 use riesel_schema::ProviderDefinition;
-use std::sync::{Arc, Mutex};
+use std::sync::Mutex;
 
 #[derive(Default)]
 pub struct MemoryCounter {
@@ -63,6 +63,7 @@ pub fn memory_provider_definition() -> Result<ProviderDefinition, ConnectorError
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::sync::Arc;
 
     #[test]
     fn counter_provider_matches_independent_contract() {
