@@ -47,6 +47,14 @@ pub(super) fn write_json_line<T: Serialize>(
 }
 
 pub(super) fn read_json_line<T: DeserializeOwned>(stream: &mut TcpStream) -> Result<T, RpcError> {
+    read_json_line_optional(stream)?.ok_or_else(|| {
+        RpcError::Transport("RPC connection closed before complete frame".into())
+    })
+}
+
+pub(super) fn read_json_line_optional<T: DeserializeOwned>(
+    stream: &mut TcpStream,
+) -> Result<Option<T>, RpcError> {
     let mut reader = BufReader::new(stream);
     let mut bytes = Vec::new();
     loop {
@@ -54,9 +62,13 @@ pub(super) fn read_json_line<T: DeserializeOwned>(stream: &mut TcpStream) -> Res
             .fill_buf()
             .map_err(|error| RpcError::Transport(error.to_string()))?;
         if buffer.is_empty() {
-            return Err(RpcError::Transport(
-                "RPC connection closed before complete frame".into(),
-            ));
+            return if bytes.is_empty() {
+                Ok(None)
+            } else {
+                Err(RpcError::Transport(
+                    "RPC connection closed before complete frame".into(),
+                ))
+            };
         }
         let newline = buffer.iter().position(|byte| *byte == b'\n');
         let length = newline.map(|index| index + 1).unwrap_or(buffer.len());
@@ -69,5 +81,7 @@ pub(super) fn read_json_line<T: DeserializeOwned>(stream: &mut TcpStream) -> Res
             break;
         }
     }
-    serde_json::from_slice(&bytes).map_err(|error| RpcError::Codec(error.to_string()))
+    serde_json::from_slice(&bytes)
+        .map(Some)
+        .map_err(|error| RpcError::Codec(error.to_string()))
 }

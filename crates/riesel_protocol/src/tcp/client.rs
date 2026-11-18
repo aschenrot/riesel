@@ -1,19 +1,69 @@
 use super::*;
 
-/// Client for the transport-neutral generated RPC API.
-/// Each call opens one connection; connection pooling can be added later.
+/// Client for the transport-neutral generated RPC API. Runtime sessions
+/// retain a small pool of verified TCP sockets; standalone clients use one
+/// connection per call for compatibility with one-request hosts.
+struct IdleSocket {
+    stream: TcpStream,
+    last_used: std::time::Instant,
+}
+
 pub struct TcpRpcTransport {
     address: SocketAddr,
     session: SessionToken,
+    idle: Option<Mutex<Vec<IdleSocket>>>,
 }
+
+const MAX_IDLE_SOCKETS: usize = 4;
+const MAX_IDLE_AGE: Duration = Duration::from_millis(750);
 
 impl TcpRpcTransport {
     pub fn new(address: SocketAddr) -> Self {
-        Self::with_session(address, SessionToken::new())
+        Self {
+            address,
+            session: SessionToken::new(),
+            idle: None,
+        }
     }
 
+    /// Application-owned, revocable TCP session with bounded connection reuse.
+    /// A failed request is never replayed; commands may have already executed.
     pub fn with_session(address: SocketAddr, session: SessionToken) -> Self {
-        Self { address, session }
+        Self {
+            address,
+            session,
+            idle: Some(Mutex::new(Vec::new())),
+        }
+    }
+
+    fn connect(&self) -> Result<TcpStream, RpcError> {
+        if let Some(idle) = &self.idle {
+            let mut sockets = idle.lock().unwrap_or_else(PoisonError::into_inner);
+            while let Some(entry) = sockets.pop() {
+                if entry.last_used.elapsed() <= MAX_IDLE_AGE {
+                    return Ok(entry.stream);
+                }
+            }
+        }
+        let stream = TcpStream::connect_timeout(&self.address, Duration::from_secs(3))
+            .map_err(|error| RpcError::Transport(error.to_string()))?;
+        configure_timeouts(&stream)?;
+        Ok(stream)
+    }
+
+    fn recycle(&self, stream: TcpStream) {
+        if !self.session.is_active() {
+            return;
+        }
+        if let Some(idle) = &self.idle {
+            let mut sockets = idle.lock().unwrap_or_else(PoisonError::into_inner);
+            if sockets.len() < MAX_IDLE_SOCKETS {
+                sockets.push(IdleSocket {
+                    stream,
+                    last_used: std::time::Instant::now(),
+                });
+            }
+        }
     }
 
     /// Inspect the server's contract before making typed calls.
@@ -70,9 +120,7 @@ impl RpcTransport for TcpRpcTransport {
                 "plaintext RPC is restricted to loopback addresses".into(),
             ));
         }
-        let mut stream = TcpStream::connect_timeout(&self.address, Duration::from_secs(3))
-            .map_err(|error| RpcError::Transport(error.to_string()))?;
-        configure_timeouts(&stream)?;
+        let mut stream = self.connect()?;
         write_json_line(
             &mut stream,
             &WireRequest {
@@ -89,6 +137,7 @@ impl RpcTransport for TcpRpcTransport {
                 response.version
             )));
         }
+        self.recycle(stream);
         response.result
     }
 }

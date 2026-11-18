@@ -28,5 +28,5 @@ pub use server::{handle_tcp_connection, run_tcp_rpc_host};
 use server::serve_connections;
 use wire::{
     DESCRIBE, PROVIDER, WIRE_VERSION, WireRequest, WireResponse, configure_timeouts,
-    read_json_line, write_json_line,
+    read_json_line, read_json_line_optional, write_json_line,
 };

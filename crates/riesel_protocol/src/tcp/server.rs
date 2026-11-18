@@ -73,7 +73,7 @@ pub(super) fn serve_connections<H: RpcHandler>(
                     // on Windows, so normalize it before framed RPC reads.
                     if let Err(error) = stream.set_nonblocking(false) {
                         eprintln!("RPC socket setup failed: {error}");
-                    } else if let Err(error) = handle_tcp_connection(handler, &mut stream) {
+                    } else if let Err(error) = handle_tcp_session(handler, &mut stream, stopping) {
                         eprintln!("RPC request failed: {error}");
                     }
                 }
@@ -123,6 +123,28 @@ pub(super) fn serve_connections<H: RpcHandler>(
     })
 }
 
+/// Serve several sequential requests over one socket; a short idle timeout
+/// releases workers even when clients keep connections open.
+fn handle_tcp_session(
+    handler: &impl RpcHandler,
+    stream: &mut TcpStream,
+    stopping: &AtomicBool,
+) -> Result<(), RpcError> {
+    stream
+        .set_read_timeout(Some(Duration::from_millis(2_000)))
+        .map_err(|error| RpcError::Transport(error.to_string()))?;
+    stream
+        .set_write_timeout(Some(Duration::from_secs(5)))
+        .map_err(|error| RpcError::Transport(error.to_string()))?;
+    while !stopping.load(Ordering::Acquire) {
+        let Some(request) = read_json_line_optional::<WireRequest>(stream)? else {
+            return Ok(());
+        };
+        respond_to_request(handler, stream, request)?;
+    }
+    Ok(())
+}
+
 /// Handle exactly one framed call on an already accepted TCP connection.
 /// Host code owns listener lifetime, concurrency, and process management.
 pub fn handle_tcp_connection(
@@ -131,6 +153,14 @@ pub fn handle_tcp_connection(
 ) -> Result<(), RpcError> {
     configure_timeouts(stream)?;
     let request: WireRequest = read_json_line(stream)?;
+    respond_to_request(handler, stream, request)
+}
+
+fn respond_to_request(
+    handler: &impl RpcHandler,
+    stream: &mut TcpStream,
+    request: WireRequest,
+) -> Result<(), RpcError> {
     let result = if request.version != WIRE_VERSION {
         Err(RpcError::Transport(format!(
             "unsupported RPC request protocol version: {}",

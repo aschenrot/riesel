@@ -92,3 +92,36 @@ fn rejects_non_loopback_plaintext_clients() {
         Err(RpcError::Transport(_))
     ));
 }
+
+#[test]
+fn application_transport_reuses_a_connection_for_sequential_calls() {
+    use std::sync::atomic::AtomicUsize;
+    let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+    let address = listener.local_addr().unwrap();
+    let accepted = Arc::new(AtomicUsize::new(0));
+    let server = {
+        let accepted = Arc::clone(&accepted);
+        thread::spawn(move || {
+            let (mut stream, _) = listener.accept().unwrap();
+            accepted.fetch_add(1, Ordering::SeqCst);
+            let handler = ParallelHandler {
+                slow_started: Arc::new(AtomicBool::new(false)),
+            };
+            handle_tcp_connection(&handler, &mut stream).unwrap();
+            handle_tcp_connection(&handler, &mut stream).unwrap();
+        })
+    };
+    let transport = TcpRpcTransport::with_session(address, SessionToken::new());
+    let capability = CapabilityRef {
+        id: "example.concurrent".into(),
+        version: 1,
+    };
+    for _ in 0..2 {
+        assert_eq!(
+            transport.call(&capability, "fast", serde_json::json!({})).unwrap(),
+            serde_json::json!(7)
+        );
+    }
+    server.join().unwrap();
+    assert_eq!(accepted.load(Ordering::SeqCst), 1);
+}
