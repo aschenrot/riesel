@@ -16,7 +16,8 @@ fn two_local_capabilities_share_one_component_state() {
     Application::new("DualLocal")
         .handler_with_aliases(
             |writer: Capability<CounterContract>,
-             reader: Capability<CounterObserverContract>| -> Result<(), CounterError> {
+             reader: Capability<CounterObserverContract>|
+             -> Result<(), CounterError> {
                 assert_eq!(reader.observe()?, 0);
                 assert_eq!(writer.add(13)?, 13);
                 assert_eq!(reader.observe()?, 13);
@@ -235,9 +236,9 @@ fn handler_parameters_share_explicit_contract_metadata_without_name_based_aliase
     );
 
     let implicit = Application::new("Implicit")
-        .handler(|_renamed_variable: Capability<CounterContract>| -> Result<(), CounterError> {
-            Ok(())
-        })
+        .handler(
+            |_renamed_variable: Capability<CounterContract>| -> Result<(), CounterError> { Ok(()) },
+        )
         .unwrap();
     assert_eq!(
         implicit.definition().requires[0].name,
@@ -250,7 +251,8 @@ fn handler_parameters_share_explicit_contract_metadata_without_name_based_aliase
     let distinct_instances = Application::new("TwoCounters")
         .handler_with_aliases(
             |_first: Capability<CounterContract>,
-             _second: Capability<CounterContract>| -> Result<(), CounterError> { Ok(()) },
+             _second: Capability<CounterContract>|
+             -> Result<(), CounterError> { Ok(()) },
             ["first", "second"],
         )
         .unwrap();
@@ -258,7 +260,8 @@ fn handler_parameters_share_explicit_contract_metadata_without_name_based_aliase
 
     let conflict = Application::new("Conflict").handler_with_aliases(
         |_writer: Capability<CounterContract>,
-         _reader: Capability<CounterObserverContract>| -> Result<(), CounterError> { Ok(()) },
+         _reader: Capability<CounterObserverContract>|
+         -> Result<(), CounterError> { Ok(()) },
         ["shared", "shared"],
     );
     assert!(matches!(

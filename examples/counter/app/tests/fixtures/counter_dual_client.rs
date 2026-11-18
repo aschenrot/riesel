@@ -1,7 +1,9 @@
 //! Two capabilities bound to one explicitly named managed component
 //! must read and mutate one shared Counter state.
 use riesel::{Application, Capability};
-use riesel_counter::{Counter, CounterContract, CounterError, CounterObserver, CounterObserverContract};
+use riesel_counter::{
+    Counter, CounterContract, CounterError, CounterObserver, CounterObserverContract,
+};
 
 fn verify_shared_state(
     counter: Capability<CounterContract>,
