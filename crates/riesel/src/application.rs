@@ -278,5 +278,4 @@ mod tests {
         assert_eq!(decoded.models["todo"], TodoModel::model_definition());
         assert_eq!(decoded.requires[0].capability.id, "riesel.storage.records");
     }
-
 }
