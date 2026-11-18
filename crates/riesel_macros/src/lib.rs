@@ -90,8 +90,12 @@ fn expand_capability(
     }
     let trait_name = item.ident.clone();
     let descriptor_name = format_ident!("{}Contract", trait_name);
+    let client_name = format_ident!("{}RpcClient", trait_name);
+    let dispatcher_name = format_ident!("{}RpcDispatcher", trait_name);
     let visibility = item.vis.clone();
     let mut generated_operations = Vec::new();
+    let mut client_methods = Vec::new();
+    let mut dispatch_arms = Vec::new();
 
     for entry in &mut item.items {
         let TraitItem::Fn(method) = entry else {
@@ -186,6 +190,10 @@ fn expand_capability(
 
         let mut arguments = Vec::new();
         let mut type_collection = Vec::new();
+        let mut client_arguments = Vec::new();
+        let mut client_encoding = Vec::new();
+        let mut payload_fields = Vec::new();
+        let mut dispatch_arguments = Vec::new();
         for argument in method.sig.inputs.iter().skip(1) {
             let FnArg::Typed(arg) = argument else {
                 return Err(syn::Error::new(argument.span(), "unexpected receiver"));
@@ -204,6 +212,42 @@ fn expand_capability(
             }
             let name = &param.ident;
             let ty = &arg.ty;
+            client_arguments.push(quote!(#name: #ty));
+            client_encoding.push(quote! {
+                arguments.insert(
+                    stringify!(#name).to_owned(),
+                    ::serde_json::to_value(&#name).map_err(|error| {
+                        ::riesel_protocol::CallError::Rpc(
+                            ::riesel_protocol::RpcError::Codec(error.to_string())
+                        )
+                    })?,
+                );
+            });
+
+            // Borrowed strings have an owned wire representation. Other
+            // references need explicit schema/ownership semantics and are
+            // intentionally rejected instead of producing unsafe RPC code.
+            match &**ty {
+                Type::Reference(reference) => {
+                    let is_str = matches!(
+                        &*reference.elem,
+                        Type::Path(path) if path.qself.is_none()
+                            && path.path.is_ident("str")
+                    );
+                    if reference.mutability.is_some() || !is_str {
+                        return Err(syn::Error::new(
+                            ty.span(),
+                            "RPC capability arguments support only &str references; use owned types",
+                        ));
+                    }
+                    payload_fields.push(quote!(#name: ::std::string::String));
+                    dispatch_arguments.push(quote!(arguments.#name.as_str()));
+                }
+                _ => {
+                    payload_fields.push(quote!(#name: #ty));
+                    dispatch_arguments.push(quote!(arguments.#name));
+                }
+            }
             arguments.push(quote! {
                 ::riesel_schema::ParameterDefinition {
                     name: stringify!(#name).to_owned(),
@@ -217,6 +261,41 @@ fn expand_capability(
 
         let (result_type, error_type) = result_parts(&method.sig.output)?;
         let method_name = &method.sig.ident;
+        client_methods.push(quote! {
+            #[doc = #docs]
+            pub fn #method_name(
+                &self,
+                #(#client_arguments),*
+            ) -> Result<#result_type, ::riesel_protocol::CallError<#error_type>> {
+                let mut arguments = ::serde_json::Map::new();
+                #(#client_encoding)*
+                let response = self.transport.call(
+                    &::riesel_schema::CapabilityRef {
+                        id: #id.to_owned(),
+                        version: #version,
+                    },
+                    stringify!(#method_name),
+                    ::serde_json::Value::Object(arguments),
+                )?;
+                ::riesel_protocol::decode_result::<#result_type, #error_type>(response)
+            }
+        });
+        dispatch_arms.push(quote! {
+            stringify!(#method_name) => {
+                #[derive(::serde::Deserialize)]
+                #[serde(deny_unknown_fields)]
+                struct Arguments {
+                    #(#payload_fields),*
+                }
+                let arguments: Arguments = ::serde_json::from_value(payload).map_err(|error| {
+                    ::riesel_protocol::RpcError::InvalidArguments(error.to_string())
+                })?;
+                let output = self.provider.#method_name(#(#dispatch_arguments),*);
+                ::serde_json::to_value(output).map_err(|error| {
+                    ::riesel_protocol::RpcError::Codec(error.to_string())
+                })
+            }
+        });
         generated_operations.push(quote! {
             operations.insert(
                 stringify!(#method_name).to_owned(),
@@ -274,6 +353,65 @@ fn expand_capability(
                 ::riesel_schema::ContractError
             > {
                 #descriptor_name::definition()
+            }
+        }
+
+        /// Typed transport-independent RPC client generated from the trait.
+        /// Transport failures and domain errors remain explicitly distinct.
+        #visibility struct #client_name<T> {
+            transport: T,
+        }
+
+        impl<T: ::riesel_protocol::RpcTransport> #client_name<T> {
+            pub fn new(transport: T) -> Self {
+                Self { transport }
+            }
+
+            pub fn into_inner(self) -> T {
+                self.transport
+            }
+
+            #(#client_methods)*
+        }
+
+        /// RPC dispatcher generated from the same trait as the client.
+        #visibility struct #dispatcher_name<T> {
+            provider: T,
+        }
+
+        impl<T> #dispatcher_name<T> {
+            pub fn new(provider: T) -> Self {
+                Self { provider }
+            }
+
+            pub fn into_inner(self) -> T {
+                self.provider
+            }
+        }
+
+        impl<T: #trait_name + Send + Sync> ::riesel_protocol::RpcHandler
+            for #dispatcher_name<T>
+        {
+            fn contract(&self) -> Result<
+                ::riesel_schema::CapabilityContract,
+                ::riesel_protocol::RpcError
+            > {
+                #descriptor_name::definition().map_err(|error| {
+                    ::riesel_protocol::RpcError::Contract(error.to_string())
+                })
+            }
+
+            fn dispatch(
+                &self,
+                operation: &str,
+                payload: ::serde_json::Value,
+            ) -> Result<::serde_json::Value, ::riesel_protocol::RpcError> {
+                match operation {
+                    #(#dispatch_arms,)*
+                    _ => Err(::riesel_protocol::RpcError::UnknownOperation(
+                        operation.to_owned(),
+                    )),
+                }
             }
         }
     })

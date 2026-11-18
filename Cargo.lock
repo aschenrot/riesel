@@ -172,6 +172,7 @@ name = "riesel_storage"
 version = "0.1.0"
 dependencies = [
  "riesel_macros",
+ "riesel_protocol",
  "riesel_schema",
  "serde",
  "serde_json",
