@@ -196,8 +196,12 @@ mod tests {
 
         let task = store.create("task", json!({"title": "Test"})).unwrap();
 
-        assert_eq!(store.list("task").unwrap().len(), 1);
-        assert!(store.list("note").unwrap().is_empty());
+        assert_eq!(store.list_page("task", None, MAX_PAGE_SIZE).unwrap().records.len(), 1);
+        assert!(store
+            .list_page("note", None, MAX_PAGE_SIZE)
+            .unwrap()
+            .records
+            .is_empty());
 
         assert!(store.get("note", task.id).unwrap().is_none());
     }
@@ -251,4 +255,83 @@ mod tests {
 
         assert!(matches!(result, Err(StoreError::NotFound)));
     }
+    #[test]
+    fn cursor_pagination_is_bounded_stable_and_model_scoped() {
+        let store = MemoryStore::new();
+        let mut ids = Vec::new();
+        for index in 0..5 {
+            let record = store
+                .create("task", json!({"index": index}))
+                .unwrap();
+            ids.push(record.id);
+        }
+        store.create("note", json!({"index": 99})).unwrap();
+        ids.sort();
+        let mut after = None;
+        let mut visited = Vec::new();
+        loop {
+            let page = store.list_page("task", after, 2).unwrap();
+            assert!(page.records.len() <= 2);
+            visited.extend(page.records.iter().map(|record| record.id));
+            if let Some(cursor) = page.next_cursor {
+                after = Some(cursor);
+            } else {
+                break;
+            }
+        }
+        assert_eq!(visited, ids);
+        assert_eq!(store.list_page("task", None, 0).unwrap_err(), StoreError::InvalidPageSize);
+        assert_eq!(
+            store.list_page("task", None, MAX_PAGE_SIZE + 1).unwrap_err(),
+            StoreError::InvalidPageSize
+        );
+    }
+
+    #[test]
+    fn deleting_records_requires_the_latest_revision() {
+        let store = MemoryStore::new();
+        let created = store.create("task", json!({"title": "Test"})).unwrap();
+        let updated = store
+            .update("task", created.id, created.revision, json!({"title": "Updated"}))
+            .unwrap();
+        assert_eq!(
+            store.delete("task", created.id, created.revision),
+            Err(StoreError::RevisionConflict)
+        );
+        store.delete("task", created.id, updated.revision).unwrap();
+        assert!(store.get("task", created.id).unwrap().is_none());
+        assert_eq!(store.delete("task", created.id, updated.revision), Err(StoreError::NotFound));
+    }
+
+    #[test]
+    fn model_aware_storage_rejects_invalid_and_unknown_records() {
+        use riesel_schema::{ModelDefinition, TypeRef};
+        let schema = ModelDefinition {
+            fields: [
+                ("title".into(), TypeRef::String),
+                ("completed".into(), TypeRef::Bool),
+            ]
+            .into_iter()
+            .collect(),
+        };
+        let store = MemoryStore::with_models(
+            [("task".into(), schema)].into_iter().collect(),
+        );
+        store
+            .create("task", json!({"title": "Valid", "completed": false}))
+            .unwrap();
+        assert!(matches!(
+            store.create("task", json!({"title": "Missing boolean"})),
+            Err(StoreError::Failed(_))
+        ));
+        assert!(matches!(
+            store.create("missing", json!({"title": "Unknown"})),
+            Err(StoreError::Failed(_))
+        ));
+        assert!(matches!(
+            store.create("task", json!({"title": "a".repeat(70_000), "completed": false})),
+            Err(StoreError::Failed(_))
+        ));
+    }
+
 }

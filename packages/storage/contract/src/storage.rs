@@ -97,7 +97,7 @@ mod tests {
         let client = super::RecordStoreRpcClient::new(riesel_protocol::TcpRpcTransport::new(
             "8.8.8.8:443".parse().unwrap(),
         ));
-        let error = super::RecordStore::list(&client, "task").unwrap_err();
+        let error = super::RecordStore::list_page(&client, "task", None, 32).unwrap_err();
         assert!(matches!(error, super::StoreError::Transport(_)));
     }
 
@@ -106,12 +106,13 @@ mod tests {
         let contract = RecordStoreContract::definition().unwrap();
 
         assert_eq!(contract.capability.id, "riesel.storage.records");
-        assert_eq!(contract.capability.version, 1);
-        assert_eq!(contract.operations.len(), 4);
+        assert_eq!(contract.capability.version, 2);
+        assert_eq!(contract.operations.len(), 5);
         assert_eq!(contract.operations["create"].kind, OperationKind::Command);
         assert_eq!(contract.operations["get"].kind, OperationKind::Query);
-        assert_eq!(contract.operations["list"].kind, OperationKind::Query);
+        assert_eq!(contract.operations["list_page"].kind, OperationKind::Query);
         assert_eq!(contract.operations["update"].kind, OperationKind::Command);
+        assert_eq!(contract.operations["delete"].kind, OperationKind::Command);
 
         let update = &contract.operations["update"];
         assert_eq!(
