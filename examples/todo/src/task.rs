@@ -59,6 +59,10 @@ impl Todo {
         data.completed = completed;
         Ok(self.records.update(id, current.revision, data)?)
     }
+
+    pub fn delete_task(&self, id: Uuid, expected_revision: u64) -> Result<(), TodoError> {
+        Ok(self.records.delete(id, expected_revision)?)
+    }
 }
 
 #[cfg(test)]
@@ -119,6 +123,33 @@ mod tests {
             todo.set_completed(Uuid::new_v4(), true),
             Err(TodoError::NotFound)
         ));
+    }
+
+    #[test]
+    fn lists_tasks_across_bounded_storage_pages() {
+        let todo = todo();
+        for index in 0..40 {
+            todo.create_task(format!("Task {index}")).unwrap();
+        }
+        let tasks = todo.list_tasks().unwrap();
+        assert_eq!(tasks.len(), 40);
+    }
+
+    #[test]
+    fn delete_requires_the_observed_revision() {
+        use riesel::storage::StoreError;
+
+        let todo = todo();
+        let created = todo.create_task("Remove me").unwrap();
+        let changed = todo.set_completed(created.id, true).unwrap();
+        assert!(matches!(
+            todo.delete_task(created.id, created.revision),
+            Err(TodoError::Storage(SdkError::Store(
+                StoreError::RevisionConflict
+            )))
+        ));
+        todo.delete_task(created.id, changed.revision).unwrap();
+        assert!(todo.get_task(created.id).unwrap().is_none());
     }
 
     #[test]
