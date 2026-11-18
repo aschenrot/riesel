@@ -56,14 +56,32 @@ examples in that document do not imply macros or async handles already exist.
 
 | Step | Scope | Status | Validation / exit gate |
 | --- | --- | --- | --- |
-| 5.1 | Identity and injection semantics, API contract, compatibility and lifecycle rules | In progress | Written contract, tested identity generation, no changes to published IDs |
-| 5.2 | Type-driven dependency extraction, aliases, record-model bindings | Not started | Counter and Todo registered without duplicated requirements; ambiguity rejected before startup |
+| 5.1 | Identity and injection semantics, API contract, compatibility and lifecycle rules | Complete on Linux | Contract recorded; deterministic private ID and stable external Counter/Storage IDs verified |
+| 5.2 | Type-driven dependency extraction, aliases, record-model bindings | In progress | Owned typed Capability and Records parameters are tested; handler-signature registration and ambiguous-alias checks remain |
 | 5.3 | Generated local/managed component adapters | Not started | One Counter implementation provides Counter and Observer without manual casts/dispatchers |
 | 5.4 | Async transport, generated handles, cancellation and error propagation | Not started | Real nonblocking RPC; local and managed calls preserve domain vs transport errors and session expiry |
 | 5.5 | Deterministic provider catalog and deployment configuration | Not started | Linked, managed and remote providers selected explicitly; preflight rejects missing/ambiguous/untrusted choices |
 | 5.6 | `#[riesel::app]` and ergonomic model/Records injection | Not started | Minimal Counter and Todo examples compile with generated requirements; builder equivalent |
 | 5.7 | Optional modules and lifecycle handlers | Not started | Multi-module app with ordering, conflict detection, cancellation and bounded shutdown |
 | 5.8 | DX documentation and regression suite | Not started | Compile-fail diagnostics, inspection, Linux validate and smoke; Windows manual before release |
+
+**Verified progress (2026-11-18):** `#[capability]` now permits ID-free
+private contracts with deterministic declaration-path identities and default
+version 1, while previously published explicit IDs remain unchanged. SDK
+`ApplicationParam` provides one shared declaration/extraction contract for
+owned `Capability<C>` handles and `Records<T>` handles. Requirement aliases
+derive from stable contract identities rather than Rust variable names; tests
+cover case-sensitive private IDs, collision-resistant alias escaping, local
+binding, typed Records and stale-session rejection. CI run
+[44411860685](https://github.com/aschenrot/riesel/actions/runs/44411860685)
+passed `cargo validate --check` and `cargo smoke` on Linux. **This is not yet
+function-signature injection or the high-level app macro.**
+
+**Next Stage 5.2 slice:** register zero-/one-/multi-parameter Rust functions
+without manually calling `ApplicationParam::declare` or `extract`, reject
+duplicate/ambiguous bindings before launch, validate equivalent generated
+schema/selection, and test local/managed lifecycle handling. Preserve the
+`Application` builder as a lower-level escape hatch.
 
 **Sequencing:** 5.1 is a gate for 5.2–5.8. Component adapters can follow
 parallel to dependency extraction after their shared contract is settled;

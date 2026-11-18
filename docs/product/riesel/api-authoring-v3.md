@@ -114,3 +114,18 @@ capability declarations while preserving explicit published IDs. Next build
 typed extraction and generated component adapters without macros. Add real
 async execution and provider-catalog composition before exposing the concise
 high-level async app macro. Track actual status only after CI passes.
+
+## Implemented foundation (verified 2026-11-18)
+
+- `#[capability]` can omit `id` and `version` for private contracts.
+  Identity derives deterministically from the declaration module and Rust
+  name; explicit existing IDs and versions are retained.
+- `CapabilityRef::default_requirement_alias` provides an escaped, stable
+  contract-derived alias instead of using a function parameter name.
+- SDK `ApplicationParam` describes a dependency's declaration and owned
+  extraction. `Capability<C>` and `Records<T>` implement the initial
+  binding; the capability wrapper preserves generated session guards.
+- The actual executable function-signature injection, component attribute,
+  async generated handle and declarative `#[riesel::app]` remain future work.
+- Linux CI validated the changes, including workspace tests and runtime smoke
+  tests: https://github.com/aschenrot/riesel/actions/runs/44411860685
