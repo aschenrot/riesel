@@ -7,9 +7,8 @@ repository.workspace = true
 publish = false
 
 [dependencies]
-riesel_macros.workspace = true
+riesel.workspace = true
+riesel_counter.workspace = true
+riesel_counter_component.workspace = true
 riesel_protocol.workspace = true
-riesel_schema.workspace = true
-serde.workspace = true
 serde_json.workspace = true
-thiserror.workspace = true

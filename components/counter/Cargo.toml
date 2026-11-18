@@ -1,0 +1,12 @@
+[package]
+name = "riesel_counter_component"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+riesel_counter.workspace = true
+riesel_app.workspace = true
+riesel_protocol.workspace = true
+riesel_schema.workspace = true

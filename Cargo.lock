@@ -109,7 +109,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "f8dcc9c7d52a811697d2151c701e0d08956f92b0e24136cf4cf27b57a6a0d9bf"
 
 [[package]]
-name = "riesel_counter_example"
+name = "riesel_counter"
 version = "0.1.0"
 dependencies = [
  "riesel_macros",
@@ -118,6 +118,27 @@ dependencies = [
  "serde",
  "serde_json",
  "thiserror",
+]
+
+[[package]]
+name = "riesel_counter_component"
+version = "0.1.0"
+dependencies = [
+ "riesel_app",
+ "riesel_counter",
+ "riesel_protocol",
+ "riesel_schema",
+]
+
+[[package]]
+name = "riesel_counter_example"
+version = "0.1.0"
+dependencies = [
+ "riesel",
+ "riesel_counter",
+ "riesel_counter_component",
+ "riesel_protocol",
+ "serde_json",
 ]
 
 [[package]]

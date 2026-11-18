@@ -1,57 +1,9 @@
-//! Independent capability example. No handwritten request enum, client
-//! proxy, dispatcher, or per-operation protocol table.
-
-use riesel_macros::{RieselType, capability};
-use serde::{Deserialize, Serialize};
-use std::sync::Mutex;
-use thiserror::Error;
-
-#[derive(Debug, Clone, PartialEq, Eq, Error, Serialize, Deserialize, RieselType)]
-pub enum CounterError {
-    #[error("increment must be greater than zero")]
-    ZeroIncrement,
-    #[error("counter would overflow")]
-    Overflow,
-}
-
-#[capability(id = "riesel.counter.operations", version = 1)]
-pub trait Counter {
-    /// Return the current count without modifying it.
-    #[query]
-    fn value(&self) -> Result<u64, CounterError>;
-
-    /// Increment the counter with overflow protection.
-    #[command]
-    fn add(&self, amount: u64) -> Result<u64, CounterError>;
-
-    /// Return a string label built from the current count.
-    #[query]
-    fn label(&self, prefix: &str) -> Result<String, CounterError>;
-}
-
-#[derive(Default)]
-pub struct MemoryCounter {
-    value: Mutex<u64>,
-}
-
-impl Counter for MemoryCounter {
-    fn value(&self) -> Result<u64, CounterError> {
-        Ok(*self.value.lock().expect("counter mutex poisoned"))
-    }
-
-    fn add(&self, amount: u64) -> Result<u64, CounterError> {
-        if amount == 0 {
-            return Err(CounterError::ZeroIncrement);
-        }
-        let mut value = self.value.lock().expect("counter mutex poisoned");
-        *value = value.checked_add(amount).ok_or(CounterError::Overflow)?;
-        Ok(*value)
-    }
-
-    fn label(&self, prefix: &str) -> Result<String, CounterError> {
-        Ok(format!("{prefix}: {}", self.value()?))
-    }
-}
+//! Counter example: separate capability contract and provider component,
+//! generated RPC and both local/managed Riesel execution paths.
+pub use riesel_counter::{
+    Counter, CounterContract, CounterError, CounterRpcClient, CounterRpcDispatcher,
+};
+pub use riesel_counter_component::MemoryCounter;
 
 #[cfg(test)]
 mod tests {

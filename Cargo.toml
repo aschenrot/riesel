@@ -5,7 +5,9 @@ members = [
   "apps/examples/todo",
   "apps/examples/counter_rpc",
   "components/storage",
+  "components/counter",
   "crates/riesel",
+  "crates/riesel_counter",
   "crates/riesel_app",
   "crates/riesel_macros",
   "crates/riesel_manager",
@@ -22,6 +24,8 @@ repository = "https://github.com/aschenrot/riesel"
 
 [workspace.dependencies]
 riesel = { path = "crates/riesel" }
+riesel_counter = { path = "crates/riesel_counter" }
+riesel_counter_component = { path = "components/counter" }
 riesel_app = { path = "crates/riesel_app" }
 riesel_macros = { path = "crates/riesel_macros" }
 riesel_manager = { path = "crates/riesel_manager" }
