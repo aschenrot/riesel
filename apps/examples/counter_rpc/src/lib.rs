@@ -5,6 +5,15 @@ pub use riesel_counter::{
 };
 pub use riesel_counter_component::MemoryCounter;
 
+/// Shared example work for local and runtime-managed deployments.
+pub fn run_demo(ctx: &riesel::Context<'_>) -> Result<(), riesel::ConnectorError> {
+    let counter = ctx.capability::<CounterContract>("counter")?;
+    assert_eq!(counter.value()?, 0);
+    assert_eq!(counter.add(3)?, 3);
+    assert_eq!(counter.label("count")?, "count: 3");
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -16,6 +25,22 @@ mod tests {
     use std::net::TcpListener;
     use std::thread;
     use std::time::{Duration, Instant};
+
+    #[test]
+    fn typed_sdk_provider_shortcut_requires_no_factory_implementation() {
+        use riesel::Application;
+        use std::sync::Arc;
+
+        Application::new("Counter")
+            .rpc::<CounterContract>("counter")
+            .unwrap()
+            .provide::<CounterContract, _>("riesel.counter.memory", || {
+                Arc::new(MemoryCounter::default()) as Arc<dyn Counter + Send + Sync>
+            })
+            .unwrap()
+            .run(run_demo)
+            .unwrap();
+    }
 
     #[test]
     fn generated_local_capability_handles_expire_with_their_session() {

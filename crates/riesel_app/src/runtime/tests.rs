@@ -759,6 +759,12 @@ fn dependency_order_controls_actual_provider_startup() {
     assert_eq!(running.resolved().len(), 3);
 }
 
+fn other_contract() -> CapabilityContract {
+    let mut other = contract(1);
+    other.capability.id = "example.other".into();
+    other
+}
+
 struct MultiVersionLocal {
     created: Arc<std::sync::atomic::AtomicUsize>,
 }
@@ -767,12 +773,16 @@ impl LocalProviderFactory for MultiVersionLocal {
     fn definition(&self) -> Result<ProviderDefinition, ConnectorError> {
         Ok(ProviderDefinition {
             id: "example.counter.multi".into(),
-            capabilities: vec![contract(1).capability, contract(2).capability],
+            capabilities: vec![
+                contract(1).capability,
+                contract(2).capability,
+                other_contract().capability,
+            ],
         })
     }
 
     fn contracts(&self) -> Result<Vec<CapabilityContract>, ConnectorError> {
-        Ok(vec![contract(1), contract(2)])
+        Ok(vec![contract(1), contract(2), other_contract()])
     }
 
     fn create(&self) -> Result<LocalProviderInstance, ConnectorError> {
@@ -781,10 +791,10 @@ impl LocalProviderFactory for MultiVersionLocal {
         let shared = Arc::new(47_u64);
         Ok(LocalProviderInstance {
             definition: self.definition()?,
-            bindings: vec![1, 2]
+            bindings: vec![contract(1), contract(2), other_contract()]
                 .into_iter()
-                .map(|version| {
-                    LocalCapabilityBinding::raw(contract(version), Box::new(Arc::clone(&shared)))
+                .map(|contract| {
+                    LocalCapabilityBinding::raw(contract, Box::new(Arc::clone(&shared)))
                 })
                 .collect(),
         })
@@ -797,7 +807,8 @@ fn local_provider_exposes_multiple_capabilities_from_one_instance() {
         r#"{"version":1,"app":{"name":"Many"},"models":{},
             "requires":[
                 {"name":"counter_v1","capability":{"id":"example.counter","version":1}},
-                {"name":"counter_v2","capability":{"id":"example.counter","version":2}}
+                {"name":"counter_v2","capability":{"id":"example.counter","version":2}},
+                {"name":"other","capability":{"id":"example.other","version":1}}
             ]}"#,
     )
     .unwrap();
@@ -812,7 +823,9 @@ fn local_provider_exposes_multiple_capabilities_from_one_instance() {
     assert_eq!(created.load(std::sync::atomic::Ordering::SeqCst), 1);
     let first = running.service::<Arc<u64>>("counter_v1").unwrap();
     let second = running.service::<Arc<u64>>("counter_v2").unwrap();
+    let third = running.service::<Arc<u64>>("other").unwrap();
     assert!(Arc::ptr_eq(first, second));
+    assert!(Arc::ptr_eq(first, third));
 }
 
 #[test]
