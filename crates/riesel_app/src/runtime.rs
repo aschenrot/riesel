@@ -1712,15 +1712,17 @@ mod tests {
             })
         }
 
-        fn contract(&self) -> Result<CapabilityContract, ConnectorError> {
-            Ok(contract(1))
+        fn contracts(&self) -> Result<Vec<CapabilityContract>, ConnectorError> {
+            Ok(vec![contract(1)])
         }
 
-        fn create(&self) -> Result<ConnectedProvider, ConnectorError> {
-            Ok(ConnectedProvider {
+        fn create(&self) -> Result<LocalProviderInstance, ConnectorError> {
+            Ok(LocalProviderInstance {
                 definition: self.definition()?,
-                contract: self.contract()?,
-                service: Box::new(Arc::new(123_u64)),
+                bindings: vec![LocalCapabilityBinding {
+                    contract: contract(1),
+                    service: Box::new(Arc::new(123_u64)),
+                }],
             })
         }
     }
@@ -1738,16 +1740,18 @@ mod tests {
             })
         }
 
-        fn contract(&self) -> Result<CapabilityContract, ConnectorError> {
-            Ok(contract(1))
+        fn contracts(&self) -> Result<Vec<CapabilityContract>, ConnectorError> {
+            Ok(vec![contract(1)])
         }
 
-        fn create(&self) -> Result<ConnectedProvider, ConnectorError> {
+        fn create(&self) -> Result<LocalProviderInstance, ConnectorError> {
             self.created.lock().unwrap().push(self.id.into());
-            Ok(ConnectedProvider {
+            Ok(LocalProviderInstance {
                 definition: self.definition()?,
-                contract: self.contract()?,
-                service: Box::new(Arc::new(123_u64)),
+                bindings: vec![LocalCapabilityBinding {
+                    contract: contract(1),
+                    service: Box::new(Arc::new(123_u64)),
+                }],
             })
         }
     }
@@ -1794,6 +1798,90 @@ mod tests {
             ]
         );
         assert_eq!(running.resolved().len(), 3);
+    }
+
+
+    struct MultiVersionLocal {
+        created: Arc<std::sync::atomic::AtomicUsize>,
+    }
+
+    impl LocalProviderFactory for MultiVersionLocal {
+        fn definition(&self) -> Result<ProviderDefinition, ConnectorError> {
+            Ok(ProviderDefinition {
+                id: "example.counter.multi".into(),
+                capabilities: vec![contract(1).capability, contract(2).capability],
+            })
+        }
+
+        fn contracts(&self) -> Result<Vec<CapabilityContract>, ConnectorError> {
+            Ok(vec![contract(1), contract(2)])
+        }
+
+        fn create(&self) -> Result<LocalProviderInstance, ConnectorError> {
+            self.created
+                .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+            let shared = Arc::new(47_u64);
+            Ok(LocalProviderInstance {
+                definition: self.definition()?,
+                bindings: vec![1, 2]
+                    .into_iter()
+                    .map(|version| LocalCapabilityBinding {
+                        contract: contract(version),
+                        service: Box::new(Arc::clone(&shared)),
+                    })
+                    .collect(),
+            })
+        }
+    }
+
+    #[test]
+    fn local_provider_exposes_multiple_capabilities_from_one_instance() {
+        let app = App::from_schema(
+            r#"{"version":1,"app":{"name":"Many"},"models":{},
+                "requires":[
+                    {"name":"counter_v1","capability":{"id":"example.counter","version":1}},
+                    {"name":"counter_v2","capability":{"id":"example.counter","version":2}}
+                ]}"#,
+        )
+        .unwrap();
+        let created = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+        let mut registry = ConnectorRegistry::new();
+        registry
+            .register_local(MultiVersionLocal {
+                created: Arc::clone(&created),
+            })
+            .unwrap();
+        let running = app.start_local(&registry).unwrap();
+        assert_eq!(created.load(std::sync::atomic::Ordering::SeqCst), 1);
+        let first = running.service::<Arc<u64>>("counter_v1").unwrap();
+        let second = running.service::<Arc<u64>>("counter_v2").unwrap();
+        assert!(Arc::ptr_eq(first, second));
+    }
+
+    #[test]
+    fn local_provider_rejects_unadvertised_or_duplicate_bindings() {
+        struct Broken;
+        impl LocalProviderFactory for Broken {
+            fn definition(&self) -> Result<ProviderDefinition, ConnectorError> {
+                Ok(ProviderDefinition {
+                    id: "example.broken.provider".into(),
+                    capabilities: vec![contract(1).capability],
+                })
+            }
+            fn contracts(&self) -> Result<Vec<CapabilityContract>, ConnectorError> {
+                Ok(vec![contract(1)])
+            }
+            fn create(&self) -> Result<LocalProviderInstance, ConnectorError> {
+                Ok(LocalProviderInstance::new(self.definition()?))
+            }
+        }
+        let mut registry = ConnectorRegistry::new();
+        registry.register_local(Broken).unwrap();
+        assert!(matches!(
+            app().start_local(&registry),
+            Err(RuntimeError::LocalProviderChanged(id))
+                if id == "example.broken.provider"
+        ));
     }
 
     #[test]
