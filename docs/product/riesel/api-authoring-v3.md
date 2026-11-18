@@ -166,3 +166,25 @@ Linux validation and smoke: https://github.com/aschenrot/riesel/actions/runs/444
 `#[riesel::app]` entrypoint, or module scheduler has been added. The next
 milestone is a genuine async transport/structured-concurrency design and
 implementation, not a Future wrapper around synchronous TCP.
+
+## Stage 5.4 — async transport foundation (verified 2026-11-19)
+
+The protocol now exposes `AsyncRpcTransport`, a generated
+`<Trait>AsyncClient`, and `AsyncRpcClientBinding` for typed construction.
+`AsyncTcpRpcTransport` is gated behind the optional protocol
+`async-tcp` Cargo feature and uses Tokio's genuinely nonblocking sockets.
+It retains the existing wire contract, explicit loopback-only policy,
+bounded frames, domain-versus-RPC errors, timeout handling and session-token
+checks. Outbound calls are limited to 32 per transport, with async permit
+waiting. Pending calls can be cancelled by dropping their futures; they are
+not retried. Contract and provider metadata inspection is available, but
+provider metadata is **not** service authentication.
+
+The current `#[capability]` macro still expects synchronous Rust trait
+methods and the existing local/managed application runtime remains synchronous.
+The new async clients do not mean that application injection, async
+provider dispatch, runtime-owned async tasks or `#[riesel::app] async fn`
+are complete. The detailed design gates and these restrictions are in
+[async execution contract](async-execution-contract.md).
+
+Validated: https://github.com/aschenrot/riesel/actions/runs/44420615980

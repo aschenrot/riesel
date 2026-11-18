@@ -30,6 +30,15 @@ The Todo example derives its model directly from Rust and opts in to an
 ephemeral local MemoryStore for development. The smoke suite exercises
 managed TCP Storage, multi-service cleanup and real Counter crash recovery.
 The framework's development Storage feature is disabled by default.
+
+**Async foundation (experimental):** Generated capability contracts also
+expose typed async RPC clients using `AsyncRpcTransport`. The optional
+`riesel_protocol/async-tcp` feature supplies a real nonblocking Tokio TCP
+client with bounded requests, session checking and explicit cancellation by
+dropping futures. The application runtime and local providers are still
+synchronous; the accepted `#[riesel::app] async fn` syntax is not yet
+implemented. See
+[async execution contract](docs/product/riesel/async-execution-contract.md).
 The Todo example explicitly opts into `dev-memory-storage`, and validation
 also tests `riesel` independently with `--no-default-features`.
 Linux CI runs on every push and pull request; run the optional Windows job
