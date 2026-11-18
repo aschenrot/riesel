@@ -70,3 +70,62 @@ pub(super) fn await_ready<R: Read + Send + 'static>(
         io::Error::new(kind, "waiting for managed service readiness")
     })?
 }
+
+/// Own process startup and bounded readiness negotiation. The returned
+/// endpoint is still unverified until the typed connector inspects it.
+pub(super) fn spawn_managed(
+    processes: &mut ProcessRegistry,
+    instance_id: u64,
+    requirement: &str,
+    program: &std::path::Path,
+    args: &[String],
+    startup_timeout_ms: u64,
+    shutdown_timeout_ms: u64,
+) -> Result<(ProcessKey, SocketAddr), RuntimeError> {
+    let key = ProcessKey::new(instance_id, Some(requirement.to_owned()));
+    let mut command = Command::new(program);
+    command
+        .args(args)
+        .env("RIESEL_BIND_ADDRESS", "127.0.0.1:0")
+        .env("RIESEL_CONTROL_STDIN", "1")
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped());
+    processes
+        .spawn(key.clone(), &mut command)
+        .map_err(|source| RuntimeError::ServiceStart {
+            requirement: requirement.to_owned(),
+            source,
+        })?;
+
+    let stdout = processes
+        .take_stdout(&key)
+        .map_err(|source| RuntimeError::ServiceStart {
+            requirement: requirement.to_owned(),
+            source,
+        })?;
+    let ready = match await_ready(stdout, Duration::from_millis(startup_timeout_ms)) {
+        Ok(ready) => ready,
+        Err(source) if source.kind() == io::ErrorKind::TimedOut => {
+            return Err(RuntimeError::ReadinessTimeout {
+                requirement: requirement.to_owned(),
+                timeout_ms: startup_timeout_ms,
+            });
+        }
+        Err(source) => {
+            return Err(RuntimeError::ServiceStart {
+                requirement: requirement.to_owned(),
+                source,
+            });
+        }
+    };
+
+    if matches!(ready.shutdown, Some(ShutdownMode::StdinLine)) {
+        processes
+            .enable_graceful_shutdown(&key, Duration::from_millis(shutdown_timeout_ms))
+            .map_err(|source| RuntimeError::ServiceStart {
+                requirement: requirement.to_owned(),
+                source,
+            })?;
+    }
+    Ok((key, ready.address))
+}

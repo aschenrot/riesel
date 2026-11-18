@@ -1,4 +1,4 @@
-use super::managed::{ShutdownMode, await_ready};
+use super::managed::spawn_managed;
 use super::registry::RunningLocalProvider;
 use super::*;
 
@@ -129,69 +129,25 @@ impl App {
                     startup_timeout_ms,
                     shutdown_timeout_ms,
                 } => {
-                    let key = ProcessKey::new(index as u64 + 1, Some(requirement.name.clone()));
-                    let mut command = Command::new(program);
-                    command
-                        .args(args)
-                        .env("RIESEL_BIND_ADDRESS", "127.0.0.1:0")
-                        .env("RIESEL_CONTROL_STDIN", "1")
-                        .stdin(Stdio::piped())
-                        .stdout(Stdio::piped());
-                    processes
-                        .spawn(key.clone(), &mut command)
-                        .map_err(|source| RuntimeError::ServiceStart {
+                    let (key, address) = spawn_managed(
+                        &mut processes,
+                        index as u64 + 1,
+                        &requirement.name,
+                        program,
+                        args,
+                        *startup_timeout_ms,
+                        *shutdown_timeout_ms,
+                    )?;
+                    // A readiness advertisement is not authenticated. The
+                    // connector verifies the selected contract before launch
+                    // ownership is recorded in the running session.
+                    let connection = adapter
+                        .connector
+                        .connect(&ServiceEndpoint::Tcp { address }, &session)
+                        .map_err(|source| RuntimeError::Connection {
                             requirement: requirement.name.clone(),
                             source,
                         })?;
-
-                    let stdout = processes.take_stdout(&key).map_err(|source| {
-                        RuntimeError::ServiceStart {
-                            requirement: requirement.name.clone(),
-                            source,
-                        }
-                    })?;
-                    let ready =
-                        match await_ready(stdout, Duration::from_millis(*startup_timeout_ms)) {
-                            Ok(ready) => ready,
-                            Err(source) if source.kind() == io::ErrorKind::TimedOut => {
-                                return Err(RuntimeError::ReadinessTimeout {
-                                    requirement: requirement.name.clone(),
-                                    timeout_ms: *startup_timeout_ms,
-                                });
-                            }
-                            Err(source) => {
-                                return Err(RuntimeError::ServiceStart {
-                                    requirement: requirement.name.clone(),
-                                    source,
-                                });
-                            }
-                        };
-
-                    if matches!(ready.shutdown, Some(ShutdownMode::StdinLine)) {
-                        processes
-                            .enable_graceful_shutdown(
-                                &key,
-                                Duration::from_millis(*shutdown_timeout_ms),
-                            )
-                            .map_err(|source| RuntimeError::ServiceStart {
-                                requirement: requirement.name.clone(),
-                                source,
-                            })?;
-                    }
-
-                    // Connector still verifies the provider ID and exact Rust
-                    // contract after the startup channel reports readiness.
-                    let endpoint = ServiceEndpoint::Tcp {
-                        address: ready.address,
-                    };
-                    let connection =
-                        adapter
-                            .connector
-                            .connect(&endpoint, &session)
-                            .map_err(|source| RuntimeError::Connection {
-                                requirement: requirement.name.clone(),
-                                source,
-                            })?;
                     managed.insert(requirement.name.clone(), key);
                     connection
                 }
