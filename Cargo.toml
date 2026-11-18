@@ -23,6 +23,7 @@ riesel = { path = "crates/riesel" }
 riesel_app = { path = "crates/riesel_app" }
 riesel_macros = { path = "crates/riesel_macros" }
 riesel_manager = { path = "crates/riesel_manager" }
+riesel_protocol = { path = "crates/riesel_protocol" }
 riesel_schema = { path = "crates/riesel_schema" }
 riesel_storage = { path = "crates/riesel_storage" }
 

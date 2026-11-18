@@ -150,6 +150,12 @@ version = "0.1.0"
 [[package]]
 name = "riesel_protocol"
 version = "0.1.0"
+dependencies = [
+ "riesel_schema",
+ "serde",
+ "serde_json",
+ "thiserror",
+]
 
 [[package]]
 name = "riesel_schema"
