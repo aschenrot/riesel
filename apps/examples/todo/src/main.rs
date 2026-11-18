@@ -1,8 +1,9 @@
-use anyhow::Result;
-use riesel::prelude::*;
-pub fn main() -> Result<()> {
-    let app = App::load("app.json")?;
+use riesel::Application;
+use todo::{TaskData, run_demo};
 
-    println!("{}", app.config().name);
-    Ok(())
+fn main() -> riesel::Result<()> {
+    Application::new("Todo")
+        .records::<TaskData>()?
+        .development()?
+        .run(run_demo)
 }
