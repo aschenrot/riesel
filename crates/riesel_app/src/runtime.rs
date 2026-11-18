@@ -385,7 +385,7 @@ impl RunningApp {
     }
 
     /// Get a typed, already-verified service by its application requirement name.
-    /// For shared Rust trait interfaces, request e.g. Arc<dyn RecordStore>.
+    /// For shared Rust trait interfaces, request e.g. `Arc<dyn RecordStore>`.
     pub fn service<T: Any + Send + Sync>(&self, requirement: &str) -> Result<&T, RuntimeError> {
         self.services
             .get(requirement)

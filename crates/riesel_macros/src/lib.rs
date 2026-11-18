@@ -57,7 +57,7 @@ impl Parse for CapabilityArgs {
 }
 
 /// Generates a NameContract::definition() method from the annotated Rust trait.
-/// Each method must use #[command] or #[query] and return Result<Output, Error>.
+/// Each method must use `#[command]` or `#[query]` and return `Result<Output, Error>`.
 #[proc_macro_attribute]
 pub fn capability(args: TokenStream, input: TokenStream) -> TokenStream {
     let args = parse_macro_input!(args as CapabilityArgs);
