@@ -33,8 +33,20 @@ pub fn run(mode: FormatMode) -> TaskResult {
         ),
         ("Tests", &["test", "--locked", "--workspace"]),
         (
-            "Minimal SDK without development providers",
+            "Minimal SDK without standard capability packages",
             &["test", "--locked", "-p", "riesel", "--no-default-features"],
+        ),
+        (
+            "Typed Records SDK without a development provider",
+            &[
+                "test",
+                "--locked",
+                "-p",
+                "riesel",
+                "--no-default-features",
+                "--features",
+                "records",
+            ],
         ),
         (
             "Documentation",
