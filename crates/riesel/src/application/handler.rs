@@ -2,7 +2,9 @@
 //! The future high-level application macro builds on these semantics.
 //! A handler is invoked afresh for each runtime session (including recovery).
 
-use super::{Application, ApplicationParam, Context, DeploymentConfig, DeploymentPlan, Result, SdkError};
+use super::{
+    Application, ApplicationParam, Context, DeploymentConfig, DeploymentPlan, Result, SdkError,
+};
 use riesel_app::{ConnectorError, LocalProviderFactory};
 use riesel_schema::AppSchema;
 use std::any::TypeId;
@@ -97,11 +99,7 @@ where
     F: FnMut() -> std::result::Result<(), E>,
     E: Into<ConnectorError>,
 {
-    fn invoke(
-        &mut self,
-        _: &Context<'_>,
-        _: &[String],
-    ) -> std::result::Result<(), ConnectorError> {
+    fn invoke(&mut self, _: &Context<'_>, _: &[String]) -> std::result::Result<(), ConnectorError> {
         self().map_err(Into::into)
     }
 }

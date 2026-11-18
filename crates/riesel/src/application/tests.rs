@@ -393,11 +393,13 @@ fn handler_signature_registers_and_extracts_counterpart_capability() {
 
     let mut captured = None;
     let prepared = Application::new("Signature")
-        .handler(|store: Capability<RecordStoreContract>| -> std::io::Result<()> {
-            assert!(store.list_page("task", None, 1).unwrap().records.is_empty());
-            captured = Some(store);
-            Ok(())
-        })
+        .handler(
+            |store: Capability<RecordStoreContract>| -> std::io::Result<()> {
+                assert!(store.list_page("task", None, 1).unwrap().records.is_empty());
+                captured = Some(store);
+                Ok(())
+            },
+        )
         .unwrap();
     let expected = RecordStoreContract::definition()
         .unwrap()
@@ -440,15 +442,21 @@ fn handler_multiple_models_share_one_storage_provider() {
         .unwrap();
     assert_eq!(prepared.definition().requires.len(), 1);
     assert_eq!(prepared.definition().model_bindings["todo"], ["storage"]);
-    assert_eq!(prepared.definition().model_bindings["extended"], ["storage"]);
+    assert_eq!(
+        prepared.definition().model_bindings["extended"],
+        ["storage"]
+    );
     prepared.development().unwrap().run().unwrap();
 
-    let result = Application::new("Duplicate")
-        .handler(
-            |_first: Capability<RecordStoreContract>,
-             _second: Capability<RecordStoreContract>| -> crate::Result<()> { Ok(()) },
-        );
-    assert!(matches!(result, Err(SdkError::DuplicateParameterBinding(_))));
+    let result = Application::new("Duplicate").handler(
+        |_first: Capability<RecordStoreContract>,
+         _second: Capability<RecordStoreContract>|
+         -> crate::Result<()> { Ok(()) },
+    );
+    assert!(matches!(
+        result,
+        Err(SdkError::DuplicateParameterBinding(_))
+    ));
 }
 
 #[cfg(feature = "records")]
@@ -473,7 +481,9 @@ fn handler_binding_validation_runs_before_provider_startup() {
     );
     assert!(matches!(
         invalid,
-        Err(SdkError::Schema(riesel_schema::SchemaError::InvalidRequirementName { .. }))
+        Err(SdkError::Schema(
+            riesel_schema::SchemaError::InvalidRequirementName { .. }
+        ))
     ));
 
     let prepared = Application::new("Named")
@@ -483,7 +493,9 @@ fn handler_binding_validation_runs_before_provider_startup() {
         )
         .unwrap();
     assert_eq!(prepared.definition().model_bindings["todo"], ["primary"]);
-    let expected = Application::new("Named").records_at::<TodoModel>("primary").unwrap();
+    let expected = Application::new("Named")
+        .records_at::<TodoModel>("primary")
+        .unwrap();
     assert_eq!(
         prepared.definition_json().unwrap(),
         expected.definition_json().unwrap()

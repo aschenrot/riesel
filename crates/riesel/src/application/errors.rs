@@ -46,7 +46,9 @@ pub enum SdkError {
     Arguments(String),
     #[error("handler requires {expected} parameter aliases, but received {actual}")]
     ParameterCount { expected: usize, actual: usize },
-    #[error("the same handler parameter is bound more than once to {0}; use explicit distinct aliases")]
+    #[error(
+        "the same handler parameter is bound more than once to {0}; use explicit distinct aliases"
+    )]
     DuplicateParameterBinding(String),
 }
 
