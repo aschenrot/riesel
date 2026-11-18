@@ -18,7 +18,7 @@ pub use riesel_macros::{RieselModel, RieselType, capability};
 pub use riesel_schema::{ModelField, RieselModel};
 
 pub mod prelude {
-    pub use super::{Application, Result, RieselModel};
+    pub use super::{App, AppConfig, AppError, Application, Result, RieselModel};
 }
 pub use riesel_schema as schema;
 pub use riesel_storage as storage;
