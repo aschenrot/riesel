@@ -224,8 +224,7 @@ mod tests {
     #[test]
     fn limits_concurrent_outbound_calls_before_connecting() {
         let session = SessionToken::new();
-        let transport =
-            AsyncTcpRpcTransport::with_session("127.0.0.1:1".parse().unwrap(), session);
+        let transport = AsyncTcpRpcTransport::with_session("127.0.0.1:1".parse().unwrap(), session);
         let permits = Arc::clone(&transport.permits);
         runtime().block_on(async {
             let mut borrowed = Vec::new();
