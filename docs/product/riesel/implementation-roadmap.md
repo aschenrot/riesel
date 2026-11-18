@@ -95,7 +95,7 @@ connectors are responsible for their own session enforcement; provider
 state remains non-durable. These issues belong to later production
 hardening, not this refactoring checkpoint.
 
-## Component/transport follow-on refactoring checkpoint
+## Second refactoring pass — complete on Linux
 
 This stage corrects cross-deployment component ownership rather than creating
 additional crates or compatibility shims:
@@ -125,11 +125,13 @@ additional crates or compatibility shims:
 - Application task failures preserve their concrete error sources for
   inspection instead of reducing all errors to strings.
 
-The pass is tested with explicit instance conflicts, shared Counter state
-across both local and real managed RPC, transport-independent generated
-bindings, pooled TCP session reuse, typed model round trips, cooperative
-lifecycle recovery and executable smoke tests. Windows CI remains on-demand
-and must be exercised before release.
+The pass is complete on Linux, verified by `cargo validate --check` and
+`cargo smoke`. Regression coverage includes explicit instance conflicts,
+shared Counter state across local and real managed RPC,
+transport-independent generated bindings, pooled TCP session reuse,
+pipelined request framing without dropping buffered bytes, typed model
+round trips, cooperative lifecycle recovery and executable smoke tests.
+Windows CI remains on-demand and must be exercised before release.
 
 **Remaining production boundaries:** A cooperative Rust task may never
 return, and Rust threads cannot be forcibly terminated safely. The
@@ -257,7 +259,8 @@ earlier managed process is spawned.
 Rust SDK applications, and `--inspect-deployment FILE` emits a machine-readable
 JSON plan without executing application logic. The output includes ordered
 requirement aliases, capability IDs/versions and selected local, TCP or
-managed targets; it deliberately omits managed process arguments.
+managed targets, including managed process arguments and explicit instance
+identities.
 
 Provider identity and remote contract claims **cannot** be established by
 a no-I/O preflight. They are verified at runtime after connecting. Preflight
@@ -324,8 +327,8 @@ The same application exercises a typed local provider and the runtime-managed
 Counter executable through `RpcConnector<CounterContract>`. Its server uses
 the shared `run_tcp_rpc_host` helper.
 
-Storage and Counter now use `serve_component` and
-`run_component_from_env` for shared process hosting and CLI parsing.
+Storage uses `serve_component`, Counter uses `serve_router`, and both
+use `run_component_from_env` for shared process hosting and CLI parsing.
 Readiness, private shutdown, loopback restrictions, bounded TCP request
 workers and accept loops are no longer duplicated in each component. Neither capability has a handwritten request
 enum or per-operation RPC dispatcher.

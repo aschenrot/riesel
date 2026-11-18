@@ -77,9 +77,10 @@ The code assumes the relevant `riesel`, `riesel_counter` and
 `riesel_counter_component` imports. Lower-level components use
 `local_provider::<C, F>` or `LocalComponentFactory::new(...).exposes::<C>()`
 for multiple bindings. Generated capability traits automatically forward
-methods through `Arc<T>`. Storage and Counter use common
-`serve_component` / `run_component_from_env` host helpers, rather than
-duplicating process CLI and service startup code.
+methods through `Arc<T>`. Storage uses `serve_component`, Counter
+uses `serve_router` for multiple contracts, and both use
+`run_component_from_env` rather than duplicating process CLI and service
+startup code.
 
 The loopback TCP server serves requests through **four worker threads** with
 a maximum **32 pending connections**. It has bounded JSON framing and socket
