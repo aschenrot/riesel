@@ -1,87 +1,22 @@
-//! Storage's host implementation. The protocol, dispatcher and typed client
-//! are generated/shared; no per-operation wire code is maintained here.
+//! Storage's host implementation. The runtime-managed TCP lifecycle,
+//! framing, readiness, and cooperative shutdown are shared by every RPC host.
 use crate::{MemoryStore, memory_provider_definition};
-use riesel_protocol::{RpcHost, handle_tcp_connection};
+use riesel_protocol::{RpcHost, run_tcp_rpc_host};
 use riesel_storage::RecordStoreRpcDispatcher;
-use std::io::{self, Write};
-use std::net::{SocketAddr, TcpListener};
-use std::sync::{
-    Arc,
-    atomic::{AtomicBool, Ordering},
-};
-use std::thread;
-use std::time::Duration;
+use std::io;
 
 pub fn run_storage_server(address: &str) -> io::Result<()> {
-    let address: SocketAddr = address.parse().map_err(io::Error::other)?;
-    if !address.ip().is_loopback() {
-        return Err(io::Error::new(
-            io::ErrorKind::InvalidInput,
-            "unauthenticated Storage must listen on loopback",
-        ));
-    }
-    let listener = TcpListener::bind(address)?;
     let handler = RpcHost::new(
         memory_provider_definition().map_err(io::Error::other)?,
         RecordStoreRpcDispatcher::new(MemoryStore::new()),
     )
     .map_err(io::Error::other)?;
-
-    // Cooperatively stop only when launched by the managed runtime with a
-    // private stdin control pipe. External services retain blocking accept.
-    let controlled = std::env::var_os("RIESEL_CONTROL_STDIN").is_some();
-    let stopping = Arc::new(AtomicBool::new(false));
-    if controlled {
-        listener.set_nonblocking(true)?;
-        let stopping = Arc::clone(&stopping);
-        thread::spawn(move || {
-            let mut request = String::new();
-            if io::stdin().read_line(&mut request).is_ok()
-                && request.trim_end() == "RIESEL_SHUTDOWN"
-            {
-                stopping.store(true, Ordering::Release);
-            }
-        });
-    }
-
-    // The listener is already bound. Report the actual OS-assigned endpoint
-    // and opt-in shutdown mechanism through the private startup pipe.
-    let ready = serde_json::json!({
-        "protocol": 1,
-        "address": listener.local_addr()?.to_string(),
-        "shutdown": controlled.then_some("stdin_line")
-    });
-    println!("RIESEL_READY {}", ready);
-    io::stdout().flush()?;
-
-    let serve = |connection| match connection {
-        Ok(mut stream) => {
-            if let Err(error) = handle_tcp_connection(&handler, &mut stream) {
-                eprintln!("Storage request failed: {error}");
-            }
-        }
-        Err(error) => eprintln!("Storage connection failed: {error}"),
-    };
-    if controlled {
-        while !stopping.load(Ordering::Acquire) {
-            match listener.accept() {
-                Err(error) if error.kind() == io::ErrorKind::WouldBlock => {
-                    thread::sleep(Duration::from_millis(10));
-                }
-                other => serve(other.map(|(stream, _)| stream)),
-            }
-        }
-    } else {
-        for connection in listener.incoming() {
-            serve(connection);
-        }
-    }
-    Ok(())
+    run_tcp_rpc_host(address, &handler)
 }
-
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::net::TcpListener;
     use riesel_protocol::{CallError, RpcError, RpcTransport, TcpRpcTransport};
     use riesel_storage::{RecordStoreContract, RecordStoreRpcClient, StoreError};
     use serde_json::json;

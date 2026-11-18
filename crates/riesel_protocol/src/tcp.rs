@@ -5,8 +5,13 @@ use crate::{RpcError, RpcHandler, RpcTransport};
 use riesel_schema::{CapabilityContract, CapabilityRef, ProviderDefinition};
 use serde::{Deserialize, Serialize, de::DeserializeOwned};
 use serde_json::Value;
-use std::io::{BufRead, BufReader, Write};
-use std::net::{SocketAddr, TcpStream};
+use std::io::{self, BufRead, BufReader, Write};
+use std::net::{SocketAddr, TcpListener, TcpStream};
+use std::sync::{
+    Arc,
+    atomic::{AtomicBool, Ordering},
+};
+use std::thread;
 use std::time::Duration;
 
 const WIRE_VERSION: u32 = 1;
@@ -115,6 +120,70 @@ impl RpcTransport for TcpRpcTransport {
         }
         response.result
     }
+}
+
+
+/// Run a generated RPC host with the standard managed-service lifecycle.
+/// The caller supplies only a typed handler and bind address; the shared
+/// transport owns loopback enforcement, ready frames and private shutdown.
+pub fn run_tcp_rpc_host<H: RpcHandler>(address: &str, handler: &H) -> io::Result<()> {
+    let address: SocketAddr = address.parse().map_err(io::Error::other)?;
+    if !address.ip().is_loopback() {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidInput,
+            "unauthenticated RPC services must listen on loopback",
+        ));
+    }
+    let listener = TcpListener::bind(address)?;
+    let controlled = std::env::var_os("RIESEL_CONTROL_STDIN").is_some();
+    let stopping = Arc::new(AtomicBool::new(false));
+
+    if controlled {
+        listener.set_nonblocking(true)?;
+        let stopping = Arc::clone(&stopping);
+        thread::spawn(move || {
+            let mut request = String::new();
+            if io::stdin().read_line(&mut request).is_ok()
+                && request.trim_end() == "RIESEL_SHUTDOWN"
+            {
+                stopping.store(true, Ordering::Release);
+            }
+        });
+    }
+
+    let ready = serde_json::json!({
+        "protocol": 1,
+        "address": listener.local_addr()?.to_string(),
+        "shutdown": controlled.then_some("stdin_line")
+    });
+    println!("RIESEL_READY {}", ready);
+    io::stdout().flush()?;
+
+    let serve = |connection| match connection {
+        Ok(mut stream) => {
+            if let Err(error) = handle_tcp_connection(handler, &mut stream) {
+                eprintln!("RPC request failed: {error}");
+            }
+        }
+        Err(error) => eprintln!("RPC connection failed: {error}"),
+    };
+
+    if controlled {
+        while !stopping.load(Ordering::Acquire) {
+            match listener.accept() {
+                Err(error) if error.kind() == io::ErrorKind::WouldBlock => {
+                    thread::sleep(Duration::from_millis(10));
+                }
+                other => serve(other.map(|(stream, _)| stream)),
+            }
+        }
+    } else {
+        for connection in listener.incoming() {
+            serve(connection);
+        }
+    }
+
+    Ok(())
 }
 
 /// Handle exactly one framed call on an already accepted TCP connection.
