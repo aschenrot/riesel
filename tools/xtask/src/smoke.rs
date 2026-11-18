@@ -76,6 +76,7 @@ pub fn run() -> TaskResult {
 
     println!("\n==> Running Todo with runtime-managed Storage at {address}");
     let status = Command::new(binary("todo_client"))
+        .arg("--deployment")
         .arg(&temporary.0)
         .current_dir(workspace_root())
         .status()
