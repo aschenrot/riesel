@@ -95,6 +95,31 @@ mod tests {
     }
 
     #[test]
+    fn managed_component_router_rejects_missing_and_duplicate_capability_handlers() {
+        use riesel_protocol::RpcRouter;
+        let router = RpcRouter::new(
+            riesel_counter_component::memory_provider_definition().unwrap(),
+        )
+        .unwrap();
+        assert!(matches!(
+            router.validate_routes(),
+            Err(RpcError::Contract(_))
+        ));
+
+        let router = router
+            .route(CounterRpcDispatcher::new(MemoryCounter::default()))
+            .unwrap();
+        assert!(matches!(
+            router.validate_routes(),
+            Err(RpcError::Contract(_))
+        ));
+        assert!(matches!(
+            router.route(CounterRpcDispatcher::new(MemoryCounter::default())),
+            Err(RpcError::Contract(_))
+        ));
+    }
+
+    #[test]
     fn generated_typed_binding_supports_non_tcp_rpc_transport() {
         use riesel_protocol::{RpcClientBinding, RpcTransport};
         use std::sync::Arc;
