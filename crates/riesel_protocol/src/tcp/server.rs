@@ -118,7 +118,6 @@ pub(super) fn serve_connections<H: RpcHandler>(
 
         // Workers finish active bounded I/O, but ignore pending requests once
         // the controlled host is shutting down. No new work can be enqueued.
-        drop(enqueue);
         drop(sender);
         result
     })

@@ -1,4 +1,5 @@
 use super::*;
+use super::managed::{ShutdownMode, await_ready};
 use riesel_schema::{CapabilityRef, OperationDefinition, OperationKind, TypeRef};
 use std::net::SocketAddr;
 use std::sync::Arc;
