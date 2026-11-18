@@ -15,7 +15,7 @@ use std::error::Error;
 use std::io::{self, BufRead, BufReader, Read};
 use std::net::{SocketAddr, TcpListener};
 use std::process::{Command, ExitStatus, Stdio};
-use std::sync::mpsc;
+use std::sync::{Arc, mpsc};
 use std::thread;
 use std::time::{Duration, Instant};
 use thiserror::Error;
@@ -36,9 +36,9 @@ struct ServiceReady {
 fn await_ready<R: Read + Send + 'static>(stdout: R, timeout: Duration) -> io::Result<SocketAddr> {
     let (sender, receiver) = mpsc::sync_channel(1);
     thread::spawn(move || {
+        let mut reader = BufReader::new(stdout);
         let result = (|| {
-            let reader = BufReader::new(stdout);
-            let mut limited = reader.take(MAX_READY_BYTES + 1);
+            let mut limited = (&mut reader).take(MAX_READY_BYTES + 1);
             let mut message = Vec::new();
             limited.read_until(b'\n', &mut message)?;
             if message.last() != Some(&b'\n') || message.len() as u64 > MAX_READY_BYTES {
@@ -66,7 +66,12 @@ fn await_ready<R: Read + Send + 'static>(stdout: R, timeout: Duration) -> io::Re
             }
             Ok(ready.address)
         })();
-        let _ = sender.send(result);
+        let ready = result.is_ok();
+        // Keep stdout alive after readiness so subsequent service logs do not
+        // trigger a broken pipe. Drain it for the lifetime of the child.
+        if sender.send(result).is_ok() && ready {
+            let _ = io::copy(&mut reader, &mut io::stderr());
+        }
     });
     receiver.recv_timeout(timeout).map_err(|error| {
         let kind = match error {
@@ -305,7 +310,7 @@ pub enum AppRunError {
 pub struct RunningApp {
     app: App,
     resolved: Vec<ResolvedCapability>,
-    services: BTreeMap<String, Box<dyn Any + Send + Sync>>,
+    services: BTreeMap<String, Arc<dyn Any + Send + Sync>>,
     processes: ProcessRegistry,
     managed: BTreeMap<String, ProcessKey>,
 }
@@ -429,6 +434,7 @@ impl App {
         let mut provider_definitions = BTreeMap::new();
         let mut selected = BTreeMap::new();
         let mut services = BTreeMap::new();
+        let mut local_instances: BTreeMap<String, Arc<dyn Any + Send + Sync>> = BTreeMap::new();
         let mut processes = ProcessRegistry::new();
         let mut managed = BTreeMap::new();
 
@@ -449,22 +455,28 @@ impl App {
                         requirement: requirement.name.clone(),
                     });
                 }
-                let connected =
-                    local
-                        .factory
-                        .create()
-                        .map_err(|source| RuntimeError::Connection {
+                let instance = if let Some(existing) = local_instances.get(provider) {
+                    Arc::clone(existing)
+                } else {
+                    let connected = local.factory.create().map_err(|source| {
+                        RuntimeError::Connection {
                             requirement: requirement.name.clone(),
                             source,
-                        })?;
-                if connected.definition != local.definition
-                    || !connected.contract.has_same_api_shape(&local.contract)
-                {
-                    return Err(RuntimeError::LocalProviderChanged(provider.clone()));
-                }
-                registry.register(connected.definition)?;
+                        }
+                    })?;
+                    if connected.definition != local.definition
+                        || !connected.contract.has_same_api_shape(&local.contract)
+                    {
+                        return Err(RuntimeError::LocalProviderChanged(provider.clone()));
+                    }
+                    registry.register(connected.definition.clone())?;
+                    provider_definitions.insert(provider.clone(), connected.definition);
+                    let instance: Arc<dyn Any + Send + Sync> = connected.service.into();
+                    local_instances.insert(provider.clone(), Arc::clone(&instance));
+                    instance
+                };
                 selected.insert(requirement.name.clone(), provider.clone());
-                services.insert(requirement.name.clone(), connected.service);
+                services.insert(requirement.name.clone(), instance);
                 continue;
             }
             let id = &requirement.capability.id;
@@ -638,7 +650,7 @@ impl App {
             }
 
             selected.insert(requirement.name.clone(), provider_id);
-            services.insert(requirement.name.clone(), connected.service);
+            services.insert(requirement.name.clone(), connected.service.into());
         }
 
         let resolved = registry.resolve(schema, &selected)?;
@@ -960,6 +972,29 @@ mod tests {
             Err(RuntimeError::DuplicateLocalProvider(_))
         ));
     }
+
+    #[test]
+    fn two_local_requirements_reuse_the_same_provider_instance() {
+        let app = App::from_schema(
+            r#"{"version":1,"app":{"name":"Example"},"models":{},
+                "requires":[
+                    {"name":"first","capability":{"id":"example.counter","version":1}},
+                    {"name":"second","capability":{"id":"example.counter","version":1}}
+                ]}"#,
+        )
+        .unwrap();
+        let mut registry = ConnectorRegistry::new();
+        registry
+            .register_local(LocalCounter("example.counter.memory"))
+            .unwrap();
+
+        let running = app.start_local(&registry).unwrap();
+        assert_eq!(running.resolved().len(), 2);
+        let first = running.service::<Arc<u64>>("first").unwrap();
+        let second = running.service::<Arc<u64>>("second").unwrap();
+        assert!(Arc::ptr_eq(first, second));
+    }
+
     #[test]
     fn startup_message_accepts_only_versioned_loopback_endpoints() {
         let valid = b"RIESEL_READY {\"protocol\":1,\"address\":\"127.0.0.1:52111\"}\n";
