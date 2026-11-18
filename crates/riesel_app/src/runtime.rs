@@ -533,4 +533,65 @@ mod tests {
             Err(RuntimeError::DuplicateConnector(_))
         ));
     }
+    struct Unavailable;
+
+    impl CapabilityConnector for Unavailable {
+        fn contract(&self) -> Result<CapabilityContract, ConnectorError> {
+            Ok(contract(1))
+        }
+
+        fn connect(&self, _endpoint: &ServiceEndpoint) -> Result<ConnectedProvider, ConnectorError> {
+            Err(io::Error::new(io::ErrorKind::ConnectionRefused, "service not ready").into())
+        }
+    }
+
+    #[test]
+    fn runtime_propagates_entrypoint_errors() {
+        let mut connectors = ConnectorRegistry::new();
+        connectors
+            .register(Dummy {
+                local_version: 1,
+                remote_version: 1,
+            })
+            .unwrap();
+
+        let result = app().run(&deployment(), &connectors, |_running| {
+            Err(io::Error::other("application failed").into())
+        });
+        assert!(matches!(result, Err(AppRunError::Entrypoint(_))));
+    }
+
+    #[test]
+    fn child_exits_immediately() {
+        // Invoked as a subprocess to test early managed-service termination.
+    }
+
+    #[test]
+    fn runtime_detects_managed_service_exit_before_readiness() {
+        let port_reservation = TcpListener::bind("127.0.0.1:0").unwrap();
+        let address = port_reservation.local_addr().unwrap();
+        drop(port_reservation);
+
+        let mut config = deployment();
+        config.services.insert(
+            "counter".into(),
+            ServiceEndpoint::ManagedTcp {
+                address,
+                program: std::env::current_exe().unwrap(),
+                args: vec![
+                    "--exact".into(),
+                    "runtime::tests::child_exits_immediately".into(),
+                ],
+                startup_timeout_ms: 5_000,
+            },
+        );
+        let mut connectors = ConnectorRegistry::new();
+        connectors.register(Unavailable).unwrap();
+
+        assert!(matches!(
+            app().start(&config, &connectors),
+            Err(RuntimeError::ServiceExited { .. })
+        ));
+    }
+
 }
