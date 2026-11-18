@@ -9,6 +9,7 @@ struct TodoModel {
     completed: bool,
 }
 
+#[cfg(feature = "dev-memory-storage")]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, RieselModel)]
 #[riesel(model = "extended")]
 struct ExtendedModel {

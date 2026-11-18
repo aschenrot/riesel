@@ -73,6 +73,8 @@ pub(super) fn verify_managed_session_recovery() -> TaskResult {
             .arg("--deployment")
             .arg(&deployment.0)
             .current_dir(workspace_root())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
             .spawn()
             .map_err(|error| format!("cannot launch recovering Counter application: {error}"))?,
         Duration::from_secs(25),
@@ -121,6 +123,8 @@ pub(super) fn verify_shared_managed_component() -> TaskResult {
             .arg("--deployment")
             .arg(&deployment.0)
             .current_dir(workspace_root())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
             .spawn()
             .map_err(|error| format!("cannot run shared component client: {error}"))?,
         Duration::from_secs(20),
