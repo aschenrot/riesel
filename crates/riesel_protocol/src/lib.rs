@@ -9,9 +9,7 @@ pub use rpc::{
     RpcTransport, decode_result,
 };
 #[cfg(feature = "async-tcp")]
-pub use tcp::{
-    AsyncTcpRpcTransport, handle_async_tcp_connection, serve_async_tcp_rpc_host,
-};
+pub use tcp::{AsyncTcpRpcTransport, handle_async_tcp_connection, serve_async_tcp_rpc_host};
 pub use tcp::{TcpRpcTransport, handle_tcp_connection, run_tcp_rpc_host};
 
 pub use session::SessionToken;

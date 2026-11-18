@@ -69,10 +69,11 @@ async fn respond(
         let provider = handler
             .provider()
             .ok_or_else(|| RpcError::Contract("service has no registered provider".into()))?;
-        return serde_json::to_value(provider)
-            .map_err(|error| RpcError::Codec(error.to_string()));
+        return serde_json::to_value(provider).map_err(|error| RpcError::Codec(error.to_string()));
     }
-    handler.dispatch(&request.operation, request.arguments).await
+    handler
+        .dispatch(&request.operation, request.arguments)
+        .await
 }
 
 /// Execute exactly one framed request over a Tokio TCP socket. The caller
