@@ -13,7 +13,7 @@ const MAX_APPLICATION_TASKS: usize = 64;
 #[derive(Debug, Clone)]
 struct TaskFailure {
     name: String,
-    message: String,
+    source: Arc<dyn std::error::Error + Send + Sync>,
 }
 
 #[derive(Default)]
@@ -74,17 +74,17 @@ impl TaskGroup {
             .name(format!("riesel-task-{name}"))
             .spawn(move || {
                 let outcome = panic::catch_unwind(AssertUnwindSafe(|| task(token.clone())));
-                let message = match outcome {
+                let source: Option<Arc<dyn std::error::Error + Send + Sync>> = match outcome {
                     Ok(Ok(())) => None,
-                    Ok(Err(error)) => Some(error.to_string()),
-                    Err(_) => Some("task panicked".into()),
+                    Ok(Err(error)) => Some(Arc::from(error)),
+                    Err(_) => Some(Arc::new(std::io::Error::other("task panicked"))),
                 };
-                if let Some(message) = message {
+                if let Some(source) = source {
                     let mut recorded = failure.lock().unwrap_or_else(PoisonError::into_inner);
                     if recorded.is_none() {
                         *recorded = Some(TaskFailure {
                             name: task_name,
-                            message,
+                            source,
                         });
                     }
                     token.cancel();
@@ -107,7 +107,7 @@ impl TaskGroup {
                     if failure.is_none() {
                         *failure = Some(TaskFailure {
                             name,
-                            message: "task worker panicked".into(),
+                            source: Arc::new(std::io::Error::other("task worker panicked")),
                         });
                     }
                     self.cancellation.cancel();
@@ -126,7 +126,7 @@ impl TaskGroup {
             .clone()
             .map(|failure| RuntimeError::TaskFailed {
                 name: failure.name,
-                message: failure.message,
+                source: failure.source,
             })
     }
 
@@ -145,7 +145,7 @@ impl TaskGroup {
                 if failure.is_none() {
                     *failure = Some(TaskFailure {
                         name,
-                        message: "task worker panicked".into(),
+                        source: Arc::new(std::io::Error::other("task worker panicked")),
                     });
                 }
             }
@@ -200,8 +200,8 @@ mod tests {
         assert!(token.wait_cancelled_timeout(Duration::from_secs(5)));
         assert!(matches!(
             group.join(),
-            Err(RuntimeError::TaskFailed { name, message })
-                if name == "failing" && message.contains("broken task")
+            Err(RuntimeError::TaskFailed { name, source })
+                if name == "failing" && source.to_string().contains("broken task")
         ));
         assert!(matches!(
             group.failure(),

@@ -112,8 +112,12 @@ pub enum RuntimeError {
     TaskGroupClosed,
     #[error("application task limit exceeded (maximum {limit} concurrent tasks)")]
     TaskLimitExceeded { limit: usize },
-    #[error("application task {name} failed: {message}")]
-    TaskFailed { name: String, message: String },
+    #[error("application task {name} failed: {source}")]
+    TaskFailed {
+        name: String,
+        #[source]
+        source: Arc<dyn std::error::Error + Send + Sync>,
+    },
     #[error("multiple application shutdown failures: {errors:?}")]
     ShutdownFailures { errors: Vec<RuntimeError> },
 }
