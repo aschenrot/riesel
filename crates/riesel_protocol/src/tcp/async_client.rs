@@ -153,6 +153,7 @@ impl AsyncRpcTransport for AsyncTcpRpcTransport {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::io::Read;
 
     fn runtime() -> tokio::runtime::Runtime {
         tokio::runtime::Builder::new_current_thread()
