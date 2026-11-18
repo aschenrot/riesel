@@ -126,6 +126,7 @@ fn sdk_generated_definition_round_trips_without_handwritten_json() {
     decoded.validate().unwrap();
     assert_eq!(decoded.app.name, "Todo");
     assert_eq!(decoded.models["todo"], TodoModel::model_definition());
+    assert_eq!(decoded.model_bindings["todo"], ["storage"]);
     assert_eq!(decoded.requires[0].capability.id, "riesel.storage.records");
 }
 #[test]
@@ -212,4 +213,33 @@ fn rust_sdk_inspects_deployment_without_starting_configured_executable() {
             .unwrap()
             .contains("not-a-real-service")
     );
+}
+
+#[cfg(feature = "dev-memory-storage")]
+#[test]
+fn record_lookup_uses_model_binding_even_with_other_storage_requirements() {
+    Application::new("Bindings")
+        .records_at::<TodoModel>("primary")
+        .unwrap()
+        .rpc::<RecordStoreContract>("secondary")
+        .unwrap()
+        .development()
+        .unwrap()
+        .run(|ctx| {
+            let primary = ctx.records::<TodoModel>()?;
+            let created = primary.create(TodoModel {
+                title: "Bound".into(),
+                completed: false,
+            })?;
+            assert_eq!(
+                ctx.records_at::<TodoModel>("primary")?
+                    .get(created.id)?
+                    .unwrap()
+                    .value
+                    .title,
+                "Bound"
+            );
+            Ok(())
+        })
+        .unwrap();
 }

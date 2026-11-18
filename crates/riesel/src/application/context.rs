@@ -47,15 +47,25 @@ impl Context<'_> {
         self.validate_model::<T>()?;
         let schema = self.running.app().definition();
         let contract = RecordStoreContract::definition()?.capability;
-        let requirements: Vec<_> = schema
-            .requires
-            .iter()
-            .filter(|requirement| requirement.capability == contract)
-            .collect();
-        let requirement = match requirements.as_slice() {
-            [] => return Err(SdkError::MissingStorage),
-            [only] => only.name.as_str(),
-            _ => return Err(SdkError::AmbiguousStorage),
+        let requirement = if let Some(bindings) = schema.model_bindings.get(T::MODEL_NAME) {
+            match bindings.as_slice() {
+                [] => return Err(SdkError::MissingStorage),
+                [only] => only.as_str(),
+                _ => return Err(SdkError::AmbiguousStorage),
+            }
+        } else {
+            // External schemas predating explicit model bindings can still
+            // resolve the single unambiguous record-storage requirement.
+            let requirements: Vec<_> = schema
+                .requires
+                .iter()
+                .filter(|requirement| requirement.capability == contract)
+                .collect();
+            match requirements.as_slice() {
+                [] => return Err(SdkError::MissingStorage),
+                [only] => only.name.as_str(),
+                _ => return Err(SdkError::AmbiguousStorage),
+            }
         };
         self.records_at::<T>(requirement)
     }
