@@ -1,0 +1,141 @@
+use super::*;
+use crate::RieselModel;
+use serde::Deserialize;
+
+#[derive(Debug, Serialize, Deserialize, RieselModel)]
+#[riesel(model = "todo")]
+struct TodoModel {
+    title: String,
+    completed: bool,
+}
+
+#[cfg(feature = "dev-memory-storage")]
+#[test]
+fn rust_first_app_runs_without_json_or_tcp() {
+    Application::new("Todo")
+        .records::<TodoModel>()
+        .unwrap()
+        .development()
+        .unwrap()
+        .run(|ctx| {
+            let records = ctx.records::<TodoModel>()?;
+            let created = records.create(TodoModel {
+                title: "Build Riesel".into(),
+                completed: false,
+            })?;
+            assert_eq!(created.revision, 1);
+            let got = records.get(created.id)?.unwrap();
+            assert_eq!(got.value.title, "Build Riesel");
+            assert_eq!(records.list()?.len(), 1);
+            let storage = ctx.capability::<RecordStoreContract>("storage")?;
+            assert_eq!(storage.list("todo")?.len(), 1);
+            Ok(())
+        })
+        .unwrap();
+}
+
+#[test]
+fn production_does_not_silently_fall_back_to_memory() {
+    let result = Application::new("Todo")
+        .records::<TodoModel>()
+        .unwrap()
+        .run(|_| Ok(()));
+    assert!(matches!(
+        result,
+        Err(SdkError::Execution(AppRunError::Startup(
+            RuntimeError::NoLocalProvider { .. }
+        )))
+    ));
+}
+#[test]
+fn sdk_generated_definition_round_trips_without_handwritten_json() {
+    let app = Application::new("Todo").records::<TodoModel>().unwrap();
+    let json = app.definition_json().unwrap();
+    let decoded = riesel_schema::parse_schema(&json).unwrap();
+    decoded.validate().unwrap();
+    assert_eq!(decoded.app.name, "Todo");
+    assert_eq!(decoded.models["todo"], TodoModel::model_definition());
+    assert_eq!(decoded.requires[0].capability.id, "riesel.storage.records");
+}
+#[test]
+fn generated_rpc_capability_is_registered_once_for_multiple_aliases() {
+    let app = Application::new("Example")
+        .rpc::<RecordStoreContract>("primary")
+        .unwrap()
+        .rpc::<RecordStoreContract>("secondary")
+        .unwrap();
+    assert_eq!(app.definition().requires.len(), 2);
+    assert!(app.providers.has_connector(&RecordStoreContract::definition().unwrap().capability));
+}
+
+#[test]
+fn arbitrary_rust_capability_is_declared_by_its_generated_type() {
+    let app = Application::new("Example")
+        .require::<RecordStoreContract>("records")
+        .unwrap();
+    assert_eq!(app.definition().requires[0].name, "records");
+    assert_eq!(
+        app.definition().requires[0].capability,
+        RecordStoreContract::definition().unwrap().capability
+    );
+}
+#[test]
+fn rust_sdk_exports_validated_startup_dependencies() {
+    let app = Application::new("Example")
+        .rpc::<RecordStoreContract>("consumer")
+        .unwrap()
+        .rpc::<RecordStoreContract>("storage")
+        .unwrap()
+        .depends_on("consumer", ["storage"])
+        .unwrap();
+    let generated = app.definition_json().unwrap();
+    let schema = riesel_schema::parse_schema(&generated).unwrap();
+    let order: Vec<_> = schema
+        .startup_order()
+        .unwrap()
+        .into_iter()
+        .map(|req| req.name.as_str())
+        .collect();
+    assert_eq!(order, ["storage", "consumer"]);
+    assert!(matches!(
+        Application::new("Example")
+            .rpc::<RecordStoreContract>("consumer")
+            .unwrap()
+            .depends_on("consumer", ["missing"])
+            .unwrap()
+            .definition_json(),
+        Err(SdkError::Schema(
+            riesel_schema::SchemaError::UnknownDependency { .. }
+        ))
+    ));
+}
+
+#[test]
+fn rust_sdk_inspects_deployment_without_starting_configured_executable() {
+    let app = Application::new("Example")
+        .rpc::<RecordStoreContract>("consumer")
+        .unwrap()
+        .rpc::<RecordStoreContract>("storage")
+        .unwrap()
+        .depends_on("consumer", ["storage"])
+        .unwrap();
+    let config = DeploymentConfig::from_json(
+        r#"{"services":{
+            "consumer":{"transport":"tcp","address":"127.0.0.1:41911"},
+            "storage":{"transport":"managed","program":"not-a-real-service"}
+        }}"#,
+    )
+    .unwrap();
+    let plan = app.deployment_plan(&config).unwrap();
+    let ordered: Vec<_> = plan
+        .services
+        .iter()
+        .map(|service| service.requirement.as_str())
+        .collect();
+    assert_eq!(ordered, ["storage", "consumer"]);
+    assert!(
+        serde_json::to_string(&plan)
+            .unwrap()
+            .contains("not-a-real-service")
+    );
+}
