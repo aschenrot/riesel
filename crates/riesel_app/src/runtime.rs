@@ -24,16 +24,24 @@ pub type ConnectorError = Box<dyn Error + Send + Sync>;
 
 const MAX_READY_BYTES: u64 = 4 * 1024;
 
+#[derive(Clone, Copy, Deserialize)]
+#[serde(rename_all = "snake_case")]
+enum ShutdownMode {
+    StdinLine,
+}
+
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct ServiceReady {
     protocol: u32,
     address: SocketAddr,
+    #[serde(default)]
+    shutdown: Option<ShutdownMode>,
 }
 
 /// Read a single bounded startup frame from a private child stdout pipe.
 /// Timeout kills the child through ProcessRegistry's drop cleanup.
-fn await_ready<R: Read + Send + 'static>(stdout: R, timeout: Duration) -> io::Result<SocketAddr> {
+fn await_ready<R: Read + Send + 'static>(stdout: R, timeout: Duration) -> io::Result<ServiceReady> {
     let (sender, receiver) = mpsc::sync_channel(1);
     thread::spawn(move || {
         let mut reader = BufReader::new(stdout);
@@ -64,7 +72,7 @@ fn await_ready<R: Read + Send + 'static>(stdout: R, timeout: Duration) -> io::Re
                     "unsupported or non-loopback ready endpoint",
                 ));
             }
-            Ok(ready.address)
+            Ok(ready)
         })();
         let ready = result.is_ok();
         // Keep stdout alive after readiness so subsequent service logs do not
@@ -514,12 +522,15 @@ impl App {
                     program,
                     args,
                     startup_timeout_ms,
+                    shutdown_timeout_ms,
                 } => {
                     let key = ProcessKey::new(index as u64 + 1, Some(requirement.name.clone()));
                     let mut command = Command::new(program);
                     command
                         .args(args)
                         .env("RIESEL_BIND_ADDRESS", "127.0.0.1:0")
+                        .env("RIESEL_CONTROL_STDIN", "1")
+                        .stdin(Stdio::piped())
                         .stdout(Stdio::piped());
                     processes
                         .spawn(key.clone(), &mut command)
@@ -534,9 +545,9 @@ impl App {
                             source,
                         }
                     })?;
-                    let address =
+                    let ready =
                         match await_ready(stdout, Duration::from_millis(*startup_timeout_ms)) {
-                            Ok(address) => address,
+                            Ok(ready) => ready,
                             Err(source) if source.kind() == io::ErrorKind::TimedOut => {
                                 return Err(RuntimeError::ReadinessTimeout {
                                     requirement: requirement.name.clone(),
@@ -551,9 +562,23 @@ impl App {
                             }
                         };
 
+                    if matches!(ready.shutdown, Some(ShutdownMode::StdinLine)) {
+                        processes
+                            .enable_graceful_shutdown(
+                                &key,
+                                Duration::from_millis(*shutdown_timeout_ms),
+                            )
+                            .map_err(|source| RuntimeError::ServiceStart {
+                                requirement: requirement.name.clone(),
+                                source,
+                            })?;
+                    }
+
                     // Connector still verifies the provider ID and exact Rust
                     // contract after the startup channel reports readiness.
-                    let endpoint = ServiceEndpoint::Tcp { address };
+                    let endpoint = ServiceEndpoint::Tcp {
+                        address: ready.address,
+                    };
                     let connection = adapter.connector.connect(&endpoint).map_err(|source| {
                         RuntimeError::Connection {
                             requirement: requirement.name.clone(),
@@ -840,6 +865,7 @@ mod tests {
                     "runtime::tests::child_exits_immediately".into(),
                 ],
                 startup_timeout_ms: 5_000,
+                shutdown_timeout_ms: 2_000,
             },
         );
         let mut connectors = ConnectorRegistry::new();
@@ -1022,15 +1048,23 @@ mod tests {
     #[test]
     fn startup_message_accepts_only_versioned_loopback_endpoints() {
         let valid = b"RIESEL_READY {\"protocol\":1,\"address\":\"127.0.0.1:52111\"}\n";
-        let address =
+        let ready =
             await_ready(std::io::Cursor::new(valid.to_vec()), Duration::from_secs(1)).unwrap();
-        assert_eq!(address.port(), 52111);
+        assert_eq!(ready.address.port(), 52111);
+        assert!(ready.shutdown.is_none());
+
+        let cooperative = b"RIESEL_READY {\"protocol\":1,\"address\":\"127.0.0.1:52111\",\"shutdown\":\"stdin_line\"}\n";
+        let ready =
+            await_ready(std::io::Cursor::new(cooperative.to_vec()), Duration::from_secs(1))
+                .unwrap();
+        assert!(matches!(ready.shutdown, Some(ShutdownMode::StdinLine)));
 
         for invalid in [
             "RIESEL_READY {\"protocol\":2,\"address\":\"127.0.0.1:52111\"}\n",
             "RIESEL_READY {\"protocol\":1,\"address\":\"0.0.0.0:52111\"}\n",
             "RIESEL_READY {\"protocol\":1,\"address\":\"127.0.0.1:0\"}\n",
             "UNTRUSTED_READY {\"protocol\":1,\"address\":\"127.0.0.1:52111\"}\n",
+            "RIESEL_READY {\"protocol\":1,\"address\":\"127.0.0.1:52111\",\"shutdown\":\"unknown\"}\n",
         ] {
             assert!(
                 await_ready(

@@ -29,11 +29,17 @@ pub enum ServiceEndpoint {
         args: Vec<String>,
         #[serde(default = "default_startup_timeout_ms")]
         startup_timeout_ms: u64,
+        #[serde(default = "default_shutdown_timeout_ms")]
+        shutdown_timeout_ms: u64,
     },
 }
 
 fn default_startup_timeout_ms() -> u64 {
     10_000
+}
+
+fn default_shutdown_timeout_ms() -> u64 {
+    2_000
 }
 
 impl ServiceEndpoint {
@@ -103,12 +109,15 @@ impl DeploymentConfig {
                 ServiceEndpoint::Managed {
                     program,
                     startup_timeout_ms,
+                    shutdown_timeout_ms,
                     ..
-                } if program.as_os_str().is_empty() || !(1..=120_000).contains(startup_timeout_ms)
+                } if program.as_os_str().is_empty()
+                    || !(1..=120_000).contains(startup_timeout_ms)
+                    || !(1..=120_000).contains(shutdown_timeout_ms)
             ) {
                 return Err(DeploymentError::InvalidEndpoint {
                     name: name.clone(),
-                    reason: "dynamic managed service requires a program and a valid timeout",
+                    reason: "managed service requires a program and valid startup/shutdown timeouts",
                 });
             }
         }
@@ -194,6 +203,24 @@ mod tests {
                     "transport": "managed",
                     "program": program,
                     "startup_timeout_ms": timeout
+                }}
+            });
+            let config = DeploymentConfig::from_json(&source.to_string()).unwrap();
+            assert!(matches!(
+                config.validate(&app()),
+                Err(DeploymentError::InvalidEndpoint { .. })
+            ));
+        }
+    }
+
+    #[test]
+    fn managed_service_rejects_invalid_shutdown_timeout() {
+        for timeout in [0_u64, 120_001] {
+            let source = serde_json::json!({
+                "services": {"storage": {
+                    "transport": "managed",
+                    "program": "storage_service",
+                    "shutdown_timeout_ms": timeout
                 }}
             });
             let config = DeploymentConfig::from_json(&source.to_string()).unwrap();

@@ -5,6 +5,12 @@ use riesel_protocol::{RpcHost, handle_tcp_connection};
 use riesel_storage::RecordStoreRpcDispatcher;
 use std::io::{self, Write};
 use std::net::{SocketAddr, TcpListener};
+use std::sync::{
+    Arc,
+    atomic::{AtomicBool, Ordering},
+};
+use std::thread;
+use std::time::Duration;
 
 pub fn run_storage_server(address: &str) -> io::Result<()> {
     let address: SocketAddr = address.parse().map_err(io::Error::other)?;
@@ -21,26 +27,55 @@ pub fn run_storage_server(address: &str) -> io::Result<()> {
     )
     .map_err(io::Error::other)?;
 
+    // Cooperatively stop only when launched by the managed runtime with a
+    // private stdin control pipe. External services retain blocking accept.
+    let controlled = std::env::var_os("RIESEL_CONTROL_STDIN").is_some();
+    let stopping = Arc::new(AtomicBool::new(false));
+    if controlled {
+        listener.set_nonblocking(true)?;
+        let stopping = Arc::clone(&stopping);
+        thread::spawn(move || {
+            let mut request = String::new();
+            if io::stdin().read_line(&mut request).is_ok()
+                && request.trim_end() == "RIESEL_SHUTDOWN"
+            {
+                stopping.store(true, Ordering::Release);
+            }
+        });
+    }
+
     // The listener is already bound. Report the actual OS-assigned endpoint
-    // through a bounded private startup pipe for managed local deployments.
+    // and opt-in shutdown mechanism through the private startup pipe.
     let ready = serde_json::json!({
         "protocol": 1,
-        "address": listener.local_addr()?.to_string()
+        "address": listener.local_addr()?.to_string(),
+        "shutdown": controlled.then_some("stdin_line")
     });
     println!("RIESEL_READY {}", ready);
     io::stdout().flush()?;
 
-    for connection in listener.incoming() {
-        match connection {
-            Ok(mut stream) => {
-                if let Err(error) = handle_tcp_connection(&handler, &mut stream) {
-                    eprintln!("Storage request failed: {error}");
-                }
+    let serve = |connection| match connection {
+        Ok(mut stream) => {
+            if let Err(error) = handle_tcp_connection(&handler, &mut stream) {
+                eprintln!("Storage request failed: {error}");
             }
-            Err(error) => eprintln!("Storage connection failed: {error}"),
+        }
+        Err(error) => eprintln!("Storage connection failed: {error}"),
+    };
+    if controlled {
+        while !stopping.load(Ordering::Acquire) {
+            match listener.accept() {
+                Err(error) if error.kind() == io::ErrorKind::WouldBlock => {
+                    thread::sleep(Duration::from_millis(10));
+                }
+                other => serve(other),
+            }
+        }
+    } else {
+        for connection in listener.incoming() {
+            serve(connection);
         }
     }
-
     Ok(())
 }
 
