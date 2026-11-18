@@ -136,11 +136,12 @@ fn handle_tcp_session(
     stream
         .set_write_timeout(Some(Duration::from_secs(5)))
         .map_err(|error| RpcError::Transport(error.to_string()))?;
+    let mut reader = BufReader::new(stream);
     while !stopping.load(Ordering::Acquire) {
-        let Some(request) = read_json_line_optional::<WireRequest>(stream)? else {
+        let Some(request) = read_json_line_optional::<WireRequest>(&mut reader)? else {
             return Ok(());
         };
-        respond_to_request(handler, stream, request)?;
+        respond_to_request(handler, reader.get_mut(), request)?;
     }
     Ok(())
 }

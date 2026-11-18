@@ -127,3 +127,60 @@ fn application_transport_reuses_a_connection_for_sequential_calls() {
     server.join().unwrap();
     assert_eq!(accepted.load(Ordering::SeqCst), 1);
 }
+
+/// Two request frames written together must both be processed by the host.
+/// Buffered lookahead from the first frame cannot swallow the second.
+#[test]
+fn pipelined_requests_are_preserved_on_one_tcp_connection() {
+    let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+    let address = listener.local_addr().unwrap();
+    listener.set_nonblocking(true).unwrap();
+    let stopping = Arc::new(AtomicBool::new(false));
+    let host = {
+        let stopping = Arc::clone(&stopping);
+        thread::spawn(move || {
+            serve_connections(
+                listener,
+                &ParallelHandler {
+                    slow_started: Arc::new(AtomicBool::new(false)),
+                },
+                &stopping,
+                true,
+            )
+            .unwrap()
+        })
+    };
+
+    let mut client = TcpStream::connect(address).unwrap();
+    client
+        .set_read_timeout(Some(Duration::from_secs(3)))
+        .unwrap();
+    let capability = CapabilityRef {
+        id: "example.concurrent".into(),
+        version: 1,
+    };
+    let mut frames = Vec::new();
+    for _ in 0..2 {
+        let request = WireRequest {
+            version: WIRE_VERSION,
+            capability: capability.clone(),
+            operation: "fast".into(),
+            arguments: serde_json::json!({}),
+        };
+        frames.extend_from_slice(&serde_json::to_vec(&request).unwrap());
+        frames.push(b'\n');
+    }
+    client.write_all(&frames).unwrap();
+
+    let mut responses = BufReader::new(&mut client);
+    for _ in 0..2 {
+        let response = read_json_line_optional::<WireResponse>(&mut responses)
+            .unwrap()
+            .expect("server must answer each complete frame");
+        assert_eq!(response.result.unwrap(), serde_json::json!(7));
+    }
+    drop(responses);
+    drop(client);
+    stopping.store(true, Ordering::Release);
+    host.join().unwrap();
+}

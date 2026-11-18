@@ -47,14 +47,16 @@ pub(super) fn write_json_line<T: Serialize>(
 }
 
 pub(super) fn read_json_line<T: DeserializeOwned>(stream: &mut TcpStream) -> Result<T, RpcError> {
-    read_json_line_optional(stream)?
+    let mut reader = BufReader::new(stream);
+    read_json_line_optional(&mut reader)?
         .ok_or_else(|| RpcError::Transport("RPC connection closed before complete frame".into()))
 }
 
+/// Read a bounded frame while preserving buffered bytes for subsequent calls.
+/// Reused TCP sessions must retain the same reader across requests.
 pub(super) fn read_json_line_optional<T: DeserializeOwned>(
-    stream: &mut TcpStream,
+    reader: &mut impl BufRead,
 ) -> Result<Option<T>, RpcError> {
-    let mut reader = BufReader::new(stream);
     let mut bytes = Vec::new();
     loop {
         let buffer = reader
