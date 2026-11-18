@@ -101,7 +101,7 @@ fn expand_capability(
         let mut markers = Vec::new();
         for attr in &method.attrs {
             if attr.path().is_ident("command") || attr.path().is_ident("query") {
-                if !matches!(attr.meta, Meta::Path(_)) {
+                if !matches!(&attr.meta, Meta::Path(_)) {
                     return Err(syn::Error::new(attr.span(), "operation marker takes no arguments"));
                 }
                 markers.push(if attr.path().is_ident("command") { "command" } else { "query" });
