@@ -132,7 +132,7 @@ struct RegisteredLocalProvider {
 /// addresses) are the stable lookup keys.
 #[derive(Default)]
 pub struct ConnectorRegistry {
-    adapters: BTreeMap<String, RegisteredConnector>,
+    adapters: BTreeMap<(String, u32), RegisteredConnector>,
     local: BTreeMap<String, RegisteredLocalProvider>,
 }
 
@@ -182,8 +182,9 @@ impl ConnectorRegistry {
 
     /// Whether a transport adapter has already been registered for this
     /// capability ID. Allows Rust-first builders to avoid duplicate wiring.
-    pub fn has_connector(&self, capability_id: &str) -> bool {
-        self.adapters.contains_key(capability_id)
+    pub fn has_connector(&self, capability: &riesel_schema::CapabilityRef) -> bool {
+        self.adapters
+            .contains_key(&(capability.id.clone(), capability.version))
     }
 
     pub fn register(
@@ -196,12 +197,15 @@ impl ConnectorRegistry {
         contract
             .validate()
             .map_err(|source| RuntimeError::InvalidContract { source })?;
-        let id = contract.capability.id.clone();
-        if self.adapters.contains_key(&id) {
-            return Err(RuntimeError::DuplicateConnector(id));
+        let key = (contract.capability.id.clone(), contract.capability.version);
+        if self.adapters.contains_key(&key) {
+            return Err(RuntimeError::DuplicateConnector {
+                id: key.0,
+                version: key.1,
+            });
         }
         self.adapters.insert(
-            id,
+            key,
             RegisteredConnector {
                 contract,
                 connector: Box::new(connector),
@@ -229,8 +233,8 @@ pub enum RuntimeError {
         #[source]
         source: riesel_schema::ContractError,
     },
-    #[error("connector already registered for capability: {0}")]
-    DuplicateConnector(String),
+    #[error("connector already registered for capability: {id}@{version}")]
+    DuplicateConnector { id: String, version: u32 },
     #[error("no connector registered for {id}@{version} required as {requirement}")]
     MissingConnector {
         requirement: String,
@@ -531,7 +535,7 @@ impl App {
         let adapter =
             connectors
                 .adapters
-                .get(id)
+                .get(&(id.clone(), requirement.capability.version))
                 .ok_or_else(|| RuntimeError::MissingConnector {
                     requirement: requirement.name.clone(),
                     id: id.clone(),
@@ -670,7 +674,7 @@ impl App {
             let adapter =
                 connectors
                     .adapters
-                    .get(id)
+                    .get(&(id.clone(), requirement.capability.version))
                     .ok_or_else(|| RuntimeError::MissingConnector {
                         requirement: requirement.name.clone(),
                         id: id.clone(),
@@ -978,7 +982,7 @@ mod tests {
             .unwrap();
         assert!(matches!(
             app().start(&deployment(), &mismatched),
-            Err(RuntimeError::LocalContractMismatch { .. })
+            Err(RuntimeError::MissingConnector { .. })
         ));
 
         let mut remote = ConnectorRegistry::new();
@@ -995,6 +999,46 @@ mod tests {
     }
 
     #[test]
+    fn registry_supports_multiple_versions_of_the_same_capability() {
+        let mut connectors = ConnectorRegistry::new();
+        for version in [1, 2] {
+            connectors
+                .register(Dummy {
+                    local_version: version,
+                    remote_version: version,
+                })
+                .unwrap();
+        }
+        assert!(connectors.has_connector(&contract(1).capability));
+        assert!(connectors.has_connector(&contract(2).capability));
+        assert!(!connectors.has_connector(&contract(3).capability));
+
+        let app = App::from_schema(
+            r#"{"version":1,"app":{"name":"TwoVersions"},"models":{},
+                "requires":[
+                    {"name":"counter_v1","capability":{"id":"example.counter","version":1}},
+                    {"name":"counter_v2","capability":{"id":"example.counter","version":2}}
+                ]}"#,
+        )
+        .unwrap();
+        let deployment = DeploymentConfig::new(BTreeMap::from([
+            (
+                "counter_v1".into(),
+                ServiceEndpoint::Tcp {
+                    address: "127.0.0.1:47911".parse().unwrap(),
+                },
+            ),
+            (
+                "counter_v2".into(),
+                ServiceEndpoint::Tcp {
+                    address: "127.0.0.1:47912".parse().unwrap(),
+                },
+            ),
+        ]));
+        assert_eq!(app.preflight(&deployment, &connectors).unwrap().services.len(), 2);
+    }
+
+    #[test]
     fn registry_rejects_duplicate_connectors() {
         let mut connectors = ConnectorRegistry::new();
         connectors
@@ -1008,7 +1052,7 @@ mod tests {
                 local_version: 1,
                 remote_version: 1,
             }),
-            Err(RuntimeError::DuplicateConnector(_))
+            Err(RuntimeError::DuplicateConnector { .. })
         ));
     }
     struct Unavailable;

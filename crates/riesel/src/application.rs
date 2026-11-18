@@ -121,7 +121,7 @@ impl Application {
     pub fn rpc<C: RpcClientBinding + 'static>(mut self, name: impl Into<String>) -> Result<Self> {
         let capability = C::definition()?.capability;
         self = self.require::<C>(name)?;
-        if !self.providers.has_connector(&capability.id) {
+        if !self.providers.has_connector(&capability) {
             self.providers.register(RpcConnector::<C>::new())?;
         }
         Ok(self)
