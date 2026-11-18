@@ -1,7 +1,6 @@
 use super::*;
 use syn::parse_quote;
 
-
 #[test]
 fn invalid_capability_signatures_are_rejected_early() {
     let args: CapabilityArgs = syn::parse_quote! {
