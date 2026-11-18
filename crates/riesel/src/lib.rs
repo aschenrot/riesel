@@ -9,7 +9,7 @@ pub use records::{Record, Records};
 pub use rpc_connector::RpcConnector;
 
 pub use riesel_app::{
-    App, AppConfig, AppError, AppRunError, BindingError, CapabilityBindings, CapabilityConnector,
+    App, AppConfig, AppError, AppRunError, CapabilityConnector,
     ConnectedProvider, ConnectorError, ConnectorRegistry, DeploymentConfig, DeploymentError,
     LocalProviderFactory, ProviderRegistry, ResolutionError, ResolvedCapability, RunningApp,
     RuntimeError, ServiceEndpoint,
