@@ -20,6 +20,6 @@ jobs:
           rustup toolchain install 1.100.0 --profile minimal --component rustfmt --component clippy
           rustup default 1.100.0
       - name: Validate workspace
-        run: cargo validate
+        run: cargo validate --check
       - name: Smoke test remote Todo and managed service
         run: cargo smoke
