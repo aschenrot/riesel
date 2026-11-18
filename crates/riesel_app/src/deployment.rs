@@ -18,7 +18,7 @@ pub struct DeploymentConfig {
 
 /// Deployment-level connection and optional process ownership. Execution
 /// configuration stays out of the application capability contract.
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
 #[serde(tag = "transport", rename_all = "snake_case", deny_unknown_fields)]
 pub enum ServiceEndpoint {
     /// The service is independently started and owned by its operator.
@@ -28,6 +28,11 @@ pub enum ServiceEndpoint {
     /// Managed loopback service that chooses its own port at bind time.
     /// The provider must implement the RIESEL_READY startup announcement.
     Managed {
+        /// Explicit instance identity. Requirements with the same value
+        /// share one child process, RPC endpoint, and provider state.
+        /// Omitted identity launches a distinct instance per requirement.
+        #[serde(default)]
+        instance: Option<String>,
         program: PathBuf,
         #[serde(default)]
         args: Vec<String>,
@@ -71,6 +76,8 @@ pub enum DeploymentError {
     InvalidEndpoint { name: String, reason: &'static str },
     #[error("invalid recovery policy: {0}")]
     InvalidRecovery(&'static str),
+    #[error("managed instance {instance} has conflicting launch settings")]
+    ConflictingInstance { instance: String },
 }
 
 impl DeploymentConfig {
@@ -111,7 +118,26 @@ impl DeploymentConfig {
                 return Err(DeploymentError::MissingService(requirement.name.clone()));
             }
         }
+        let mut instance_configs: BTreeMap<&str, &ServiceEndpoint> = BTreeMap::new();
         for (name, endpoint) in &self.services {
+            if let ServiceEndpoint::Managed { instance: Some(instance), .. } = endpoint {
+                if instance.is_empty()
+                    || !instance.starts_with(|c: char| c.is_ascii_lowercase())
+                    || !instance.chars().all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '_')
+                {
+                    return Err(DeploymentError::InvalidEndpoint {
+                        name: name.clone(),
+                        reason: "managed instance must be a lowercase identifier",
+                    });
+                }
+                if let Some(previous) = instance_configs.insert(instance, endpoint)
+                    && previous != endpoint
+                {
+                    return Err(DeploymentError::ConflictingInstance {
+                        instance: instance.clone(),
+                    });
+                }
+            }
             if endpoint
                 .address()
                 .is_some_and(|address| address.port() == 0)

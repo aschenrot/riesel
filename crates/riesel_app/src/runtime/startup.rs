@@ -27,6 +27,7 @@ impl App {
         let mut local_instances: BTreeMap<String, RunningLocalProvider> = BTreeMap::new();
         let mut processes = ProcessRegistry::new();
         let mut managed = BTreeMap::new();
+        let mut managed_instances: BTreeMap<String, (ProcessKey, SocketAddr)> = BTreeMap::new();
 
         for (index, planned) in plan.services.iter().enumerate() {
             let requirement = requirements[planned.requirement.as_str()];
@@ -124,20 +125,31 @@ impl App {
             let connected = match endpoint {
                 ServiceEndpoint::Local { .. } => unreachable!("local endpoint handled above"),
                 ServiceEndpoint::Managed {
+                    instance,
                     program,
                     args,
                     startup_timeout_ms,
                     shutdown_timeout_ms,
                 } => {
-                    let (key, address) = spawn_managed(
-                        &mut processes,
-                        index as u64 + 1,
-                        &requirement.name,
-                        program,
-                        args,
-                        *startup_timeout_ms,
-                        *shutdown_timeout_ms,
-                    )?;
+                    let (key, address) = if let Some(existing) =
+                        instance.as_ref().and_then(|id| managed_instances.get(id))
+                    {
+                        existing.clone()
+                    } else {
+                        let launched = spawn_managed(
+                            &mut processes,
+                            index as u64 + 1,
+                            &requirement.name,
+                            program,
+                            args,
+                            *startup_timeout_ms,
+                            *shutdown_timeout_ms,
+                        )?;
+                        if let Some(instance) = instance {
+                            managed_instances.insert(instance.clone(), launched.clone());
+                        }
+                        launched
+                    };
                     // A readiness advertisement is not authenticated. The
                     // connector verifies the selected contract before launch
                     // ownership is recorded in the running session.

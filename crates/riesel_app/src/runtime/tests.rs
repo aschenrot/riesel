@@ -224,6 +224,7 @@ fn runtime_rejects_managed_service_without_ready_announcement() {
     config.services.insert(
         "counter".into(),
         ServiceEndpoint::Managed {
+            instance: None,
             program: std::env::current_exe().unwrap(),
             args: vec![
                 "--exact".into(),
@@ -558,6 +559,7 @@ fn preflight_orders_all_dependencies_without_connecting_or_starting() {
             (
                 "storage".into(),
                 ServiceEndpoint::Managed {
+                    instance: None,
                     program: "file-that-does-not-exist".into(),
                     args: vec![],
                     startup_timeout_ms: 1_000,

@@ -44,14 +44,18 @@ impl App {
                     PlannedTarget::Tcp { address: *address }
                 }
                 ServiceEndpoint::Managed {
+                    instance,
                     program,
+                    args,
                     startup_timeout_ms,
                     shutdown_timeout_ms,
                     ..
                 } => {
                     Self::validate_connector(requirement, connectors)?;
                     PlannedTarget::Managed {
+                        instance: instance.clone(),
                         program: program.clone(),
+                        args: args.clone(),
                         startup_timeout_ms: *startup_timeout_ms,
                         shutdown_timeout_ms: *shutdown_timeout_ms,
                     }

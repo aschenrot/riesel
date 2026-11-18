@@ -34,7 +34,9 @@ pub enum PlannedTarget {
         address: SocketAddr,
     },
     Managed {
+        instance: Option<String>,
         program: PathBuf,
+        args: Vec<String>,
         startup_timeout_ms: u64,
         shutdown_timeout_ms: u64,
     },
