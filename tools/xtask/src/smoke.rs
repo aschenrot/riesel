@@ -2,7 +2,17 @@ use crate::command::{TaskResult, cargo, workspace_root};
 use std::env;
 use std::fs;
 use std::path::PathBuf;
+use std::net::{SocketAddr, TcpStream};
 use std::process::Command;
+use std::sync::{Arc, Mutex};
+use std::time::Duration;
+
+use riesel::schema::CapabilityContract;
+use riesel::storage::RecordStoreContract;
+use riesel::{
+    App, CapabilityConnector, ConnectedProvider, ConnectorError, ConnectorRegistry,
+    DeploymentConfig, RpcConnector, RuntimeError, ServiceEndpoint,
+};
 
 /// Remove generated deployment config on success and failure.
 struct TemporaryConfig(PathBuf);
@@ -85,5 +95,81 @@ pub fn run() -> TaskResult {
         return Err("concurrent OS-assigned Storage smoke test failed".into());
     }
     println!("\nConcurrent managed Storage smoke test passed.");
+
+    println!("\n==> Verifying multi-service startup rollback");
+    verify_multi_service_rollback()?;
+    println!("\nMulti-service rollback smoke test passed.");
+    Ok(())
+}
+
+struct ObservedConnector {
+    rpc: RpcConnector<RecordStoreContract>,
+    connected: Arc<Mutex<Vec<SocketAddr>>>,
+}
+
+impl CapabilityConnector for ObservedConnector {
+    fn contract(&self) -> Result<CapabilityContract, ConnectorError> {
+        self.rpc.contract()
+    }
+
+    fn connect(&self, endpoint: &ServiceEndpoint) -> Result<ConnectedProvider, ConnectorError> {
+        let connected = self.rpc.connect(endpoint)?;
+        if let Some(address) = endpoint.address() {
+            self.connected.lock().unwrap().push(address);
+        }
+        Ok(connected)
+    }
+}
+
+/// A real first managed Storage process becomes ready; the next dependent
+/// process cannot spawn. All previously started children must be reaped.
+fn verify_multi_service_rollback() -> TaskResult {
+    let app = App::from_schema(
+        r#"{
+            "version":1,
+            "app":{"name":"RollbackProbe"},
+            "models":{},
+            "requires":[
+                {"name":"second","capability":{"id":"riesel.storage.records","version":1},
+                 "depends_on":["first"]},
+                {"name":"first","capability":{"id":"riesel.storage.records","version":1}}
+            ]
+        }"#,
+    ).map_err(|error| error.to_string())?;
+    let missing_program = workspace_root().join("riesel-nonexistent-service-for-rollback");
+    if missing_program.exists() {
+        return Err("rollback test executable unexpectedly exists".into());
+    }
+    let deployment = serde_json::json!({
+        "services": {
+            "first": {"transport":"managed","program":binary("storage_service")},
+            "second": {"transport":"managed","program":missing_program}
+        }
+    });
+    let config = DeploymentConfig::from_json(&deployment.to_string())
+        .map_err(|error| error.to_string())?;
+    let connected = Arc::new(Mutex::new(Vec::new()));
+    let mut connectors = ConnectorRegistry::new();
+    connectors.register(ObservedConnector {
+        rpc: RpcConnector::new(),
+        connected: Arc::clone(&connected),
+    }).map_err(|error| error.to_string())?;
+
+    match app.start(&config, &connectors) {
+        Err(RuntimeError::ServiceStart { requirement, .. }) if requirement == "second" => {}
+        Err(error) => return Err(format!("unexpected rollback failure: {error}")),
+        Ok(mut running) => {
+            running.shutdown().map_err(|error| error.to_string())?;
+            return Err("expected failure to spawn second managed service".into());
+        }
+    }
+
+    let addresses = connected.lock().map_err(|error| error.to_string())?;
+    let [address] = addresses.as_slice() else {
+        return Err(format!("expected one verified live service, found {}", addresses.len()));
+    };
+    if TcpStream::connect_timeout(address, Duration::from_millis(250)).is_ok() {
+        return Err(format!("first managed service survived rollback at {address}"));
+    }
     Ok(())
 }
