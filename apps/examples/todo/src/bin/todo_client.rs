@@ -37,7 +37,7 @@ fn main() -> Result<(), Box<dyn Error>> {
         .and_then(|schema| schema.models.get("task"))
         .ok_or_else(|| io::Error::new(io::ErrorKind::InvalidData, "missing task model"))?
         .clone();
-    let store = running.service::<Arc<dyn RecordStore>>("storage")?.clone();
+    let store = running.service::<Arc<dyn RecordStore + Send + Sync>>("storage")?.clone();
     let todo = Todo::new(store, task_model);
 
     let created = todo.create_task("Build Riesel")?;
