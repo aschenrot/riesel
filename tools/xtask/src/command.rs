@@ -52,3 +52,26 @@ pub fn has_staged_changes() -> Result<bool, String> {
         _ => Err(format!("Could not inspect staged changes: {status}")),
     }
 }
+
+/// The validator sees the working tree, whereas git commit records the
+/// index. Shipping must reject differences between those two snapshots.
+pub fn has_unstaged_changes() -> Result<bool, String> {
+    let status = execute("git", &["diff", "--quiet"])?;
+    match status.code() {
+        Some(0) => Ok(false),
+        Some(1) => Ok(true),
+        _ => Err(format!("Could not inspect unstaged changes: {status}")),
+    }
+}
+
+pub fn has_untracked_files() -> Result<bool, String> {
+    let output = Command::new("git")
+        .args(["ls-files", "--others", "--exclude-standard"])
+        .current_dir(workspace_root())
+        .output()
+        .map_err(|error| error.to_string())?;
+    if !output.status.success() {
+        return Err(format!("Could not inspect untracked files: {}", output.status));
+    }
+    Ok(!output.stdout.is_empty())
+}
