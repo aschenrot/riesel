@@ -1,3 +1,4 @@
 [alias]
 validate = "run --quiet --package xtask -- validate"
 ship = "run --quiet --package xtask -- ship"
+smoke = "run --quiet --package xtask -- smoke"

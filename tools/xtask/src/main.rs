@@ -1,4 +1,5 @@
 mod command;
+mod smoke;
 mod ship;
 mod validate;
 use std::{env, process::ExitCode};
@@ -11,8 +12,9 @@ fn main() -> ExitCode {
             validate::run(validate::FormatMode::Check)
         }
         [command, message @ ..] if command == "ship" => ship::run(&message.join(" ")),
+        [command] if command == "smoke" => smoke::run(),
         _ => Err(
-            "Usage:\n  cargo validate\n  cargo validate --check\n  cargo ship \"Commit message\""
+            "Usage:\n  cargo validate\n  cargo validate --check\n  cargo smoke\n  cargo ship \"Commit message\""
                 .to_owned(),
         ),
     };

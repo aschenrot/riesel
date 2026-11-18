@@ -7,7 +7,7 @@ use std::{
 
 pub type TaskResult = Result<(), String>;
 
-fn workspace_root() -> PathBuf {
+pub fn workspace_root() -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR"))
         .parent()
         .and_then(Path::parent)

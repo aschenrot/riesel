@@ -21,3 +21,5 @@ jobs:
           rustup default 1.100.0
       - name: Validate workspace
         run: cargo validate
+      - name: Smoke test remote Todo and managed service
+        run: cargo smoke
