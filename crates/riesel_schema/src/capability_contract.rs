@@ -1,4 +1,4 @@
-use crate::CapabilityRef;
+use crate::{CapabilityRef, CapabilityRefError};
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, BTreeSet};
 use thiserror::Error;
@@ -88,14 +88,10 @@ pub enum ContractError {
 
 impl CapabilityContract {
     pub fn validate(&self) -> Result<(), ContractError> {
-        if !valid_capability_id(&self.capability.id) {
-            return Err(ContractError::InvalidCapabilityId(
-                self.capability.id.clone(),
-            ));
-        }
-        if self.capability.version == 0 {
-            return Err(ContractError::InvalidVersion);
-        }
+        self.capability.validate().map_err(|error| match error {
+            CapabilityRefError::InvalidId(id) => ContractError::InvalidCapabilityId(id),
+            CapabilityRefError::InvalidVersion => ContractError::InvalidVersion,
+        })?;
         if self.operations.is_empty() {
             return Err(ContractError::NoOperations);
         }
@@ -162,16 +158,6 @@ fn validate_name(kind: &'static str, name: &str) -> Result<(), ContractError> {
         });
     }
     Ok(())
-}
-
-fn valid_capability_id(id: &str) -> bool {
-    let segments: Vec<_> = id.split('.').collect();
-    segments.len() >= 2
-        && segments.iter().all(|part| {
-            let mut chars = part.chars();
-            matches!(chars.next(), Some(c) if c.is_ascii_lowercase())
-                && chars.all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '_')
-        })
 }
 
 /// Describes serializable public API types. Derive this for named structs/enums;
