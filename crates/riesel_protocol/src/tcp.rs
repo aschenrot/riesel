@@ -158,7 +158,7 @@ pub fn run_tcp_rpc_host<H: RpcHandler>(address: &str, handler: &H) -> io::Result
     println!("RIESEL_READY {}", ready);
     io::stdout().flush()?;
 
-    let serve = |connection| match connection {
+    let serve = |connection: io::Result<TcpStream>| match connection {
         Ok(mut stream) => {
             // On Windows, an accepted stream can inherit the listener's
             // nonblocking mode. RPC requests use bounded blocking I/O, so
