@@ -2,16 +2,17 @@
 //! in the shared RPC runtime, not in Counter-specific networking code.
 
 use crate::{MemoryCounter, memory_provider_definition};
-use riesel_counter::CounterRpcDispatcher;
-use riesel_protocol::serve_component;
+use riesel_counter::{CounterObserverRpcDispatcher, CounterRpcDispatcher};
+use riesel_protocol::{RpcRouter, serve_router};
 use std::io;
 
 pub fn run_counter_server(address: &str) -> io::Result<()> {
-    serve_component(
-        address,
-        memory_provider_definition().map_err(io::Error::other)?,
-        CounterRpcDispatcher::new(MemoryCounter::default()),
-    )
+    let state = std::sync::Arc::new(MemoryCounter::default());
+    let router = RpcRouter::new(memory_provider_definition().map_err(io::Error::other)?)
+        .and_then(|router| router.route(CounterRpcDispatcher::new(state.clone())))
+        .and_then(|router| router.route(CounterObserverRpcDispatcher::new(state)))
+        .map_err(io::Error::other)?;
+    serve_router(address, router)
 }
 
 #[cfg(test)]

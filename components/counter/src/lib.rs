@@ -5,8 +5,10 @@ mod server;
 
 pub use server::run_counter_server;
 
-use riesel_app::{LocalProviderFactory, local_provider};
-use riesel_counter::{Counter, CounterContract, CounterError};
+use riesel_app::{ConnectorError, LocalComponentFactory, LocalProviderFactory, LocalProviderInstance};
+use riesel_counter::{
+    Counter, CounterContract, CounterError, CounterObserver, CounterObserverContract,
+};
 use riesel_schema::{ContractError, ProviderDefinition};
 use std::sync::{Arc, Mutex};
 
@@ -40,17 +42,31 @@ impl Counter for MemoryCounter {
     }
 }
 
+impl CounterObserver for MemoryCounter {
+    fn observe(&self) -> Result<u64, CounterError> {
+        Counter::value(self)
+    }
+}
+
 pub fn memory_provider_definition() -> Result<ProviderDefinition, ContractError> {
     Ok(ProviderDefinition {
         id: "riesel.counter.memory".into(),
-        capabilities: vec![CounterContract::definition()?.capability],
+        capabilities: vec![
+            CounterContract::definition()?.capability,
+            CounterObserverContract::definition()?.capability,
+        ],
     })
 }
 
-pub fn memory_counter_provider() -> impl LocalProviderFactory {
-    local_provider::<CounterContract, _>("riesel.counter.memory", || {
-        Arc::new(MemoryCounter::default()) as Arc<dyn Counter + Send + Sync>
+pub fn memory_counter_provider() -> Result<impl LocalProviderFactory, ConnectorError> {
+    Ok(LocalComponentFactory::new("riesel.counter.memory", || {
+        let state = Arc::new(MemoryCounter::default());
+        LocalProviderInstance::new(memory_provider_definition()?)
+            .bind::<CounterContract>(Arc::clone(&state) as Arc<dyn Counter + Send + Sync>)?
+            .bind::<CounterObserverContract>(state as Arc<dyn CounterObserver + Send + Sync>)
     })
+    .exposes::<CounterContract>()?
+    .exposes::<CounterObserverContract>()?)
 }
 
 #[cfg(test)]
@@ -62,7 +78,13 @@ mod tests {
         let provider = memory_provider_definition().unwrap();
         provider.validate().unwrap();
         let contract = CounterContract::definition().unwrap();
-        assert_eq!(provider.capabilities, vec![contract.capability]);
+        assert_eq!(
+            provider.capabilities,
+            vec![
+                contract.capability,
+                CounterObserverContract::definition().unwrap().capability
+            ]
+        );
     }
 
     #[test]
@@ -71,6 +93,7 @@ mod tests {
         assert_eq!(counter.value().unwrap(), 0);
         assert_eq!(counter.add(7).unwrap(), 7);
         assert_eq!(counter.label("count").unwrap(), "count: 7");
+        assert_eq!(counter.observe().unwrap(), 7);
         let shared = Arc::new(MemoryCounter::default());
         assert_eq!(riesel_counter::Counter::add(&shared, 2).unwrap(), 2);
         assert_eq!(counter.add(0), Err(CounterError::ZeroIncrement));

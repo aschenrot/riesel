@@ -53,7 +53,7 @@ mod tests {
         Application::new("ScopedCounter")
             .rpc::<CounterContract>("counter")
             .unwrap()
-            .provider(memory_counter_provider())
+            .provider(memory_counter_provider().unwrap())
             .unwrap()
             .run(move |ctx| {
                 let counter = ctx.capability::<CounterContract>("counter")?.clone();

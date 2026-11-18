@@ -37,3 +37,13 @@ pub trait Counter {
     #[query]
     fn label(&self, prefix: &str) -> Result<String, CounterError>;
 }
+
+/// Independent read-only view over the same Counter instance. A managed
+/// component can expose this alongside Counter without spawning another
+/// process or creating a second copy of state.
+#[capability(id = "riesel.counter.observer", version = 1, client_trait)]
+pub trait CounterObserver {
+    /// Observe the current count without changing it.
+    #[query]
+    fn observe(&self) -> Result<u64, CounterError>;
+}
