@@ -214,9 +214,7 @@ impl ServiceMonitor {
         }
         // Once shutdown begins, do not inspect already reaped children as
         // though they unexpectedly disappeared.
-        if self.stop.is_none() {
-            return None;
-        }
+        self.stop.as_ref()?;
         if let Some(observed) = Self::scan(&self.processes, &self.managed) {
             Self::record(&self.failure, &self.cancellation, observed);
         }
@@ -235,10 +233,10 @@ impl ServiceMonitor {
             Some(worker) => worker.join().map_err(|_| RuntimeError::MonitorPanicked),
             None => Ok(()),
         };
-        if was_monitoring {
-            if let Some(observed) = Self::scan(&self.processes, &self.managed) {
-                Self::record(&self.failure, &self.cancellation, observed);
-            }
+        if was_monitoring
+            && let Some(observed) = Self::scan(&self.processes, &self.managed)
+        {
+            Self::record(&self.failure, &self.cancellation, observed);
         }
         self.cancellation.cancel();
         join
