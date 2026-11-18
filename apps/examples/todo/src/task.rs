@@ -137,7 +137,7 @@ mod tests {
     }
 
     #[test]
-    fn Rust_model_is_single_source_of_truth() {
+    fn rust_model_is_single_source_of_truth() {
         let schema = TaskData::model_definition();
         assert!(schema.fields.contains_key("title"));
         assert!(schema.fields.contains_key("completed"));
