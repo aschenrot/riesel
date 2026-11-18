@@ -210,7 +210,11 @@ fn verify_graceful_storage_exit() -> TaskResult {
             .map_err(|error| format!("cannot spawn cooperative Storage: {error}"))?,
     );
 
-    let stdout = child.0.stdout.take().ok_or("managed Storage stdout not piped")?;
+    let stdout = child
+        .0
+        .stdout
+        .take()
+        .ok_or("managed Storage stdout not piped")?;
     let (sender, receiver) = mpsc::sync_channel(1);
     thread::spawn(move || {
         let mut line = String::new();
@@ -227,7 +231,9 @@ fn verify_graceful_storage_exit() -> TaskResult {
     let ready: serde_json::Value = serde_json::from_str(payload)
         .map_err(|error| format!("invalid Storage ready frame: {error}"))?;
     if ready["shutdown"] != "stdin_line" || !ready["address"].is_string() {
-        return Err(format!("Storage did not negotiate stdin_line shutdown: {ready}"));
+        return Err(format!(
+            "Storage did not negotiate stdin_line shutdown: {ready}"
+        ));
     }
 
     child
@@ -244,7 +250,9 @@ fn verify_graceful_storage_exit() -> TaskResult {
             return if status.success() {
                 Ok(())
             } else {
-                Err(format!("cooperative Storage exited unsuccessfully: {status}"))
+                Err(format!(
+                    "cooperative Storage exited unsuccessfully: {status}"
+                ))
             };
         }
         if Instant::now() >= deadline {
