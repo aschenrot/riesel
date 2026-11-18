@@ -43,6 +43,9 @@ releases.
 - `examples/counter/contract`, `examples/counter/component`, and
   `examples/counter/app` form one independent example project.
 - `examples/todo` and `examples/hello` demonstrate the application SDK.
+- The base `riesel` crate is capability-independent: opt into `records` for
+  typed Storage records, or `dev-memory-storage` for records plus the
+  ephemeral reference provider.
 - `crates/riesel_protocol` provides the generated RPC transport and shared
   managed TCP host; `crates/riesel_app` and `crates/riesel_manager` handle
   application execution, supervision and child process ownership.
@@ -154,7 +157,9 @@ call cannot be forcibly cancelled by revocation.
 
 Storage's generated contract uses bounded cursor-based `list_page` queries
 (maximum 32 records per page) and revision-checked `delete` commands.
-The typed `Records<T>` SDK exposes `list_page` and `delete`; `list`
+With the opt-in `records` Cargo feature, the typed `Records<T>` SDK
+exposes `list_page`, `delete`, and `update_with`; the latter fetches and
+updates once without silently retrying a revision conflict. `list`
 collects pages for small datasets and should not be used as an unbounded
 production query. The reference MemoryStore rejects record objects larger
 than 64 KiB. `development()` registers Rust model definitions with the

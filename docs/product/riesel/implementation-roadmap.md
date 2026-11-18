@@ -151,6 +151,10 @@ Cargo package names stable:
   Todo and the Rust-first Hello example live under `examples/`.
 - The standard Storage contract and reference MemoryStore are grouped under
   `packages/storage/` rather than appearing as core engine crates.
+  Typed Records support is now behind the optional `riesel/records` feature;
+  `dev-memory-storage` enables it plus a schema-aware ephemeral provider.
+  Minimal SDK, Records-only, and full development feature configurations
+  are tested separately.
 - `ComponentDefinition` produces local and managed hosting from a single
   validated capability declaration. Counter's observer and writer share
   the same state in either execution mode; Storage uses the same abstraction.
@@ -159,7 +163,8 @@ Cargo package names stable:
   executables now live under test fixtures, and its integration tests are
   split out of application logic.
 - Todo uses `Record<TaskData>` instead of copying infrastructure fields into
-  a duplicate domain type. Model-to-Storage requirement bindings are retained
+  a duplicate domain type. `Records::update_with` avoids manual revision
+  plumbing without retrying concurrent writes or replaying callbacks. Model-to-Storage requirement bindings are retained
   in exported application metadata and honored by typed record lookup.
 - `run_from_env_with_args` composes infrastructure options with
   application-specific tokens; strict `run_from_env` preserves early rejection

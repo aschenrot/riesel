@@ -114,3 +114,9 @@ example dataset, while callers handling larger collections can use
 `Records::<TaskData>::list_page` with a bounded page size. Development
 Storage enforces the registered `TaskData` model shape on provider writes;
 a standalone managed reference provider does not receive that model registry.
+
+The `records` SDK feature is optional for applications that only use
+custom capability contracts. Todo opts into `dev-memory-storage`, which
+includes `records`. Todo's `set_completed` uses `Records::update_with`,
+a single read-modify-write operation that propagates revision conflicts
+instead of silently replaying updates.
