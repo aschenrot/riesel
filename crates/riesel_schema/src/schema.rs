@@ -27,7 +27,7 @@ pub struct CapabilityRequirement {
     pub capability: CapabilityRef,
 }
 
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum FieldType {
     Uuid,
@@ -35,7 +35,7 @@ pub enum FieldType {
     Bool,
 }
 
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct ModelDefinition {
     pub fields: BTreeMap<String, FieldType>,

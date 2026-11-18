@@ -431,3 +431,98 @@ fn expand_riesel_type(input: DeriveInput) -> syn::Result<proc_macro2::TokenStrea
         }
     })
 }
+
+/// Generates a portable Riesel model definition from a named Rust struct.
+///
+/// Requires #[riesel(model = "name")] and supports simple fields whose types
+/// implement ModelField. Serde field mapping options are rejected until Riesel
+/// can represent them faithfully, avoiding silent schema/serializer divergence.
+#[proc_macro_derive(RieselModel, attributes(riesel))]
+pub fn derive_riesel_model(input: TokenStream) -> TokenStream {
+    let input = parse_macro_input!(input as DeriveInput);
+    match expand_riesel_model(input) {
+        Ok(tokens) => tokens.into(),
+        Err(error) => error.to_compile_error().into(),
+    }
+}
+
+fn expand_riesel_model(input: DeriveInput) -> syn::Result<proc_macro2::TokenStream> {
+    let name = input.ident;
+    if !input.generics.params.is_empty() || input.generics.where_clause.is_some() {
+        return Err(syn::Error::new(
+            input.generics.span(),
+            "generic Rust models are not supported yet",
+        ));
+    }
+    let mut model = None;
+    for attribute in &input.attrs {
+        if attribute.path().is_ident("riesel") {
+            attribute.parse_nested_meta(|meta| {
+                if !meta.path.is_ident("model") {
+                    return Err(meta.error("expected model = \"name\""));
+                }
+                if model.is_some() {
+                    return Err(meta.error("duplicate model attribute"));
+                }
+                model = Some(meta.value()?.parse::<LitStr>()?);
+                Ok(())
+            })?;
+        } else if attribute.path().is_ident("serde")
+            && attribute.meta.require_list()?.tokens.to_string() != "deny_unknown_fields"
+        {
+            return Err(syn::Error::new(
+                attribute.span(),
+                "RieselModel does not yet support Serde struct renaming or flattening",
+            ));
+        }
+    }
+
+    let model = model.ok_or_else(|| syn::Error::new(
+        name.span(),
+        "RieselModel requires #[riesel(model = \"name\")]",
+    ))?;
+    let value = model.value();
+    let mut chars = value.chars();
+    if !matches!(chars.next(), Some(c) if c.is_ascii_lowercase())
+        || !chars.all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '_')
+    {
+        return Err(syn::Error::new(model.span(), "invalid model identifier"));
+    }
+
+    let Data::Struct(data) = input.data else {
+        return Err(syn::Error::new(name.span(), "RieselModel requires a named struct"));
+    };
+    let Fields::Named(fields) = data.fields else {
+        return Err(syn::Error::new(name.span(), "RieselModel requires named fields"));
+    };
+
+    let mut generated_fields = Vec::new();
+    for field in fields.named {
+        if field.attrs.iter().any(|attribute| attribute.path().is_ident("serde")) {
+            return Err(syn::Error::new(
+                field.span(),
+                "Serde field attributes are not supported by RieselModel yet",
+            ));
+        }
+        let identifier = field.ident.expect("named field");
+        let ty = field.ty;
+        generated_fields.push(quote! {
+            fields.insert(
+                stringify!(#identifier).to_owned(),
+                <#ty as ::riesel::ModelField>::field_type(),
+            );
+        });
+    }
+
+    Ok(quote! {
+        impl ::riesel::RieselModel for #name {
+            const MODEL_NAME: &'static str = #model;
+
+            fn model_definition() -> ::riesel::schema::ModelDefinition {
+                let mut fields = ::std::collections::BTreeMap::new();
+                #(#generated_fields)*
+                ::riesel::schema::ModelDefinition { fields }
+            }
+        }
+    })
+}

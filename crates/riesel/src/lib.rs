@@ -8,7 +8,8 @@ pub use riesel_app::{
     ProviderRegistry, ResolutionError, ResolvedCapability, RunningApp, RuntimeError,
     ServiceEndpoint,
 };
-pub use riesel_macros::{RieselType, capability};
+pub use riesel_macros::{RieselModel, RieselType, capability};
+pub use riesel_schema::{ModelField, RieselModel};
 
 pub mod prelude {
     pub use super::{App, AppConfig, AppError};

@@ -1,7 +1,8 @@
 use riesel::storage::{RecordStore, StoreError, StoredRecord};
 
 use riesel::schema::{ModelDefinition, RecordError};
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
+use riesel::RieselModel;
 use serde_json::json;
 use thiserror::Error;
 use uuid::Uuid;
@@ -16,7 +17,8 @@ pub struct Task {
     pub revision: u64,
 }
 
-#[derive(Deserialize)]
+#[derive(Debug, Serialize, Deserialize, RieselModel)]
+#[riesel(model = "task")]
 #[serde(deny_unknown_fields)]
 struct TaskData {
     title: String,
@@ -228,4 +230,10 @@ mod tests {
         let task = todo.create_task("Test provider injection").unwrap();
         assert_eq!(todo.get_task(task.id).unwrap().unwrap(), task);
     }
+    #[test]
+    fn rust_task_model_matches_declared_json_model() {
+        let schema = parse_schema(include_str!("../app.json")).unwrap();
+        assert_eq!(TaskData::model_definition(), schema.models["task"]);
+    }
+
 }

@@ -1,5 +1,6 @@
 mod capability;
 mod capability_contract;
+mod model;
 mod provider;
 mod record_validation;
 mod schema;
@@ -10,6 +11,7 @@ pub use capability_contract::{
     RieselType, TypeDefinition, TypeRef,
 };
 pub use provider::{ProviderDefinition, ProviderError};
+pub use model::{ModelField, RieselModel};
 
 pub use schema::{
     AppDefinition, AppSchema, CapabilityRequirement, FieldType, ModelDefinition, RecordError,
