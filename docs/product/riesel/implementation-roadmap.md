@@ -48,6 +48,46 @@ without false crash reports, and healthy-sibling cleanup.
 Completed stages mean *working within their currently specified scope*, not
 production-grade infrastructure.
 
+## Accepted high-level API — staged execution plan
+
+The accepted authoring direction is documented in
+[High-level API architecture v3](api-authoring-v3.md). This is a **target API**;
+examples in that document do not imply macros or async handles already exist.
+
+| Step | Scope | Status | Validation / exit gate |
+| --- | --- | --- | --- |
+| 5.1 | Identity and injection semantics, API contract, compatibility and lifecycle rules | In progress | Written contract, tested identity generation, no changes to published IDs |
+| 5.2 | Type-driven dependency extraction, aliases, record-model bindings | Not started | Counter and Todo registered without duplicated requirements; ambiguity rejected before startup |
+| 5.3 | Generated local/managed component adapters | Not started | One Counter implementation provides Counter and Observer without manual casts/dispatchers |
+| 5.4 | Async transport, generated handles, cancellation and error propagation | Not started | Real nonblocking RPC; local and managed calls preserve domain vs transport errors and session expiry |
+| 5.5 | Deterministic provider catalog and deployment configuration | Not started | Linked, managed and remote providers selected explicitly; preflight rejects missing/ambiguous/untrusted choices |
+| 5.6 | `#[riesel::app]` and ergonomic model/Records injection | Not started | Minimal Counter and Todo examples compile with generated requirements; builder equivalent |
+| 5.7 | Optional modules and lifecycle handlers | Not started | Multi-module app with ordering, conflict detection, cancellation and bounded shutdown |
+| 5.8 | DX documentation and regression suite | Not started | Compile-fail diagnostics, inspection, Linux validate and smoke; Windows manual before release |
+
+**Sequencing:** 5.1 is a gate for 5.2–5.8. Component adapters can follow
+parallel to dependency extraction after their shared contract is settled;
+async support must not be faked with blocking calls. Implementation may make
+aggressive breaking changes but must preserve verified lifecycle and transport
+behavior through regression tests.
+
+**Identity policy:** Private capabilities/components may derive deterministic
+internal identity from their Rust declaration path. Published independently
+built contracts need one stable external identity (explicitly or from trusted
+package metadata) and an independently versioned contract. Renaming a Rust
+path is intentionally an identity change for private declarations, not a safe
+migration for published APIs. Provider instance names and requirement aliases
+remain distinct from contract identities. Nothing is discovered magically:
+local providers must be linked/registered, and managed binaries must be
+configured or registered in a trusted catalog.
+
+**Stage 6+ product requirements remain open:** persistent Storage and schema
+migration; authenticated/authorized remote transports; resource budgets,
+observability and durable recovery; manager/discovery and CLI parity; separate
+native window hosts and synchronization; optional Bevy ECS/game networking;
+and eventual visual composition. Completing Stage 5 does **not** imply
+production-ready deployment.
+
 ## Architecture refactoring checkpoint
 
 Before advancing the roadmap, the Rust implementation was consolidated and

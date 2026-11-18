@@ -1,0 +1,116 @@
+# Riesel — High-level Application Authoring Contract (v3)
+
+Decision: **accepted as implementation target** on 2026-11-18. This file
+specifies design requirements, not features already implemented. The accepted
+mental model is **application uses capabilities; component implements
+capabilities; Riesel composes and runs them**.
+
+## Target surface (conceptual syntax)
+
+```rust
+use riesel::prelude::*;
+use counter::CounterHandle;
+
+#[riesel::app(components = [MemoryCounter])]
+async fn main(counter: CounterHandle) -> AppResult<()> {
+    counter.add(3).await?;
+    println!("{}", counter.value().await?);
+    Ok(())
+}
+```
+
+The `components` list makes an implementation available when statically
+linked. Without it, configured managed/external providers may satisfy the
+same capability. An application signature declares each dependency exactly
+once. A simple one-shot entrypoint is distinct from long-lived lifecycle
+handlers and scheduled systems. Module composition is optional.
+
+A capability author should be able to write `#[riesel::capability]` for a
+private contract. For published contracts, one stable externally recognized
+ID must be retained across Rust renames, via explicit `id = "..."` initially
+and potentially package metadata in a later milestone. Contract versions are
+separate from identity; private contracts default to version 1, and published
+contract versions must change intentionally with breaking wire changes.
+
+The component author writes ordinary Rust trait implementations and declares
+provided contracts once. An attribute macro cannot discover arbitrary
+impls across unrelated crates; use an explicit contract list or an equally
+explicit registration annotation. Generate local adapters, managed RPC
+routes and provider metadata from that single registration. Constructors
+must support explicit factories; `Default` is only the convenience case.
+
+## Identity and dependency rules
+
+- A private capability identity is deterministic for its fully qualified
+  Rust declaration path (module + trait name) and does not require a manual
+  ID. It is **not a stable external compatibility guarantee**; moving or
+  renaming the Rust declaration changes it.
+- Independently deployed/published contracts require a deliberately stable
+  external ID. Do not silently change existing Counter or Storage IDs.
+- Component definition identity, running instance identity, requirement alias
+  and capability contract identity are four different concepts. Never
+  combine them or infer them from a process port or variable name.
+- Parameter names are not stable dependency identifiers. Unambiguous
+  capabilities receive one deterministic default binding; multiple instances
+  require explicit binding aliases. Ambiguity and conflicting registrations
+  fail during validation, before starting providers.
+- Local component availability requires static linking/registration; remote
+  and managed providers require explicit trusted configuration. No global
+  hidden constructors, magic linker discovery or silent in-memory fallback.
+- Rust-generated application definitions remain inspectable, validated,
+  portable metadata. Rust functions and closures are not serialized as schema.
+
+## Calls, execution, failure and security
+
+- Generated handles should be ergonomically named `CounterHandle`, using a
+  shared type-safe binding implementation, not a second runtime.
+- Async-first capability calls are a **future target**. Existing RPC code is
+  synchronous; do not wrap blocking network I/O in an async function and
+  claim nonblocking execution. Support actual async scheduling, transport,
+  cancellation and resource budgets before enabling async entrypoints.
+- Preserve separate domain versus transport/cancellation/session-expiry
+  failures. `AppResult` may simplify `?` but must retain structured source
+  errors and allow user-defined error types.
+- Cloned handles are invalidated on application-session shutdown/recovery.
+  Recovery is opt-in and can replay the whole application entrypoint;
+  commands must never be implicitly retried after ambiguous transport errors.
+- One component providing multiple contracts must share one state instance
+  and one lifecycle unless explicitly configured otherwise.
+- Production remote execution requires authentication and authorization;
+  current loopback RPC handshake metadata is not identity verification.
+- Native UI hosts remain separate processes. ECS and multiplayer are optional
+  specialized execution integrations, not application-wide requirements.
+
+## Low-level implementation rule
+
+`#[riesel::app]` must generate use of a testable typed-handler/requirement
+registration API; `#[riesel::component]` must build on the existing
+`ComponentDefinition`. The direct builder and explicit `Context` remain
+available to libraries, dynamic compositions and tests. Keep one runtime,
+one schema, one provider resolver and one error model.
+
+## Acceptance and verification
+
+1. An ID-free private contract derives deterministic distinct IDs across
+   Rust modules/names; explicit published IDs remain unchanged.
+2. Minimal Counter application registers dependencies from its signature
+   exactly once and works with local and managed implementations.
+3. Two aliases for one capability are explicit and fail on ambiguity.
+4. Todo `Records<T>` derives and validates model + Storage bindings without
+   duplicate declarations or a silent memory fallback.
+5. Generated component adapters expose Counter and Observer with shared state.
+6. Async RPC is genuinely nonblocking and preserves structured failure
+   variants, expiry and cooperative cancellation.
+7. Macro and builder create equivalent definitions and startup plans.
+8. Invalid macros, missing providers, collisions, dependency cycles and
+   invalid bindings produce actionable diagnostics before side effects.
+9. Existing lifecycle/recovery executable smoke tests stay green; Windows
+   is run explicitly before releases.
+
+## Delivery approach
+
+Implement in small validated changes. First introduce ID-free private
+capability declarations while preserving explicit published IDs. Next build
+typed extraction and generated component adapters without macros. Add real
+async execution and provider-catalog composition before exposing the concise
+high-level async app macro. Track actual status only after CI passes.
