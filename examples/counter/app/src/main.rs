@@ -10,5 +10,5 @@ fn main() -> riesel::Result<()> {
             memory_counter_provider()
                 .map_err(|source| riesel::RuntimeError::ProviderFactory { source })?,
         )?
-        .run(run_demo)
+        .run_from_env(run_demo)
 }

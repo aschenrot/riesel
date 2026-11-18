@@ -22,7 +22,7 @@ pub(super) fn verify_deployment_preflight() -> TaskResult {
     )
     .map_err(|error| format!("cannot write preflight configuration: {error}"))?;
     let temporary = TemporaryConfig(path);
-    let inspected = Command::new(binary("todo_client"))
+    let inspected = Command::new(binary("todo"))
         .arg("--inspect-deployment")
         .arg(&temporary.0)
         .current_dir(workspace_root())

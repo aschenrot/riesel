@@ -25,7 +25,7 @@ pub(super) fn verify_counter_provider() -> TaskResult {
     )
     .map_err(|error| format!("cannot write Counter deployment: {error}"))?;
     let temporary = TemporaryConfig(path);
-    let mut managed = Command::new(binary("counter_client"))
+    let mut managed = Command::new(binary("riesel_counter_example"))
         .arg("--deployment")
         .arg(&temporary.0)
         .current_dir(workspace_root())

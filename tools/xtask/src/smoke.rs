@@ -38,7 +38,7 @@ pub fn run() -> TaskResult {
         "--bin",
         "storage_service",
     ])?;
-    cargo(&["build", "--locked", "-p", "todo", "--bin", "todo_client"])?;
+    cargo(&["build", "--locked", "-p", "todo", "--bin", "todo"])?;
     cargo(&[
         "build",
         "--locked",
@@ -75,7 +75,7 @@ pub fn run() -> TaskResult {
 
     println!("\n==> Running two concurrent Todo instances with OS-assigned Storage ports");
     let start_client = || {
-        Command::new(binary("todo_client"))
+        Command::new(binary("todo"))
             .arg("--deployment")
             .arg(&temporary.0)
             .current_dir(workspace_root())
