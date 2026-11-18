@@ -5,14 +5,17 @@ on:
     branches:
       - feature/schema_based_app
   pull_request:
+  workflow_dispatch:
+    inputs:
+      windows:
+        description: "Also validate Windows (required before release)"
+        type: boolean
+        required: false
+        default: false
 
 jobs:
-  validate:
-    strategy:
-      fail-fast: false
-      matrix:
-        os: [ubuntu-latest, windows-latest]
-    runs-on: ${{ matrix.os }}
+  linux:
+    runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
       - name: Install Rust 1.100.0
@@ -21,5 +24,19 @@ jobs:
           rustup default 1.100.0
       - name: Validate workspace
         run: cargo validate --check
-      - name: Smoke test remote Todo and managed service
+      - name: Smoke test runtime and managed providers
+        run: cargo smoke
+
+  windows:
+    if: ${{ github.event_name == 'workflow_dispatch' && inputs.windows }}
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install Rust 1.100.0
+        run: |
+          rustup toolchain install 1.100.0 --profile minimal --component rustfmt --component clippy
+          rustup default 1.100.0
+      - name: Validate workspace
+        run: cargo validate --check
+      - name: Smoke test runtime and managed providers
         run: cargo smoke
