@@ -198,4 +198,22 @@ mod tests {
 
         assert!(matches!(result, Err(TodoError::NotFound)));
     }
+
+    #[test]
+    fn resolves_declared_storage_requirement_from_generated_provider_metadata() {
+        use riesel::ProviderRegistry;
+        use std::collections::BTreeMap;
+
+        let schema = parse_schema(include_str!("../app.json")).unwrap();
+        let mut registry = ProviderRegistry::new();
+        registry
+            .register(riesel_storage_component::memory_provider_definition().unwrap())
+            .unwrap();
+
+        let resolved = registry.resolve(&schema, &BTreeMap::new()).unwrap();
+        assert_eq!(resolved.len(), 1);
+        assert_eq!(resolved[0].requirement, "storage");
+        assert_eq!(resolved[0].provider, "riesel.storage.memory");
+    }
+
 }
