@@ -97,7 +97,7 @@ impl Application {
 
     /// Declare a generated RPC capability and register its transport adapter
     /// once, even when several requirements share the same capability.
-    pub fn rpc<C: RpcClientBinding>(mut self, name: impl Into<String>) -> Result<Self> {
+    pub fn rpc<C: RpcClientBinding + 'static>(mut self, name: impl Into<String>) -> Result<Self> {
         let capability = C::definition()?.capability;
         self = self.require::<C>(name)?;
         if !self.providers.has_connector(&capability.id) {
