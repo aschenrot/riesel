@@ -5,14 +5,14 @@
 //! hand-maintained method catalogue.
 
 use riesel_schema::{CapabilityContract, CapabilityRef};
-use serde::de::DeserializeOwned;
+use serde::{Deserialize, Serialize, de::DeserializeOwned};
 use serde_json::Value;
 use std::error::Error;
 use std::fmt;
 use thiserror::Error;
 
 /// Failures outside the domain method's declared error type.
-#[derive(Debug, Error, PartialEq, Eq)]
+#[derive(Debug, Error, PartialEq, Eq, Serialize, Deserialize)]
 pub enum RpcError {
     #[error("RPC encoding or decoding failed: {0}")]
     Codec(String),
