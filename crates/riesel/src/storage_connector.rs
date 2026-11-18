@@ -29,7 +29,7 @@ impl CapabilityConnector for TcpRecordStoreConnector {
         Ok(ConnectedProvider {
             definition: info.provider,
             contract: info.contract,
-            service: Box::new(Arc::new(store) as Arc<dyn RecordStore>),
+            service: Box::new(Arc::new(store) as Arc<dyn RecordStore + Send + Sync>),
         })
     }
 }
