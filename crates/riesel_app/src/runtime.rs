@@ -842,7 +842,9 @@ mod tests {
     #[test]
     fn local_registry_rejects_duplicate_providers() {
         let mut connectors = ConnectorRegistry::new();
-        connectors.register_local(LocalCounter("example.counter.memory")).unwrap();
+        connectors
+            .register_local(LocalCounter("example.counter.memory"))
+            .unwrap();
         assert!(matches!(
             connectors.register_local(LocalCounter("example.counter.memory")),
             Err(RuntimeError::DuplicateLocalProvider(_))
