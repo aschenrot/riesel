@@ -51,7 +51,10 @@ mod tests {
         let clone = old.clone();
         assert!(clone.check().is_ok());
         old.invalidate();
-        assert!(matches!(clone.check(), Err(crate::RpcError::SessionExpired)));
+        assert!(matches!(
+            clone.check(),
+            Err(crate::RpcError::SessionExpired)
+        ));
         assert!(SessionToken::new().is_active());
     }
 }

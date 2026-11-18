@@ -38,8 +38,7 @@ mod tests {
             })
             .unwrap();
 
-        let old: Arc<dyn Counter + Send + Sync> =
-            captured.lock().unwrap().take().unwrap();
+        let old: Arc<dyn Counter + Send + Sync> = captured.lock().unwrap().take().unwrap();
         assert!(matches!(
             old.value(),
             Err(CounterError::Transport(message)) if message.contains("expired application session")

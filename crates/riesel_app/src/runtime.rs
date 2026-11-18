@@ -152,7 +152,10 @@ fn guard_local_binding<C: riesel_protocol::RpcClientBinding>(
     session: SessionToken,
 ) -> Result<Box<dyn Any + Send + Sync>, ConnectorError> {
     let service = value.downcast::<C::Service>().map_err(|_| {
-        io::Error::new(io::ErrorKind::InvalidData, "invalid typed local component binding")
+        io::Error::new(
+            io::ErrorKind::InvalidData,
+            "invalid typed local component binding",
+        )
     })?;
     Ok(Box::new(C::guard_local(*service, session)))
 }
@@ -328,19 +331,15 @@ impl ConnectorRegistry {
             contract
                 .validate()
                 .map_err(|source| RuntimeError::InvalidContract { source })?;
-            let key = (
-                contract.capability.id.clone(),
-                contract.capability.version,
-            );
+            let key = (contract.capability.id.clone(), contract.capability.version);
             if available.insert(key, contract).is_some() {
                 return Err(RuntimeError::ProviderContractMismatch(definition.id));
             }
         }
         if definition.capabilities.len() != available.len()
-            || !definition
-                .capabilities
-                .iter()
-                .all(|capability| available.contains_key(&(capability.id.clone(), capability.version)))
+            || !definition.capabilities.iter().all(|capability| {
+                available.contains_key(&(capability.id.clone(), capability.version))
+            })
         {
             return Err(RuntimeError::ProviderContractMismatch(definition.id));
         }
@@ -670,9 +669,10 @@ impl App {
                         .definition
                         .capabilities
                         .contains(&requirement.capability)
-                        || !local
-                            .contracts
-                            .contains_key(&(requirement.capability.id.clone(), requirement.capability.version))
+                        || !local.contracts.contains_key(&(
+                            requirement.capability.id.clone(),
+                            requirement.capability.version,
+                        ))
                     {
                         return Err(RuntimeError::LocalContractMismatch {
                             requirement: requirement.name.clone(),
@@ -715,15 +715,14 @@ impl App {
         connectors: &ConnectorRegistry,
     ) -> Result<(), RuntimeError> {
         let id = &requirement.capability.id;
-        let adapter =
-            connectors
-                .adapters
-                .get(&(id.clone(), requirement.capability.version))
-                .ok_or_else(|| RuntimeError::MissingConnector {
-                    requirement: requirement.name.clone(),
-                    id: id.clone(),
-                    version: requirement.capability.version,
-                })?;
+        let adapter = connectors
+            .adapters
+            .get(&(id.clone(), requirement.capability.version))
+            .ok_or_else(|| RuntimeError::MissingConnector {
+                requirement: requirement.name.clone(),
+                id: id.clone(),
+                version: requirement.capability.version,
+            })?;
         if adapter.contract.capability != requirement.capability {
             return Err(RuntimeError::LocalContractMismatch {
                 requirement: requirement.name.clone(),
@@ -747,9 +746,10 @@ impl App {
                         .definition
                         .capabilities
                         .contains(&requirement.capability)
-                        && local
-                            .contracts
-                            .contains_key(&(requirement.capability.id.clone(), requirement.capability.version))
+                        && local.contracts.contains_key(&(
+                            requirement.capability.id.clone(),
+                            requirement.capability.version,
+                        ))
                 })
                 .map(|local| local.definition.id.clone())
                 .collect();
@@ -824,9 +824,10 @@ impl App {
                     .definition
                     .capabilities
                     .contains(&requirement.capability)
-                    || !local
-                            .contracts
-                            .contains_key(&(requirement.capability.id.clone(), requirement.capability.version))
+                    || !local.contracts.contains_key(&(
+                        requirement.capability.id.clone(),
+                        requirement.capability.version,
+                    ))
                 {
                     return Err(RuntimeError::LocalContractMismatch {
                         requirement: requirement.name.clone(),
@@ -872,7 +873,8 @@ impl App {
                     }
                     registry.register(instance.definition.clone())?;
                     provider_definitions.insert(provider.clone(), instance.definition);
-                    local_instances.insert(provider.clone(), RunningLocalProvider { services: bound });
+                    local_instances
+                        .insert(provider.clone(), RunningLocalProvider { services: bound });
                 }
                 let key = (
                     requirement.capability.id.clone(),
@@ -889,15 +891,14 @@ impl App {
                 continue;
             }
             let id = &requirement.capability.id;
-            let adapter =
-                connectors
-                    .adapters
-                    .get(&(id.clone(), requirement.capability.version))
-                    .ok_or_else(|| RuntimeError::MissingConnector {
-                        requirement: requirement.name.clone(),
-                        id: id.clone(),
-                        version: requirement.capability.version,
-                    })?;
+            let adapter = connectors
+                .adapters
+                .get(&(id.clone(), requirement.capability.version))
+                .ok_or_else(|| RuntimeError::MissingConnector {
+                    requirement: requirement.name.clone(),
+                    id: id.clone(),
+                    version: requirement.capability.version,
+                })?;
 
             if adapter.contract.capability != requirement.capability {
                 return Err(RuntimeError::LocalContractMismatch {
@@ -967,23 +968,24 @@ impl App {
                     let endpoint = ServiceEndpoint::Tcp {
                         address: ready.address,
                     };
-                    let connection = adapter.connector.connect(&endpoint, &session).map_err(|source| {
-                        RuntimeError::Connection {
-                            requirement: requirement.name.clone(),
-                            source,
-                        }
-                    })?;
+                    let connection =
+                        adapter
+                            .connector
+                            .connect(&endpoint, &session)
+                            .map_err(|source| RuntimeError::Connection {
+                                requirement: requirement.name.clone(),
+                                source,
+                            })?;
                     managed.insert(requirement.name.clone(), key);
                     connection
                 }
-                ServiceEndpoint::Tcp { .. } => {
-                    adapter.connector.connect(endpoint, &session).map_err(|source| {
-                        RuntimeError::Connection {
-                            requirement: requirement.name.clone(),
-                            source,
-                        }
-                    })?
-                }
+                ServiceEndpoint::Tcp { .. } => adapter
+                    .connector
+                    .connect(endpoint, &session)
+                    .map_err(|source| RuntimeError::Connection {
+                        requirement: requirement.name.clone(),
+                        source,
+                    })?,
             };
 
             connected
@@ -1255,7 +1257,13 @@ mod tests {
                 },
             ),
         ]));
-        assert_eq!(app.preflight(&deployment, &connectors).unwrap().services.len(), 2);
+        assert_eq!(
+            app.preflight(&deployment, &connectors)
+                .unwrap()
+                .services
+                .len(),
+            2
+        );
     }
 
     #[test]
@@ -1772,7 +1780,10 @@ mod tests {
         fn create(&self) -> Result<LocalProviderInstance, ConnectorError> {
             Ok(LocalProviderInstance {
                 definition: self.definition()?,
-                bindings: vec![LocalCapabilityBinding::raw(contract(1), Box::new(Arc::new(123_u64)))],
+                bindings: vec![LocalCapabilityBinding::raw(
+                    contract(1),
+                    Box::new(Arc::new(123_u64)),
+                )],
             })
         }
     }
@@ -1798,7 +1809,10 @@ mod tests {
             self.created.lock().unwrap().push(self.id.into());
             Ok(LocalProviderInstance {
                 definition: self.definition()?,
-                bindings: vec![LocalCapabilityBinding::raw(contract(1), Box::new(Arc::new(123_u64)))],
+                bindings: vec![LocalCapabilityBinding::raw(
+                    contract(1),
+                    Box::new(Arc::new(123_u64)),
+                )],
             })
         }
     }
@@ -1846,7 +1860,6 @@ mod tests {
         );
         assert_eq!(running.resolved().len(), 3);
     }
-
 
     struct MultiVersionLocal {
         created: Arc<std::sync::atomic::AtomicUsize>,
