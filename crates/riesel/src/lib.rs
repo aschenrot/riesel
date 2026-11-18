@@ -12,7 +12,7 @@ pub use riesel_app::{
     App, AppConfig, AppError, AppRunError, CancellationToken, CapabilityConnector,
     ConnectedProvider, ConnectorError, ConnectorRegistry, DeploymentConfig, DeploymentError,
     LocalProviderFactory, ProviderRegistry, ResolutionError, ResolvedCapability, RunningApp,
-    RuntimeError, ServiceEndpoint,
+    RuntimeError, ServiceEndpoint, SessionToken,
 };
 pub use riesel_macros::{RieselModel, RieselType, capability};
 pub use riesel_schema::{CapabilityDescriptor, ModelField, RieselModel};

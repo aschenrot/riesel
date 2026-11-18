@@ -146,8 +146,12 @@ impl CapabilityConnector for ObservedConnector {
         self.rpc.contract()
     }
 
-    fn connect(&self, endpoint: &ServiceEndpoint) -> Result<ConnectedProvider, ConnectorError> {
-        let connected = self.rpc.connect(endpoint)?;
+    fn connect(
+        &self,
+        endpoint: &ServiceEndpoint,
+        session: &riesel::SessionToken,
+    ) -> Result<ConnectedProvider, ConnectorError> {
+        let connected = self.rpc.connect(endpoint, session)?;
         if let Some(address) = endpoint.address() {
             self.connected.lock().unwrap().push(address);
         }

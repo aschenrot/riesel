@@ -24,3 +24,5 @@ pub use supervisor::CancellationToken;
 pub use plan::{DeploymentPlan, PlannedService, PlannedTarget};
 
 pub use recovery::RecoveryPolicy;
+
+pub use riesel_protocol::SessionToken;

@@ -18,6 +18,35 @@ mod tests {
     use std::time::{Duration, Instant};
 
     #[test]
+    fn generated_local_capability_handles_expire_with_their_session() {
+        use riesel::Application;
+        use riesel_counter_component::memory_counter_provider;
+        use std::sync::{Arc, Mutex};
+
+        let captured = Arc::new(Mutex::new(None));
+        let for_callback = Arc::clone(&captured);
+        Application::new("ScopedCounter")
+            .rpc::<CounterContract>("counter")
+            .unwrap()
+            .provider(memory_counter_provider())
+            .unwrap()
+            .run(move |ctx| {
+                let counter = ctx.capability::<CounterContract>("counter")?.clone();
+                assert_eq!(counter.add(2)?, 2);
+                *for_callback.lock().unwrap() = Some(counter);
+                Ok(())
+            })
+            .unwrap();
+
+        let old: Arc<dyn Counter + Send + Sync> =
+            captured.lock().unwrap().take().unwrap();
+        assert!(matches!(
+            old.value(),
+            Err(CounterError::Transport(message)) if message.contains("expired application session")
+        ));
+    }
+
+    #[test]
     fn generated_client_and_dispatcher_support_commands_and_queries() {
         let handler = CounterRpcDispatcher::new(MemoryCounter::default());
         let client = CounterRpcClient::new(LocalRpc::new(handler));
