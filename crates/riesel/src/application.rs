@@ -191,7 +191,7 @@ impl Application {
 
     pub fn run(
         self,
-        entrypoint: impl FnOnce(&Context<'_>) -> std::result::Result<(), ConnectorError>,
+        mut entrypoint: impl FnMut(&Context<'_>) -> std::result::Result<(), ConnectorError>,
     ) -> Result<()> {
         let app = App::from_definition(self.definition)?;
         let invoke = |running: &RunningApp| entrypoint(&Context { running });
@@ -207,7 +207,7 @@ impl Application {
     /// Supported: --deployment FILE and --help.
     pub fn run_from_env(
         mut self,
-        entrypoint: impl FnOnce(&Context<'_>) -> std::result::Result<(), ConnectorError>,
+        entrypoint: impl FnMut(&Context<'_>) -> std::result::Result<(), ConnectorError>,
     ) -> Result<()> {
         let args: Vec<_> = std::env::args_os().skip(1).collect();
         match args.as_slice() {

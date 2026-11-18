@@ -1,3 +1,4 @@
+use crate::recovery::RecoveryPolicy;
 use riesel_schema::{AppSchema, SchemaError};
 use serde::Deserialize;
 use std::collections::BTreeMap;
@@ -10,6 +11,9 @@ use thiserror::Error;
 #[serde(deny_unknown_fields)]
 pub struct DeploymentConfig {
     pub services: BTreeMap<String, ServiceEndpoint>,
+    /// Recovery is explicit and applies to the whole application session.
+    #[serde(default)]
+    pub recovery: RecoveryPolicy,
 }
 
 /// Deployment-level connection and optional process ownership. Execution
@@ -65,9 +69,19 @@ pub enum DeploymentError {
     MissingService(String),
     #[error("invalid endpoint for requirement {name}: {reason}")]
     InvalidEndpoint { name: String, reason: &'static str },
+    #[error("invalid recovery policy: {0}")]
+    InvalidRecovery(&'static str),
 }
 
 impl DeploymentConfig {
+    /// Construct a fail-fast deployment from explicit service bindings.
+    pub fn new(services: BTreeMap<String, ServiceEndpoint>) -> Self {
+        Self {
+            services,
+            recovery: RecoveryPolicy::FailFast,
+        }
+    }
+
     pub fn load(path: impl AsRef<Path>) -> Result<Self, DeploymentError> {
         Self::from_json(&std::fs::read_to_string(path)?)
     }
@@ -80,6 +94,9 @@ impl DeploymentConfig {
     /// with no stale or unknown configuration keys.
     pub fn validate(&self, app: &AppSchema) -> Result<(), DeploymentError> {
         app.validate()?;
+        self.recovery
+            .validate()
+            .map_err(DeploymentError::InvalidRecovery)?;
         for name in self.services.keys() {
             if !app
                 .requires

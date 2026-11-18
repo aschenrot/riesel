@@ -3,6 +3,7 @@
 //! this module owns validation, resolution, and the resulting service lifetimes.
 
 use crate::plan::{DeploymentPlan, PlannedService, PlannedTarget};
+use crate::recovery::run_with_recovery;
 use crate::supervisor::{CancellationToken, ServiceMonitor};
 use crate::{
     App, DeploymentConfig, DeploymentError, ProviderRegistry, ResolutionError, ResolvedCapability,
@@ -333,6 +334,11 @@ pub enum AppRunError {
         entry: Option<ConnectorError>,
         shutdown: Option<Box<RuntimeError>>,
     },
+    #[error("application recovery exhausted after {restarts} restarts: {last}")]
+    RecoveryExhausted {
+        restarts: u32,
+        last: Box<AppRunError>,
+    },
 }
 
 /// Active application with verified services and owned child processes.
@@ -529,7 +535,7 @@ impl App {
                 ServiceEndpoint::Local { provider },
             );
         }
-        self.start(&DeploymentConfig { services }, connectors)
+        self.start(&DeploymentConfig::new(services), connectors)
     }
 
     /// Run an application with local providers and guaranteed cleanup.
@@ -765,15 +771,18 @@ impl App {
         self,
         deployment: &DeploymentConfig,
         connectors: &ConnectorRegistry,
-        entrypoint: impl FnOnce(&RunningApp) -> Result<(), ConnectorError>,
+        entrypoint: impl FnMut(&RunningApp) -> Result<(), ConnectorError>,
     ) -> Result<(), AppRunError> {
-        let running = self.start(deployment, connectors)?;
-        RunningApp::execute(running, entrypoint)
+        run_with_recovery(
+            &deployment.recovery,
+            || self.clone().start(deployment, connectors),
+            entrypoint,
+        )
     }
 }
 
 impl RunningApp {
-    fn execute(
+    pub(crate) fn execute(
         mut running: RunningApp,
         entrypoint: impl FnOnce(&RunningApp) -> Result<(), ConnectorError>,
     ) -> Result<(), AppRunError> {
@@ -862,14 +871,12 @@ mod tests {
     }
 
     fn deployment() -> DeploymentConfig {
-        DeploymentConfig {
-            services: BTreeMap::from([(
-                "counter".into(),
-                ServiceEndpoint::Tcp {
-                    address: "127.0.0.1:47911".parse::<SocketAddr>().unwrap(),
-                },
-            )]),
-        }
+        DeploymentConfig::new(BTreeMap::from([(
+            "counter".into(),
+            ServiceEndpoint::Tcp {
+                address: "127.0.0.1:47911".parse::<SocketAddr>().unwrap(),
+            },
+        )]))
     }
 
     #[test]
@@ -1101,6 +1108,7 @@ mod tests {
                     },
                 ),
             ]),
+            recovery: Default::default(),
         };
         let mut connectors = ConnectorRegistry::new();
         connectors
@@ -1180,6 +1188,7 @@ mod tests {
                     },
                 ),
             ]),
+            recovery: Default::default(),
         };
         let mut connectors = ConnectorRegistry::new();
         connectors
@@ -1276,7 +1285,7 @@ mod tests {
             services.insert(alias.into(), ServiceEndpoint::Local { provider });
         }
         let running = app
-            .start(&DeploymentConfig { services }, &registry)
+            .start(&DeploymentConfig::new(services), &registry)
             .unwrap();
         assert_eq!(
             *created.lock().unwrap(),
@@ -1325,6 +1334,7 @@ mod tests {
                     provider: "example.counter.other".into(),
                 },
             )]),
+            recovery: Default::default(),
         };
         let running = app().start(&explicit, &connectors).unwrap();
         assert_eq!(running.resolved()[0].provider, "example.counter.other");

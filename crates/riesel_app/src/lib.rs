@@ -2,6 +2,7 @@ pub mod app;
 pub mod config;
 mod deployment;
 mod plan;
+mod recovery;
 mod resolver;
 mod runtime;
 mod supervisor;
@@ -19,3 +20,5 @@ pub use runtime::{
 pub use supervisor::CancellationToken;
 
 pub use plan::{DeploymentPlan, PlannedService, PlannedTarget};
+
+pub use recovery::RecoveryPolicy;

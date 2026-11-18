@@ -2,6 +2,7 @@ use crate::AppConfig;
 use riesel_schema::{AppSchema, SchemaError, parse_schema};
 use thiserror::Error;
 
+#[derive(Clone)]
 pub struct App {
     config: AppConfig,
     definition: Option<AppSchema>,
