@@ -32,14 +32,17 @@ cargo run -p riesel_counter_example --bin counter_client -- --print-definition
 cargo smoke
 ```
 
-The cross-platform smoke suite builds `counter_service` and `counter_client`,
-generates a trusted managed deployment with an OS-assigned loopback port,
-and verifies the typed `value`, `add`, and `label` operations end to end.
-It also runs the local application.
+The smoke suite builds `counter_service`, `counter_client`,
+`counter_crash_fixture`, and `counter_recovery_client`. It runs the local
+application, verifies typed managed RPC operations, then forces the first
+Counter process to crash and verifies that a new application session binds
+to its replacement without reusing a stale endpoint. Linux runs in required
+CI; Windows can be checked manually in the Validate workflow.
 
 Counter uses the same `run_tcp_rpc_host` implementation as Storage for the
 versioned readiness message, loopback binding and cooperative shutdown.
 
-**Boundaries:** This is in-memory and non-durable. Managed TCP remains
-plaintext and unauthenticated on loopback. Restarting a crashed provider does
-not yet transparently rebind or recover existing client handles.
+**Boundaries:** Counter is in-memory and non-durable; managed TCP remains
+plaintext and unauthenticated on loopback. Opt-in recovery rebuilds the
+entire application session; it does not live-rebind an existing Counter
+client. Restarted state begins at zero and business operations may replay.

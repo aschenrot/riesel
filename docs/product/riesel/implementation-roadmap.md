@@ -8,7 +8,8 @@ See [Product Definition](riesel.md) for the intended product scope.
 
 ## Validation gates
 
-For all code milestones on Linux and Windows:
+For code milestones, Linux CI runs automatically; Windows validation is
+available as a manual workflow dispatch and is required before releases:
 
 ```sh
 cargo validate --check
@@ -21,14 +22,16 @@ the actual Todo and Storage binaries, including runtime-owned Storage processes,
 then verifies a failed second managed service launch cleans up the first one,
 and that the Storage binary cooperatively exits on a bounded private stdin
 shutdown request. The suite also starts the independent Counter component
-locally and as a runtime-managed RPC provider, using its generated contract,
-client and dispatcher without Counter-specific lifecycle wiring.
+locally, as a runtime-managed RPC provider, and with a deterministic real
+process crash followed by safe application-session restart using generated
+contract and client bindings.
 A separate smoke check runs the `--inspect-deployment`
 CLI with a nonexistent service executable and validates the generated plan
 without invoking that executable. Workspace tests also exercise a real child exiting during
-application execution, cancellation delivery, preservation of concurrent
-business errors, normal shutdown without false crash reports, and cleanup
-of a healthy sibling when another managed child exits.
+application execution, cancellation delivery, bounded retry exhaustion,
+preservation of concurrent business errors, task failure and panic
+propagation, task joins, crash detection during task joins, normal shutdown
+without false crash reports, and healthy-sibling cleanup.
 
 ## Milestone status
 
@@ -38,7 +41,7 @@ of a healthy sibling when another managed child exits.
 | 1 — Declarative requirements | Implemented | Versioned requirements; Rust-generated application definitions |
 | 2 — Provider resolution | Implemented for exact versions | Registration, explicit selection, missing/ambiguous-provider errors |
 | 3 — Capability binding | Initial implementation | In-process factories, typed Rust record handles, verified remote TCP |
-| 4 — Application runtime | End-to-end slice implemented; lifecycle hardening underway | Managed startup, dependency ordering, rollback, bounded shutdown, continuous process exit monitoring, cooperative cancellation and supervised run errors |
+| 4 — Application runtime | Cooperative lifecycle and bounded whole-session recovery implemented; production hardening remains | Managed startup, DAG ordering, rollback, shutdown, supervision, task joins, restart policies/backoff, failure-injection smoke |
 | 5 — Developer experience | Generic RPC, deployment inspection and second provider integration implemented; still partial | Rust SDK, models, generated Storage/Counter RPC, shared RPC host, local/managed Counter provider, preflight and JSON startup plans |
 | 6 — Production reliability | Not implemented | Persistent Storage, secure transports, authorization, recovery, observability |
 
@@ -98,8 +101,10 @@ order; independent requirements preserve declaration order. Managed children
 are terminated in reverse **actual startup** order, including on partial
 startup failure. The rollback smoke test confirms that a previously connected
 Storage server no longer listens after a dependent launch fails. This is
-reverse-order teardown with a bounded graceful opt-in, **not yet automatic
-crash recovery**.
+reverse-order teardown with a bounded graceful opt-in. An explicitly opted-in
+application can now recover by reconstructing **all** providers and typed
+handles after complete session cleanup, rather than blindly restarting one
+child.
 
 ### Managed service supervision
 
@@ -112,18 +117,20 @@ The Rust SDK exposes the same token through `Context::cancellation_token()`.
 Callers can poll `is_cancelled()`, wait using `wait_cancelled_timeout()`, or
 request cooperative cancellation explicitly using `cancel()`.
 
-When `App::run` finishes the entrypoint, it joins the monitor and takes a
-final status snapshot **before** stopping children. A detected failure is
-reported as `AppRunError::Supervision`, retaining simultaneous entrypoint
-and shutdown errors. `RunningApp` also cleans up on drop. Explicit shutdown
-stops the watcher before intentionally terminating children, avoiding false
-crash reports. The first failure remains visible after shutdown.
+During application shutdown, the runtime cancels and joins registered
+application-owned tasks **while child supervision remains active**.
+`RunningApp::spawn_task` and `Context::spawn_task` register named tasks;
+their errors and panics cancel the shared token, with
+`AppRunError::TaskFailure` preserving entrypoint and shutdown context.
+The monitor's final exit-status snapshot occurs **after** task joins but
+**before** intentional process termination. `RunningApp` also cleans up
+on drop. This closes the gap where a provider could crash while application
+tasks were still finishing.
 
-**Limits:** the entrypoint remains synchronous and cannot be forcibly
-interrupted. Long-running application work must observe its token and
-return; blocked, non-cooperative tasks can delay error reporting and teardown.
-This is **not** automatic restart, dependency-specific recovery, network
-health monitoring of external `tcp` providers, or production observability.
+**Limits:** entrypoints and worker threads remain synchronous and cannot be
+forcibly interrupted. Non-cooperative tasks may prevent shutdown and
+recovery from finishing. External TCP providers are not process-supervised,
+and production-grade health metrics are not yet provided.
 
 For example, in a Rust-authored application:
 
@@ -163,14 +170,40 @@ Provider identity and remote contract claims **cannot** be established by
 a no-I/O preflight. They are verified at runtime after connecting. Preflight
 does not authenticate remote services or prove a managed binary is trustworthy.
 
-### Recovery architecture boundary
+### Recovery policy and safety boundary
 
-Generated RPC clients still retain the TCP endpoint established at initial
-connection. Merely relaunching a managed process after a crash would leave
-existing application handles pointing to a stale port. Until an explicit
-rebindable transport and dependency/state recovery contract are implemented,
-Riesel intentionally retains the fail-fast policy. Do not advertise
-transparent restart or silently reuse stale client handles.
+The deployment can opt in to bounded **whole-application restart**:
+
+```json
+"recovery": {
+  "mode": "restart_application",
+  "max_restarts": 3,
+  "initial_backoff_ms": 100,
+  "max_backoff_ms": 2000
+}
+```
+
+The default policy is `{"mode":"fail_fast"}`. Recovery configuration is
+validated before any provider starts: 1–32 restarts, positive initial and
+maximum backoff, each <=120,000 ms. The delay doubles up to the configured
+maximum. When retries are exhausted, `AppRunError::RecoveryExhausted`
+preserves the last supervision failure.
+
+Recovery is attempted **only** after an unexpected required managed child
+exit, when the prior entrypoint and full shutdown succeeded. Business errors,
+worker task failures, startup failures, registry failures, and any shutdown
+failure are not retried. Each new attempt reconstructs all application
+providers and client handles from scratch, respecting dependency startup
+and reverse shutdown order. Rust SDK callbacks are `FnMut` to support
+repeated invocation; callers must make their work safe to replay.
+
+Generated TCP client handles still retain their original endpoint; individual
+process restart without rebuilding clients would be unsafe. Per-service
+transparent rebinding, selective dependent restart, persistent state
+rehydration, untrusted remote transport and production observability are
+**not** implemented. Memory-only providers lose state across attempts.
+This bounded whole-session policy is not a generic exactly-once execution
+guarantee.
 
 ## Generated capability RPC — implemented reference slice
 
@@ -220,13 +253,13 @@ provider discovery remain future work.
 
 ## Remaining engineering work, in priority order
 
-1. **Lifecycle robustness (in progress):** dependency validation, ordered
-   startup, bounded reverse-order shutdown with kill fallback, startup rollback,
-   continuous managed-child monitoring, shared cooperative cancellation,
-   fail-fast reporting, and sibling cleanup are implemented and tested.
-   Remaining: explicit configurable failure/restart policy, dependency-aware
-   recovery, cancellation coordination for application-owned tasks, further
-   resilience/fault-injection scenarios, and operational metrics.
+1. **Runtime lifecycle and recovery (implemented within cooperative whole-session scope):**
+   dependency validation, reverse teardown, crash monitoring, task cancellation
+   and joins, configurable bounded restart/backoff, fresh dependency-ordered
+   sessions, retry safety rules, and real-process failure-injection are tested.
+   Remaining for production reliability: selective dependency-subgraph restart
+   with safely rebindable clients, stateful recovery contracts, health metrics,
+   bounded handling of noncooperative tasks, and external-provider monitoring.
 2. **Developer tooling and models:** provider preflight, dependency ordering,
    JSON inspection plans, a second runtime-integrated Counter provider and
    reusable RPC hosting are implemented. Remaining: richer model field types,

@@ -8,11 +8,12 @@ with optional bounded cooperative shutdown. Both Storage and Counter use
 the same generic RPC host; neither component implements its own wire protocol
 or process lifecycle loop.
 
-**Status:** reference applications work and runtime-owned children are
-supervised with cooperative cancellation. Production persistence,
-authenticated remote transport, automatic service recovery, and UI tooling
-are not implemented. Do not use the in-memory Storage reference as durable
-storage.
+**Status:** reference applications work; managed children have continuous
+supervision, application-owned tasks have cooperative cancellation and join
+semantics, and opt-in bounded **whole-application-session recovery** is
+implemented. Per-provider live rebinding, production persistence,
+authenticated remote transport and UI tooling are not implemented.
+The reference Storage and Counter implementations are in-memory.
 
 ## Run and validate
 
@@ -27,7 +28,10 @@ cargo smoke
 
 The Todo example derives its model directly from Rust and opts in to an
 ephemeral local MemoryStore for development. The smoke suite exercises
-managed TCP Storage and multi-service failure cleanup on Linux and Windows.
+managed TCP Storage, multi-service cleanup and real Counter crash recovery.
+Linux CI runs on every push and pull request; run the optional Windows job
+manually using Actions > Validate > Run workflow (enable Windows) before
+releases.
 
 ## Capabilities, components and runtime infrastructure
 
@@ -50,7 +54,8 @@ capability. Once an alias is declared, use
 `Application::depends_on("consumer", ["storage"])` to require `storage`
 to become ready before `consumer` starts. Dependencies are validated for
 missing aliases and cycles. They govern startup and reverse teardown order,
-not provider discovery or automatic recovery.
+not provider discovery or selective provider replacement. A recovering
+application restarts its entire dependency-ordered session.
 
 ## Inspecting deployment plans
 
@@ -73,36 +78,59 @@ service exists, verify the server's advertised contract, authenticate a
 provider, inspect a binary's behavior, or guarantee that a process will
 become ready. Those checks still occur at actual startup.
 
-## Observing and cancelling managed applications
+## Runtime lifecycle and recovery
 
-A single runtime-owned monitor watches child process exits. An unexpected
-exit of any required **managed** service (including exit code 0) cancels the
-running application's shared `CancellationToken`. Both
+One runtime-owned monitor watches the exit state of required managed
+children. An unexpected exit, including a successful exit code, cancels the
+session's shared `CancellationToken`. Both
 `RunningApp::cancellation_token()` and `Context::cancellation_token()`
-provide access to the same signal. Workers can use
-`wait_cancelled_timeout(Duration)` instead of busy waiting, and application
-code can call `cancel()` explicitly. `RunningApp::check_processes()` exposes
-the recorded service failure.
+expose it. Use `wait_cancelled_timeout(Duration)` rather than busy-waiting.
 
-For long-running application code:
+Create application-owned worker threads using `Context::spawn_task("name",
+|cancellation| ...)` or `RunningApp::spawn_task`. On cancellation, every
+task must finish cooperatively. Riesel joins tasks **before** dropping
+capability clients or stopping processes. Task errors and panics cancel the
+application and become `AppRunError::TaskFailure`; simultaneous errors are
+retained rather than silently discarded.
 
-```rust
-let cancellation = ctx.cancellation_token();
-while !cancellation.wait_cancelled_timeout(std::time::Duration::from_millis(100)) {
-    // Perform one bounded unit of application work.
+Default deployments use `fail_fast`. To opt into a bounded restart of the
+**whole application session**, add this top-level deployment policy:
+
+```json
+{
+  "services": {
+    "counter": {
+      "transport": "managed",
+      "program": "/absolute/path/to/counter_service"
+    }
+  },
+  "recovery": {
+    "mode": "restart_application",
+    "max_restarts": 3,
+    "initial_backoff_ms": 100,
+    "max_backoff_ms": 2000
+  }
 }
 ```
 
-The existing synchronous `run` entrypoint reports an `AppRunError::Supervision`
-when a required managed child fails, **once the entrypoint returns**. Rust
-closures cannot be preempted safely: application code must check its
-cancellation token and return cooperatively. The runtime joins monitoring
-before shutting down children and records their final exit state.
+A restart cancels and joins old tasks, clears old typed handles, tears down
+managed processes in reverse startup order, and creates **new** providers
+and clients in dependency order. An exponential bounded backoff is applied
+between attempts. On exhaustion, `AppRunError::RecoveryExhausted` retains
+the final managed-service failure.
 
-There is currently **no automatic restart**, background monitoring of
-externally owned TCP providers, or cancellation of arbitrary blocking I/O.
-The default policy for required managed providers is to cancel and fail the
-application rather than silently reuse a dead client.
+The policy retries only unexpected managed-process exits after the entrypoint
+returns cooperatively, with no concurrent business or shutdown error. It
+**never** silently retries application business errors, startup failures or
+background task failures. The Rust SDK entrypoint is `FnMut` so it can be
+called again with an entirely new `Context`.
+
+**Important limitations:** restart reruns application work; callers must
+ensure replay is safe and handle external side effects. In-memory state is
+lost. Existing client handles must not outlive a session. Rust threads and
+blocking synchronous entrypoints cannot be forcibly interrupted; tasks must
+cooperate. External TCP health monitoring, transparent per-service
+reconnection and persistent-state recovery are not provided.
 
 ## Documentation
 

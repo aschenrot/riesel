@@ -1145,7 +1145,6 @@ mod tests {
         ));
     }
 
-
     #[test]
     fn delayed_exit_child() {
         if std::env::var_os("RIESEL_RUNTIME_TEST_DELAYED_EXIT").is_some() {
