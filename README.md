@@ -47,6 +47,57 @@ The developer supplies a component implementation, not a handwritten server
 loop for each capability. See [Counter example](apps/examples/counter_rpc/README.md)
 for local and managed execution using the same contract.
 
+## Component registration and refactoring
+
+Riesel's runtime, SDK, macro generators, protocol, model schema and smoke
+tests now have separate internal modules for distinct responsibilities.
+Connectors are indexed by **capability ID plus version**; one local provider
+instance can implement several versioned capabilities using shared state.
+
+For a single local capability, applications can avoid handwritten
+`LocalProviderFactory`, contract definitions and `ConnectedProvider` wiring:
+
+```rust
+Application::new("Counter")
+    .rpc::<CounterContract>("counter")?
+    .provide::<CounterContract, _>("riesel.counter.memory", || {
+        std::sync::Arc::new(MemoryCounter::default())
+            as std::sync::Arc<dyn Counter + Send + Sync>
+    })?
+    .run(|ctx| {
+        ctx.capability::<CounterContract>("counter")?.add(1)?;
+        Ok(())
+    })
+```
+
+The code assumes the relevant `riesel`, `riesel_counter` and
+`riesel_counter_component` imports. Lower-level components use
+`local_provider::<C, F>` or `LocalComponentFactory::new(...).exposes::<C>()`
+for multiple bindings. Generated capability traits automatically forward
+methods through `Arc<T>`. Storage and Counter use common
+`serve_component` / `run_component_from_env` host helpers, rather than
+duplicating process CLI and service startup code.
+
+The loopback TCP server serves requests through **four worker threads** with
+a maximum **32 pending connections**. It has bounded JSON framing and socket
+timeouts; busy connections may be rejected. These limits are reference
+defaults, not configurable production resource policies.
+
+`RieselModel` supports `bool`, `String`, `Uuid`, `u64`, `i64`, `f64`,
+JSON values, `Option<T>` and `Vec<T>`, with recursive value validation.
+Unsupported Serde renaming and field/variant modifiers are rejected by
+the derive macros to avoid inconsistent generated contract metadata.
+
+### Capability handle lifetimes
+
+Each application session has a revocable token. Generated local trait proxies
+and remote TCP capability handles check the token before each call. When a
+session closes, even an `Arc` previously cloned by application code rejects
+new calls rather than using an obsolete endpoint. Recovery creates new
+session-bound handles. This is **not** transparent reconnection: manual or
+custom connectors still require their own lifetime handling, and an in-flight
+call cannot be forcibly cancelled by revocation.
+
 ## Defining lifecycle dependencies
 
 Call `Application::rpc::<Contract>("alias")` to declare a generated RPC
@@ -127,9 +178,10 @@ called again with an entirely new `Context`.
 
 **Important limitations:** restart reruns application work; callers must
 ensure replay is safe and handle external side effects. In-memory state is
-lost. Existing client handles must not outlive a session. Rust threads and
-blocking synchronous entrypoints cannot be forcibly interrupted; tasks must
-cooperate. External TCP health monitoring, transparent per-service
+lost. Generated handles retained by application code reject new calls
+after their session expires; they do not transparently rebind. Rust threads
+and blocking synchronous entrypoints cannot be forcibly interrupted; tasks
+must cooperate. External TCP health monitoring, transparent per-service
 reconnection and persistent-state recovery are not provided.
 
 ## Documentation
@@ -137,6 +189,7 @@ reconnection and persistent-state recovery are not provided.
 - [Implementation roadmap](docs/product/riesel/implementation-roadmap.md)
 - [Product definition](docs/product/riesel/riesel.md)
 - [Todo example](apps/examples/todo/README.md)
+- [Counter example](apps/examples/counter_rpc/README.md)
 
 Riesel is under active development and intentionally permits breaking API
 changes during its initial architecture phase.

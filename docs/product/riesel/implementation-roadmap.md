@@ -48,6 +48,43 @@ without false crash reports, and healthy-sibling cleanup.
 Completed stages mean *working within their currently specified scope*, not
 production-grade infrastructure.
 
+## Architecture refactoring checkpoint
+
+Before advancing the roadmap, the Rust implementation was consolidated and
+verified using Linux `cargo validate --check` and `cargo smoke`:
+
+- Connector registration uses exact capability ID/version keys. One provider
+  instance can expose multiple distinct capability bindings.
+- Typed `local_provider`, `LocalComponentFactory` and SDK `provide`
+  remove repeated Storage/Counter local factory wiring.
+- Generated client bindings carry revocable session tokens; calls from
+  escaped local or remote handles fail after shutdown and restart.
+- Runtime registry, planning, startup, handshake, running session, errors
+  and tests are separate modules. SDK builder, CLI and Context; macro
+  capability and model/type derives; and RPC client/wire/server/hosting
+  follow the same responsibility split.
+- The `#[capability]` macro generates `Arc<T>` trait forwarding.
+  Derive validation rejects unsupported Serde field/variant/container
+  modifiers rather than generating inaccurate contract metadata.
+- The loopback RPC host uses four workers and a bounded 32-socket pending
+  queue; slow and fast calls are tested concurrently.
+- `RieselModel` supports numeric, optional, list and JSON fields, including
+  typed Storage round-trip tests.
+- Obsolete handwritten-protocol/fixed-port tests were removed.
+  `cargo ship` preserves deliberate staging instead of `git add .`.
+  Linux CI runs on main and the working branch; Windows remains an
+  explicit on-demand pre-release check.
+
+**Breaking change:** Counter now advertises version **2** because it
+returns a typed internal failure instead of panicking on a poisoned lock.
+
+**Boundaries:** Runtime-owned tasks remain cooperative and unbounded joins
+can block indefinitely; RPC remains unauthenticated and loopback-only;
+in-flight calls are not forcibly interrupted; manually written custom
+connectors are responsible for their own session enforcement; provider
+state remains non-durable. These issues belong to later production
+hardening, not this refactoring checkpoint.
+
 ## Recommended Rust authoring workflow
 
 `apps/examples/todo/src/task.rs` defines a Rust `TaskData` model, annotated
@@ -64,8 +101,10 @@ schema; `--deployment FILE` allows explicit external or managed providers.
 capability and automatically registers a shared transport connector.
 `Context::capability::<SomeContract>("alias")` returns the typed service.
 Implementations opt in using `#[capability(..., client_trait)]` and define an
-explicit conversion from `RpcError` into their public error type. Custom
-providers can still be registered explicitly. A general provider catalog and
+explicit conversion from `RpcError` into their public error type.
+`Application::provide::<Contract, _>(id, factory)` can register a local
+implementation without manually implementing the provider-factory trait.
+Custom providers can still be registered explicitly. A general provider catalog and
 automatic deployment discovery are not implemented.
 
 `development()` is an **explicit opt-in** to ephemeral in-memory storage,
@@ -197,8 +236,10 @@ providers and client handles from scratch, respecting dependency startup
 and reverse shutdown order. Rust SDK callbacks are `FnMut` to support
 repeated invocation; callers must make their work safe to replay.
 
-Generated TCP client handles still retain their original endpoint; individual
-process restart without rebuilding clients would be unsafe. Per-service
+Generated TCP client handles retain their original endpoint but are scoped
+to a revocable application session; calls through escaped handles fail
+after revocation. Individual provider restart without rebuilding clients
+would still be unsafe. Per-service
 transparent rebinding, selective dependent restart, persistent state
 rehydration, untrusted remote transport and production observability are
 **not** implemented. Memory-only providers lose state across attempts.
@@ -219,7 +260,8 @@ bounded loopback-only `TcpRpcTransport`, including contract inspection and
 structural shape verification. Transport failures are represented separately
 from domain errors through `CallError<E>`.
 
-The Counter capability contract now lives in `crates/riesel_counter`, with
+The Counter capability contract (version 2) now lives in
+`crates/riesel_counter`, with
 its independent in-memory implementation in `components/counter`. The
 `apps/examples/counter_rpc` application tests generated clients and
 dispatchers, commands, queries, borrowed string inputs, domain errors,
@@ -228,9 +270,10 @@ The same application exercises a typed local provider and the runtime-managed
 Counter executable through `RpcConnector<CounterContract>`. Its server uses
 the shared `run_tcp_rpc_host` helper.
 
-The Storage host was migrated to the same helper; process readiness, private
-cooperative shutdown, loopback restrictions and TCP accept loops are no longer
-duplicated in each component. Neither capability has a handwritten request
+Storage and Counter now use `serve_component` and
+`run_component_from_env` for shared process hosting and CLI parsing.
+Readiness, private shutdown, loopback restrictions, bounded TCP request
+workers and accept loops are no longer duplicated in each component. Neither capability has a handwritten request
 enum or per-operation RPC dispatcher.
 
 **Storage RPC migration completed:** `RecordStoreRpcClient` and
@@ -261,9 +304,11 @@ provider discovery remain future work.
    with safely rebindable clients, stateful recovery contracts, health metrics,
    bounded handling of noncooperative tasks, and external-provider monitoring.
 2. **Developer tooling and models:** provider preflight, dependency ordering,
-   JSON inspection plans, a second runtime-integrated Counter provider and
-   reusable RPC hosting are implemented. Remaining: richer model field types,
-   schema evolution, more contract types and additional transports.
+   JSON inspection, a second runtime-integrated Counter provider, generic
+   component registration and bounded reusable RPC hosting are implemented.
+   Numeric, optional, list and JSON record fields are supported. Remaining:
+   schema evolution/migrations, nested named models, additional transports
+   and broader contract shapes.
 3. **Production operation:** persistent Storage, migration strategy, secure
    authenticated transports, authorization and secrets, resource limits,
    observability, repeatable deployments, and recovery policies.

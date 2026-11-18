@@ -42,7 +42,8 @@ rollback: when a dependent managed process cannot spawn, the already running
 Storage process must be terminated. A separate smoke check verifies that
 Storage exits normally on the managed runtime's private stdin shutdown request.
 
-Linux and Windows CI execute these tests.
+Linux CI runs these tests automatically. Windows validation remains
+available manually in the Validate workflow and is required before release.
 
 ## Inspect a deployment before launching services
 

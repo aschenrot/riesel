@@ -16,9 +16,12 @@ are not specific to Storage.
 cargo run -p riesel_counter_example --bin riesel_counter_example
 ```
 
-The application registers `CounterContract` and `MemoryCounterFactory`
-directly through the Rust SDK. No JSON, TCP endpoint, per-operation RPC client,
-or explicit process management is necessary.
+The application registers `CounterContract` and
+`memory_counter_provider()` through the Rust SDK. Alternatively,
+`Application::provide::<CounterContract, _>("riesel.counter.memory", || ...)`
+registers an implementation without handwritten provider/factory metadata.
+No JSON, TCP endpoint, per-operation RPC client or explicit process management
+is needed.
 
 ## Inspect the generated definition
 
@@ -39,8 +42,11 @@ Counter process to crash and verifies that a new application session binds
 to its replacement without reusing a stale endpoint. Linux runs in required
 CI; Windows can be checked manually in the Validate workflow.
 
-Counter uses the same `run_tcp_rpc_host` implementation as Storage for the
-versioned readiness message, loopback binding and cooperative shutdown.
+Counter uses the same `serve_component` and
+`run_component_from_env` helpers as Storage for readiness, bind-address
+selection and cooperative shutdown. Its capability contract is **version 2**.
+Generated `Arc<dyn Counter>` handles reject calls after their application
+session expires.
 
 **Boundaries:** Counter is in-memory and non-durable; managed TCP remains
 plaintext and unauthenticated on loopback. Opt-in recovery rebuilds the
