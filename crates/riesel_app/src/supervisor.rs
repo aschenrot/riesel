@@ -293,19 +293,71 @@ mod tests {
         )
         .unwrap();
 
-        assert!(!monitor
-            .cancellation_token()
-            .wait_cancelled_timeout(Duration::from_millis(100)));
+        assert!(
+            !monitor
+                .cancellation_token()
+                .wait_cancelled_timeout(Duration::from_millis(100))
+        );
         assert!(monitor.check_now().is_none());
 
         monitor.stop().unwrap();
         registry.lock().unwrap().stop_all().unwrap();
-        assert!(monitor
-            .failure
-            .lock()
-            .unwrap()
-            .is_none());
+        assert!(monitor.failure.lock().unwrap().is_none());
         assert!(monitor.cancellation_token().is_cancelled());
     }
+    #[test]
+    fn short_lived_test_child() {}
 
+    #[test]
+    fn failing_sibling_does_not_leave_other_owned_children_running() {
+        use std::process::{Command, Stdio};
+
+        let mut registry = ProcessRegistry::new();
+        let first = ProcessKey::new(10, Some("first".into()));
+        let mut first_command = Command::new(std::env::current_exe().unwrap());
+        first_command
+            .args(["--exact", "supervisor::tests::long_running_test_child"])
+            .env("RIESEL_SUPERVISOR_TEST_SLEEP", "1")
+            .stdin(Stdio::null())
+            .stdout(Stdio::null())
+            .stderr(Stdio::null());
+        registry.spawn(first.clone(), &mut first_command).unwrap();
+
+        let second = ProcessKey::new(11, Some("second".into()));
+        let mut second_command = Command::new(std::env::current_exe().unwrap());
+        second_command
+            .args(["--exact", "supervisor::tests::short_lived_test_child"])
+            .stdin(Stdio::null())
+            .stdout(Stdio::null())
+            .stderr(Stdio::null());
+        registry.spawn(second.clone(), &mut second_command).unwrap();
+
+        let registry = Arc::new(Mutex::new(registry));
+        let mut supervisor = ServiceMonitor::start(
+            Arc::clone(&registry),
+            BTreeMap::from([
+                ("first".into(), first.clone()),
+                ("second".into(), second.clone()),
+            ]),
+        )
+        .unwrap();
+        assert!(supervisor
+            .cancellation_token()
+            .wait_cancelled_timeout(Duration::from_secs(8)));
+        assert!(matches!(
+            supervisor.check_now(),
+            Some(RuntimeError::ServiceExited { requirement, .. })
+                if requirement == "second"
+        ));
+
+        supervisor.stop().unwrap();
+        let mut processes = registry.lock().unwrap();
+        processes.stop_all().unwrap();
+        for key in [first, second] {
+            assert_eq!(
+                processes.status(&key).unwrap_err().kind(),
+                io::ErrorKind::NotFound
+            );
+        }
+    }
 }
