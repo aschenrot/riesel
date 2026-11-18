@@ -1,5 +1,16 @@
 //! Reference Counter implementation. This component provides a versioned
 //! Counter capability; the contract is defined independently in riesel_counter.
+//!
+//! A declared component must actually implement all provided contracts:
+//!
+//! ```compile_fail
+//! use riesel_macros::component;
+//! use riesel_counter::CounterContract;
+//!
+//! #[component(provides = [CounterContract])]
+//! #[derive(Default)]
+//! struct MissingCounterImplementation;
+//! ```
 
 mod server;
 
@@ -67,6 +78,42 @@ pub fn memory_provider_definition() -> Result<ProviderDefinition, ConnectorError
 mod tests {
     use super::*;
     use std::sync::Arc;
+
+    // A non-Default component may provide an explicit constructor and
+    // receive a deterministic private ID without a handwritten factory.
+    #[component(provides = [CounterContract], factory = build_private_counter)]
+    struct PrivateCounter;
+
+    fn build_private_counter() -> PrivateCounter {
+        PrivateCounter
+    }
+
+    impl Counter for PrivateCounter {
+        fn value(&self) -> Result<u64, CounterError> {
+            Ok(0)
+        }
+
+        fn add(&self, amount: u64) -> Result<u64, CounterError> {
+            Ok(amount)
+        }
+
+        fn label(&self, prefix: &str) -> Result<String, CounterError> {
+            Ok(format!("{prefix}: 0"))
+        }
+    }
+
+    #[test]
+    fn private_component_uses_generated_identity_and_custom_constructor() {
+        let definition = PrivateCounter::component_definition().unwrap();
+        let provider = definition.definition().unwrap();
+        provider.validate().unwrap();
+        assert_eq!(
+            provider.id,
+            riesel_schema::CapabilityRef::private_rust_id(module_path!(), "PrivateCounter")
+        );
+        assert_eq!(provider.capabilities, vec![CounterContract::definition().unwrap().capability]);
+        assert_eq!(PrivateCounter.value().unwrap(), 0);
+    }
 
     #[test]
     fn counter_provider_matches_independent_contract() {
