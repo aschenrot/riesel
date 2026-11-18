@@ -318,3 +318,56 @@ fn development_storage_validates_models_even_for_direct_capability_calls() {
         })
         .unwrap();
 }
+
+#[cfg(feature = "dev-memory-storage")]
+#[test]
+fn typed_capability_parameter_declares_and_extracts_owned_session_handle() {
+    use crate::{ApplicationParam, Capability};
+
+    type Store = Capability<RecordStoreContract>;
+    let alias = Store::default_alias().unwrap();
+    let app = Store::declare(Application::new("TypedStore"), &alias)
+        .unwrap()
+        .development()
+        .unwrap();
+    assert_eq!(app.definition().requires.len(), 1);
+    assert_eq!(app.definition().requires[0].name, alias);
+
+    let mut escaped = None;
+    app.run(|context| {
+        let store = Store::extract(context, &alias)?;
+        assert!(store.list_page("task", None, 1)?.records.is_empty());
+        escaped = Some(store.clone());
+        Ok(())
+    })
+    .unwrap();
+    assert!(matches!(
+        escaped.unwrap().list_page("task", None, 1),
+        Err(crate::storage::StoreError::Transport(_))
+    ));
+}
+
+#[cfg(feature = "dev-memory-storage")]
+#[test]
+fn typed_records_parameter_derives_storage_requirement_and_model_binding() {
+    use crate::{ApplicationParam, Records};
+
+    type Tasks = Records<TodoModel>;
+    let alias = Tasks::default_alias().unwrap();
+    let app = Tasks::declare(Application::new("TypedTodo"), &alias)
+        .unwrap()
+        .development()
+        .unwrap();
+    assert_eq!(app.definition().requires.len(), 1);
+    assert_eq!(app.definition().model_bindings["todo"], [alias.as_str()]);
+    app.run(|context| {
+        let tasks = Tasks::extract(context, &alias)?;
+        let created = tasks.create(TodoModel {
+            title: "Injected".into(),
+            completed: false,
+        })?;
+        assert_eq!(tasks.get(created.id)?.unwrap().value.title, "Injected");
+        Ok(())
+    })
+    .unwrap();
+}

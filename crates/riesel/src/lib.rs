@@ -29,7 +29,7 @@ mod application;
 mod records;
 mod rpc_connector;
 
-pub use application::{Application, Context, Result, SdkError};
+pub use application::{Application, ApplicationParam, Capability, Context, Result, SdkError};
 #[cfg(feature = "records")]
 pub use records::{Record, RecordPage, Records};
 pub use rpc_connector::RpcConnector;

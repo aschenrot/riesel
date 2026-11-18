@@ -18,6 +18,14 @@ pub enum CapabilityRefError {
 }
 
 impl CapabilityRef {
+    /// Derive a stable application-level requirement alias from this contract ID.
+    /// Escaping both dots and underscores avoids ambiguous aliases for
+    /// `foo.bar_baz` versus `foo_bar.baz`. Parameter variable names are
+    /// never used as deployment configuration keys.
+    pub fn default_requirement_alias(&self) -> String {
+        self.id.replace('_', "_u").replace('.', "__")
+    }
+
     /// Deterministic identity for an unpublished Rust capability declaration.
     ///
     /// The encoding is lossless across different Rust identifiers, including
@@ -106,6 +114,20 @@ mod tests {
             };
             reference.validate().unwrap();
         }
+    }
+
+    #[test]
+    fn requirement_aliases_are_stable_and_unambiguous() {
+        let alias = |id: &str| {
+            CapabilityRef {
+                id: id.into(),
+                version: 1,
+            }
+            .default_requirement_alias()
+        };
+        assert_eq!(alias("example.counter"), "example__counter");
+        assert_ne!(alias("foo.bar_baz"), alias("foo_bar.baz"));
+        assert_eq!(alias("example.counter"), alias("example.counter"));
     }
 
     #[test]
