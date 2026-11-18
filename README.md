@@ -3,7 +3,8 @@
 Riesel is an experimental Rust-first, schema-driven application runtime.
 Applications declare versioned capabilities and bind them to local, external,
 or runtime-managed providers. The runtime handles provider validation,
-generated typed RPC, managed child startup, and dependency-ordered teardown.
+generated typed RPC, managed child startup, and dependency-ordered teardown
+with optional bounded cooperative shutdown.
 
 **Status:** reference applications work; production persistence, authenticated
 remote transport, continuous service supervision and UI tooling are not

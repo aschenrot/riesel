@@ -39,7 +39,8 @@ allocate ports without a pre-bind reservation race. The runtime reads a
 bounded `RIESEL_READY` announcement and verifies each provider identity and
 generated contract before executing Todo. It also exercises multi-service
 rollback: when a dependent managed process cannot spawn, the already running
-Storage process must be terminated.
+Storage process must be terminated. A separate smoke check verifies that
+Storage exits normally on the managed runtime's private stdin shutdown request.
 
 Linux and Windows CI execute these tests.
 

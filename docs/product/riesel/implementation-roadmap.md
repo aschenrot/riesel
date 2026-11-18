@@ -18,7 +18,9 @@ cargo smoke
 `cargo validate --check` checks committed formatting, all workspace targets,
 Clippy (warnings denied), tests, and documentation. `cargo smoke` executes
 the actual Todo and Storage binaries, including runtime-owned Storage processes,
-then verifies a failed second managed service launch cleans up the first one.
+then verifies a failed second managed service launch cleans up the first one,
+and that the Storage binary cooperatively exits on a bounded private stdin
+shutdown request.
 
 ## Milestone status
 
@@ -72,6 +74,15 @@ concurrent independently managed Storage instances with OS-assigned ports.
 The local factory is covered by unit tests.
 After readiness, the runtime continues draining child stdout.
 
+Managed children that advertise `"shutdown":"stdin_line"` in their
+`RIESEL_READY` frame receive a private `RIESEL_SHUTDOWN` command on piped stdin.
+The process registry waits up to the deployment's `shutdown_timeout_ms`
+(default 2,000 ms, maximum 120,000 ms) for an ordinary exit, then force-kills
+and reaps an unresponsive child. Providers without the opt-in retain immediate
+forceful cleanup. Storage implements the cooperative path, which is validated
+by process tests and the executable smoke suite on Linux and Windows.
+This mechanism is a local lifecycle channel, **not transport authentication**.
+
 Applications can declare dependencies between requirement **aliases** using
 `depends_on`. Riesel rejects missing, self-referential, duplicated, and cyclic
 dependencies before launching providers. Startup follows a stable topological
@@ -79,7 +90,8 @@ order; independent requirements preserve declaration order. Managed children
 are terminated in reverse **actual startup** order, including on partial
 startup failure. The rollback smoke test confirms that a previously connected
 Storage server no longer listens after a dependent launch fails. This is
-forceful teardown, **not yet graceful shutdown or automatic crash recovery**.
+reverse-order teardown with a bounded graceful opt-in, **not yet automatic
+crash recovery**.
 
 For example, in a Rust-authored application:
 
@@ -139,11 +151,10 @@ provider discovery remain future work.
 ## Remaining engineering work, in priority order
 
 1. **Lifecycle robustness (in progress):** dependency validation,
-   deterministic startup ordering, reverse-order forceful cleanup, and
-   multi-service rollback are implemented and tested. Remaining:
-   cooperative graceful shutdown with deadlines and kill fallback;
-   continuous child exit monitoring, cancellation, explicit failure/restart
-   policies, and multi-service recovery scenarios.
+   deterministic startup ordering, reverse-order bounded cooperative shutdown
+   with force-kill fallback, and multi-service rollback are implemented and
+   tested. Remaining: continuous child exit monitoring, cancellation,
+   explicit failure/restart policies, and multi-service recovery scenarios.
 2. **Developer tooling and models:** inspect provider selection before
    launching services; improve model field types and schema evolution; test
    generated adapter compatibility with a second runtime-integrated provider.
