@@ -12,3 +12,15 @@ riesel_counter.workspace = true
 riesel_counter_component.workspace = true
 riesel_protocol.workspace = true
 serde_json.workspace = true
+
+[[bin]]
+name = "counter_crash_fixture"
+path = "tests/fixtures/counter_crash_fixture.rs"
+
+[[bin]]
+name = "counter_recovery_client"
+path = "tests/fixtures/counter_recovery_client.rs"
+
+[[bin]]
+name = "counter_dual_client"
+path = "tests/fixtures/counter_dual_client.rs"
