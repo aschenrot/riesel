@@ -417,10 +417,7 @@ impl App {
         deployment.validate(schema)?;
 
         let mut services = Vec::with_capacity(schema.requires.len());
-        for requirement in schema
-            .startup_order()
-            .map_err(DeploymentError::from)?
-        {
+        for requirement in schema.startup_order().map_err(DeploymentError::from)? {
             let endpoint = &deployment.services[&requirement.name];
             let target = match endpoint {
                 ServiceEndpoint::Local { provider } => {
@@ -428,7 +425,10 @@ impl App {
                         .local
                         .get(provider)
                         .ok_or_else(|| RuntimeError::UnknownLocalProvider(provider.clone()))?;
-                    if !local.definition.capabilities.contains(&requirement.capability)
+                    if !local
+                        .definition
+                        .capabilities
+                        .contains(&requirement.capability)
                         || local.contract.capability != requirement.capability
                     {
                         return Err(RuntimeError::LocalContractMismatch {
@@ -472,14 +472,15 @@ impl App {
         connectors: &ConnectorRegistry,
     ) -> Result<(), RuntimeError> {
         let id = &requirement.capability.id;
-        let adapter = connectors
-            .adapters
-            .get(id)
-            .ok_or_else(|| RuntimeError::MissingConnector {
-                requirement: requirement.name.clone(),
-                id: id.clone(),
-                version: requirement.capability.version,
-            })?;
+        let adapter =
+            connectors
+                .adapters
+                .get(id)
+                .ok_or_else(|| RuntimeError::MissingConnector {
+                    requirement: requirement.name.clone(),
+                    id: id.clone(),
+                    version: requirement.capability.version,
+                })?;
         if adapter.contract.capability != requirement.capability {
             return Err(RuntimeError::LocalContractMismatch {
                 requirement: requirement.name.clone(),
@@ -1069,7 +1070,6 @@ mod tests {
             })
         ));
     }
-
 
     #[test]
     fn preflight_orders_all_dependencies_without_connecting_or_starting() {

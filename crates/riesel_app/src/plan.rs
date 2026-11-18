@@ -27,8 +27,12 @@ pub struct PlannedService {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 #[serde(tag = "transport", rename_all = "snake_case")]
 pub enum PlannedTarget {
-    Local { provider: String },
-    Tcp { address: SocketAddr },
+    Local {
+        provider: String,
+    },
+    Tcp {
+        address: SocketAddr,
+    },
     Managed {
         program: PathBuf,
         startup_timeout_ms: u64,

@@ -227,7 +227,10 @@ impl Application {
             }
             [option, path] if option == "--inspect-deployment" => {
                 let config = DeploymentConfig::load(PathBuf::from(path))?;
-                println!("{}", serde_json::to_string_pretty(&self.deployment_plan(&config)?)?);
+                println!(
+                    "{}",
+                    serde_json::to_string_pretty(&self.deployment_plan(&config)?)?
+                );
                 return Ok(());
             }
             _ => {
@@ -443,6 +446,10 @@ mod tests {
             .map(|service| service.requirement.as_str())
             .collect();
         assert_eq!(ordered, ["storage", "consumer"]);
-        assert!(serde_json::to_string(&plan).unwrap().contains("not-a-real-service"));
+        assert!(
+            serde_json::to_string(&plan)
+                .unwrap()
+                .contains("not-a-real-service")
+        );
     }
 }
