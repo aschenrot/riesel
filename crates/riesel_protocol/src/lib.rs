@@ -7,9 +7,9 @@ pub use rpc::{
     AsyncRpcTransport, CallError, ComponentAdapter, LocalRpc, RpcClientBinding, RpcError,
     RpcHandler, RpcHost, RpcRouter, RpcTransport, decode_result,
 };
-pub use tcp::{TcpRpcTransport, handle_tcp_connection, run_tcp_rpc_host};
 #[cfg(feature = "async-tcp")]
 pub use tcp::AsyncTcpRpcTransport;
+pub use tcp::{TcpRpcTransport, handle_tcp_connection, run_tcp_rpc_host};
 
 pub use session::SessionToken;
 

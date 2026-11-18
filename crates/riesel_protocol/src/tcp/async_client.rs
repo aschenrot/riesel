@@ -116,7 +116,9 @@ impl AsyncTcpRpcTransport {
         &self,
         capability: &CapabilityRef,
     ) -> Result<CapabilityContract, RpcError> {
-        let value = self.call(capability, DESCRIBE, serde_json::json!({})).await?;
+        let value = self
+            .call(capability, DESCRIBE, serde_json::json!({}))
+            .await?;
         let contract: CapabilityContract =
             serde_json::from_value(value).map_err(|error| RpcError::Codec(error.to_string()))?;
         contract
@@ -179,7 +181,9 @@ mod tests {
         let server = thread::spawn(move || {
             // Accept the request, deliberately send no response.
             let (mut stream, _) = listener.accept().unwrap();
-            stream.set_read_timeout(Some(Duration::from_secs(2))).unwrap();
+            stream
+                .set_read_timeout(Some(Duration::from_secs(2)))
+                .unwrap();
             let mut buf = [0_u8; 512];
             let _ = stream.read(&mut buf);
             thread::sleep(Duration::from_millis(150));
@@ -203,10 +207,8 @@ mod tests {
     #[test]
     fn expired_session_rejects_before_connecting() {
         let session = SessionToken::new();
-        let transport = AsyncTcpRpcTransport::with_session(
-            "127.0.0.1:1".parse().unwrap(),
-            session.clone(),
-        );
+        let transport =
+            AsyncTcpRpcTransport::with_session("127.0.0.1:1".parse().unwrap(), session.clone());
         session.invalidate();
         let cap = CapabilityRef {
             id: "example.counter".into(),

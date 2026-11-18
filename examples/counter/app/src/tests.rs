@@ -339,7 +339,10 @@ fn generated_async_client_operates_over_real_nonblocking_tcp() {
         .build()
         .unwrap();
     runtime.block_on(async {
-        transport.verify(&CounterContract::definition().unwrap()).await.unwrap();
+        transport
+            .verify(&CounterContract::definition().unwrap())
+            .await
+            .unwrap();
         let client = riesel_counter::CounterAsyncClient::new(transport);
         assert_eq!(client.value().await.unwrap(), 0);
         assert_eq!(client.add(8).await.unwrap(), 8);
