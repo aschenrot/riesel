@@ -12,3 +12,7 @@ riesel_schema.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 thiserror.workspace = true
+
+[dev-dependencies]
+riesel_protocol = { workspace = true, features = ["async-tcp"] }
+tokio.workspace = true

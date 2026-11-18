@@ -87,7 +87,10 @@ mod private_identity_tests {
 #[cfg(test)]
 mod native_async_capability_tests {
     use super::*;
-    use riesel_protocol::{AsyncRpcHandler, CallError, RpcError, SessionToken};
+    use riesel_protocol::{
+        AsyncRpcClientBinding, AsyncRpcHandler, AsyncTcpRpcTransport, CallError, RpcError,
+        SessionToken,
+    };
     use std::future::Future;
     use std::sync::{Arc, Mutex};
     use std::task::{Context, Poll, Waker};
@@ -157,6 +160,48 @@ mod native_async_capability_tests {
             ready(handle.value()),
             Err(CallError::Rpc(RpcError::SessionExpired))
         ));
+    }
+
+    #[test]
+    fn generated_native_async_contract_runs_over_nonblocking_tokio_host() {
+        use std::sync::atomic::{AtomicBool, Ordering};
+
+        let runtime = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .unwrap();
+        runtime.block_on(async {
+            let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
+                .await
+                .unwrap();
+            let address = listener.local_addr().unwrap();
+            let stopping = Arc::new(AtomicBool::new(false));
+            let handler = Arc::new(AsyncCounterAsyncRpcDispatcher::new(
+                AsyncCounterState::default(),
+            ));
+            let host = tokio::spawn(riesel_protocol::serve_async_tcp_rpc_host(
+                listener,
+                handler,
+                Arc::clone(&stopping),
+            ));
+
+            let transport = Arc::new(AsyncTcpRpcTransport::new(address));
+            let client = AsyncCounterContract::bind_async(transport);
+            assert_eq!(client.value().await.unwrap(), 0);
+            assert_eq!(client.add(9).await.unwrap(), 9);
+            assert_eq!(client.label("async").await.unwrap(), "async: 9");
+            assert!(matches!(
+                client.add(0).await,
+                Err(CallError::Domain(CounterError::ZeroIncrement))
+            ));
+
+            stopping.store(true, Ordering::Release);
+            tokio::time::timeout(std::time::Duration::from_secs(2), host)
+                .await
+                .expect("native async host did not shut down")
+                .unwrap()
+                .unwrap();
+        });
     }
 
     #[test]
