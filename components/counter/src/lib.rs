@@ -61,14 +61,14 @@ pub fn memory_provider_definition() -> Result<ProviderDefinition, ContractError>
 }
 
 pub fn memory_counter_provider() -> Result<impl LocalProviderFactory, ConnectorError> {
-    Ok(LocalComponentFactory::new("riesel.counter.memory", || {
+    LocalComponentFactory::new("riesel.counter.memory", || {
         let state = Arc::new(MemoryCounter::default());
         LocalProviderInstance::new(memory_provider_definition()?)
             .bind::<CounterContract>(Arc::clone(&state) as Arc<dyn Counter + Send + Sync>)?
             .bind::<CounterObserverContract>(state as Arc<dyn CounterObserver + Send + Sync>)
     })
     .exposes::<CounterContract>()?
-    .exposes::<CounterObserverContract>()?)
+    .exposes::<CounterObserverContract>()
 }
 
 #[cfg(test)]
