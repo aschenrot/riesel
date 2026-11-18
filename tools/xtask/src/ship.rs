@@ -9,10 +9,9 @@ pub fn run(message: &str) -> TaskResult {
     }
 
     println!("\n==> Validating");
-    validate::run(validate::FormatMode::Fix)?;
-
-    println!("\n==> Staging");
-    git(&["add", "."])?;
+    // Do not silently stage arbitrary files, including secrets and
+    // unrelated work. Commit only the changes the developer staged.
+    validate::run(validate::FormatMode::Check)?;
 
     println!("\n==> Checking staged changes");
     git(&["diff", "--cached", "--check"])?;
