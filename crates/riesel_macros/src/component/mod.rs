@@ -55,7 +55,11 @@ impl Parse for ComponentArgs {
         if provides.is_empty() {
             return Err(input.error("a component must provide at least one capability"));
         }
-        Ok(Self { id, provides, factory })
+        Ok(Self {
+            id,
+            provides,
+            factory,
+        })
     }
 }
 
@@ -73,7 +77,10 @@ pub(crate) fn expand_component(args: ComponentArgs, item: ItemStruct) -> syn::Re
     let mut registered = BTreeSet::new();
     for provided in &args.provides {
         if !registered.insert(quote!(#provided).to_string()) {
-            return Err(syn::Error::new_spanned(provided, "duplicate provided capability"));
+            return Err(syn::Error::new_spanned(
+                provided,
+                "duplicate provided capability",
+            ));
         }
     }
 

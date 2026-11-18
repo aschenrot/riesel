@@ -14,7 +14,10 @@ pub(crate) fn validate_explicit_id(id: &LitStr) -> syn::Result<()> {
                 || !chars.all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '_')
         })
     {
-        return Err(syn::Error::new(id.span(), "invalid dotted capability/provider identifier"));
+        return Err(syn::Error::new(
+            id.span(),
+            "invalid dotted capability/provider identifier",
+        ));
     }
     Ok(())
 }

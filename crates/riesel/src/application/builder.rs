@@ -126,8 +126,8 @@ impl Application {
     /// Register a linked declarative component with generated local and
     /// managed bindings. This does not automatically discover implementations.
     pub fn component<C: DeclarativeComponent>(self) -> Result<Self> {
-        let definition = C::component_definition()
-            .map_err(|source| RuntimeError::ProviderFactory { source })?;
+        let definition =
+            C::component_definition().map_err(|source| RuntimeError::ProviderFactory { source })?;
         self.provider(definition)
     }
 

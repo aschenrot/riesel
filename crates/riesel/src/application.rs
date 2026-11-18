@@ -2,8 +2,8 @@ use crate::{CancellationToken, RpcConnector};
 #[cfg(feature = "records")]
 use crate::{Records, RieselModel};
 use riesel_app::{
-    App, AppRunError, ConnectorError, ConnectorRegistry, DeploymentConfig, DeploymentPlan,
-    DeclarativeComponent, LocalProviderFactory, RunningApp, RuntimeError,
+    App, AppRunError, ConnectorError, ConnectorRegistry, DeclarativeComponent, DeploymentConfig,
+    DeploymentPlan, LocalProviderFactory, RunningApp, RuntimeError,
 };
 use riesel_protocol::RpcClientBinding;
 use riesel_schema::{AppDefinition, AppSchema, CapabilityDescriptor, CapabilityRequirement};
