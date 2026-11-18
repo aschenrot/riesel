@@ -458,12 +458,14 @@ impl App {
                 let instance = if let Some(existing) = local_instances.get(provider) {
                     Arc::clone(existing)
                 } else {
-                    let connected = local.factory.create().map_err(|source| {
-                        RuntimeError::Connection {
-                            requirement: requirement.name.clone(),
-                            source,
-                        }
-                    })?;
+                    let connected =
+                        local
+                            .factory
+                            .create()
+                            .map_err(|source| RuntimeError::Connection {
+                                requirement: requirement.name.clone(),
+                                source,
+                            })?;
                     if connected.definition != local.definition
                         || !connected.contract.has_same_api_shape(&local.contract)
                     {
