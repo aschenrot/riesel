@@ -3,6 +3,11 @@ use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, BTreeSet};
 use thiserror::Error;
 
+/// Metadata descriptor implemented by each generated Rust capability contract.
+pub trait CapabilityDescriptor {
+    fn definition() -> Result<CapabilityContract, ContractError>;
+}
+
 /// A capability API derived from its Rust trait and public data types.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]

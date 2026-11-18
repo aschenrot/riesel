@@ -267,6 +267,15 @@ fn expand_capability(
                 Ok(contract)
             }
         }
+
+        impl ::riesel_schema::CapabilityDescriptor for #descriptor_name {
+            fn definition() -> Result<
+                ::riesel_schema::CapabilityContract,
+                ::riesel_schema::ContractError
+            > {
+                #descriptor_name::definition()
+            }
+        }
     })
 }
 
