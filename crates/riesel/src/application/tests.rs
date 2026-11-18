@@ -1,7 +1,10 @@
 use super::*;
+#[cfg(feature = "records")]
 use crate::RieselModel;
+#[cfg(feature = "records")]
 use serde::Deserialize;
 
+#[cfg(feature = "records")]
 #[derive(Debug, Serialize, Deserialize, RieselModel)]
 #[riesel(model = "todo")]
 struct TodoModel {
@@ -105,6 +108,7 @@ fn rust_first_app_runs_without_json_or_tcp() {
         .unwrap();
 }
 
+#[cfg(feature = "records")]
 #[test]
 fn production_does_not_silently_fall_back_to_memory() {
     let result = Application::new("Todo")
@@ -118,6 +122,7 @@ fn production_does_not_silently_fall_back_to_memory() {
         )))
     ));
 }
+#[cfg(feature = "records")]
 #[test]
 fn sdk_generated_definition_round_trips_without_handwritten_json() {
     let app = Application::new("Todo").records::<TodoModel>().unwrap();
@@ -129,6 +134,7 @@ fn sdk_generated_definition_round_trips_without_handwritten_json() {
     assert_eq!(decoded.model_bindings["todo"], ["storage"]);
     assert_eq!(decoded.requires[0].capability.id, "riesel.storage.records");
 }
+#[cfg(feature = "records")]
 #[test]
 fn generated_rpc_capability_is_registered_once_for_multiple_aliases() {
     let app = Application::new("Example")
@@ -143,6 +149,7 @@ fn generated_rpc_capability_is_registered_once_for_multiple_aliases() {
     );
 }
 
+#[cfg(feature = "records")]
 #[test]
 fn arbitrary_rust_capability_is_declared_by_its_generated_type() {
     let app = Application::new("Example")
@@ -154,6 +161,7 @@ fn arbitrary_rust_capability_is_declared_by_its_generated_type() {
         RecordStoreContract::definition().unwrap().capability
     );
 }
+#[cfg(feature = "records")]
 #[test]
 fn rust_sdk_exports_validated_startup_dependencies() {
     let app = Application::new("Example")
@@ -185,6 +193,7 @@ fn rust_sdk_exports_validated_startup_dependencies() {
     ));
 }
 
+#[cfg(feature = "records")]
 #[test]
 fn rust_sdk_inspects_deployment_without_starting_configured_executable() {
     let app = Application::new("Example")

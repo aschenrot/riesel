@@ -40,6 +40,7 @@ impl Context<'_> {
         Ok(self.running.service::<C::Service>(name)?)
     }
 
+    #[cfg(feature = "records")]
     pub fn records<T>(&self) -> Result<Records<T>>
     where
         T: RieselModel + Serialize + DeserializeOwned,
@@ -72,6 +73,7 @@ impl Context<'_> {
 
     /// Bind a typed record handle to a named Storage requirement. This keeps
     /// multiple storage services explicit instead of inferring one alias.
+    #[cfg(feature = "records")]
     pub fn records_at<T>(&self, requirement: &str) -> Result<Records<T>>
     where
         T: RieselModel + Serialize + DeserializeOwned,
@@ -81,6 +83,7 @@ impl Context<'_> {
         Ok(Records::from_store(store))
     }
 
+    #[cfg(feature = "records")]
     fn validate_model<T: RieselModel>(&self) -> Result<()> {
         let schema = self.running.app().definition();
         let registered = schema
