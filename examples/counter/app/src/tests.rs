@@ -319,14 +319,20 @@ fn generated_async_client_preserves_domain_and_transport_errors() {
 
 #[test]
 fn generated_async_client_operates_over_real_nonblocking_tcp() {
-    use riesel_protocol::{AsyncRpcClientBinding, AsyncTcpRpcTransport, RpcError, SessionToken};
+    use riesel_protocol::{
+        AsyncRpcClientBinding, AsyncTcpRpcTransport, RpcError, RpcHost, SessionToken,
+    };
     use std::thread;
 
     let listener = TcpListener::bind("127.0.0.1:0").unwrap();
     let address = listener.local_addr().unwrap();
     let server = thread::spawn(move || {
-        let handler = CounterRpcDispatcher::new(MemoryCounter::default());
-        for _ in 0..5 {
+        let handler = RpcHost::new(
+            riesel_counter_component::memory_provider_definition().unwrap(),
+            CounterRpcDispatcher::new(MemoryCounter::default()),
+        )
+        .unwrap();
+        for _ in 0..6 {
             let (mut connection, _) = listener.accept().unwrap();
             handle_tcp_connection(&handler, &mut connection).unwrap();
         }
@@ -339,10 +345,11 @@ fn generated_async_client_operates_over_real_nonblocking_tcp() {
         .build()
         .unwrap();
     runtime.block_on(async {
-        transport
-            .verify(&CounterContract::definition().unwrap())
-            .await
-            .unwrap();
+        let contract = CounterContract::definition().unwrap();
+        transport.verify(&contract).await.unwrap();
+        let provider = transport.provider(&contract.capability).await.unwrap();
+        assert_eq!(provider.id, "riesel.counter.memory");
+        assert!(provider.capabilities.contains(&contract.capability));
         let client = CounterContract::bind_async(std::sync::Arc::new(transport));
         assert_eq!(client.value().await.unwrap(), 0);
         assert_eq!(client.add(8).await.unwrap(), 8);

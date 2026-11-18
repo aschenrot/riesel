@@ -143,6 +143,28 @@ impl AsyncTcpRpcTransport {
         Ok(contract)
     }
 
+    /// Inspect advertised provider identity. This is metadata only and does
+    /// not authenticate or authorize an endpoint.
+    pub async fn provider(
+        &self,
+        capability: &CapabilityRef,
+    ) -> Result<ProviderDefinition, RpcError> {
+        let value = self
+            .call(capability, PROVIDER, serde_json::json!({}))
+            .await?;
+        let provider: ProviderDefinition =
+            serde_json::from_value(value).map_err(|error| RpcError::Codec(error.to_string()))?;
+        provider
+            .validate()
+            .map_err(|error| RpcError::Contract(error.to_string()))?;
+        if !provider.capabilities.contains(capability) {
+            return Err(RpcError::Contract(
+                "provider does not implement the requested capability".into(),
+            ));
+        }
+        Ok(provider)
+    }
+
     pub async fn verify(&self, expected: &CapabilityContract) -> Result<(), RpcError> {
         let actual = self.describe(&expected.capability).await?;
         if actual.has_same_api_shape(expected) {
