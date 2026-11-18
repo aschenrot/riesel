@@ -550,8 +550,13 @@ impl App {
         deployment: &DeploymentConfig,
         connectors: &ConnectorRegistry,
     ) -> Result<RunningApp, RuntimeError> {
-        let _validated_plan = self.preflight(deployment, connectors)?;
+        let plan = self.preflight(deployment, connectors)?;
         let schema = self.definition().ok_or(RuntimeError::MissingDefinition)?;
+        let requirements: BTreeMap<_, _> = schema
+            .requires
+            .iter()
+            .map(|requirement| (requirement.name.as_str(), requirement))
+            .collect();
 
         let mut registry = ProviderRegistry::new();
         let mut provider_definitions = BTreeMap::new();
@@ -561,12 +566,8 @@ impl App {
         let mut processes = ProcessRegistry::new();
         let mut managed = BTreeMap::new();
 
-        for (index, requirement) in schema
-            .startup_order()
-            .map_err(DeploymentError::from)?
-            .into_iter()
-            .enumerate()
-        {
+        for (index, planned) in plan.services.iter().enumerate() {
+            let requirement = requirements[planned.requirement.as_str()];
             let endpoint = &deployment.services[&requirement.name];
             if let ServiceEndpoint::Local { provider } = endpoint {
                 let local = connectors
