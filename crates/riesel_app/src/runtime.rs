@@ -1054,9 +1054,11 @@ mod tests {
         assert!(ready.shutdown.is_none());
 
         let cooperative = b"RIESEL_READY {\"protocol\":1,\"address\":\"127.0.0.1:52111\",\"shutdown\":\"stdin_line\"}\n";
-        let ready =
-            await_ready(std::io::Cursor::new(cooperative.to_vec()), Duration::from_secs(1))
-                .unwrap();
+        let ready = await_ready(
+            std::io::Cursor::new(cooperative.to_vec()),
+            Duration::from_secs(1),
+        )
+        .unwrap();
         assert!(matches!(ready.shutdown, Some(ShutdownMode::StdinLine)));
 
         for invalid in [
