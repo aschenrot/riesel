@@ -864,6 +864,11 @@ fn starts_local_service_without_tcp_or_deployment_json() {
         .unwrap();
     let running = app().start_local(&connectors).unwrap();
     assert_eq!(running.resolved()[0].provider, "example.counter.memory");
+    assert!(matches!(
+        &running.resolved()[0].instance,
+        Some(crate::InstanceIdentity::Local { provider })
+            if provider == "example.counter.memory"
+    ));
     assert_eq!(**running.service::<Arc<u64>>("counter").unwrap(), 123);
 }
 

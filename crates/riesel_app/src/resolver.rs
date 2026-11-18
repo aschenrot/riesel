@@ -1,14 +1,26 @@
 use riesel_schema::{AppSchema, CapabilityRef, ProviderDefinition, ProviderError, SchemaError};
 use std::collections::BTreeMap;
+use std::net::SocketAddr;
 use thiserror::Error;
 
-/// A declarative match between an application dependency and a provider.
-/// It does not create a service instance or a transport connection.
+/// The actual instance owning one capability is independent of the provider
+/// implementation ID. Distinct managed processes can use the same provider
+/// definition without becoming the same live component instance.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum InstanceIdentity {
+    Local { provider: String },
+    Managed { name: String },
+    ExternalTcp { address: SocketAddr },
+}
+
+/// A declarative requirement-provider match, optionally enriched by the
+/// runtime with the concrete instance that owns the binding.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ResolvedCapability {
     pub requirement: String,
     pub capability: CapabilityRef,
     pub provider: String,
+    pub instance: Option<InstanceIdentity>,
 }
 
 #[derive(Debug, Error)]
@@ -131,6 +143,7 @@ impl ProviderRegistry {
                 requirement: requirement.name.clone(),
                 capability: requested.clone(),
                 provider,
+                instance: None,
             });
         }
         Ok(resolved)

@@ -9,7 +9,7 @@ mod tasks;
 
 pub use app::{App, AppError};
 pub use deployment::{DeploymentConfig, DeploymentError, ServiceEndpoint};
-pub use resolver::{ProviderRegistry, ResolutionError, ResolvedCapability};
+pub use resolver::{InstanceIdentity, ProviderRegistry, ResolutionError, ResolvedCapability};
 
 pub use runtime::{
     AppRunError, CapabilityConnector, ConnectedProvider, ConnectorError, ConnectorRegistry,

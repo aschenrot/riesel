@@ -210,7 +210,20 @@ impl App {
             services.insert(requirement.name.clone(), connected.service.into());
         }
 
-        let resolved = registry.resolve(schema, &selected)?;
+        let mut resolved = registry.resolve(schema, &selected)?;
+        for binding in &mut resolved {
+            binding.instance = Some(match &deployment.services[&binding.requirement] {
+                ServiceEndpoint::Local { provider } => crate::InstanceIdentity::Local {
+                    provider: provider.clone(),
+                },
+                ServiceEndpoint::Managed { instance, .. } => crate::InstanceIdentity::Managed {
+                    name: instance.clone().unwrap_or_else(|| binding.requirement.clone()),
+                },
+                ServiceEndpoint::Tcp { address } => crate::InstanceIdentity::ExternalTcp {
+                    address: *address,
+                },
+            });
+        }
         let processes = Arc::new(Mutex::new(processes));
         let supervisor = ServiceMonitor::start(Arc::clone(&processes), managed)
             .map_err(RuntimeError::MonitorStart)?;
