@@ -137,33 +137,38 @@ pub fn handle_tcp_connection(
             request.version
         )))
     } else {
-        handler.contract_for(&request.capability).and_then(|contract| {
-        if request.operation == PROVIDER {
-            if request.arguments != serde_json::json!({}) {
-                Err(RpcError::InvalidArguments(
-                    "provider inspection takes no arguments".into(),
-                ))
-            } else {
-                handler
-                    .provider()
-                    .ok_or_else(|| RpcError::Contract("service has no registered provider".into()))
-                    .and_then(|provider| {
-                        serde_json::to_value(provider)
+        handler
+            .contract_for(&request.capability)
+            .and_then(|contract| {
+                if request.operation == PROVIDER {
+                    if request.arguments != serde_json::json!({}) {
+                        Err(RpcError::InvalidArguments(
+                            "provider inspection takes no arguments".into(),
+                        ))
+                    } else {
+                        handler
+                            .provider()
+                            .ok_or_else(|| {
+                                RpcError::Contract("service has no registered provider".into())
+                            })
+                            .and_then(|provider| {
+                                serde_json::to_value(provider)
+                                    .map_err(|error| RpcError::Codec(error.to_string()))
+                            })
+                    }
+                } else if request.operation == DESCRIBE {
+                    if request.arguments != serde_json::json!({}) {
+                        Err(RpcError::InvalidArguments(
+                            "contract inspection takes no arguments".into(),
+                        ))
+                    } else {
+                        serde_json::to_value(contract)
                             .map_err(|error| RpcError::Codec(error.to_string()))
-                    })
-            }
-        } else if request.operation == DESCRIBE {
-            if request.arguments != serde_json::json!({}) {
-                Err(RpcError::InvalidArguments(
-                    "contract inspection takes no arguments".into(),
-                ))
-            } else {
-                serde_json::to_value(contract).map_err(|error| RpcError::Codec(error.to_string()))
-            }
-        } else {
-            handler.dispatch_for(&request.capability, &request.operation, request.arguments)
-        }
-        })
+                    }
+                } else {
+                    handler.dispatch_for(&request.capability, &request.operation, request.arguments)
+                }
+            })
     };
     write_json_line(
         stream,

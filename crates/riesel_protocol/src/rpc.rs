@@ -201,7 +201,6 @@ impl<H: RpcHandler> RpcHandler for RpcHost<H> {
     }
 }
 
-
 /// Validated provider instance serving multiple versioned capability contracts
 /// through one shared transport endpoint and lifecycle. Handlers can share
 /// the same Arc-backed implementation state.
@@ -212,19 +211,34 @@ pub struct RpcRouter {
 
 impl RpcRouter {
     pub fn new(provider: ProviderDefinition) -> Result<Self, RpcError> {
-        provider.validate().map_err(|error| RpcError::Contract(error.to_string()))?;
-        Ok(Self { provider, routes: BTreeMap::new() })
+        provider
+            .validate()
+            .map_err(|error| RpcError::Contract(error.to_string()))?;
+        Ok(Self {
+            provider,
+            routes: BTreeMap::new(),
+        })
     }
 
     pub fn route(mut self, handler: impl RpcHandler + 'static) -> Result<Self, RpcError> {
         let contract = handler.contract()?;
-        contract.validate().map_err(|error| RpcError::Contract(error.to_string()))?;
+        contract
+            .validate()
+            .map_err(|error| RpcError::Contract(error.to_string()))?;
         if !self.provider.capabilities.contains(&contract.capability) {
-            return Err(RpcError::Contract("handler capability is not advertised by provider".into()));
+            return Err(RpcError::Contract(
+                "handler capability is not advertised by provider".into(),
+            ));
         }
         let key = (contract.capability.id.clone(), contract.capability.version);
-        if self.routes.insert(key, (contract, Box::new(handler))).is_some() {
-            return Err(RpcError::Contract("provider capability registered more than once".into()));
+        if self
+            .routes
+            .insert(key, (contract, Box::new(handler)))
+            .is_some()
+        {
+            return Err(RpcError::Contract(
+                "provider capability registered more than once".into(),
+            ));
         }
         Ok(self)
     }
@@ -233,20 +247,27 @@ impl RpcRouter {
     /// an executable handler.
     pub fn validate_routes(&self) -> Result<(), RpcError> {
         if self.routes.len() != self.provider.capabilities.len() {
-            return Err(RpcError::Contract("provider has an unbound capability".into()));
+            return Err(RpcError::Contract(
+                "provider has an unbound capability".into(),
+            ));
         }
         Ok(())
     }
 
-    fn route_for(&self, capability: &CapabilityRef)
-        -> Result<&(CapabilityContract, Box<dyn RpcHandler>), RpcError>
-    {
+    fn route_for(
+        &self,
+        capability: &CapabilityRef,
+    ) -> Result<&(CapabilityContract, Box<dyn RpcHandler>), RpcError> {
         self.routes
             .get(&(capability.id.clone(), capability.version))
             .ok_or_else(|| RpcError::WrongCapability {
-                expected: self.provider.capabilities.iter()
+                expected: self
+                    .provider
+                    .capabilities
+                    .iter()
                     .map(|cap| format!("{}@{}", cap.id, cap.version))
-                    .collect::<Vec<_>>().join(", "),
+                    .collect::<Vec<_>>()
+                    .join(", "),
                 received: format!("{}@{}", capability.id, capability.version),
             })
     }
@@ -270,7 +291,12 @@ impl RpcHandler for RpcRouter {
                 "multi-capability router requires a capability selector".into(),
             ));
         }
-        self.routes.values().next().expect("one route").1.dispatch(operation, arguments)
+        self.routes
+            .values()
+            .next()
+            .expect("one route")
+            .1
+            .dispatch(operation, arguments)
     }
 
     fn provider(&self) -> Option<ProviderDefinition> {
@@ -281,9 +307,12 @@ impl RpcHandler for RpcRouter {
         Ok(self.route_for(capability)?.0.clone())
     }
 
-    fn dispatch_for(&self, capability: &CapabilityRef, operation: &str, arguments: Value)
-        -> Result<Value, RpcError>
-    {
+    fn dispatch_for(
+        &self,
+        capability: &CapabilityRef,
+        operation: &str,
+        arguments: Value,
+    ) -> Result<Value, RpcError> {
         self.route_for(capability)?.1.dispatch(operation, arguments)
     }
 }

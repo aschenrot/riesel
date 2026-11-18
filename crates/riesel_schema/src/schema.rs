@@ -165,8 +165,7 @@ impl AppSchema {
 fn valid_model_type(kind: &crate::TypeRef) -> bool {
     match kind {
         crate::TypeRef::Unit | crate::TypeRef::Named { .. } => false,
-        crate::TypeRef::Optional { item } | crate::TypeRef::List { item } =>
-            valid_model_type(item),
+        crate::TypeRef::Optional { item } | crate::TypeRef::List { item } => valid_model_type(item),
         _ => true,
     }
 }

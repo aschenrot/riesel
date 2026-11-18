@@ -110,9 +110,16 @@ mod tests {
                 ("ratio".into(), FieldType::F64),
                 (
                     "notes".into(),
-                    FieldType::Optional { item: Box::new(FieldType::String) },
+                    FieldType::Optional {
+                        item: Box::new(FieldType::String),
+                    },
                 ),
-                ("tags".into(), FieldType::List { item: Box::new(FieldType::String) }),
+                (
+                    "tags".into(),
+                    FieldType::List {
+                        item: Box::new(FieldType::String),
+                    },
+                ),
             ]),
         };
         assert!(
@@ -137,7 +144,10 @@ mod tests {
             ),
             Err(RecordError::InvalidValue { field, .. }) if field == "tags"
         ));
-        let json = serde_json::to_value(FieldType::Optional { item: Box::new(FieldType::U64) }).unwrap();
+        let json = serde_json::to_value(FieldType::Optional {
+            item: Box::new(FieldType::U64),
+        })
+        .unwrap();
         assert_eq!(json, json!({"kind":"optional","item":{"kind":"u64"}}));
     }
 }
