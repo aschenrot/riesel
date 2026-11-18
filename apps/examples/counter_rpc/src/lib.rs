@@ -27,6 +27,30 @@ mod tests {
     use std::time::{Duration, Instant};
 
     #[test]
+    fn two_local_capabilities_share_one_component_state() {
+        use riesel::Application;
+        use riesel_counter::{CounterObserverContract, CounterObserver};
+        use riesel_counter_component::memory_counter_provider;
+
+        Application::new("DualLocal")
+            .rpc::<CounterContract>("counter")
+            .unwrap()
+            .rpc::<CounterObserverContract>("observer")
+            .unwrap()
+            .provider(memory_counter_provider().unwrap())
+            .unwrap()
+            .run(|ctx| {
+                let writer = ctx.capability::<CounterContract>("counter")?;
+                let reader = ctx.capability::<CounterObserverContract>("observer")?;
+                assert_eq!(reader.observe()?, 0);
+                assert_eq!(writer.add(13)?, 13);
+                assert_eq!(reader.observe()?, 13);
+                Ok(())
+            })
+            .unwrap();
+    }
+
+    #[test]
     fn typed_sdk_provider_shortcut_requires_no_factory_implementation() {
         use riesel::Application;
         use std::sync::Arc;

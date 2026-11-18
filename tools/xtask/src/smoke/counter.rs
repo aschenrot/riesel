@@ -88,3 +88,43 @@ pub(super) fn verify_managed_session_recovery() -> TaskResult {
     }
     Ok(())
 }
+
+pub(super) fn verify_shared_managed_component() -> TaskResult {
+    let path = env::temp_dir().join(format!(
+        "riesel-shared-component-smoke-{}.json", std::process::id()
+    ));
+    let managed = serde_json::json!({
+        "transport": "managed",
+        "instance": "counter_shared",
+        "program": binary("counter_service")
+    });
+    let config = serde_json::json!({
+        "services": {
+            "counter": managed,
+            "observer": managed
+        }
+    });
+    fs::write(
+        &path,
+        serde_json::to_vec_pretty(&config).map_err(|error| error.to_string())?,
+    )
+    .map_err(|error| format!("cannot write shared component deployment: {error}"))?;
+    let deployment = TemporaryConfig(path);
+    let output = Command::new(binary("counter_dual_client"))
+        .arg("--deployment")
+        .arg(&deployment.0)
+        .current_dir(workspace_root())
+        .output()
+        .map_err(|error| format!("cannot run shared component client: {error}"))?;
+    if !output.status.success()
+        || !String::from_utf8_lossy(&output.stdout).contains("RIESEL_SHARED_COMPONENT_OK")
+    {
+        return Err(format!(
+            "managed provider was not shared: status {}, stdout {}, stderr {}",
+            output.status,
+            String::from_utf8_lossy(&output.stdout),
+            String::from_utf8_lossy(&output.stderr),
+        ));
+    }
+    Ok(())
+}

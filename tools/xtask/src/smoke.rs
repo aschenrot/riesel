@@ -21,7 +21,9 @@ mod fixtures;
 mod inspection;
 mod storage;
 
-use counter::{verify_counter_provider, verify_managed_session_recovery};
+use counter::{
+    verify_counter_provider, verify_managed_session_recovery, verify_shared_managed_component,
+};
 use fixtures::{TemporaryConfig, binary};
 use inspection::verify_deployment_preflight;
 use storage::{verify_graceful_storage_exit, verify_multi_service_rollback};
@@ -112,6 +114,10 @@ pub fn run() -> TaskResult {
     println!("\n==> Verifying independent Counter capability locally and as managed RPC");
     verify_counter_provider()?;
     println!("\nCounter local and managed capability integration passed.");
+
+    println!("\n==> Verifying two capabilities sharing one managed component instance");
+    verify_shared_managed_component()?;
+    println!("\nShared managed component state passed.");
 
     println!("\n==> Verifying application recovery from a crashed managed Counter");
     verify_managed_session_recovery()?;
