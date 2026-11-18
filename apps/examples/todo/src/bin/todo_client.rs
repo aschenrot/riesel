@@ -29,9 +29,7 @@ fn main() -> Result<(), Box<dyn Error>> {
     connectors.register(TcpRecordStoreConnector)?;
 
     // Riesel owns discovery, compatibility checks, resolution and binding.
-    app.run(&deployment, &connectors, |running| {
-        run_todo(running)
-    })?;
+    app.run(&deployment, &connectors, run_todo)?;
     Ok(())
 }
 
