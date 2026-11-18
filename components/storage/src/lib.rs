@@ -24,6 +24,33 @@ pub(crate) fn memory_service_info() -> Result<StorageServiceInfo, ContractError>
     })
 }
 
+
+use riesel_app::{ConnectedProvider, ConnectorError, LocalProviderFactory};
+use riesel_storage::RecordStore;
+use std::sync::Arc;
+
+/// Explicit, lightweight in-process MemoryStore provider for local development.
+pub struct MemoryStoreFactory;
+
+impl LocalProviderFactory for MemoryStoreFactory {
+    fn definition(&self) -> Result<ProviderDefinition, ConnectorError> {
+        Ok(memory_provider_definition()?)
+    }
+
+    fn contract(&self) -> Result<riesel_schema::CapabilityContract, ConnectorError> {
+        Ok(RecordStoreContract::definition()?)
+    }
+
+    fn create(&self) -> Result<ConnectedProvider, ConnectorError> {
+        Ok(ConnectedProvider {
+            definition: memory_provider_definition()?,
+            contract: RecordStoreContract::definition()?,
+            service: Box::new(Arc::new(MemoryStore::new())
+                as Arc<dyn RecordStore + Send + Sync>),
+        })
+    }
+}
+
 #[cfg(test)]
 mod provider_tests {
     use super::*;

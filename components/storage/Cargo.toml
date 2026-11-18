@@ -7,6 +7,7 @@ repository.workspace = true
 
 [dependencies]
 riesel_storage.workspace = true
+riesel_app.workspace = true
 riesel_schema.workspace = true
 serde_json.workspace = true
 uuid.workspace = true

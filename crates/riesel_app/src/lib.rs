@@ -13,5 +13,5 @@ pub use resolver::{ProviderRegistry, ResolutionError, ResolvedCapability};
 
 pub use runtime::{
     AppRunError, CapabilityConnector, ConnectedProvider, ConnectorError, ConnectorRegistry,
-    RunningApp, RuntimeError,
+    LocalProviderFactory, RunningApp, RuntimeError,
 };

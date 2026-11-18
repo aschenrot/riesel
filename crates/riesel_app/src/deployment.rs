@@ -19,6 +19,8 @@ pub struct DeploymentConfig {
 pub enum ServiceEndpoint {
     /// The service is independently started and owned by its operator.
     Tcp { address: SocketAddr },
+    /// In-process provider selected by ID; no transport or process is required.
+    Local { provider: String },
     /// Riesel owns the child process and terminates it on shutdown.
     /// The deployment file must be trusted; its program is executable code.
     ManagedTcp {
@@ -36,9 +38,10 @@ fn default_startup_timeout_ms() -> u64 {
 }
 
 impl ServiceEndpoint {
-    pub fn address(&self) -> SocketAddr {
+    pub fn address(&self) -> Option<SocketAddr> {
         match self {
-            Self::Tcp { address } | Self::ManagedTcp { address, .. } => *address,
+            Self::Tcp { address } | Self::ManagedTcp { address, .. } => Some(*address),
+            Self::Local { .. } => None,
         }
     }
 }
@@ -87,7 +90,7 @@ impl DeploymentConfig {
             }
         }
         for (name, endpoint) in &self.services {
-            if endpoint.address().port() == 0 {
+            if endpoint.address().is_some_and(|address| address.port() == 0) {
                 return Err(DeploymentError::InvalidEndpoint {
                     name: name.clone(),
                     reason: "port zero is not a valid client endpoint",
