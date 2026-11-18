@@ -40,6 +40,11 @@ impl App {
     /// Construct an application from validated schema JSON without file I/O.
     pub fn from_schema(source: &str) -> Result<App, AppError> {
         let definition = parse_schema(source)?;
+        Self::from_definition(definition)
+    }
+
+    /// Construct an application directly from Rust-produced metadata.
+    pub fn from_definition(definition: AppSchema) -> Result<App, AppError> {
         definition.validate()?;
         let config = AppConfig {
             name: definition.app.name.clone(),
