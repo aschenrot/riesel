@@ -29,7 +29,7 @@ mod records;
 mod rpc_connector;
 
 pub use application::{Application, Context, Result, SdkError};
-pub use records::{Record, Records};
+pub use records::{Record, RecordPage, Records};
 pub use rpc_connector::RpcConnector;
 
 pub use riesel_app::{

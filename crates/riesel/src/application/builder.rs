@@ -131,8 +131,9 @@ impl Application {
     /// Production applications never fall back to MemoryStore automatically.
     #[cfg(feature = "dev-memory-storage")]
     pub fn development(self) -> Result<Self> {
+        let models = self.definition.models.clone();
         self.provider(
-            riesel_storage_component::memory_storage_provider()
+            riesel_storage_component::memory_storage_provider_with_models(models)
                 .map_err(|source| RuntimeError::ProviderFactory { source })?,
         )
     }

@@ -1,6 +1,6 @@
 mod storage;
 
 pub use storage::{
-    RecordStore, RecordStoreContract, RecordStoreRpcClient, RecordStoreRpcDispatcher, StoreError,
-    StoredRecord,
+    MAX_PAGE_SIZE, RecordPage, RecordStore, RecordStoreContract, RecordStoreRpcClient,
+    RecordStoreRpcDispatcher, StoreError, StoredRecord,
 };
