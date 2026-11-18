@@ -1,4 +1,4 @@
-use crate::{CapabilityRef, CapabilityRefError};
+use crate::{CapabilityRef, CapabilityRefError, ModelDefinition};
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, BTreeSet};
 use thiserror::Error;
@@ -28,20 +28,6 @@ pub struct CapabilityRequirement {
     /// Requirement aliases that must be ready before this requirement starts.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub depends_on: Vec<String>,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case")]
-pub enum FieldType {
-    Uuid,
-    String,
-    Bool,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
-pub struct ModelDefinition {
-    pub fields: BTreeMap<String, FieldType>,
 }
 
 pub fn parse_schema(source: &str) -> Result<AppSchema, serde_json::Error> {
@@ -76,6 +62,12 @@ pub enum SchemaError {
     },
     #[error("cyclic requirement dependencies prevent startup: {requirements:?}")]
     DependencyCycle { requirements: Vec<String> },
+    #[error("invalid model identifier: {0}")]
+    InvalidModelName(String),
+    #[error("model {0} must declare at least one field")]
+    EmptyModel(String),
+    #[error("model {model} contains invalid field identifier: {field}")]
+    InvalidModelField { model: String, field: String },
 }
 
 impl AppSchema {
@@ -84,6 +76,23 @@ impl AppSchema {
             return Err(SchemaError::UnsupportedVersion {
                 version: self.version,
             });
+        }
+
+        for (name, model) in &self.models {
+            if !valid_requirement_name(name) {
+                return Err(SchemaError::InvalidModelName(name.clone()));
+            }
+            if model.fields.is_empty() {
+                return Err(SchemaError::EmptyModel(name.clone()));
+            }
+            for field in model.fields.keys() {
+                if !valid_model_field_name(field) {
+                    return Err(SchemaError::InvalidModelField {
+                        model: name.clone(),
+                        field: field.clone(),
+                    });
+                }
+            }
         }
 
         let mut names = BTreeSet::new();
@@ -144,44 +153,7 @@ impl AppSchema {
             .collect())
     }
 
-    fn order_indices(&self) -> Result<Vec<usize>, SchemaError> {
-        let positions: BTreeMap<&str, usize> = self
-            .requires
-            .iter()
-            .enumerate()
-            .map(|(index, requirement)| (requirement.name.as_str(), index))
-            .collect();
-        let mut started = vec![false; self.requires.len()];
-        let mut order = Vec::with_capacity(self.requires.len());
-        while order.len() < self.requires.len() {
-            let next = self
-                .requires
-                .iter()
-                .enumerate()
-                .find(|(index, requirement)| {
-                    !started[*index]
-                        && requirement.depends_on.iter().all(|dependency| {
-                            positions
-                                .get(dependency.as_str())
-                                .is_some_and(|position| started[*position])
-                        })
-                });
-            let Some((index, _)) = next else {
-                return Err(SchemaError::DependencyCycle {
-                    requirements: self
-                        .requires
-                        .iter()
-                        .enumerate()
-                        .filter(|(index, _)| !started[*index])
-                        .map(|(_, requirement)| requirement.name.clone())
-                        .collect(),
-                });
-            };
-            started[index] = true;
-            order.push(index);
-        }
-        Ok(order)
-    }
+
 }
 
 fn valid_requirement_name(name: &str) -> bool {
@@ -190,22 +162,10 @@ fn valid_requirement_name(name: &str) -> bool {
         && chars.all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '_')
 }
 
-#[derive(Debug, Error)]
-pub enum RecordError {
-    #[error("record must be a JSON object")]
-    ExpectedObject,
-
-    #[error("missing required field: {field}")]
-    MissingField { field: String },
-
-    #[error("unknown field: {field}")]
-    UnknownField { field: String },
-
-    #[error("invalid value for field: {field}, expected: {expected}")]
-    InvalidValue {
-        field: String,
-        expected: &'static str,
-    },
+fn valid_model_field_name(name: &str) -> bool {
+    let mut chars = name.chars();
+    matches!(chars.next(), Some(c) if c.is_ascii_alphabetic() || c == '_')
+        && chars.all(|c| c.is_ascii_alphanumeric() || c == '_')
 }
 
 #[cfg(test)]

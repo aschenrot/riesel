@@ -33,3 +33,39 @@ impl ModelField for Uuid {
         FieldType::Uuid
     }
 }
+
+impl ModelField for u64 {
+    fn field_type() -> FieldType {
+        FieldType::U64
+    }
+}
+
+impl ModelField for i64 {
+    fn field_type() -> FieldType {
+        FieldType::I64
+    }
+}
+
+impl ModelField for f64 {
+    fn field_type() -> FieldType {
+        FieldType::F64
+    }
+}
+
+impl ModelField for serde_json::Value {
+    fn field_type() -> FieldType {
+        FieldType::Json
+    }
+}
+
+impl<T: ModelField> ModelField for Option<T> {
+    fn field_type() -> FieldType {
+        FieldType::Optional(Box::new(T::field_type()))
+    }
+}
+
+impl<T: ModelField> ModelField for Vec<T> {
+    fn field_type() -> FieldType {
+        FieldType::List(Box::new(T::field_type()))
+    }
+}

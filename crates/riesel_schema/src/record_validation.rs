@@ -6,8 +6,8 @@ impl ModelDefinition {
     pub fn validate_record(&self, record: &Value) -> Result<(), RecordError> {
         let object = record.as_object().ok_or(RecordError::ExpectedObject)?;
 
-        for field in self.fields.keys() {
-            if !object.contains_key(field) {
+        for (field, kind) in &self.fields {
+            if !object.contains_key(field) && !matches!(kind, FieldType::Optional(_)) {
                 return Err(RecordError::MissingField {
                     field: field.clone(),
                 });
@@ -22,18 +22,8 @@ impl ModelDefinition {
                     field: field.clone(),
                 })?;
 
-            let valid = match field_type {
-                FieldType::String => value.is_string(),
-                FieldType::Bool => value.is_boolean(),
-                FieldType::Uuid => value.as_str().is_some_and(|s| Uuid::parse_str(s).is_ok()),
-            };
-
-            if !valid {
-                let expected = match field_type {
-                    FieldType::String => "string",
-                    FieldType::Bool => "bool",
-                    FieldType::Uuid => "uuid",
-                };
+            if !valid_field_value(field_type, value) {
+                let expected = field_type_name(field_type);
 
                 return Err(RecordError::InvalidValue {
                     field: field.clone(),
@@ -43,6 +33,36 @@ impl ModelDefinition {
         }
 
         Ok(())
+    }
+}
+
+fn valid_field_value(kind: &FieldType, value: &Value) -> bool {
+    match kind {
+        FieldType::String => value.is_string(),
+        FieldType::Bool => value.is_boolean(),
+        FieldType::Uuid => value.as_str().is_some_and(|s| Uuid::parse_str(s).is_ok()),
+        FieldType::U64 => value.as_u64().is_some(),
+        FieldType::I64 => value.as_i64().is_some(),
+        FieldType::F64 => value.as_f64().is_some(),
+        FieldType::Json => true,
+        FieldType::Optional(inner) => value.is_null() || valid_field_value(inner, value),
+        FieldType::List(inner) => value
+            .as_array()
+            .is_some_and(|items| items.iter().all(|value| valid_field_value(inner, value))),
+    }
+}
+
+fn field_type_name(kind: &FieldType) -> &'static str {
+    match kind {
+        FieldType::String => "string",
+        FieldType::Bool => "bool",
+        FieldType::Uuid => "uuid",
+        FieldType::U64 => "u64",
+        FieldType::I64 => "i64",
+        FieldType::F64 => "f64",
+        FieldType::Json => "json",
+        FieldType::Optional(_) => "optional",
+        FieldType::List(_) => "list",
     }
 }
 
@@ -77,5 +97,38 @@ mod tests {
             })),
             Err(RecordError::InvalidValue { .. })
         ));
+    }
+
+    #[test]
+    fn nested_numeric_optional_and_list_fields_are_validated() {
+        let model = ModelDefinition {
+            fields: BTreeMap::from([
+                ("count".into(), FieldType::U64),
+                ("delta".into(), FieldType::I64),
+                ("ratio".into(), FieldType::F64),
+                ("notes".into(), FieldType::Optional(Box::new(FieldType::String))),
+                ("tags".into(), FieldType::List(Box::new(FieldType::String))),
+            ]),
+        };
+        assert!(model
+            .validate_record(&json!({"count":1,"delta":-2,"ratio":2.5,"tags":["a","b"]}))
+            .is_ok());
+        assert!(model
+            .validate_record(&json!({"count":1,"delta":-2,"ratio":2.5,"notes":null,"tags":[]}))
+            .is_ok());
+        assert!(matches!(
+            model.validate_record(
+                &json!({"count":-1,"delta":-2,"ratio":2.5,"notes":"x","tags":[]})
+            ),
+            Err(RecordError::InvalidValue { field, .. }) if field == "count"
+        ));
+        assert!(matches!(
+            model.validate_record(
+                &json!({"count":1,"delta":-2,"ratio":2.5,"tags":["okay",1]})
+            ),
+            Err(RecordError::InvalidValue { field, .. }) if field == "tags"
+        ));
+        let json = serde_json::to_value(FieldType::Optional(Box::new(FieldType::U64))).unwrap();
+        assert_eq!(json, json!({"optional":"u64"}));
     }
 }
