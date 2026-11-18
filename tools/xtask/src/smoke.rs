@@ -10,11 +10,11 @@ use std::thread;
 use std::time::{Duration, Instant};
 
 use riesel::schema::CapabilityContract;
-use riesel_storage::RecordStoreContract;
 use riesel::{
     App, CapabilityConnector, ConnectedProvider, ConnectorError, ConnectorRegistry,
     DeploymentConfig, RpcConnector, RuntimeError, ServiceEndpoint,
 };
+use riesel_storage::RecordStoreContract;
 
 mod counter;
 mod fixtures;
