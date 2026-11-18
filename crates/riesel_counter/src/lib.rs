@@ -35,4 +35,3 @@ pub trait Counter {
     #[query]
     fn label(&self, prefix: &str) -> Result<String, CounterError>;
 }
-
