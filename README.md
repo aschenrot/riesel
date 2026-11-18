@@ -4,7 +4,9 @@ Riesel is an experimental Rust-first, schema-driven application runtime.
 Applications declare versioned capabilities and bind them to local, external,
 or runtime-managed providers. The runtime handles provider validation,
 generated typed RPC, managed child startup, and dependency-ordered teardown
-with optional bounded cooperative shutdown.
+with optional bounded cooperative shutdown. Both Storage and Counter use
+the same generic RPC host; neither component implements its own wire protocol
+or process lifecycle loop.
 
 **Status:** reference applications work and runtime-owned children are
 supervised with cooperative cancellation. Production persistence,
@@ -26,6 +28,20 @@ cargo smoke
 The Todo example derives its model directly from Rust and opts in to an
 ephemeral local MemoryStore for development. The smoke suite exercises
 managed TCP Storage and multi-service failure cleanup on Linux and Windows.
+
+## Capabilities, components and runtime infrastructure
+
+- `crates/riesel_storage` and `crates/riesel_counter` define the versioned
+  Storage and Counter **capability contracts**.
+- `components/storage` and `components/counter` implement those capabilities,
+  providing local factories and executable RPC hosts.
+- `crates/riesel_protocol` provides the generated RPC transport and shared
+  managed TCP host; `crates/riesel_app` and `crates/riesel_manager` handle
+  application execution, supervision and child process ownership.
+
+The developer supplies a component implementation, not a handwritten server
+loop for each capability. See [Counter example](apps/examples/counter_rpc/README.md)
+for local and managed execution using the same contract.
 
 ## Defining lifecycle dependencies
 

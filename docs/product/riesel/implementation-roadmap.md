@@ -20,7 +20,10 @@ Clippy (warnings denied), tests, and documentation. `cargo smoke` executes
 the actual Todo and Storage binaries, including runtime-owned Storage processes,
 then verifies a failed second managed service launch cleans up the first one,
 and that the Storage binary cooperatively exits on a bounded private stdin
-shutdown request. A separate smoke check runs the `--inspect-deployment`
+shutdown request. The suite also starts the independent Counter component
+locally and as a runtime-managed RPC provider, using its generated contract,
+client and dispatcher without Counter-specific lifecycle wiring.
+A separate smoke check runs the `--inspect-deployment`
 CLI with a nonexistent service executable and validates the generated plan
 without invoking that executable. Workspace tests also exercise a real child exiting during
 application execution, cancellation delivery, preservation of concurrent
@@ -36,7 +39,7 @@ of a healthy sibling when another managed child exits.
 | 2 — Provider resolution | Implemented for exact versions | Registration, explicit selection, missing/ambiguous-provider errors |
 | 3 — Capability binding | Initial implementation | In-process factories, typed Rust record handles, verified remote TCP |
 | 4 — Application runtime | End-to-end slice implemented; lifecycle hardening underway | Managed startup, dependency ordering, rollback, bounded shutdown, continuous process exit monitoring, cooperative cancellation and supervised run errors |
-| 5 — Developer experience | Generic RPC and deployment inspection implemented; still partial | Rust SDK, model derive, generated Storage and Counter RPC, typed connectors, schema export, preflight and JSON startup plans |
+| 5 — Developer experience | Generic RPC, deployment inspection and second provider integration implemented; still partial | Rust SDK, models, generated Storage/Counter RPC, shared RPC host, local/managed Counter provider, preflight and JSON startup plans |
 | 6 — Production reliability | Not implemented | Persistent Storage, secure transports, authorization, recovery, observability |
 
 Completed stages mean *working within their currently specified scope*, not
@@ -183,11 +186,19 @@ bounded loopback-only `TcpRpcTransport`, including contract inspection and
 structural shape verification. Transport failures are represented separately
 from domain errors through `CallError<E>`.
 
-The independent `apps/examples/counter_rpc` example exercises commands,
-queries, borrowed string inputs, domain errors, incorrect arguments, wrong
-capability versions, and real TCP request/response round-trips on Linux and
-Windows. No hand-maintained request enum or per-operation dispatcher is
-needed for that example.
+The Counter capability contract now lives in `crates/riesel_counter`, with
+its independent in-memory implementation in `components/counter`. The
+`apps/examples/counter_rpc` application tests generated clients and
+dispatchers, commands, queries, borrowed string inputs, domain errors,
+incorrect arguments, wrong capability versions, and real TCP round-trips.
+The same application exercises a typed local provider and the runtime-managed
+Counter executable through `RpcConnector<CounterContract>`. Its server uses
+the shared `run_tcp_rpc_host` helper.
+
+The Storage host was migrated to the same helper; process readiness, private
+cooperative shutdown, loopback restrictions and TCP accept loops are no longer
+duplicated in each component. Neither capability has a handwritten request
+enum or per-operation RPC dispatcher.
 
 **Storage RPC migration completed:** `RecordStoreRpcClient` and
 `RecordStoreRpcDispatcher` are generated from the Rust trait. The macro's
@@ -216,10 +227,10 @@ provider discovery remain future work.
    Remaining: explicit configurable failure/restart policy, dependency-aware
    recovery, cancellation coordination for application-owned tasks, further
    resilience/fault-injection scenarios, and operational metrics.
-2. **Developer tooling and models:** provider preflight, dependency ordering
-   and JSON inspection plans are implemented. Remaining: richer model field
-   types, schema evolution, and generated adapter compatibility with a
-   second runtime-integrated provider.
+2. **Developer tooling and models:** provider preflight, dependency ordering,
+   JSON inspection plans, a second runtime-integrated Counter provider and
+   reusable RPC hosting are implemented. Remaining: richer model field types,
+   schema evolution, more contract types and additional transports.
 3. **Production operation:** persistent Storage, migration strategy, secure
    authenticated transports, authorization and secrets, resource limits,
    observability, repeatable deployments, and recovery policies.
