@@ -10,7 +10,7 @@ use std::thread;
 use std::time::{Duration, Instant};
 
 use riesel::schema::CapabilityContract;
-use riesel::storage::RecordStoreContract;
+use riesel_storage::RecordStoreContract;
 use riesel::{
     App, CapabilityConnector, ConnectedProvider, ConnectorError, ConnectorRegistry,
     DeploymentConfig, RpcConnector, RuntimeError, ServiceEndpoint,

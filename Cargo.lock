@@ -409,6 +409,7 @@ name = "xtask"
 version = "0.1.0"
 dependencies = [
  "riesel",
+ "riesel_storage",
  "serde_json",
 ]
 
