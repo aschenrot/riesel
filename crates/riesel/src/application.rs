@@ -90,13 +90,11 @@ impl Application {
                 return Err(SdkError::RequirementConflict(name));
             }
         } else {
-            self.definition
-                .requires
-                .push(CapabilityRequirement {
-                    name,
-                    capability,
-                    depends_on: Vec::new(),
-                });
+            self.definition.requires.push(CapabilityRequirement {
+                name,
+                capability,
+                depends_on: Vec::new(),
+            });
         }
         Ok(self)
     }
@@ -374,20 +372,31 @@ mod tests {
     #[test]
     fn rust_sdk_exports_validated_startup_dependencies() {
         let app = Application::new("Example")
-            .rpc::<RecordStoreContract>("consumer").unwrap()
-            .rpc::<RecordStoreContract>("storage").unwrap()
-            .depends_on("consumer", ["storage"]).unwrap();
+            .rpc::<RecordStoreContract>("consumer")
+            .unwrap()
+            .rpc::<RecordStoreContract>("storage")
+            .unwrap()
+            .depends_on("consumer", ["storage"])
+            .unwrap();
         let generated = app.definition_json().unwrap();
         let schema = riesel_schema::parse_schema(&generated).unwrap();
-        let order: Vec<_> = schema.startup_order().unwrap()
-            .into_iter().map(|req| req.name.as_str()).collect();
+        let order: Vec<_> = schema
+            .startup_order()
+            .unwrap()
+            .into_iter()
+            .map(|req| req.name.as_str())
+            .collect();
         assert_eq!(order, ["storage", "consumer"]);
         assert!(matches!(
             Application::new("Example")
-                .rpc::<RecordStoreContract>("consumer").unwrap()
-                .depends_on("consumer", ["missing"]).unwrap()
+                .rpc::<RecordStoreContract>("consumer")
+                .unwrap()
+                .depends_on("consumer", ["missing"])
+                .unwrap()
                 .definition_json(),
-            Err(SdkError::Schema(riesel_schema::SchemaError::UnknownDependency { .. }))
+            Err(SdkError::Schema(
+                riesel_schema::SchemaError::UnknownDependency { .. }
+            ))
         ));
     }
 }

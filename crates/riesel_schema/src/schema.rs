@@ -65,9 +65,15 @@ pub enum SchemaError {
     #[error("requirement {requirement} cannot depend on itself")]
     SelfDependency { requirement: String },
     #[error("requirement {requirement} depends on undeclared requirement {dependency}")]
-    UnknownDependency { requirement: String, dependency: String },
+    UnknownDependency {
+        requirement: String,
+        dependency: String,
+    },
     #[error("requirement {requirement} repeats dependency {dependency}")]
-    DuplicateDependency { requirement: String, dependency: String },
+    DuplicateDependency {
+        requirement: String,
+        dependency: String,
+    },
     #[error("cyclic requirement dependencies prevent startup: {requirements:?}")]
     DependencyCycle { requirements: Vec<String> },
 }
@@ -87,7 +93,7 @@ impl AppSchema {
                     name: requirement.name.clone(),
                 });
             }
-            if !names.insert(&requirement.name) {
+            if !names.insert(requirement.name.as_str()) {
                 return Err(SchemaError::DuplicateRequirementName {
                     name: requirement.name.clone(),
                 });
@@ -148,14 +154,18 @@ impl AppSchema {
         let mut started = vec![false; self.requires.len()];
         let mut order = Vec::with_capacity(self.requires.len());
         while order.len() < self.requires.len() {
-            let next = self.requires.iter().enumerate().find(|(index, requirement)| {
-                !started[*index]
-                    && requirement.depends_on.iter().all(|dependency| {
-                        positions
-                            .get(dependency.as_str())
-                            .is_some_and(|position| started[*position])
-                    })
-            });
+            let next = self
+                .requires
+                .iter()
+                .enumerate()
+                .find(|(index, requirement)| {
+                    !started[*index]
+                        && requirement.depends_on.iter().all(|dependency| {
+                            positions
+                                .get(dependency.as_str())
+                                .is_some_and(|position| started[*position])
+                        })
+                });
             let Some((index, _)) = next else {
                 return Err(SchemaError::DependencyCycle {
                     requirements: self
@@ -327,7 +337,8 @@ mod tests {
 
     #[test]
     fn starts_dependencies_before_consumers_with_stable_independent_order() {
-        let schema = parse_schema(r#"{
+        let schema = parse_schema(
+            r#"{
             "version": 1, "app": {"name":"Example"}, "models": {},
             "requires": [
                 {"name":"frontend", "capability":{"id":"example.frontend","version":1},
@@ -337,11 +348,21 @@ mod tests {
                 {"name":"independent", "capability":{"id":"example.other","version":1}},
                 {"name":"storage", "capability":{"id":"example.storage","version":1}}
             ]
-        }"#).unwrap();
-        let names: Vec<_> = schema.startup_order().unwrap().iter()
-            .map(|requirement| requirement.name.as_str()).collect();
+        }"#,
+        )
+        .unwrap();
+        let names: Vec<_> = schema
+            .startup_order()
+            .unwrap()
+            .iter()
+            .map(|requirement| requirement.name.as_str())
+            .collect();
         assert_eq!(names, ["independent", "storage", "worker", "frontend"]);
-        assert!(!serde_json::to_string(&schema.requires[2]).unwrap().contains("depends_on"));
+        assert!(
+            !serde_json::to_string(&schema.requires[2])
+                .unwrap()
+                .contains("depends_on")
+        );
     }
 
     #[test]

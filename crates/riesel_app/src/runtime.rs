@@ -873,7 +873,6 @@ mod tests {
         }
     }
 
-
     struct TrackedLocal {
         id: &'static str,
         created: Arc<std::sync::Mutex<Vec<String>>>,
@@ -912,25 +911,36 @@ mod tests {
                      "depends_on":["storage"]},
                     {"name":"storage","capability":{"id":"example.counter","version":1}}
                 ]}"#,
-        ).unwrap();
+        )
+        .unwrap();
         let created = Arc::new(std::sync::Mutex::new(Vec::new()));
         let mut registry = ConnectorRegistry::new();
         let mut services = BTreeMap::new();
         for alias in ["frontend", "worker", "storage"] {
             let provider = format!("example.provider.{alias}");
-            registry.register_local(TrackedLocal {
-                id: match alias {
-                    "frontend" => "example.provider.frontend",
-                    "worker" => "example.provider.worker",
-                    _ => "example.provider.storage",
-                },
-                created: Arc::clone(&created),
-            }).unwrap();
+            registry
+                .register_local(TrackedLocal {
+                    id: match alias {
+                        "frontend" => "example.provider.frontend",
+                        "worker" => "example.provider.worker",
+                        _ => "example.provider.storage",
+                    },
+                    created: Arc::clone(&created),
+                })
+                .unwrap();
             services.insert(alias.into(), ServiceEndpoint::Local { provider });
         }
-        let running = app.start(&DeploymentConfig { services }, &registry).unwrap();
-        assert_eq!(*created.lock().unwrap(),
-            ["example.provider.storage", "example.provider.worker", "example.provider.frontend"]);
+        let running = app
+            .start(&DeploymentConfig { services }, &registry)
+            .unwrap();
+        assert_eq!(
+            *created.lock().unwrap(),
+            [
+                "example.provider.storage",
+                "example.provider.worker",
+                "example.provider.frontend"
+            ]
+        );
         assert_eq!(running.resolved().len(), 3);
     }
 
