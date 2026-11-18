@@ -95,6 +95,18 @@ mod tests {
     }
 
     #[test]
+    fn generated_typed_binding_supports_non_tcp_rpc_transport() {
+        use riesel_protocol::{RpcClientBinding, RpcTransport};
+        use std::sync::Arc;
+
+        let transport: Arc<dyn RpcTransport> =
+            Arc::new(LocalRpc::new(CounterRpcDispatcher::new(MemoryCounter::default())));
+        let client = CounterContract::bind(transport);
+        assert_eq!(client.add(19).unwrap(), 19);
+        assert_eq!(client.value().unwrap(), 19);
+    }
+
+    #[test]
     fn generated_client_and_dispatcher_support_commands_and_queries() {
         let handler = CounterRpcDispatcher::new(MemoryCounter::default());
         let client = CounterRpcClient::new(LocalRpc::new(handler));

@@ -194,6 +194,51 @@ mod tests {
     }
 
     #[test]
+    fn shared_managed_instances_must_have_identical_launch_configuration() {
+        let schema = parse_schema(
+            r#"{"version":1,"app":{"name":"Shared"},"models":{},
+               "requires":[
+                 {"name":"counter","capability":{"id":"example.counter","version":1}},
+                 {"name":"observer","capability":{"id":"example.observer","version":1}}
+               ]}"#,
+        )
+        .unwrap();
+        let config = DeploymentConfig::from_json(
+            r#"{"services":{
+                "counter":{"transport":"managed","instance":"shared","program":"service_a"},
+                "observer":{"transport":"managed","instance":"shared","program":"service_a"}
+            }}"#,
+        )
+        .unwrap();
+        config.validate(&schema).unwrap();
+
+        let conflicting = DeploymentConfig::from_json(
+            r#"{"services":{
+                "counter":{"transport":"managed","instance":"shared","program":"service_a"},
+                "observer":{"transport":"managed","instance":"shared","program":"service_b"}
+            }}"#,
+        )
+        .unwrap();
+        assert!(matches!(
+            conflicting.validate(&schema),
+            Err(DeploymentError::ConflictingInstance { instance })
+                if instance == "shared"
+        ));
+
+        let invalid_name = DeploymentConfig::from_json(
+            r#"{"services":{
+                "counter":{"transport":"managed","instance":"Bad Name","program":"service_a"},
+                "observer":{"transport":"managed","instance":"other","program":"service_a"}
+            }}"#,
+        )
+        .unwrap();
+        assert!(matches!(
+            invalid_name.validate(&schema),
+            Err(DeploymentError::InvalidEndpoint { .. })
+        ));
+    }
+
+    #[test]
     fn parses_valid_tcp_binding() {
         let deployment = DeploymentConfig::from_json(
             r#"{"services":{"storage":{"transport":"tcp","address":"127.0.0.1:47911"}}}"#,
