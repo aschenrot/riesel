@@ -1,89 +1,110 @@
 # Riesel — Implementation Roadmap
 
-Status reviewed: 2026-11-18  
+Status reviewed: 2026-11-18
 Working branch: `feature/schema_based_app`
 
-This file tracks **implementation status**, not the long-term product requirements.
-See [Product Definition](riesel.md) for product scope and principles.
+This tracks **tested implementation status**, not all long-term product requirements.
+See [Product Definition](riesel.md) for the intended product scope.
 
 ## Validation gates
 
-All code milestones must pass on Linux and Windows:
+For all code milestones on Linux and Windows:
 
 ```sh
 cargo validate --check
 cargo smoke
 ```
 
-`cargo validate --check` checks formatting without modifying files, builds
-all workspace targets, runs Clippy with warnings denied, executes unit tests,
-and generates documentation. `cargo smoke` runs a real Todo-to-Storage TCP
-integration, with the Storage process owned and cleaned up by Riesel.
+`cargo validate --check` checks committed formatting, all workspace targets,
+Clippy (warnings denied), tests, and documentation. `cargo smoke` executes
+the actual Todo and Storage binaries, including runtime-owned Storage processes.
 
-## Current milestones
+## Milestone status
 
 | Stage | State | Evidence |
 | --- | --- | --- |
-| 0 — Rust foundations | Implemented | Cargo workspace, schema validation, macros, Storage contract and Todo |
-| 1 — Declarative requirements | Implemented | Application schema names versioned required capabilities |
-| 2 — Provider resolution | Implemented for exact versions | Registry, deterministic match, explicit selection, clear errors |
-| 3 — Capability binding | Implemented for present scope | Typed in-process binding; verified remote TCP binding |
-| 4 — Application runtime | Initial vertical slice implemented | `App::start`, `App::run`, `ConnectorRegistry`, `RunningApp`, managed child lifecycle |
-| 5 — Developer experience | Partial | Workspace validation, GitHub Actions, `cargo smoke`; inspection CLI and RPC generation pending |
-| 6 — Production reliability | Not implemented | Persistent Storage, identity and authorization, secure transports, recovery and deployment guarantees |
+| 0 — Rust foundations | Initial implementation | Cargo workspace, model and capability macros, Storage contract |
+| 1 — Declarative requirements | Implemented | Versioned requirements; Rust-generated application definitions |
+| 2 — Provider resolution | Implemented for exact versions | Registration, explicit selection, missing/ambiguous-provider errors |
+| 3 — Capability binding | Initial implementation | In-process factories, typed Rust record handles, verified remote TCP |
+| 4 — Application runtime | End-to-end slice implemented | Application start/run, managed child startup, dynamic local endpoints, cleanup |
+| 5 — Developer experience | Improved, not complete | Rust SDK builder, model derive, common CLI flags, generated schema export, smoke tests |
+| 6 — Production reliability | Not implemented | Persistent Storage, secure transports, authorization, recovery, observability |
 
-"Implemented" here means **within the stated scope** and covered by tests,
-not a promise of production readiness.
+Completed stages mean *working within their currently specified scope*, not
+production-grade infrastructure.
 
-## Current executable slice
+## Recommended Rust authoring workflow
 
-1. `apps/examples/todo/app.json` declares `riesel.storage.records@1`.
-2. A deployment configuration selects an external TCP endpoint or trusted
-   `managed_tcp` executable.
-3. The SDK's Storage connector discovers the service and exposes a typed
-   `RecordStore` instance.
-4. The generic runtime validates contract shape, resolves the provider, and
-   makes the instance available to Todo by requirement name.
-5. `App::run` executes Todo's entrypoint and stops any managed child processes.
-   Startup failures and entrypoint failures also trigger cleanup.
-6. `cargo smoke` verifies the managed execution path on loopback.
+`apps/examples/todo/src/task.rs` defines a Rust `TaskData` model, annotated
+with `#[derive(RieselModel)]` and `#[riesel(model = "task")]`.
+There is no hand-maintained `apps/examples/todo/app.json`.
 
-## Phase 4 remaining
+`Application::new("Todo").records::<TaskData>()?.development()?`
+registers the model and versioned Storage requirement and selects the
+ephemeral in-process MemoryStore. `Context::records::<TaskData>()` gives a
+typed CRUD handle. `--print-definition` exports the canonical generated
+schema; `--deployment FILE` allows explicit external or managed providers.
 
-- Define dependencies between managed services and initialize them in a
-  validated order, with reverse-order teardown.
-- Establish graceful shutdown before forced termination.
-- Add a documented health/supervision policy. Current health inspection is
-  on demand; there are no automatic restarts.
-- Improve lifecycle and error diagnostics, including startup timeouts and
-  partial-failure rollback tests for multiple services.
-- Keep process management and functional capability resolution distinct.
+`Application::require::<SomeContract>("alias")` supports other generated
+capability contracts. Their provider factories and client adapters still need
+to be registered explicitly until a provider catalog is available.
 
-## Phase 5 priorities
+`development()` is an **explicit opt-in** to ephemeral in-memory storage,
+not a production default or persistence guarantee.
 
-- Add CLI commands to inspect application definitions, provider selection
-  and contracts without starting a process.
-- Generate protocol proxies and dispatch adapters from the authoritative Rust
-  capability definitions, replacing handwritten Storage transport boilerplate.
-- Add compatibility/contract tests for independent provider implementations.
-- Preserve fast local development and the flat `crates/` / `components/` layout.
+## Runtime-managed service modes
 
-## Phase 6 minimum gates
+- `local`: in-process implementation, no socket or process required.
+- `tcp`: explicit remote address, owned by an external manager.
+- `managed_tcp`: process started by Riesel on a configured loopback port
+  (retained for compatibility).
+- `managed_tcp_dynamic`: service binds `127.0.0.1:0` and sends a bounded
+  `RIESEL_READY` message through child stdout. Riesel then verifies the
+  advertised capability contract. Concurrent instances do not need distinct
+  configured ports.
 
-- Persistent Storage provider and migrations.
-- Authentication, authorization, encrypted remote communication and
-  management of secrets.
-- Connection resilience, resource limits, failure recovery, observability,
-  deployment hardening and reproducible builds.
-- Documented compatibility guarantees across provider and protocol versions.
+The smoke suite covers explicitly configured managed TCP and two concurrent
+dynamic managed instances. The local factory is covered by unit tests.
+After readiness, the runtime continues draining child stdout.
 
-The present Storage server is single-process, in-memory, and uses
-**unauthenticated, unencrypted TCP**. Managed mode is deliberately restricted
-to loopback. Provider advertisements prove structural compatibility, **not
-identity or trust**. Only use `managed_tcp` with trusted deployment files.
+Deployment configuration remains optional for local development but is
+necessary when choosing external or managed process execution.
 
-## Deliberately deferred
+## Remaining engineering work, in priority order
+
+1. **Model and capability ergonomics:** generate higher-level typed API
+   adapters and compatibility checks for independently developed providers;
+   add richer model fields and an explicit model evolution policy.
+2. **Lifecycle robustness:** service dependency graph, startup ordering,
+   graceful and reverse-order shutdown, exit monitoring, cancellation,
+   structured errors and multi-service rollback tests.
+3. **Developer tooling:** inspect providers and bindings without launching
+   services; grow the CLI coherently; generate RPC client/proxy and dispatcher
+   code from authoritative capability traits rather than maintaining
+   duplicate operation definitions.
+4. **Production operation:** persistent Storage with migrations; secure,
+   authenticated transports; authorization and secrets; resource limits,
+   observability, repeatable deployment and recovery policies.
+
+## Architectural and security boundaries
+
+The present Storage server is **in-memory**, **single-process** and communicates
+using **unencrypted and unauthenticated TCP**. A pipe-based startup announcement
+and contract-shape check do **not** authenticate a network service.
+
+Managed TCP defaults and dynamic endpoints are restricted to loopback.
+Only execute trusted deployment files and binaries. External TCP endpoints
+remain configurable but are not secured by the current implementation.
+
+Do not expose the current TCP Storage server to untrusted networks.
+Components remain separate from contracts in the **flat** repository structure:
+`crates/riesel_storage` is the API contract; `components/storage` is an
+implementation. The optional development SDK convenience may include the
+reference implementation but does not change that contract boundary.
+
+## Deferred until justified
 
 GraphQL, SQL query capabilities, a custom UI framework, game-specific systems,
-distributed orchestration and the visual application builder are not
-prerequisites of this initial platform runtime.
+distributed orchestration, and the visual application builder are not
+prerequisites of the current application runtime.
