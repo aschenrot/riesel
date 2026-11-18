@@ -34,7 +34,7 @@ riesel_schema = { path = "crates/riesel_schema" }
 riesel_storage = { path = "packages/storage/contract" }
 
 thiserror = "2.0.21"
-tokio = { version = "=1.54.1", features = ["io-util", "net", "rt", "time"] }
+tokio = { version = "=1.54.1", features = ["io-util", "net", "rt", "sync", "time"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 uuid = { version = "1", features = ["v4", "serde"] }

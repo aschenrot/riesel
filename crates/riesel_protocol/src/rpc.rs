@@ -119,6 +119,15 @@ impl<T: AsyncRpcTransport + ?Sized> AsyncRpcTransport for Arc<T> {
     }
 }
 
+/// The generated typed async binding for one versioned contract. A transport
+/// instance is explicit and may be tied to a revocable application session.
+/// A generated client keeps domain and RPC errors separate.
+pub trait AsyncRpcClientBinding: CapabilityDescriptor {
+    type Service: Send + Sync + 'static;
+
+    fn bind_async(transport: Arc<dyn AsyncRpcTransport>) -> Self::Service;
+}
+
 /// Server-side adapter generated for a single capability trait.
 pub trait RpcHandler: Send + Sync {
     fn contract(&self) -> Result<CapabilityContract, RpcError>;

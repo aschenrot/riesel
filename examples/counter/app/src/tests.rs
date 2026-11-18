@@ -319,7 +319,7 @@ fn generated_async_client_preserves_domain_and_transport_errors() {
 
 #[test]
 fn generated_async_client_operates_over_real_nonblocking_tcp() {
-    use riesel_protocol::{AsyncTcpRpcTransport, RpcError, SessionToken};
+    use riesel_protocol::{AsyncRpcClientBinding, AsyncTcpRpcTransport, RpcError, SessionToken};
     use std::thread;
 
     let listener = TcpListener::bind("127.0.0.1:0").unwrap();
@@ -343,7 +343,7 @@ fn generated_async_client_operates_over_real_nonblocking_tcp() {
             .verify(&CounterContract::definition().unwrap())
             .await
             .unwrap();
-        let client = riesel_counter::CounterAsyncClient::new(transport);
+        let client = CounterContract::bind_async(std::sync::Arc::new(transport));
         assert_eq!(client.value().await.unwrap(), 0);
         assert_eq!(client.add(8).await.unwrap(), 8);
         assert!(matches!(

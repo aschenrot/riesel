@@ -8,15 +8,18 @@ use std::future::Future;
 use std::pin::Pin;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpStream as AsyncTcpStream;
+use tokio::sync::Semaphore;
 use tokio::time::timeout;
 
 const CONNECT_TIMEOUT: Duration = Duration::from_secs(3);
 const REQUEST_TIMEOUT: Duration = Duration::from_secs(5);
+const MAX_IN_FLIGHT_REQUESTS: usize = 32;
 
 #[derive(Clone)]
 pub struct AsyncTcpRpcTransport {
     address: SocketAddr,
     session: SessionToken,
+    permits: Arc<Semaphore>,
 }
 
 impl AsyncTcpRpcTransport {
@@ -24,13 +27,18 @@ impl AsyncTcpRpcTransport {
         Self {
             address,
             session: SessionToken::new(),
+            permits: Arc::new(Semaphore::new(MAX_IN_FLIGHT_REQUESTS)),
         }
     }
 
     /// Attach the transport to the application session. Clones share
     /// revocation, including across managed service recovery.
     pub fn with_session(address: SocketAddr, session: SessionToken) -> Self {
-        Self { address, session }
+        Self {
+            address,
+            session,
+            permits: Arc::new(Semaphore::new(MAX_IN_FLIGHT_REQUESTS)),
+        }
     }
 
     async fn exchange(
@@ -45,6 +53,14 @@ impl AsyncTcpRpcTransport {
                 "plaintext RPC is restricted to loopback addresses".into(),
             ));
         }
+
+        // A bounded permit queue avoids uncontrolled connection fan-out.
+        // Cancellation drops the future, releasing any acquired permit.
+        let _permit = timeout(REQUEST_TIMEOUT, self.permits.acquire())
+            .await
+            .map_err(|_| RpcError::Transport("RPC concurrency wait timed out".into()))?
+            .map_err(|_| RpcError::Transport("RPC concurrency limiter closed".into()))?;
+        self.session.check()?;
 
         let mut request = serde_json::to_vec(&WireRequest {
             version: WIRE_VERSION,
@@ -203,6 +219,37 @@ mod tests {
         });
         assert!(cancelled.is_err(), "pending network request did not yield");
         server.join().unwrap();
+    }
+
+    #[test]
+    fn limits_concurrent_outbound_calls_before_connecting() {
+        let session = SessionToken::new();
+        let transport =
+            AsyncTcpRpcTransport::with_session("127.0.0.1:1".parse().unwrap(), session);
+        let permits = Arc::clone(&transport.permits);
+        runtime().block_on(async {
+            let mut borrowed = Vec::new();
+            for _ in 0..MAX_IN_FLIGHT_REQUESTS {
+                borrowed.push(permits.clone().acquire_owned().await.unwrap());
+            }
+            assert_eq!(permits.available_permits(), 0);
+            let cap = CapabilityRef {
+                id: "example.counter".into(),
+                version: 1,
+            };
+            // With no slot available the future stays pending instead of
+            // opening a 33rd connection or blocking the Tokio thread.
+            assert!(
+                timeout(
+                    Duration::from_millis(30),
+                    transport.call(&cap, "value", serde_json::json!({}))
+                )
+                .await
+                .is_err()
+            );
+            drop(borrowed);
+            assert_eq!(permits.available_permits(), MAX_IN_FLIGHT_REQUESTS);
+        });
     }
 
     #[test]

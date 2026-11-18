@@ -474,6 +474,18 @@ pub(crate) fn expand_capability(
 
         #trait_impl
 
+        impl ::riesel_protocol::AsyncRpcClientBinding for #descriptor_name {
+            type Service = #async_client_name<
+                ::std::sync::Arc<dyn ::riesel_protocol::AsyncRpcTransport>
+            >;
+
+            fn bind_async(
+                transport: ::std::sync::Arc<dyn ::riesel_protocol::AsyncRpcTransport>,
+            ) -> Self::Service {
+                #async_client_name::new(transport)
+            }
+        }
+
         impl<T: #trait_name + Send + Sync> ::riesel_protocol::RpcHandler
             for #dispatcher_name<T>
         {
