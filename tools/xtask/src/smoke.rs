@@ -53,7 +53,13 @@ pub fn run() -> TaskResult {
         "storage_service",
     ])?;
     cargo(&["build", "-p", "todo", "--bin", "todo_client"])?;
-    cargo(&["build", "-p", "riesel_counter_component", "--bin", "counter_service"])?;
+    cargo(&[
+        "build",
+        "-p",
+        "riesel_counter_component",
+        "--bin",
+        "counter_service",
+    ])?;
     cargo(&["build", "-p", "riesel_counter_example", "--bins"])?;
 
     // No pre-bind/drop reservation race and no fixed port in deployment.
