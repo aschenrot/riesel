@@ -44,8 +44,8 @@ impl TcpRpcTransport {
     /// Structural compatibility is not cryptographic authentication.
     pub fn describe(&self, capability: &CapabilityRef) -> Result<CapabilityContract, RpcError> {
         let value = self.call(capability, DESCRIBE, serde_json::json!({}))?;
-        let contract: CapabilityContract = serde_json::from_value(value)
-            .map_err(|error| RpcError::Codec(error.to_string()))?;
+        let contract: CapabilityContract =
+            serde_json::from_value(value).map_err(|error| RpcError::Codec(error.to_string()))?;
         contract
             .validate()
             .map_err(|error| RpcError::Contract(error.to_string()))?;
@@ -117,10 +117,7 @@ pub fn handle_tcp_connection(
         if request.capability != contract.capability {
             Err(RpcError::WrongCapability {
                 expected: format!("{}@{}", contract.capability.id, contract.capability.version),
-                received: format!(
-                    "{}@{}",
-                    request.capability.id, request.capability.version
-                ),
+                received: format!("{}@{}", request.capability.id, request.capability.version),
             })
         } else if request.operation == DESCRIBE {
             if request.arguments != serde_json::json!({}) {
@@ -128,8 +125,7 @@ pub fn handle_tcp_connection(
                     "contract inspection takes no arguments".into(),
                 ))
             } else {
-                serde_json::to_value(contract)
-                    .map_err(|error| RpcError::Codec(error.to_string()))
+                serde_json::to_value(contract).map_err(|error| RpcError::Codec(error.to_string()))
             }
         } else {
             handler.dispatch(&request.operation, request.arguments)
@@ -154,10 +150,11 @@ fn configure_timeouts(stream: &TcpStream) -> Result<(), RpcError> {
 }
 
 fn write_json_line<T: Serialize>(stream: &mut TcpStream, value: &T) -> Result<(), RpcError> {
-    let mut data =
-        serde_json::to_vec(value).map_err(|error| RpcError::Codec(error.to_string()))?;
+    let mut data = serde_json::to_vec(value).map_err(|error| RpcError::Codec(error.to_string()))?;
     if data.len() + 1 > MAX_FRAME_BYTES {
-        return Err(RpcError::Transport("RPC request or response too large".into()));
+        return Err(RpcError::Transport(
+            "RPC request or response too large".into(),
+        ));
     }
     data.push(b'\n');
     stream
