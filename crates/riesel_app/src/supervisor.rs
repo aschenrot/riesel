@@ -53,7 +53,9 @@ impl CancellationToken {
         self.is_cancelled()
     }
 
-    fn cancel(&self) {
+    /// Request cancellation explicitly. Every clone observes the same signal.
+    /// This does not preempt Rust code or stop managed processes by itself.
+    pub fn cancel(&self) {
         let _guard = self
             .state
             .gate
