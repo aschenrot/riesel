@@ -152,8 +152,6 @@ impl AppSchema {
             .map(|index| &self.requires[index])
             .collect())
     }
-
-
 }
 
 fn valid_requirement_name(name: &str) -> bool {

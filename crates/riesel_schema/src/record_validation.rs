@@ -106,16 +106,23 @@ mod tests {
                 ("count".into(), FieldType::U64),
                 ("delta".into(), FieldType::I64),
                 ("ratio".into(), FieldType::F64),
-                ("notes".into(), FieldType::Optional(Box::new(FieldType::String))),
+                (
+                    "notes".into(),
+                    FieldType::Optional(Box::new(FieldType::String)),
+                ),
                 ("tags".into(), FieldType::List(Box::new(FieldType::String))),
             ]),
         };
-        assert!(model
-            .validate_record(&json!({"count":1,"delta":-2,"ratio":2.5,"tags":["a","b"]}))
-            .is_ok());
-        assert!(model
-            .validate_record(&json!({"count":1,"delta":-2,"ratio":2.5,"notes":null,"tags":[]}))
-            .is_ok());
+        assert!(
+            model
+                .validate_record(&json!({"count":1,"delta":-2,"ratio":2.5,"tags":["a","b"]}))
+                .is_ok()
+        );
+        assert!(
+            model
+                .validate_record(&json!({"count":1,"delta":-2,"ratio":2.5,"notes":null,"tags":[]}))
+                .is_ok()
+        );
         assert!(matches!(
             model.validate_record(
                 &json!({"count":-1,"delta":-2,"ratio":2.5,"notes":"x","tags":[]})

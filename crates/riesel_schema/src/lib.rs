@@ -16,6 +16,4 @@ pub use model::{ModelField, RieselModel};
 pub use model_schema::{FieldType, ModelDefinition, RecordError};
 pub use provider::{ProviderDefinition, ProviderError};
 
-pub use schema::{
-    AppDefinition, AppSchema, CapabilityRequirement, SchemaError, parse_schema,
-};
+pub use schema::{AppDefinition, AppSchema, CapabilityRequirement, SchemaError, parse_schema};
