@@ -5,5 +5,5 @@ fn main() -> riesel::Result<()> {
     Application::new("Todo")
         .records::<TaskData>()?
         .development()?
-        .run(run_demo)
+        .run_from_env(run_demo)
 }

@@ -6,20 +6,20 @@ pub fn run_demo(ctx: &riesel::Context<'_>) -> Result<(), riesel::ConnectorError>
     let todo = Todo::new(ctx.records::<TaskData>()?);
 
     let created = todo.create_task("Build Riesel")?;
-    assert!(!created.completed);
+    assert!(!created.value.completed);
 
     let retrieved = todo.get_task(created.id)?.expect("created task must exist");
     assert_eq!(retrieved, created);
 
     let completed = todo.set_completed(created.id, true)?;
-    assert!(completed.completed);
+    assert!(completed.value.completed);
     assert_eq!(completed.revision, 2);
 
     let tasks = todo.list_tasks()?;
     assert!(
         tasks
             .iter()
-            .any(|task| task.id == created.id && task.completed)
+            .any(|task| task.id == created.id && task.value.completed)
     );
 
     println!("Todo + Riesel Rust SDK: passed");

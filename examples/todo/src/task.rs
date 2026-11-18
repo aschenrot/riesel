@@ -12,24 +12,8 @@ pub struct TaskData {
     pub completed: bool,
 }
 
-#[derive(Debug, PartialEq, Eq)]
-pub struct Task {
-    pub id: Uuid,
-    pub title: String,
-    pub completed: bool,
-    pub revision: u64,
-}
-
-impl From<Record<TaskData>> for Task {
-    fn from(record: Record<TaskData>) -> Self {
-        Self {
-            id: record.id,
-            title: record.value.title,
-            completed: record.value.completed,
-            revision: record.revision,
-        }
-    }
-}
+/// Task records already carry the domain value, identity, and revision.
+pub type Task = Record<TaskData>;
 
 #[derive(Debug, Error)]
 pub enum TodoError {
@@ -55,27 +39,25 @@ impl Todo {
         if title.trim().is_empty() {
             return Err(TodoError::EmptyTitle);
         }
-        let record = self.records.create(TaskData {
+        Ok(self.records.create(TaskData {
             title,
             completed: false,
-        })?;
-        Ok(record.into())
+        })?)
     }
 
     pub fn get_task(&self, id: Uuid) -> Result<Option<Task>, TodoError> {
-        Ok(self.records.get(id)?.map(Task::from))
+        Ok(self.records.get(id)?)
     }
 
     pub fn list_tasks(&self) -> Result<Vec<Task>, TodoError> {
-        Ok(self.records.list()?.into_iter().map(Task::from).collect())
+        Ok(self.records.list()?)
     }
 
     pub fn set_completed(&self, id: Uuid, completed: bool) -> Result<Task, TodoError> {
         let current = self.records.get(id)?.ok_or(TodoError::NotFound)?;
         let mut data = current.value;
         data.completed = completed;
-        let updated = self.records.update(id, current.revision, data)?;
-        Ok(updated.into())
+        Ok(self.records.update(id, current.revision, data)?)
     }
 }
 
@@ -95,8 +77,8 @@ mod tests {
     fn creates_a_task() {
         let todo = todo();
         let task = todo.create_task("Build Riesel").unwrap();
-        assert_eq!(task.title, "Build Riesel");
-        assert!(!task.completed);
+        assert_eq!(task.value.title, "Build Riesel");
+        assert!(!task.value.completed);
         assert_eq!(task.revision, 1);
         assert_eq!(todo.get_task(task.id).unwrap().unwrap(), task);
     }
@@ -116,7 +98,7 @@ mod tests {
         let todo = todo();
         let created = todo.create_task("Build Riesel").unwrap();
         let completed = todo.set_completed(created.id, true).unwrap();
-        assert!(completed.completed);
+        assert!(completed.value.completed);
         assert_eq!(completed.id, created.id);
         assert_eq!(completed.revision, 2);
         assert!(todo.get_task(created.id).unwrap().unwrap().completed);
