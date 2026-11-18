@@ -8,4 +8,4 @@ pub use protocol::{
     PROTOCOL_VERSION, StorageMessage, StorageRequest, StorageResponse, StorageResult,
 };
 
-pub use storage::{RecordStore, StoreError, StoredRecord};
+pub use storage::{RecordStore, RecordStoreContract, StoreError, StoredRecord};
