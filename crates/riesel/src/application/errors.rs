@@ -11,6 +11,7 @@ pub enum SdkError {
     #[error(transparent)]
     Contract(#[from] riesel_schema::ContractError),
     #[error(transparent)]
+    #[cfg(feature = "records")]
     Store(#[from] riesel_storage::StoreError),
     #[error(transparent)]
     RecordValidation(#[from] riesel_schema::RecordError),
@@ -21,14 +22,19 @@ pub enum SdkError {
     #[error(transparent)]
     Schema(#[from] riesel_schema::SchemaError),
     #[error("model {0} has already been registered with different metadata")]
+    #[cfg(feature = "records")]
     DuplicateModel(String),
     #[error("model {0} was not registered")]
+    #[cfg(feature = "records")]
     MissingModel(String),
     #[error("Rust model {0} does not match the application metadata")]
+    #[cfg(feature = "records")]
     ModelMismatch(String),
     #[error("record-storage capability is not declared")]
+    #[cfg(feature = "records")]
     MissingStorage,
     #[error("multiple record-storage requirements are declared")]
+    #[cfg(feature = "records")]
     AmbiguousStorage,
     #[error("capability requirement not found: {0}")]
     MissingCapability(String),

@@ -8,7 +8,8 @@ publish = false
 
 [features]
 default = []
-dev-memory-storage = ["dep:riesel_storage_component"]
+records = ["dep:riesel_storage"]
+dev-memory-storage = ["records", "dep:riesel_storage_component"]
 
 [dependencies]
 serde.workspace = true
@@ -20,4 +21,4 @@ riesel_app.workspace = true
 riesel_macros.workspace = true
 riesel_protocol.workspace = true
 riesel_schema.workspace = true
-riesel_storage.workspace = true
+riesel_storage = { workspace = true, optional = true }

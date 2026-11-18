@@ -25,10 +25,12 @@
 //! Riesel - a general purpose application engine
 extern crate self as riesel;
 mod application;
+#[cfg(feature = "records")]
 mod records;
 mod rpc_connector;
 
 pub use application::{Application, Context, Result, SdkError};
+#[cfg(feature = "records")]
 pub use records::{Record, RecordPage, Records};
 pub use rpc_connector::RpcConnector;
 
@@ -45,4 +47,5 @@ pub mod prelude {
     pub use super::{App, AppError, Application, Result, RieselModel};
 }
 pub use riesel_schema as schema;
+#[cfg(feature = "records")]
 pub use riesel_storage as storage;

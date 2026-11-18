@@ -85,12 +85,14 @@ impl Application {
     }
 
     /// Register an authoritative Rust model using the conventional storage alias.
+    #[cfg(feature = "records")]
     pub fn records<T: RieselModel>(self) -> Result<Self> {
         self.records_at::<T>("storage")
     }
 
     /// Register a Rust model and explicitly name its storage requirement.
     /// Multiple storage aliases can coexist without implicit selection.
+    #[cfg(feature = "records")]
     pub fn records_at<T: RieselModel>(mut self, storage_alias: impl Into<String>) -> Result<Self> {
         let storage_alias = storage_alias.into();
         let name = T::MODEL_NAME.to_owned();
