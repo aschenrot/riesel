@@ -17,14 +17,20 @@ pub struct MemoryCounter {
 
 impl Counter for MemoryCounter {
     fn value(&self) -> Result<u64, CounterError> {
-        Ok(*self.value.lock().expect("counter mutex poisoned"))
+        Ok(*self
+            .value
+            .lock()
+            .map_err(|_| CounterError::Internal("counter lock poisoned".into()))?)
     }
 
     fn add(&self, amount: u64) -> Result<u64, CounterError> {
         if amount == 0 {
             return Err(CounterError::ZeroIncrement);
         }
-        let mut value = self.value.lock().expect("counter mutex poisoned");
+        let mut value = self
+            .value
+            .lock()
+            .map_err(|_| CounterError::Internal("counter lock poisoned".into()))?;
         *value = value.checked_add(amount).ok_or(CounterError::Overflow)?;
         Ok(*value)
     }

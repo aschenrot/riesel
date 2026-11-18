@@ -13,6 +13,8 @@ pub enum CounterError {
     Overflow,
     #[error("counter transport failed: {0}")]
     Transport(String),
+    #[error("counter internal failure: {0}")]
+    Internal(String),
 }
 
 impl From<riesel_protocol::RpcError> for CounterError {
@@ -21,7 +23,7 @@ impl From<riesel_protocol::RpcError> for CounterError {
     }
 }
 
-#[capability(id = "riesel.counter.operations", version = 1, client_trait)]
+#[capability(id = "riesel.counter.operations", version = 2, client_trait)]
 pub trait Counter {
     /// Return the current count without modifying it.
     #[query]
