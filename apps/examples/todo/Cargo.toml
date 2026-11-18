@@ -6,7 +6,7 @@ license.workspace = true
 repository.workspace = true
 
 [dependencies]
-riesel.workspace = true
+riesel = { workspace = true, features = ["dev-memory-storage"] }
 thiserror.workspace = true
 uuid.workspace = true
 serde.workspace = true

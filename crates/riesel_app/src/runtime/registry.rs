@@ -131,7 +131,7 @@ impl<F> LocalComponentFactory<F> {
 
 impl<F> LocalProviderFactory for LocalComponentFactory<F>
 where
-    F: Fn() -> Result<LocalProviderInstance, ConnectorError> + Send + Sync,
+    F: Fn(&ProviderDefinition) -> Result<LocalProviderInstance, ConnectorError> + Send + Sync,
 {
     fn definition(&self) -> Result<ProviderDefinition, ConnectorError> {
         Ok(ProviderDefinition {
@@ -149,7 +149,8 @@ where
     }
 
     fn create(&self) -> Result<LocalProviderInstance, ConnectorError> {
-        (self.create)()
+        let definition = self.definition()?;
+        (self.create)(&definition)
     }
 }
 

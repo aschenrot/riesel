@@ -7,7 +7,7 @@ repository.workspace = true
 publish = false
 
 [features]
-default = ["dev-memory-storage"]
+default = []
 dev-memory-storage = ["dep:riesel_storage_component"]
 
 [dependencies]

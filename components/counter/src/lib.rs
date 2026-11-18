@@ -11,7 +11,7 @@ use riesel_app::{
 use riesel_counter::{
     Counter, CounterContract, CounterError, CounterObserver, CounterObserverContract,
 };
-use riesel_schema::{ContractError, ProviderDefinition};
+use riesel_schema::ProviderDefinition;
 use std::sync::{Arc, Mutex};
 
 #[derive(Default)]
@@ -50,25 +50,21 @@ impl CounterObserver for MemoryCounter {
     }
 }
 
-pub fn memory_provider_definition() -> Result<ProviderDefinition, ContractError> {
-    Ok(ProviderDefinition {
-        id: "riesel.counter.memory".into(),
-        capabilities: vec![
-            CounterContract::definition()?.capability,
-            CounterObserverContract::definition()?.capability,
-        ],
-    })
-}
-
 pub fn memory_counter_provider() -> Result<impl LocalProviderFactory, ConnectorError> {
-    LocalComponentFactory::new("riesel.counter.memory", || {
+    LocalComponentFactory::new("riesel.counter.memory", |definition: &ProviderDefinition| {
         let state = Arc::new(MemoryCounter::default());
-        LocalProviderInstance::new(memory_provider_definition()?)
+        LocalProviderInstance::new(definition.clone())
             .bind::<CounterContract>(Arc::clone(&state) as Arc<dyn Counter + Send + Sync>)?
             .bind::<CounterObserverContract>(state as Arc<dyn CounterObserver + Send + Sync>)
     })
     .exposes::<CounterContract>()?
     .exposes::<CounterObserverContract>()
+}
+
+/// One authoritative provider definition, produced by the same registration
+/// used for local instances. Managed hosting cannot drift from local metadata.
+pub fn memory_provider_definition() -> Result<ProviderDefinition, ConnectorError> {
+    memory_counter_provider()?.definition()
 }
 
 #[cfg(test)]
