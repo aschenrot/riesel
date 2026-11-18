@@ -122,7 +122,6 @@ impl RpcTransport for TcpRpcTransport {
     }
 }
 
-
 /// Run a generated RPC host with the standard managed-service lifecycle.
 /// The caller supplies only a typed handler and bind address; the shared
 /// transport owns loopback enforcement, ready frames and private shutdown.
