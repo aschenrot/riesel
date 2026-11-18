@@ -9,8 +9,9 @@ cargo smoke
 ```
 
 This builds both executables, starts Storage on a temporary loopback port
-through Riesel's `ProcessRegistry`, generates a temporary deployment config,
-runs Todo through the real TCP transport, and stops the managed service.
+through Riesel's application runtime, generates a temporary deployment config,
+runs Todo through the real TCP transport, and verifies that the runtime stops
+its managed service when the application exits.
 CI runs this check on Linux and Windows.
 
 ## Manual execution
@@ -46,3 +47,19 @@ implementation before running Todo operations.
 a manually started service, and in-memory data that is lost when the service
 stops. Provider advertisements are not cryptographically authenticated.
 It is a composition demonstration, not a production deployment.
+
+## Runtime-owned service mode
+
+A trusted deployment can configure `transport: "managed_tcp"` instead of
+`"tcp"` and provide `program`, `args`, `address`, and optionally
+`startup_timeout_ms` (default: 10000, maximum: 120000).
+
+The runtime launches that executable (without invoking a shell), verifies
+the service's declared Rust capability contract before handing it to Todo,
+and terminates the child on shutdown or failed startup. Managed endpoints
+are restricted to loopback because this initial TCP protocol has no
+authentication or encryption. Relative executable paths resolve from the
+launching process's current directory, not from `app.json`.
+
+`cargo smoke` is the recommended fully automated example on Windows and Linux.
+`deployment.json` remains in externally managed TCP mode.

@@ -367,7 +367,7 @@ dependencies = [
 name = "xtask"
 version = "0.1.0"
 dependencies = [
- "riesel_manager",
+ "serde_json",
 ]
 
 [[package]]

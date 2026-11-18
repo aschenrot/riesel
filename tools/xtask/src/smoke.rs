@@ -1,14 +1,12 @@
 use crate::command::{TaskResult, cargo, workspace_root};
-use riesel_manager::{ProcessKey, ProcessRegistry, ProcessStatus};
 use std::env;
 use std::fs;
 use std::net::{SocketAddr, TcpListener, TcpStream};
 use std::path::PathBuf;
 use std::process::Command;
-use std::thread;
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
-/// Ensure the temporary deployment configuration is deleted on all exits.
+/// Clean up temporary deployment config on both success and failure.
 struct TemporaryConfig(PathBuf);
 
 impl Drop for TemporaryConfig {
@@ -34,7 +32,8 @@ pub fn run() -> TaskResult {
     cargo(&["build", "-p", "riesel_storage_component", "--bin", "storage_service"])?;
     cargo(&["build", "-p", "todo", "--bin", "todo_client"])?;
 
-    // Reserve a free port, then hand it to the service process.
+    // A temporary port avoids hardcoded test resources. The runtime performs
+    // its own pre-spawn bind check and validates a real service handshake.
     let listener = TcpListener::bind("127.0.0.1:0")
         .map_err(|e| format!("cannot reserve loopback port: {e}"))?;
     let address: SocketAddr = listener.local_addr().map_err(|e| e.to_string())?;
@@ -45,43 +44,22 @@ pub fn run() -> TaskResult {
         std::process::id(),
         address.port()
     ));
-    let deployment = format!(
-        r#"{{"services":{{"storage":{{"transport":"tcp","address":"{address}"}}}}}}"#
-    );
-    fs::write(&path, deployment).map_err(|e| format!("cannot write deployment file: {e}"))?;
-    let temporary = TemporaryConfig(path);
-
-    println!("\n==> Starting managed Storage at {address}");
-    let mut processes = ProcessRegistry::new();
-    let key = ProcessKey::new(1, Some("storage".into()));
-    processes
-        .spawn(
-            key.clone(),
-            Command::new(binary("storage_service"))
-                .arg(address.to_string())
-                .current_dir(workspace_root()),
-        )
-        .map_err(|e| format!("cannot start Storage: {e}"))?;
-
-    // A bounded readiness check ensures CI does not depend on arbitrary sleeps.
-    let deadline = Instant::now() + Duration::from_secs(10);
-    loop {
-        match processes.status(&key).map_err(|e| e.to_string())? {
-            ProcessStatus::Running => {}
-            ProcessStatus::Exited(status) => {
-                return Err(format!("Storage exited before becoming ready: {status}"));
+    let deployment = serde_json::json!({
+        "services": {
+            "storage": {
+                "transport": "managed_tcp",
+                "address": address.to_string(),
+                "program": binary("storage_service"),
+                "args": [address.to_string()],
+                "startup_timeout_ms": 10_000
             }
         }
-        if TcpStream::connect_timeout(&address, Duration::from_millis(100)).is_ok() {
-            break;
-        }
-        if Instant::now() >= deadline {
-            return Err(format!("Storage did not listen on {address} within 10 seconds"));
-        }
-        thread::sleep(Duration::from_millis(50));
-    }
+    });
+    fs::write(&path, serde_json::to_vec_pretty(&deployment).map_err(|e| e.to_string())?)
+        .map_err(|e| format!("cannot write deployment file: {e}"))?;
+    let temporary = TemporaryConfig(path);
 
-    println!("\n==> Running Todo against configured remote Storage");
+    println!("\n==> Running Todo with runtime-managed Storage at {address}");
     let status = Command::new(binary("todo_client"))
         .arg(&temporary.0)
         .current_dir(workspace_root())
@@ -91,8 +69,10 @@ pub fn run() -> TaskResult {
         return Err(format!("Todo smoke test failed: {status}"));
     }
 
-    println!("\n==> Stopping managed Storage");
-    processes.stop_all().map_err(|e| e.to_string())?;
-    println!("\nRemote Todo smoke test passed.");
+    // Once Todo exits, the runtime must have stopped the child.
+    if TcpStream::connect_timeout(&address, Duration::from_millis(250)).is_ok() {
+        return Err("Storage listener remains reachable after application exit".into());
+    }
+    println!("\nRuntime-managed remote Todo smoke test passed.");
     Ok(())
 }

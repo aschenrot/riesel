@@ -6,4 +6,4 @@ license.workspace = true
 repository.workspace = true
 
 [dependencies]
-riesel_manager.workspace = true
+serde_json.workspace = true
