@@ -44,15 +44,8 @@ impl Context<'_> {
     where
         T: RieselModel + Serialize + DeserializeOwned,
     {
+        self.validate_model::<T>()?;
         let schema = self.running.app().definition();
-        let registered = schema
-            .models
-            .get(T::MODEL_NAME)
-            .ok_or_else(|| SdkError::MissingModel(T::MODEL_NAME.into()))?;
-        if registered != &T::model_definition() {
-            return Err(SdkError::ModelMismatch(T::MODEL_NAME.into()));
-        }
-
         let contract = RecordStoreContract::definition()?.capability;
         let requirements: Vec<_> = schema
             .requires
@@ -64,7 +57,29 @@ impl Context<'_> {
             [only] => only.name.as_str(),
             _ => return Err(SdkError::AmbiguousStorage),
         };
+        self.records_at::<T>(requirement)
+    }
+
+    /// Bind a typed record handle to a named Storage requirement. This keeps
+    /// multiple storage services explicit instead of inferring one alias.
+    pub fn records_at<T>(&self, requirement: &str) -> Result<Records<T>>
+    where
+        T: RieselModel + Serialize + DeserializeOwned,
+    {
+        self.validate_model::<T>()?;
         let store = self.capability::<RecordStoreContract>(requirement)?.clone();
         Ok(Records::from_store(store))
+    }
+
+    fn validate_model<T: RieselModel>(&self) -> Result<()> {
+        let schema = self.running.app().definition();
+        let registered = schema
+            .models
+            .get(T::MODEL_NAME)
+            .ok_or_else(|| SdkError::MissingModel(T::MODEL_NAME.into()))?;
+        if registered != &T::model_definition() {
+            return Err(SdkError::ModelMismatch(T::MODEL_NAME.into()));
+        }
+        Ok(())
     }
 }

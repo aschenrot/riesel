@@ -54,6 +54,33 @@ fn rust_model_numeric_and_container_fields_round_trip_through_storage() {
 
 #[cfg(feature = "dev-memory-storage")]
 #[test]
+fn records_can_bind_explicitly_to_named_storage_requirements() {
+    Application::new("Aliases")
+        .records_at::<TodoModel>("primary")
+        .unwrap()
+        .records_at::<TodoModel>("secondary")
+        .unwrap()
+        .development()
+        .unwrap()
+        .run(|ctx| {
+            assert!(matches!(
+                ctx.records::<TodoModel>(),
+                Err(SdkError::AmbiguousStorage)
+            ));
+            let primary = ctx.records_at::<TodoModel>("primary")?;
+            let secondary = ctx.records_at::<TodoModel>("secondary")?;
+            let created = primary.create(TodoModel {
+                title: "Shared".into(),
+                completed: false,
+            })?;
+            assert_eq!(secondary.get(created.id)?.unwrap().value.title, "Shared");
+            Ok(())
+        })
+        .unwrap();
+}
+
+#[cfg(feature = "dev-memory-storage")]
+#[test]
 fn rust_first_app_runs_without_json_or_tcp() {
     Application::new("Todo")
         .records::<TodoModel>()
