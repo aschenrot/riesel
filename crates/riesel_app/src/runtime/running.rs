@@ -1,0 +1,141 @@
+use super::*;
+
+/// Active application with verified services and owned child processes.
+/// ProcessRegistry guarantees best-effort cleanup if startup or execution fails.
+pub struct RunningApp {
+    pub(super) app: App,
+    pub(super) resolved: Vec<ResolvedCapability>,
+    pub(super) services: BTreeMap<String, Arc<dyn Any + Send + Sync>>,
+    pub(super) processes: Arc<Mutex<ProcessRegistry>>,
+    pub(super) supervisor: ServiceMonitor,
+    pub(super) tasks: TaskGroup,
+    pub(super) session: SessionToken,
+}
+
+impl RunningApp {
+    pub fn app(&self) -> &App {
+        &self.app
+    }
+
+    pub fn resolved(&self) -> &[ResolvedCapability] {
+        &self.resolved
+    }
+
+    /// Check for already-observed failures and immediately inspect running
+    /// managed processes. Failure remains observable until shutdown.
+    pub fn check_processes(&self) -> Result<(), RuntimeError> {
+        if let Some(failure) = self.supervisor.check_now() {
+            return Err(failure);
+        }
+        self.tasks.failure().map_or(Ok(()), Err)
+    }
+
+    /// Start an application-owned task. The task receives cooperative
+    /// cancellation and is always joined before providers are stopped.
+    /// Task errors and panics cancel the session and remain observable.
+    pub fn spawn_task(
+        &self,
+        name: impl Into<String>,
+        task: impl FnOnce(CancellationToken) -> Result<(), ConnectorError> + Send + 'static,
+    ) -> Result<(), RuntimeError> {
+        self.tasks.spawn(name.into(), task)
+    }
+
+    /// Share a cooperative cancellation token with long-running application
+    /// work. When a required managed service exits, the token becomes set.
+    pub fn cancellation_token(&self) -> CancellationToken {
+        self.supervisor.cancellation_token()
+    }
+
+    /// Join monitoring first, then drop clients and stop owned children in
+    /// reverse startup order. External TCP services remain untouched.
+    pub fn shutdown(&mut self) -> Result<(), RuntimeError> {
+        // Tasks receive cancellation before providers are stopped. Keep the
+        // supervisor running during task joins: a managed child can still
+        // exit unexpectedly while application-owned work is finishing.
+        let tasks = self.tasks.join();
+        self.session.invalidate();
+        // The monitor takes its final snapshot only after every task joined,
+        // but before intentional managed-process teardown.
+        let monitor = self.supervisor.stop();
+        self.services.clear();
+        let stopped = self
+            .processes
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .stop_all()
+            .map_err(RuntimeError::Shutdown);
+        let mut failures = Vec::new();
+        for result in [monitor, tasks, stopped] {
+            if let Err(failure) = result {
+                failures.push(failure);
+            }
+        }
+        match failures.len() {
+            0 => Ok(()),
+            1 => Err(failures.remove(0)),
+            _ => Err(RuntimeError::ShutdownFailures { errors: failures }),
+        }
+    }
+
+    /// Get a typed, already-verified service by its application requirement name.
+    /// For shared Rust trait interfaces, request e.g. `Arc<dyn RecordStore>`.
+    pub fn service<T: Any + Send + Sync>(&self, requirement: &str) -> Result<&T, RuntimeError> {
+        self.services
+            .get(requirement)
+            .ok_or_else(|| RuntimeError::MissingService(requirement.into()))?
+            .downcast_ref::<T>()
+            .ok_or_else(|| RuntimeError::WrongServiceType(requirement.into()))
+    }
+}
+
+impl Drop for RunningApp {
+    fn drop(&mut self) {
+        // An explicitly started application must also clean up when it is
+        // dropped without a corresponding run() or shutdown() call.
+        let _ = self.shutdown();
+    }
+}
+
+
+impl RunningApp {
+    pub(crate) fn execute(
+        mut running: RunningApp,
+        entrypoint: impl FnOnce(&RunningApp) -> Result<(), ConnectorError>,
+    ) -> Result<(), AppRunError> {
+        let outcome = entrypoint(&running);
+        // Shutdown joins the watcher and snapshots the final child status
+        // before terminating children, avoiding a check/teardown race.
+        let shutdown = running.shutdown().err();
+        let failure = running.supervisor.observed_failure();
+        let task_failure = running.tasks.failure();
+
+        if let Some(failure) = failure {
+            return Err(AppRunError::Supervision {
+                failure: Box::new(failure),
+                entry: outcome.err(),
+                shutdown: shutdown.map(Box::new),
+            });
+        }
+        if let Some(failure) = task_failure {
+            return Err(AppRunError::TaskFailure {
+                failure: Box::new(failure),
+                entry: outcome.err(),
+                // The primary task error has its own field; do not duplicate
+                // that same error as a secondary shutdown failure.
+                shutdown: shutdown
+                    .filter(|error| !matches!(error, RuntimeError::TaskFailed { .. }))
+                    .map(Box::new),
+            });
+        }
+        match (outcome, shutdown) {
+            (Ok(()), None) => Ok(()),
+            (Err(entry), None) => Err(AppRunError::Entrypoint(entry)),
+            (Ok(()), Some(shutdown)) => Err(AppRunError::Startup(shutdown)),
+            (Err(entry), Some(shutdown)) => {
+                Err(AppRunError::EntrypointAndShutdown { entry, shutdown })
+            }
+        }
+    }
+}
+
