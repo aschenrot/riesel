@@ -104,7 +104,10 @@ mod tests {
     #[test]
     fn rejects_empty_titles() {
         let todo = todo();
-        assert!(matches!(todo.create_task("   "), Err(TodoError::EmptyTitle)));
+        assert!(matches!(
+            todo.create_task("   "),
+            Err(TodoError::EmptyTitle)
+        ));
         assert!(todo.list_tasks().unwrap().is_empty());
     }
 
