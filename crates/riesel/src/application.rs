@@ -4,6 +4,7 @@ use riesel_app::{
     RunningApp, RuntimeError,
 };
 use riesel_schema::{AppDefinition, AppSchema, CapabilityDescriptor, CapabilityRequirement};
+use riesel_protocol::RpcClientBinding;
 use riesel_storage::{RecordStore, RecordStoreContract};
 use serde::{Serialize, de::DeserializeOwned};
 use std::collections::BTreeMap;
@@ -91,6 +92,17 @@ impl Application {
         Ok(self)
     }
 
+    /// Declare a generated RPC capability and register its transport adapter
+    /// once, even when several requirements share the same capability.
+    pub fn rpc<C: RpcClientBinding>(mut self, name: impl Into<String>) -> Result<Self> {
+        let capability = C::definition()?.capability;
+        self = self.require::<C>(name)?;
+        if !self.providers.has_connector(&capability.id) {
+            self.providers.register(RpcConnector::<C>::new())?;
+        }
+        Ok(self)
+    }
+
     /// Register a custom capability transport adapter.
     pub fn connector(
         mut self,
@@ -112,18 +124,7 @@ impl Application {
             self.definition.models.insert(name, definition);
         }
 
-        let already_registered = self
-            .definition
-            .requires
-            .iter()
-            .any(|req| req.name == "storage");
-        self = self.require::<RecordStoreContract>("storage")?;
-        if !already_registered {
-            // Register transport support without opening a socket.
-            self.providers
-                .register(RpcConnector::<RecordStoreContract>::new())?;
-        }
-        Ok(self)
+        self.rpc::<RecordStoreContract>("storage")
     }
 
     /// Choose a local provider without requiring deployment or a transport.
@@ -207,6 +208,26 @@ pub struct Context<'a> {
 }
 
 impl Context<'_> {
+    /// Retrieve a typed capability service generated from a Rust contract.
+    /// The requirement's declared version is checked before downcasting.
+    pub fn capability<C: RpcClientBinding>(&self, name: &str) -> Result<&C::Service> {
+        let definition = self
+            .running
+            .app()
+            .definition()
+            .ok_or_else(|| SdkError::MissingModel(name.into()))?;
+        let expected = C::definition()?.capability;
+        let requirement = definition
+            .requires
+            .iter()
+            .find(|requirement| requirement.name == name)
+            .ok_or_else(|| SdkError::RequirementConflict(name.into()))?;
+        if requirement.capability != expected {
+            return Err(SdkError::RequirementConflict(name.into()));
+        }
+        Ok(self.running.service::<C::Service>(name)?)
+    }
+
     pub fn records<T>(&self) -> Result<Records<T>>
     where
         T: RieselModel + Serialize + DeserializeOwned,
@@ -302,6 +323,17 @@ mod tests {
         assert_eq!(decoded.models["todo"], TodoModel::model_definition());
         assert_eq!(decoded.requires[0].capability.id, "riesel.storage.records");
     }
+    #[test]
+    fn generated_rpc_capability_is_registered_once_for_multiple_aliases() {
+        let app = Application::new("Example")
+            .rpc::<RecordStoreContract>("primary")
+            .unwrap()
+            .rpc::<RecordStoreContract>("secondary")
+            .unwrap();
+        assert_eq!(app.definition().requires.len(), 2);
+        assert!(app.providers.has_connector("riesel.storage.records"));
+    }
+
     #[test]
     fn arbitrary_rust_capability_is_declared_by_its_generated_type() {
         let app = Application::new("Example")

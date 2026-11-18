@@ -168,6 +168,12 @@ impl ConnectorRegistry {
         Ok(())
     }
 
+    /// Whether a transport adapter has already been registered for this
+    /// capability ID. Allows Rust-first builders to avoid duplicate wiring.
+    pub fn has_connector(&self, capability_id: &str) -> bool {
+        self.adapters.contains_key(capability_id)
+    }
+
     pub fn register(
         &mut self,
         connector: impl CapabilityConnector + 'static,
