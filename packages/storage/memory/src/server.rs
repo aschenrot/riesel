@@ -20,7 +20,12 @@ mod tests {
     use riesel_storage::{RecordStoreContract, RecordStoreRpcClient, StoreError};
     use serde_json::json;
     use std::net::TcpListener;
+    use std::sync::{
+        Arc,
+        atomic::{AtomicBool, Ordering},
+    };
     use std::thread;
+    use std::time::{Duration, Instant};
 
     #[test]
     fn refuses_to_expose_unauthenticated_storage_on_any_interface() {
@@ -32,19 +37,34 @@ mod tests {
     fn generated_storage_remote_crud_and_error_round_trip() {
         let listener = TcpListener::bind("127.0.0.1:0").unwrap();
         let address = listener.local_addr().unwrap();
-        let server = thread::spawn(move || {
-            let handler = RpcHost::new(
-                memory_provider_definition().unwrap(),
-                RecordStoreRpcDispatcher::new(MemoryStore::new()),
-            )
-            .unwrap();
-            // Inspect contract + provider, four normal operations, revision
-            // conflict, missing record, unknown operation and wrong version.
-            for _ in 0..10 {
-                let (mut stream, _) = listener.accept().unwrap();
-                handle_tcp_connection(&handler, &mut stream).unwrap();
-            }
-        });
+        listener.set_nonblocking(true).unwrap();
+        let stopping = Arc::new(AtomicBool::new(false));
+        let server = {
+            let stopping = Arc::clone(&stopping);
+            thread::spawn(move || {
+                let handler = RpcHost::new(
+                    memory_provider_definition().unwrap(),
+                    RecordStoreRpcDispatcher::new(MemoryStore::new()),
+                )
+                .unwrap();
+                let deadline = Instant::now() + Duration::from_secs(8);
+                loop {
+                    if stopping.load(Ordering::Acquire) {
+                        break;
+                    }
+                    assert!(Instant::now() < deadline, "Storage RPC test host did not stop");
+                    match listener.accept() {
+                        Ok((mut stream, _)) => {
+                            handle_tcp_connection(&handler, &mut stream).unwrap();
+                        }
+                        Err(error) if error.kind() == io::ErrorKind::WouldBlock => {
+                            thread::sleep(Duration::from_millis(2));
+                        }
+                        Err(error) => panic!("Storage test host accept failed: {error}"),
+                    }
+                }
+            })
+        };
 
         let transport = TcpRpcTransport::new(address);
         let contract = RecordStoreContract::definition().unwrap();
@@ -68,9 +88,10 @@ mod tests {
             )
             .unwrap();
         assert_eq!(updated.revision, 2);
-        let all = client.list("task").unwrap();
-        assert_eq!(all.len(), 1);
-        assert_eq!(all[0].data, updated.data);
+        let page = client.list_page("task", None, 32).unwrap();
+        assert_eq!(page.records.len(), 1);
+        assert!(page.next_cursor.is_none());
+        assert_eq!(page.records[0].data, updated.data);
 
         assert!(matches!(
             client.update("task", created.id, 1, json!({"title": "Stale"})),
@@ -86,9 +107,16 @@ mod tests {
         let mut bad_version = contract.capability;
         bad_version.version += 1;
         assert!(matches!(
-            transport.call(&bad_version, "list", json!({"model": "task"})),
+            transport.call(
+                &bad_version,
+                "list_page",
+                json!({"model": "task", "after": null, "limit": 32}),
+            ),
             Err(RpcError::WrongCapability { .. })
         ));
+        client.delete("task", created.id, updated.revision).unwrap();
+        assert!(client.get("task", created.id).unwrap().is_none());
+        stopping.store(true, Ordering::Release);
         server.join().unwrap();
     }
 }
