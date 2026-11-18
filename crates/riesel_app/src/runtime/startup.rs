@@ -217,11 +217,13 @@ impl App {
                     provider: provider.clone(),
                 },
                 ServiceEndpoint::Managed { instance, .. } => crate::InstanceIdentity::Managed {
-                    name: instance.clone().unwrap_or_else(|| binding.requirement.clone()),
+                    name: instance
+                        .clone()
+                        .unwrap_or_else(|| binding.requirement.clone()),
                 },
-                ServiceEndpoint::Tcp { address } => crate::InstanceIdentity::ExternalTcp {
-                    address: *address,
-                },
+                ServiceEndpoint::Tcp { address } => {
+                    crate::InstanceIdentity::ExternalTcp { address: *address }
+                }
             });
         }
         let processes = Arc::new(Mutex::new(processes));
