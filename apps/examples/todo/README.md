@@ -1,65 +1,90 @@
-# Todo — remote Storage composition
+# Todo — Rust-first Riesel SDK example
 
-## Automated integration test
+Todo is the first reference application for Riesel's typed model,
+capability composition, and runtime lifecycle.
 
-From the repository root, run:
+## Run locally — no JSON or TCP required
+
+From the workspace root:
 
 ```sh
+cargo run -p todo --bin todo
+```
+
+`TaskData` in `src/task.rs` is the authoritative data model.
+`Application::new("Todo").records::<TaskData>()?.development()?`
+registers the generated model metadata and selects ephemeral in-process
+MemoryStore. This mode is **explicitly for development**, not persistent storage.
+
+## Inspect the generated application definition
+
+```sh
+cargo run -p todo --bin todo_client -- --print-definition
+```
+
+The Rust SDK generates a portable JSON application schema for the CLI,
+tooling, and future visual builder. There is no manually synchronized
+`app.json` in this example.
+
+## Run the end-to-end smoke tests
+
+```sh
+cargo validate --check
 cargo smoke
 ```
 
-This builds both executables, starts Storage on a temporary loopback port
-through Riesel's application runtime, generates a temporary deployment config,
-runs Todo through the real TCP transport, and verifies that the runtime stops
-its managed service when the application exits.
-CI runs this check on Linux and Windows.
+`cargo smoke` tests the real Todo and Storage binaries in two modes:
 
-## Manual execution
+1. Legacy managed TCP with an explicitly selected temporary port. It
+   verifies the listener closes after the app exits.
+2. Two concurrent managed TCP instances whose Storage processes bind
+   to `127.0.0.1:0`, letting the OS allocate distinct ports. The runtime
+   reads a bounded, versioned `RIESEL_READY` message and verifies the
+   running provider's contract.
 
-This example declares `riesel.storage.records@1` in `app.json`, but keeps
-transport details in `deployment.json`. The application does not import the
-MemoryStore implementation or hardcode a TCP endpoint.
+Linux and Windows CI execute these tests.
 
-From the repository root, in terminal 1:
+## Remote or managed deployments
+
+To run against an *externally managed* Storage instance, first launch it:
 
 ```sh
 cargo run -p riesel_storage_component --bin storage_service -- 127.0.0.1:47911
 ```
 
-Then, in terminal 2:
+Then create an optional file containing an explicit remote endpoint:
 
-```sh
-cargo run -p todo --bin todo_client
+```json
+{
+  "services": {
+    "storage": {
+      "transport": "tcp",
+      "address": "127.0.0.1:47911"
+    }
+  }
+}
 ```
 
-To change the endpoint, edit `apps/examples/todo/deployment.json` or pass a
-different file to `todo_client`:
+Use it with:
 
 ```sh
-cargo run -p todo --bin todo_client -- path/to/deployment.json
+cargo run -p todo --bin todo_client -- --deployment path/to/external.json
 ```
 
-The client discovers the running provider, resolves the capability requirement,
-checks the remote Rust-derived contract, and binds a typed `RecordStore`
-implementation before running Todo operations.
+For a runtime-owned service without a configured port, choose
+`transport: "managed_tcp_dynamic"` and provide the trusted compiled
+service executable in `program`. `cargo smoke` generates such a
+deployment file with the correct platform-specific executable path.
 
-**Limitations:** This example uses unauthenticated, unencrypted TCP on loopback,
-a manually started service, and in-memory data that is lost when the service
-stops. Provider advertisements are not cryptographically authenticated.
-It is a composition demonstration, not a production deployment.
+The old `managed_tcp` endpoint mode remains available for compatibility,
+but no fixed port is required for an in-process provider or dynamic managed
+service.
 
-## Runtime-owned service mode
+## Boundaries
 
-A trusted deployment can configure `transport: "managed_tcp"` instead of
-`"tcp"` and provide `program`, `args`, `address`, and optionally
-`startup_timeout_ms` (default: 10000, maximum: 120000).
-
-The runtime launches that executable (without invoking a shell), verifies
-the service's declared Rust capability contract before handing it to Todo,
-and terminates the child on shutdown or failed startup. Managed endpoints
-are restricted to loopback because this initial TCP protocol has no
-authentication or encryption. Relative executable paths resolve from the
-launching process's current directory, not from `app.json`.
-
-`cargo smoke` is the recommended fully automated example on Windows and Linux.
-`deployment.json` remains in externally managed TCP mode.
+Current Storage is in-memory, so state is lost on process termination.
+The TCP transport is unencrypted and unauthenticated. Dynamic endpoint
+announcements and contract verification do not establish cryptographic
+service identity. Use managed executables and deployment files only
+when trusted, and do not expose the current TCP server to untrusted
+networks.
