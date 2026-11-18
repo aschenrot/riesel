@@ -200,18 +200,7 @@ impl ServiceMonitor {
         }
     }
 
-    pub(crate) fn check_now(&self) -> Option<RuntimeError> {
-        if let Some(failure) = self
-            .failure
-            .lock()
-            .unwrap_or_else(PoisonError::into_inner)
-            .clone()
-        {
-            return Some(failure.into_runtime());
-        }
-        if let Some(observed) = Self::scan(&self.processes, &self.managed) {
-            Self::record(&self.failure, &self.cancellation, observed);
-        }
+    pub(crate) fn observed_failure(&self) -> Option<RuntimeError> {
         self.failure
             .lock()
             .unwrap_or_else(PoisonError::into_inner)
@@ -219,19 +208,40 @@ impl ServiceMonitor {
             .map(ServiceFailure::into_runtime)
     }
 
+    pub(crate) fn check_now(&self) -> Option<RuntimeError> {
+        if let Some(failure) = self.observed_failure() {
+            return Some(failure);
+        }
+        // Once shutdown begins, do not inspect already reaped children as
+        // though they unexpectedly disappeared.
+        if self.stop.is_none() {
+            return None;
+        }
+        if let Some(observed) = Self::scan(&self.processes, &self.managed) {
+            Self::record(&self.failure, &self.cancellation, observed);
+        }
+        self.observed_failure()
+    }
+
     pub(crate) fn cancellation_token(&self) -> CancellationToken {
         self.cancellation.clone()
     }
 
-    /// Join the watcher *before* terminating owned children, so intentional
-    /// shutdown is never mistaken for an unexpected service crash.
+    /// Join the watcher, then take a final exit-status snapshot *before*
+    /// terminating owned children. This closes the check/teardown race.
     pub(crate) fn stop(&mut self) -> Result<(), RuntimeError> {
-        self.stop.take();
-        if let Some(worker) = self.worker.take() {
-            worker.join().map_err(|_| RuntimeError::MonitorPanicked)?;
+        let was_monitoring = self.stop.take().is_some();
+        let join = match self.worker.take() {
+            Some(worker) => worker.join().map_err(|_| RuntimeError::MonitorPanicked),
+            None => Ok(()),
+        };
+        if was_monitoring {
+            if let Some(observed) = Self::scan(&self.processes, &self.managed) {
+                Self::record(&self.failure, &self.cancellation, observed);
+            }
         }
         self.cancellation.cancel();
-        Ok(())
+        join
     }
 }
 
@@ -305,6 +315,7 @@ mod tests {
         monitor.stop().unwrap();
         registry.lock().unwrap().stop_all().unwrap();
         assert!(monitor.failure.lock().unwrap().is_none());
+        assert!(monitor.check_now().is_none());
         assert!(monitor.cancellation_token().is_cancelled());
     }
     #[test]

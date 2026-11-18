@@ -691,10 +691,10 @@ impl RunningApp {
         entrypoint: impl FnOnce(&RunningApp) -> Result<(), ConnectorError>,
     ) -> Result<(), AppRunError> {
         let outcome = entrypoint(&running);
-        // Recheck synchronously: a child may exit just before the callback
-        // returns, before the background polling interval elapses.
-        let failure = running.check_processes().err();
+        // Shutdown joins the watcher and snapshots the final child status
+        // before terminating children, avoiding a check/teardown race.
         let shutdown = running.shutdown().err();
+        let failure = running.supervisor.observed_failure();
 
         if let Some(failure) = failure {
             return Err(AppRunError::Supervision {
