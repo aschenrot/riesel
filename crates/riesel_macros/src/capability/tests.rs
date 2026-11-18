@@ -1,5 +1,5 @@
 use super::*;
-use syn::parse_quote;
+use syn::{ItemTrait, parse_quote};
 
 #[test]
 fn invalid_capability_signatures_are_rejected_early() {
