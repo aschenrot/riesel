@@ -243,3 +243,40 @@ fn record_lookup_uses_model_binding_even_with_other_storage_requirements() {
         })
         .unwrap();
 }
+
+#[test]
+fn application_arguments_coexist_with_framework_flags() {
+    use std::ffi::OsString;
+
+    let mut invoked = false;
+    Application::new("ArgDemo")
+        .run_with_args(["--mode", "review", "--", "--deployment", "not-a-file"], |_, args| {
+            invoked = true;
+            assert_eq!(
+                args,
+                [
+                    OsString::from("--mode"),
+                    OsString::from("review"),
+                    OsString::from("--deployment"),
+                    OsString::from("not-a-file"),
+                ]
+            );
+            Ok(())
+        })
+        .unwrap();
+    assert!(invoked);
+}
+
+#[test]
+fn strict_cli_rejects_unknown_arguments_before_execution() {
+    use std::ffi::OsString;
+
+    assert!(matches!(
+        Application::new("Strict").configure_args(&[OsString::from("--unknown")], false),
+        Err(SdkError::Arguments(_))
+    ));
+    assert!(matches!(
+        Application::new("Strict").configure_args(&[OsString::from("--deployment")], true),
+        Err(SdkError::Arguments(_))
+    ));
+}
