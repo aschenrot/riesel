@@ -170,6 +170,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "riesel_hello_example"
+version = "0.1.0"
+dependencies = [
+ "riesel",
+]
+
+[[package]]
 name = "riesel_macros"
 version = "0.1.0"
 dependencies = [
@@ -274,13 +281,6 @@ dependencies = [
  "serde",
  "serde_core",
  "zmij",
-]
-
-[[package]]
-name = "riesel_hello_example"
-version = "0.1.0"
-dependencies = [
- "riesel",
 ]
 
 [[package]]
