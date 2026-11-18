@@ -43,10 +43,7 @@ pub fn run() -> TaskResult {
     cargo(&["build", "-p", "todo", "--bin", "todo_client"])?;
 
     // No pre-bind/drop reservation race and no fixed port in deployment.
-    let path = env::temp_dir().join(format!(
-        "riesel-managed-smoke-{}.json",
-        std::process::id()
-    ));
+    let path = env::temp_dir().join(format!("riesel-managed-smoke-{}.json", std::process::id()));
     let deployment = serde_json::json!({
         "services": {
             "storage": {

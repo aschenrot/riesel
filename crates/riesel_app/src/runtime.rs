@@ -560,7 +560,6 @@ impl App {
                         }
                     })?
                 }
-
             };
 
             connected

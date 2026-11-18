@@ -111,7 +111,6 @@ impl DeploymentConfig {
                     reason: "dynamic managed service requires a program and a valid timeout",
                 });
             }
-
         }
         Ok(())
     }
@@ -185,7 +184,11 @@ mod tests {
             r#"{"services":{"storage":{"transport":"managed_tcp","address":"127.0.0.1:47911","program":"storage_service"}}}"#
         ).is_err());
 
-        for (program, timeout) in [("", 1000), ("storage_service", 0), ("storage_service", 120001)] {
+        for (program, timeout) in [
+            ("", 1000),
+            ("storage_service", 0),
+            ("storage_service", 120001),
+        ] {
             let source = serde_json::json!({
                 "services": {"storage": {
                     "transport": "managed",
