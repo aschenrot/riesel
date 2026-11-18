@@ -10,8 +10,11 @@ publish = false
 riesel.workspace = true
 riesel_counter.workspace = true
 riesel_counter_component.workspace = true
-riesel_protocol.workspace = true
+riesel_protocol = { workspace = true, features = ["async-tcp"] }
 serde_json.workspace = true
+
+[dev-dependencies]
+tokio.workspace = true
 
 [[bin]]
 name = "counter_crash_fixture"

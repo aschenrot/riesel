@@ -23,6 +23,13 @@ jobs:
         run: |
           rustup toolchain install 1.100.0 --profile minimal --component rustfmt --component clippy
           rustup default 1.100.0
+      - name: Generate async dependency lockfile for review (temporary)
+        if: runner.os == 'Linux'
+        run: |
+          cargo fetch
+          echo RIESEL_DEPENDENCY_LOCK_START
+          cat Cargo.lock
+          echo RIESEL_DEPENDENCY_LOCK_END
       - name: Validate workspace
         run: cargo validate --check
       - name: Smoke test runtime and managed providers

@@ -316,3 +316,43 @@ fn generated_async_client_preserves_domain_and_transport_errors() {
     ));
     assert_eq!(run_ready(client.label("v")).unwrap(), "v: 4");
 }
+
+#[test]
+fn generated_async_client_operates_over_real_nonblocking_tcp() {
+    use riesel_protocol::{AsyncTcpRpcTransport, RpcError, SessionToken};
+    use std::thread;
+
+    let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+    let address = listener.local_addr().unwrap();
+    let server = thread::spawn(move || {
+        let handler = CounterRpcDispatcher::new(MemoryCounter::default());
+        for _ in 0..5 {
+            let (mut connection, _) = listener.accept().unwrap();
+            handle_tcp_connection(&handler, &mut connection).unwrap();
+        }
+    });
+
+    let session = SessionToken::new();
+    let transport = AsyncTcpRpcTransport::with_session(address, session.clone());
+    let runtime = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .unwrap();
+    runtime.block_on(async {
+        transport.verify(&CounterContract::definition().unwrap()).await.unwrap();
+        let client = riesel_counter::CounterAsyncClient::new(transport);
+        assert_eq!(client.value().await.unwrap(), 0);
+        assert_eq!(client.add(8).await.unwrap(), 8);
+        assert!(matches!(
+            client.add(0).await,
+            Err(CallError::Domain(CounterError::ZeroIncrement))
+        ));
+        assert_eq!(client.label("count").await.unwrap(), "count: 8");
+        session.invalidate();
+        assert!(matches!(
+            client.value().await,
+            Err(CallError::Rpc(RpcError::SessionExpired))
+        ));
+    });
+    server.join().unwrap();
+}

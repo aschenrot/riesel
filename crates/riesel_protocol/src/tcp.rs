@@ -15,12 +15,16 @@ use std::sync::{
 use std::thread;
 use std::time::Duration;
 
+#[cfg(feature = "async-tcp")]
+mod async_client;
 mod client;
 mod server;
 #[cfg(test)]
 mod tests;
 mod wire;
 
+#[cfg(feature = "async-tcp")]
+pub use async_client::AsyncTcpRpcTransport;
 pub use client::TcpRpcTransport;
 pub use server::{handle_tcp_connection, run_tcp_rpc_host};
 

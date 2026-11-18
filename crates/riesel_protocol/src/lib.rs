@@ -8,6 +8,8 @@ pub use rpc::{
     RpcHandler, RpcHost, RpcRouter, RpcTransport, decode_result,
 };
 pub use tcp::{TcpRpcTransport, handle_tcp_connection, run_tcp_rpc_host};
+#[cfg(feature = "async-tcp")]
+pub use tcp::AsyncTcpRpcTransport;
 
 pub use session::SessionToken;
 
