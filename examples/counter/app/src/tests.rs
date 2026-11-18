@@ -296,7 +296,10 @@ fn generated_async_client_preserves_domain_and_transport_errors() {
 
     fn run_ready<F: Future>(future: F) -> F::Output {
         let mut pinned = std::pin::pin!(future);
-        match pinned.as_mut().poll(&mut Context::from_waker(Waker::noop())) {
+        match pinned
+            .as_mut()
+            .poll(&mut Context::from_waker(Waker::noop()))
+        {
             Poll::Ready(result) => result,
             Poll::Pending => panic!("ready test transport unexpectedly blocked"),
         }
