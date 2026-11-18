@@ -9,6 +9,49 @@ struct TodoModel {
     completed: bool,
 }
 
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, RieselModel)]
+#[riesel(model = "extended")]
+struct ExtendedModel {
+    count: u64,
+    delta: i64,
+    ratio: f64,
+    note: Option<String>,
+    tags: Vec<String>,
+    payload: serde_json::Value,
+}
+
+#[cfg(feature = "dev-memory-storage")]
+#[test]
+fn rust_model_numeric_and_container_fields_round_trip_through_storage() {
+    let model = ExtendedModel {
+        count: 10,
+        delta: -2,
+        ratio: 0.75,
+        note: None,
+        tags: vec!["alpha".into(), "beta".into()],
+        payload: serde_json::json!({"nested": true}),
+    };
+    let generated = ExtendedModel::model_definition();
+    generated
+        .validate_record(&serde_json::to_value(&model).unwrap())
+        .unwrap();
+
+    Application::new("ExtendedModel")
+        .records::<ExtendedModel>()
+        .unwrap()
+        .development()
+        .unwrap()
+        .run(move |ctx| {
+            let records = ctx.records::<ExtendedModel>()?;
+            let created = records.create(model.clone())?;
+            assert_eq!(created.value, model);
+            let retrieved = records.get(created.id)?.unwrap();
+            assert_eq!(retrieved.value, model);
+            Ok(())
+        })
+        .unwrap();
+}
+
 #[cfg(feature = "dev-memory-storage")]
 #[test]
 fn rust_first_app_runs_without_json_or_tcp() {
