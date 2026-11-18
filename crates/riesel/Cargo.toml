@@ -8,5 +8,6 @@ publish = false
 
 [dependencies]
 riesel_app.workspace = true
+riesel_macros.workspace = true
 riesel_schema.workspace = true
 riesel_storage.workspace = true
