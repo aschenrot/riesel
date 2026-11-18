@@ -4,9 +4,10 @@
 //! dispatchers and clients use this interface without creating a second
 //! hand-maintained method catalogue.
 
-use riesel_schema::{CapabilityContract, CapabilityRef};
+use riesel_schema::{CapabilityContract, CapabilityDescriptor, CapabilityRef, ProviderDefinition};
 use serde::{Deserialize, Serialize, de::DeserializeOwned};
 use serde_json::Value;
+use std::any::Any;
 use std::error::Error;
 use std::fmt;
 use thiserror::Error;
@@ -77,6 +78,50 @@ pub trait RpcTransport: Send + Sync {
 pub trait RpcHandler: Send + Sync {
     fn contract(&self) -> Result<CapabilityContract, RpcError>;
     fn dispatch(&self, operation: &str, arguments: Value) -> Result<Value, RpcError>;
+
+    fn provider(&self) -> Option<ProviderDefinition> {
+        None
+    }
+}
+
+/// A generated RPC binding translates a transport into a typed service
+/// without writing one adapter method for every capability operation.
+pub trait RpcClientBinding: CapabilityDescriptor {
+    type Service: Any + Send + Sync;
+
+    fn bind(transport: crate::TcpRpcTransport) -> Self::Service;
+}
+
+/// Host-supplied provider identity and generated dispatcher, checked once.
+pub struct RpcHost<H> {
+    provider: ProviderDefinition,
+    handler: H,
+}
+
+impl<H: RpcHandler> RpcHost<H> {
+    pub fn new(provider: ProviderDefinition, handler: H) -> Result<Self, RpcError> {
+        provider.validate().map_err(|error| RpcError::Contract(error.to_string()))?;
+        let contract = handler.contract()?;
+        contract.validate().map_err(|error| RpcError::Contract(error.to_string()))?;
+        if !provider.capabilities.contains(&contract.capability) {
+            return Err(RpcError::Contract("provider does not advertise the hosted capability".into()));
+        }
+        Ok(Self { provider, handler })
+    }
+}
+
+impl<H: RpcHandler> RpcHandler for RpcHost<H> {
+    fn contract(&self) -> Result<CapabilityContract, RpcError> {
+        self.handler.contract()
+    }
+
+    fn dispatch(&self, operation: &str, arguments: Value) -> Result<Value, RpcError> {
+        self.handler.dispatch(operation, arguments)
+    }
+
+    fn provider(&self) -> Option<ProviderDefinition> {
+        Some(self.provider.clone())
+    }
 }
 
 /// In-process transport for testing and applications without isolation.

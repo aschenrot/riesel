@@ -2,7 +2,7 @@
 //! This first transport is **loopback-only** and has no authentication.
 
 use crate::{RpcError, RpcHandler, RpcTransport};
-use riesel_schema::{CapabilityContract, CapabilityRef};
+use riesel_schema::{CapabilityContract, CapabilityRef, ProviderDefinition};
 use serde::{Deserialize, Serialize, de::DeserializeOwned};
 use serde_json::Value;
 use std::io::{BufRead, BufReader, Write};
@@ -12,6 +12,7 @@ use std::time::Duration;
 const WIRE_VERSION: u32 = 1;
 const MAX_FRAME_BYTES: usize = 4 * 1024 * 1024;
 const DESCRIBE: &str = "$describe";
+const PROVIDER: &str = "$provider";
 
 #[derive(Debug, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -50,6 +51,19 @@ impl TcpRpcTransport {
             .validate()
             .map_err(|error| RpcError::Contract(error.to_string()))?;
         Ok(contract)
+    }
+
+    /// Request provider identity; only an explicitly hosted service can
+    /// advertise it. The identity is not cryptographic authentication.
+    pub fn provider(&self, capability: &CapabilityRef) -> Result<ProviderDefinition, RpcError> {
+        let value = self.call(capability, PROVIDER, serde_json::json!({}))?;
+        let provider: ProviderDefinition = serde_json::from_value(value)
+            .map_err(|error| RpcError::Codec(error.to_string()))?;
+        provider.validate().map_err(|error| RpcError::Contract(error.to_string()))?;
+        if !provider.capabilities.contains(capability) {
+            return Err(RpcError::Contract("provider does not implement the requested capability".into()));
+        }
+        Ok(provider)
     }
 
     pub fn verify(&self, expected: &CapabilityContract) -> Result<(), RpcError> {
@@ -119,6 +133,19 @@ pub fn handle_tcp_connection(
                 expected: format!("{}@{}", contract.capability.id, contract.capability.version),
                 received: format!("{}@{}", request.capability.id, request.capability.version),
             })
+        } else if request.operation == PROVIDER {
+            if request.arguments != serde_json::json!({}) {
+                Err(RpcError::InvalidArguments(
+                    "provider inspection takes no arguments".into(),
+                ))
+            } else {
+                handler.provider().ok_or_else(|| {
+                    RpcError::Contract("service has no registered provider".into())
+                }).and_then(|provider| {
+                    serde_json::to_value(provider)
+                        .map_err(|error| RpcError::Codec(error.to_string()))
+                })
+            }
         } else if request.operation == DESCRIBE {
             if request.arguments != serde_json::json!({}) {
                 Err(RpcError::InvalidArguments(

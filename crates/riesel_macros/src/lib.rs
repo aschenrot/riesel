@@ -11,27 +11,35 @@ use syn::{
 struct CapabilityArgs {
     id: LitStr,
     version: LitInt,
+    client_trait: bool,
 }
 
 impl Parse for CapabilityArgs {
     fn parse(input: ParseStream<'_>) -> syn::Result<Self> {
         let mut id = None;
         let mut version = None;
+        let mut client_trait = false;
         while !input.is_empty() {
             let key: Ident = input.parse()?;
-            input.parse::<Token![=]>()?;
-            if key == "id" {
+            if key == "client_trait" {
+                if client_trait {
+                    return Err(syn::Error::new(key.span(), "duplicate client_trait"));
+                }
+                client_trait = true;
+            } else if key == "id" {
+                input.parse::<Token![=]>()?;
                 if id.is_some() {
                     return Err(syn::Error::new(key.span(), "duplicate id"));
                 }
                 id = Some(input.parse::<LitStr>()?);
             } else if key == "version" {
+                input.parse::<Token![=]>()?;
                 if version.is_some() {
                     return Err(syn::Error::new(key.span(), "duplicate version"));
                 }
                 version = Some(input.parse::<LitInt>()?);
             } else {
-                return Err(syn::Error::new(key.span(), "expected id or version"));
+                return Err(syn::Error::new(key.span(), "expected id, version or client_trait"));
             }
             if !input.is_empty() {
                 input.parse::<Token![,]>()?;
@@ -40,6 +48,7 @@ impl Parse for CapabilityArgs {
         Ok(Self {
             id: id.ok_or_else(|| input.error("missing id"))?,
             version: version.ok_or_else(|| input.error("missing version"))?,
+            client_trait,
         })
     }
 }
@@ -62,6 +71,7 @@ fn expand_capability(
 ) -> syn::Result<proc_macro2::TokenStream> {
     let id = args.id;
     let version = args.version;
+    let client_trait = args.client_trait;
     let parsed_version: u32 = version.base10_parse()?;
     if parsed_version == 0 {
         return Err(syn::Error::new(
@@ -95,6 +105,7 @@ fn expand_capability(
     let visibility = item.vis.clone();
     let mut generated_operations = Vec::new();
     let mut client_methods = Vec::new();
+    let mut trait_methods = Vec::new();
     let mut dispatch_arms = Vec::new();
 
     for entry in &mut item.items {
@@ -191,6 +202,7 @@ fn expand_capability(
         let mut arguments = Vec::new();
         let mut type_collection = Vec::new();
         let mut client_arguments = Vec::new();
+        let mut arg_names = Vec::new();
         let mut client_encoding = Vec::new();
         let mut payload_fields = Vec::new();
         let mut dispatch_arguments = Vec::new();
@@ -212,6 +224,7 @@ fn expand_capability(
             }
             let name = &param.ident;
             let ty = &arg.ty;
+            arg_names.push(quote!(#name));
             client_arguments.push(quote!(#name: #ty));
             client_encoding.push(quote! {
                 arguments.insert(
@@ -261,6 +274,20 @@ fn expand_capability(
 
         let (result_type, error_type) = result_parts(&method.sig.output)?;
         let method_name = &method.sig.ident;
+        trait_methods.push(quote! {
+            fn #method_name(
+                &self,
+                #(#client_arguments),*
+            ) -> Result<#result_type, #error_type> {
+                #client_name::#method_name(self, #(#arg_names),*)
+                    .map_err(|error| match error {
+                        ::riesel_protocol::CallError::Domain(domain) => domain,
+                        ::riesel_protocol::CallError::Rpc(transport) => {
+                            <#error_type as ::std::convert::From<::riesel_protocol::RpcError>>::from(transport)
+                        }
+                    })
+            }
+        });
         client_methods.push(quote! {
             #[doc = #docs]
             pub fn #method_name(
@@ -312,6 +339,24 @@ fn expand_capability(
             <#error_type as ::riesel_schema::RieselType>::collect_definitions(&mut types)?;
         });
     }
+    let trait_impl = if client_trait {
+        quote! {
+            impl<T: ::riesel_protocol::RpcTransport> #trait_name for #client_name<T> {
+                #(#trait_methods)*
+            }
+
+            impl ::riesel_protocol::RpcClientBinding for #descriptor_name {
+                type Service = ::std::sync::Arc<dyn #trait_name + Send + Sync>;
+
+                fn bind(transport: ::riesel_protocol::TcpRpcTransport) -> Self::Service {
+                    ::std::sync::Arc::new(#client_name::new(transport))
+                }
+            }
+        }
+    } else {
+        quote!()
+    };
+
     if generated_operations.is_empty() {
         return Err(syn::Error::new(
             trait_name.span(),
@@ -388,6 +433,8 @@ fn expand_capability(
                 self.provider
             }
         }
+
+        #trait_impl
 
         impl<T: #trait_name + Send + Sync> ::riesel_protocol::RpcHandler
             for #dispatcher_name<T>

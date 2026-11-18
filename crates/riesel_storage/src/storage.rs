@@ -21,12 +21,21 @@ pub enum StoreError {
 
     #[error("storage operation failed: {0}")]
     Failed(String),
+
+    #[error("storage transport failed: {0}")]
+    Transport(String),
+}
+
+impl From<riesel_protocol::RpcError> for StoreError {
+    fn from(error: riesel_protocol::RpcError) -> Self {
+        Self::Transport(error.to_string())
+    }
 }
 
 /// The public, versioned record-storage capability contract.
 ///
 /// API metadata is generated from this trait and the RieselType derives above.
-#[capability(id = "riesel.storage.records", version = 1)]
+#[capability(id = "riesel.storage.records", version = 1, client_trait)]
 pub trait RecordStore {
     /// Create a record in a model with a generated identifier and initial revision.
     #[command]
