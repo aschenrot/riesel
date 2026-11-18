@@ -298,11 +298,9 @@ dependencies = [
 name = "todo"
 version = "0.1.0"
 dependencies = [
- "anyhow",
  "riesel",
  "riesel_storage_component",
  "serde",
- "serde_json",
  "thiserror",
  "uuid",
 ]
