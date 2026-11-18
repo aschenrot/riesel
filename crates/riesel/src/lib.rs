@@ -1,7 +1,7 @@
 //! Riesel - a general purpose application engine
 pub use riesel_app::{
-    App, AppConfig, AppError, BindingError, CapabilityBindings, ProviderRegistry, ResolutionError,
-    ResolvedCapability,
+    App, AppConfig, AppError, BindingError, CapabilityBindings, DeploymentConfig, DeploymentError,
+    ProviderRegistry, ResolutionError, ResolvedCapability, ServiceEndpoint,
 };
 pub use riesel_macros::{RieselType, capability};
 
