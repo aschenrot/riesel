@@ -411,10 +411,13 @@ impl RunningApp {
     /// Join monitoring first, then drop clients and stop owned children in
     /// reverse startup order. External TCP services remain untouched.
     pub fn shutdown(&mut self) -> Result<(), RuntimeError> {
-        let monitor = self.supervisor.stop();
-        // Cancellation is now signalled. Join application tasks before
-        // destroying their providers or reaping managed processes.
+        // Tasks receive cancellation before providers are stopped. Keep the
+        // supervisor running during task joins: a managed child can still
+        // exit unexpectedly while application-owned work is finishing.
         let tasks = self.tasks.join();
+        // The monitor takes its final snapshot only after every task joined,
+        // but before intentional managed-process teardown.
+        let monitor = self.supervisor.stop();
         self.services.clear();
         let stopped = self
             .processes
