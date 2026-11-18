@@ -8,6 +8,7 @@ use riesel_schema::{CapabilityContract, CapabilityDescriptor, CapabilityRef, Pro
 use serde::{Deserialize, Serialize, de::DeserializeOwned};
 use serde_json::Value;
 use std::any::Any;
+use std::collections::BTreeMap;
 use std::error::Error;
 use std::fmt;
 use thiserror::Error;
@@ -84,6 +85,30 @@ pub trait RpcHandler: Send + Sync {
     fn provider(&self) -> Option<ProviderDefinition> {
         None
     }
+
+    /// Resolve the exact capability served at this endpoint. Implementations
+    /// that multiplex capability interfaces override this operation.
+    fn contract_for(&self, capability: &CapabilityRef) -> Result<CapabilityContract, RpcError> {
+        let contract = self.contract()?;
+        if &contract.capability == capability {
+            Ok(contract)
+        } else {
+            Err(RpcError::WrongCapability {
+                expected: format!("{}@{}", contract.capability.id, contract.capability.version),
+                received: format!("{}@{}", capability.id, capability.version),
+            })
+        }
+    }
+
+    fn dispatch_for(
+        &self,
+        capability: &CapabilityRef,
+        operation: &str,
+        arguments: Value,
+    ) -> Result<Value, RpcError> {
+        self.contract_for(capability)?;
+        self.dispatch(operation, arguments)
+    }
 }
 
 /// A generated RPC binding translates a transport into a typed service
@@ -157,6 +182,93 @@ impl<H: RpcHandler> RpcHandler for RpcHost<H> {
     }
 }
 
+
+/// Validated provider instance serving multiple versioned capability contracts
+/// through one shared transport endpoint and lifecycle. Handlers can share
+/// the same Arc-backed implementation state.
+pub struct RpcRouter {
+    provider: ProviderDefinition,
+    routes: BTreeMap<(String, u32), (CapabilityContract, Box<dyn RpcHandler>)>,
+}
+
+impl RpcRouter {
+    pub fn new(provider: ProviderDefinition) -> Result<Self, RpcError> {
+        provider.validate().map_err(|error| RpcError::Contract(error.to_string()))?;
+        Ok(Self { provider, routes: BTreeMap::new() })
+    }
+
+    pub fn route(mut self, handler: impl RpcHandler + 'static) -> Result<Self, RpcError> {
+        let contract = handler.contract()?;
+        contract.validate().map_err(|error| RpcError::Contract(error.to_string()))?;
+        if !self.provider.capabilities.contains(&contract.capability) {
+            return Err(RpcError::Contract("handler capability is not advertised by provider".into()));
+        }
+        let key = (contract.capability.id.clone(), contract.capability.version);
+        if self.routes.insert(key, (contract, Box::new(handler))).is_some() {
+            return Err(RpcError::Contract("provider capability registered more than once".into()));
+        }
+        Ok(self)
+    }
+
+    /// Fail before listening if the provider advertises an interface without
+    /// an executable handler.
+    pub fn validate_routes(&self) -> Result<(), RpcError> {
+        if self.routes.len() != self.provider.capabilities.len() {
+            return Err(RpcError::Contract("provider has an unbound capability".into()));
+        }
+        Ok(())
+    }
+
+    fn route_for(&self, capability: &CapabilityRef)
+        -> Result<&(CapabilityContract, Box<dyn RpcHandler>), RpcError>
+    {
+        self.routes
+            .get(&(capability.id.clone(), capability.version))
+            .ok_or_else(|| RpcError::WrongCapability {
+                expected: self.provider.capabilities.iter()
+                    .map(|cap| format!("{}@{}", cap.id, cap.version))
+                    .collect::<Vec<_>>().join(", "),
+                received: format!("{}@{}", capability.id, capability.version),
+            })
+    }
+}
+
+impl RpcHandler for RpcRouter {
+    fn contract(&self) -> Result<CapabilityContract, RpcError> {
+        // Legacy single-capability call sites are explicit; production routing
+        // uses contract_for() instead.
+        if self.routes.len() != 1 {
+            return Err(RpcError::Contract(
+                "multi-capability router requires a capability selector".into(),
+            ));
+        }
+        Ok(self.routes.values().next().expect("one route").0.clone())
+    }
+
+    fn dispatch(&self, operation: &str, arguments: Value) -> Result<Value, RpcError> {
+        if self.routes.len() != 1 {
+            return Err(RpcError::Contract(
+                "multi-capability router requires a capability selector".into(),
+            ));
+        }
+        self.routes.values().next().expect("one route").1.dispatch(operation, arguments)
+    }
+
+    fn provider(&self) -> Option<ProviderDefinition> {
+        Some(self.provider.clone())
+    }
+
+    fn contract_for(&self, capability: &CapabilityRef) -> Result<CapabilityContract, RpcError> {
+        Ok(self.route_for(capability)?.0.clone())
+    }
+
+    fn dispatch_for(&self, capability: &CapabilityRef, operation: &str, arguments: Value)
+        -> Result<Value, RpcError>
+    {
+        self.route_for(capability)?.1.dispatch(operation, arguments)
+    }
+}
+
 /// In-process transport for testing and applications without isolation.
 pub struct LocalRpc<H> {
     handler: H,
@@ -179,14 +291,7 @@ impl<H: RpcHandler> RpcTransport for LocalRpc<H> {
         operation: &str,
         arguments: Value,
     ) -> Result<Value, RpcError> {
-        let actual = self.handler.contract()?.capability;
-        if actual != *capability {
-            return Err(RpcError::WrongCapability {
-                expected: format!("{}@{}", actual.id, actual.version),
-                received: format!("{}@{}", capability.id, capability.version),
-            });
-        }
-        self.handler.dispatch(operation, arguments)
+        self.handler.dispatch_for(capability, operation, arguments)
     }
 }
 

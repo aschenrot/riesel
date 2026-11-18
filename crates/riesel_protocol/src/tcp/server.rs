@@ -137,13 +137,8 @@ pub fn handle_tcp_connection(
             request.version
         )))
     } else {
-        let contract = handler.contract()?;
-        if request.capability != contract.capability {
-            Err(RpcError::WrongCapability {
-                expected: format!("{}@{}", contract.capability.id, contract.capability.version),
-                received: format!("{}@{}", request.capability.id, request.capability.version),
-            })
-        } else if request.operation == PROVIDER {
+        handler.contract_for(&request.capability).and_then(|contract| {
+        if request.operation == PROVIDER {
             if request.arguments != serde_json::json!({}) {
                 Err(RpcError::InvalidArguments(
                     "provider inspection takes no arguments".into(),
@@ -166,8 +161,9 @@ pub fn handle_tcp_connection(
                 serde_json::to_value(contract).map_err(|error| RpcError::Codec(error.to_string()))
             }
         } else {
-            handler.dispatch(&request.operation, request.arguments)
+            handler.dispatch_for(&request.capability, &request.operation, request.arguments)
         }
+        })
     };
     write_json_line(
         stream,

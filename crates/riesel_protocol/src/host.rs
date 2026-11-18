@@ -1,6 +1,6 @@
 //! Standard managed component startup. Component binaries only supply
 //! their implementation; argument parsing and runtime ownership are shared.
-use crate::{RpcHandler, RpcHost, run_tcp_rpc_host};
+use crate::{RpcHandler, RpcHost, RpcRouter, run_tcp_rpc_host};
 use riesel_schema::ProviderDefinition;
 use std::ffi::OsString;
 use std::io;
@@ -15,6 +15,13 @@ pub fn serve_component<H: RpcHandler>(
 ) -> io::Result<()> {
     let hosted = RpcHost::new(provider, handler).map_err(io::Error::other)?;
     run_tcp_rpc_host(address, &hosted)
+}
+
+/// Host all capability bindings of one managed component through a shared
+/// port, process and provider identity.
+pub fn serve_router(address: &str, router: RpcRouter) -> io::Result<()> {
+    router.validate_routes().map_err(io::Error::other)?;
+    run_tcp_rpc_host(address, &router)
 }
 
 /// Let an executable accept an explicit bind address or the managed runtime's
