@@ -15,7 +15,10 @@ pub fn run(mode: FormatMode) -> TaskResult {
     }
 
     let checks: &[(&str, &[&str])] = &[
-        ("Check", &["check", "--locked", "--workspace", "--all-targets"]),
+        (
+            "Check",
+            &["check", "--locked", "--workspace", "--all-targets"],
+        ),
         (
             "Clippy",
             &[
@@ -29,7 +32,10 @@ pub fn run(mode: FormatMode) -> TaskResult {
             ],
         ),
         ("Tests", &["test", "--locked", "--workspace"]),
-        ("Documentation", &["doc", "--locked", "--workspace", "--no-deps"]),
+        (
+            "Documentation",
+            &["doc", "--locked", "--workspace", "--no-deps"],
+        ),
     ];
 
     for &(name, args) in checks {

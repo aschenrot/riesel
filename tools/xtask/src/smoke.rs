@@ -62,7 +62,13 @@ pub fn run() -> TaskResult {
         "--bin",
         "counter_service",
     ])?;
-    cargo(&["build", "--locked", "-p", "riesel_counter_example", "--bins"])?;
+    cargo(&[
+        "build",
+        "--locked",
+        "-p",
+        "riesel_counter_example",
+        "--bins",
+    ])?;
 
     // No pre-bind/drop reservation race and no fixed port in deployment.
     let path = env::temp_dir().join(format!("riesel-managed-smoke-{}.json", std::process::id()));
