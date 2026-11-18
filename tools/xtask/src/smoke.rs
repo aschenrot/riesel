@@ -24,7 +24,7 @@ mod storage;
 use counter::{
     verify_counter_provider, verify_managed_session_recovery, verify_shared_managed_component,
 };
-use fixtures::{TemporaryConfig, binary};
+use fixtures::{TemporaryConfig, binary, output_with_timeout, wait_for};
 use inspection::verify_deployment_preflight;
 use storage::{verify_graceful_storage_exit, verify_multi_service_rollback};
 
@@ -91,8 +91,8 @@ pub fn run() -> TaskResult {
             return Err(format!("cannot launch second managed Todo: {error}"));
         }
     };
-    let first_result = first.wait().map_err(|error| error.to_string());
-    let second_result = second.wait().map_err(|error| error.to_string());
+    let first_result = wait_for(&mut first, Duration::from_secs(25));
+    let second_result = wait_for(&mut second, Duration::from_secs(25));
 
     if !first_result?.success() || !second_result?.success() {
         return Err("concurrent OS-assigned Storage smoke test failed".into());

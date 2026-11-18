@@ -1,10 +1,11 @@
 use super::*;
 
 pub(super) fn verify_counter_provider() -> TaskResult {
-    let local_status = Command::new(binary("riesel_counter_example"))
+    let mut local = Command::new(binary("riesel_counter_example"))
         .current_dir(workspace_root())
-        .status()
+        .spawn()
         .map_err(|error| format!("cannot run local Counter example: {error}"))?;
+    let local_status = wait_for(&mut local, Duration::from_secs(15))?;
     if !local_status.success() {
         return Err("local Counter capability integration failed".into());
     }
@@ -24,12 +25,13 @@ pub(super) fn verify_counter_provider() -> TaskResult {
     )
     .map_err(|error| format!("cannot write Counter deployment: {error}"))?;
     let temporary = TemporaryConfig(path);
-    let managed_status = Command::new(binary("counter_client"))
+    let mut managed = Command::new(binary("counter_client"))
         .arg("--deployment")
         .arg(&temporary.0)
         .current_dir(workspace_root())
-        .status()
+        .spawn()
         .map_err(|error| format!("cannot run managed Counter client: {error}"))?;
+    let managed_status = wait_for(&mut managed, Duration::from_secs(15))?;
     if !managed_status.success() {
         return Err("managed Counter capability integration failed".into());
     }
@@ -66,12 +68,15 @@ pub(super) fn verify_managed_session_recovery() -> TaskResult {
     )
     .map_err(|error| format!("cannot write recovery deployment: {error}"))?;
     let deployment = TemporaryConfig(path);
-    let client = Command::new(binary("counter_recovery_client"))
-        .arg("--deployment")
-        .arg(&deployment.0)
-        .current_dir(workspace_root())
-        .output()
-        .map_err(|error| format!("cannot launch recovering Counter application: {error}"))?;
+    let client = output_with_timeout(
+        Command::new(binary("counter_recovery_client"))
+            .arg("--deployment")
+            .arg(&deployment.0)
+            .current_dir(workspace_root())
+            .spawn()
+            .map_err(|error| format!("cannot launch recovering Counter application: {error}"))?,
+        Duration::from_secs(25),
+    )?;
 
     if !client.status.success()
         || !String::from_utf8_lossy(&client.stdout).contains("RIESEL_RECOVERY_OK")
@@ -111,12 +116,15 @@ pub(super) fn verify_shared_managed_component() -> TaskResult {
     )
     .map_err(|error| format!("cannot write shared component deployment: {error}"))?;
     let deployment = TemporaryConfig(path);
-    let output = Command::new(binary("counter_dual_client"))
-        .arg("--deployment")
-        .arg(&deployment.0)
-        .current_dir(workspace_root())
-        .output()
-        .map_err(|error| format!("cannot run shared component client: {error}"))?;
+    let output = output_with_timeout(
+        Command::new(binary("counter_dual_client"))
+            .arg("--deployment")
+            .arg(&deployment.0)
+            .current_dir(workspace_root())
+            .spawn()
+            .map_err(|error| format!("cannot run shared component client: {error}"))?,
+        Duration::from_secs(20),
+    )?;
     if !output.status.success()
         || !String::from_utf8_lossy(&output.stdout).contains("RIESEL_SHARED_COMPONENT_OK")
     {
