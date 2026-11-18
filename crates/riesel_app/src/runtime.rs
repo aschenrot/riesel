@@ -324,7 +324,9 @@ pub enum AppRunError {
         entry: ConnectorError,
         shutdown: RuntimeError,
     },
-    #[error("required managed service failed: {failure}; entrypoint: {entry:?}; shutdown: {shutdown:?}")]
+    #[error(
+        "required managed service failed: {failure}; entrypoint: {entry:?}; shutdown: {shutdown:?}"
+    )]
     Supervision {
         failure: RuntimeError,
         entry: Option<ConnectorError>,

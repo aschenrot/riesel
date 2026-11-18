@@ -40,7 +40,11 @@ impl CancellationToken {
         if self.is_cancelled() {
             return true;
         }
-        let guard = self.state.gate.lock().unwrap_or_else(PoisonError::into_inner);
+        let guard = self
+            .state
+            .gate
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner);
         let _waiting = self
             .state
             .changed
@@ -50,7 +54,11 @@ impl CancellationToken {
     }
 
     fn cancel(&self) {
-        let _guard = self.state.gate.lock().unwrap_or_else(PoisonError::into_inner);
+        let _guard = self
+            .state
+            .gate
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner);
         if !self.state.cancelled.swap(true, Ordering::AcqRel) {
             self.state.changed.notify_all();
         }
@@ -61,7 +69,10 @@ impl CancellationToken {
 /// and message when propagating an inspection error to multiple observers.
 #[derive(Debug, Clone)]
 enum ServiceFailure {
-    Exited { requirement: String, status: ExitStatus },
+    Exited {
+        requirement: String,
+        status: ExitStatus,
+    },
     Status {
         requirement: String,
         kind: io::ErrorKind,
@@ -73,10 +84,18 @@ enum ServiceFailure {
 impl ServiceFailure {
     fn into_runtime(self) -> RuntimeError {
         match self {
-            Self::Exited { requirement, status } => {
-                RuntimeError::ServiceExited { requirement, status }
-            }
-            Self::Status { requirement, kind, message } => RuntimeError::ServiceStatus {
+            Self::Exited {
+                requirement,
+                status,
+            } => RuntimeError::ServiceExited {
+                requirement,
+                status,
+            },
+            Self::Status {
+                requirement,
+                kind,
+                message,
+            } => RuntimeError::ServiceStatus {
                 requirement,
                 source: io::Error::new(kind, message),
             },
@@ -113,16 +132,18 @@ impl ServiceMonitor {
             let (stop, signal) = mpsc::channel();
             let worker = thread::Builder::new()
                 .name("riesel-service-monitor".into())
-                .spawn(move || loop {
-                    if let Some(observed) =
-                        Self::scan(&processes_for_worker, &managed_for_worker)
-                    {
-                        Self::record(&failure_for_worker, &cancellation_for_worker, observed);
-                        return;
-                    }
-                    match signal.recv_timeout(MONITOR_INTERVAL) {
-                        Err(mpsc::RecvTimeoutError::Timeout) => {}
-                        Ok(()) | Err(mpsc::RecvTimeoutError::Disconnected) => return,
+                .spawn(move || {
+                    loop {
+                        if let Some(observed) =
+                            Self::scan(&processes_for_worker, &managed_for_worker)
+                        {
+                            Self::record(&failure_for_worker, &cancellation_for_worker, observed);
+                            return;
+                        }
+                        match signal.recv_timeout(MONITOR_INTERVAL) {
+                            Err(mpsc::RecvTimeoutError::Timeout) => {}
+                            Ok(()) | Err(mpsc::RecvTimeoutError::Disconnected) => return,
+                        }
                     }
                 })?;
             (Some(stop), Some(worker))
@@ -227,7 +248,8 @@ mod tests {
         let token = CancellationToken::default();
         assert!(!token.wait_cancelled_timeout(Duration::from_millis(1)));
         let subscriber = token.clone();
-        let waiter = thread::spawn(move || subscriber.wait_cancelled_timeout(Duration::from_secs(2)));
+        let waiter =
+            thread::spawn(move || subscriber.wait_cancelled_timeout(Duration::from_secs(2)));
         token.cancel();
         assert!(waiter.join().unwrap());
         assert!(token.wait_cancelled_timeout(Duration::from_secs(1)));
