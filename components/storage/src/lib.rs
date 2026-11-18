@@ -17,6 +17,13 @@ pub fn memory_provider_definition() -> Result<ProviderDefinition, ContractError>
     })
 }
 
+pub(crate) fn memory_service_info() -> Result<StorageServiceInfo, ContractError> {
+    Ok(StorageServiceInfo {
+        provider: memory_provider_definition()?,
+        contract: RecordStoreContract::definition()?,
+    })
+}
+
 #[cfg(test)]
 mod provider_tests {
     use super::*;
@@ -30,9 +37,3 @@ mod provider_tests {
     }
 }
 
-pub(crate) fn memory_service_info() -> Result<StorageServiceInfo, ContractError> {
-    Ok(StorageServiceInfo {
-        provider: memory_provider_definition()?,
-        contract: RecordStoreContract::definition()?,
-    })
-}
