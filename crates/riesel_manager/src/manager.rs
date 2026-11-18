@@ -194,8 +194,8 @@ mod tests {
         let first = ProcessKey::new(12, Some("first".into()));
         let second = ProcessKey::new(4, Some("second".into()));
         let third = ProcessKey::new(8, Some("third".into()));
-        for key in [&first, &second, &third] {
-            registry.spawn(key.clone(), &mut test_child()).unwrap();
+        for key in [first.clone(), second.clone(), third.clone()] {
+            registry.spawn(key, &mut test_child()).unwrap();
         }
         assert_eq!(
             registry.shutdown_order(),
