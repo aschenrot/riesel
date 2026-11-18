@@ -11,15 +11,20 @@
 //! }
 //! ```
 //!
-//! Generated capability macros also reject unsupported asynchronous methods:
+//! Native async capabilities are supported. To keep dispatch semantics
+//! predictable, a single contract must not mix sync and async operations:
 //!
 //! ```compile_fail
 //! use riesel::capability;
 //! #[capability(id = "example.invalid", version = 1)]
 //! trait Invalid {
-//!     /// Read a counter.
+//!     /// Read a counter asynchronously.
 //!     #[query]
 //!     async fn value(&self) -> Result<u64, String>;
+//!
+//!     /// Add a value synchronously.
+//!     #[command]
+//!     fn add(&self, amount: u64) -> Result<u64, String>;
 //! }
 //! ```
 //! Riesel - a general purpose application engine
