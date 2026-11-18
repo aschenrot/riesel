@@ -20,7 +20,7 @@ impl App {
         App { config }
     }
 
-    pub fn load(path: &str) -> Result<App, AppError> {
+    pub fn load(_path: &str) -> Result<App, AppError> {
         App::default();
         todo!()
     }
