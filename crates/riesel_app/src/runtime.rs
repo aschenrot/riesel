@@ -1132,7 +1132,6 @@ mod tests {
         ));
     }
 
-
     #[test]
     fn whole_application_restart_rebuilds_services_after_real_child_exit() {
         use crate::RecoveryPolicy;

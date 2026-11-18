@@ -374,18 +374,12 @@ fn verify_counter_provider() -> TaskResult {
 }
 
 fn verify_managed_session_recovery() -> TaskResult {
-    let marker = env::temp_dir().join(format!(
-        "riesel-recovery-marker-{}",
-        std::process::id()
-    ));
+    let marker = env::temp_dir().join(format!("riesel-recovery-marker-{}", std::process::id()));
     if marker.exists() {
         return Err("recovery fixture marker already exists".into());
     }
     let _marker_cleanup = TemporaryConfig(marker.clone());
-    let path = env::temp_dir().join(format!(
-        "riesel-recovery-smoke-{}.json",
-        std::process::id()
-    ));
+    let path = env::temp_dir().join(format!("riesel-recovery-smoke-{}.json", std::process::id()));
     let config = serde_json::json!({
         "services": {
             "counter": {
@@ -416,7 +410,9 @@ fn verify_managed_session_recovery() -> TaskResult {
         .output()
         .map_err(|error| format!("cannot launch recovering Counter application: {error}"))?;
 
-    if !client.status.success() || !String::from_utf8_lossy(&client.stdout).contains("RIESEL_RECOVERY_OK") {
+    if !client.status.success()
+        || !String::from_utf8_lossy(&client.stdout).contains("RIESEL_RECOVERY_OK")
+    {
         return Err(format!(
             "managed Counter session failed to recover: status {}, stdout {}, stderr {}",
             client.status,
