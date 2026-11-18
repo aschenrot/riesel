@@ -41,4 +41,3 @@ pub enum SdkError {
 }
 
 pub type Result<T> = std::result::Result<T, SdkError>;
-

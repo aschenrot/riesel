@@ -2,8 +2,8 @@ use quote::{format_ident, quote};
 use syn::parse::{Parse, ParseStream};
 use syn::spanned::Spanned;
 use syn::{
-    Expr, FnArg, GenericArgument, Ident, ItemTrait, Lit, LitInt, LitStr,
-    Meta, Pat, PathArguments, ReturnType, Token, TraitItem, Type,
+    Expr, FnArg, GenericArgument, Ident, ItemTrait, Lit, LitInt, LitStr, Meta, Pat, PathArguments,
+    ReturnType, Token, TraitItem, Type,
 };
 
 pub(crate) struct CapabilityArgs {
@@ -531,7 +531,6 @@ fn result_parts(output: &ReturnType) -> syn::Result<(&Type, &Type)> {
     }
     Ok((types[0], types[1]))
 }
-
 
 #[cfg(test)]
 mod tests {

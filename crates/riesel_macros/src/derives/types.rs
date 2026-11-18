@@ -113,7 +113,6 @@ pub(crate) fn expand_riesel_type(input: DeriveInput) -> syn::Result<proc_macro2:
     })
 }
 
-
 #[cfg(test)]
 mod tests {
     use super::*;

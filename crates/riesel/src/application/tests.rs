@@ -65,7 +65,10 @@ fn generated_rpc_capability_is_registered_once_for_multiple_aliases() {
         .rpc::<RecordStoreContract>("secondary")
         .unwrap();
     assert_eq!(app.definition().requires.len(), 2);
-    assert!(app.providers.has_connector(&RecordStoreContract::definition().unwrap().capability));
+    assert!(
+        app.providers
+            .has_connector(&RecordStoreContract::definition().unwrap().capability)
+    );
 }
 
 #[test]

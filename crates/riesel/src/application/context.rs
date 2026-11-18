@@ -76,4 +76,3 @@ impl Context<'_> {
         Ok(Records::from_store(store))
     }
 }
-

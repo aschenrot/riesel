@@ -2,7 +2,10 @@ use syn::{Attribute, Result};
 
 /// Generated type metadata must correspond to the JSON that Serde emits.
 pub(crate) fn validate_container_serde(attributes: &[Attribute]) -> Result<()> {
-    for attr in attributes.iter().filter(|attr| attr.path().is_ident("serde")) {
+    for attr in attributes
+        .iter()
+        .filter(|attr| attr.path().is_ident("serde"))
+    {
         let mut saw_denial = false;
         attr.parse_nested_meta(|meta| {
             if meta.path.is_ident("deny_unknown_fields") && !saw_denial {
