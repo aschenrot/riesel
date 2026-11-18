@@ -113,10 +113,10 @@ impl ProcessRegistry {
     pub fn stop_all(&mut self) -> io::Result<()> {
         let mut first_error = None;
         for key in self.shutdown_order() {
-            if let Err(error) = self.stop(&key) {
-                if first_error.is_none() {
-                    first_error = Some(error);
-                }
+            if let Err(error) = self.stop(&key)
+                && first_error.is_none()
+            {
+                first_error = Some(error);
             }
         }
         match first_error {
