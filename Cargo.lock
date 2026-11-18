@@ -109,6 +109,33 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "f8dcc9c7d52a811697d2151c701e0d08956f92b0e24136cf4cf27b57a6a0d9bf"
 
 [[package]]
+name = "riesel"
+version = "0.1.0"
+dependencies = [
+ "riesel_app",
+ "riesel_macros",
+ "riesel_protocol",
+ "riesel_schema",
+ "riesel_storage",
+ "riesel_storage_component",
+ "serde",
+ "serde_json",
+ "thiserror",
+ "uuid",
+]
+
+[[package]]
+name = "riesel_app"
+version = "0.1.0"
+dependencies = [
+ "riesel_manager",
+ "riesel_schema",
+ "serde",
+ "serde_json",
+ "thiserror",
+]
+
+[[package]]
 name = "riesel_counter"
 version = "0.1.0"
 dependencies = [
@@ -139,33 +166,6 @@ dependencies = [
  "riesel_counter_component",
  "riesel_protocol",
  "serde_json",
-]
-
-[[package]]
-name = "riesel"
-version = "0.1.0"
-dependencies = [
- "riesel_app",
- "riesel_macros",
- "riesel_protocol",
- "riesel_schema",
- "riesel_storage",
- "riesel_storage_component",
- "serde",
- "serde_json",
- "thiserror",
- "uuid",
-]
-
-[[package]]
-name = "riesel_app"
-version = "0.1.0"
-dependencies = [
- "riesel_manager",
- "riesel_schema",
- "serde",
- "serde_json",
- "thiserror",
 ]
 
 [[package]]
