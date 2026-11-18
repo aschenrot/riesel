@@ -7,7 +7,7 @@ pub fn main() -> Result<(), Box<dyn Error>> {
     let connectors = ConnectorRegistry::new();
 
     app.run(&deployment, &connectors, |running| {
-        println!("Application: {}", running.app().config().name);
+        println!("Application: {}", running.app().definition().app.name);
         Ok(())
     })?;
     Ok(())

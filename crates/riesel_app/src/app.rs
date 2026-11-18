@@ -1,17 +1,13 @@
-use crate::AppConfig;
 use riesel_schema::{AppSchema, SchemaError, parse_schema};
 use thiserror::Error;
 
 #[derive(Clone)]
 pub struct App {
-    config: AppConfig,
-    definition: Option<AppSchema>,
+    definition: AppSchema,
 }
 
 #[derive(Debug, Error)]
 pub enum AppError {
-    #[error("Unknown error")]
-    Unknown,
     #[error("cannot read application definition: {0}")]
     Io(#[from] std::io::Error),
     #[error("invalid application JSON: {0}")]
@@ -21,19 +17,8 @@ pub enum AppError {
 }
 
 impl App {
-    pub fn new() -> App {
-        Self::with_config(AppConfig::default())
-    }
-
-    pub fn with_config(config: AppConfig) -> App {
-        App {
-            config,
-            definition: None,
-        }
-    }
-
     /// Load and validate an application definition. This does not start services.
-    pub fn load(path: &str) -> Result<App, AppError> {
+    pub fn load(path: impl AsRef<std::path::Path>) -> Result<App, AppError> {
         let source = std::fs::read_to_string(path)?;
         Self::from_schema(&source)
     }
@@ -47,27 +32,11 @@ impl App {
     /// Construct an application directly from Rust-produced metadata.
     pub fn from_definition(definition: AppSchema) -> Result<App, AppError> {
         definition.validate()?;
-        let config = AppConfig {
-            name: definition.app.name.clone(),
-        };
-        Ok(App {
-            config,
-            definition: Some(definition),
-        })
+        Ok(App { definition })
     }
 
-    pub fn config(&self) -> &AppConfig {
-        &self.config
-    }
-
-    pub fn definition(&self) -> Option<&AppSchema> {
-        self.definition.as_ref()
-    }
-}
-
-impl Default for App {
-    fn default() -> Self {
-        Self::new()
+    pub fn definition(&self) -> &AppSchema {
+        &self.definition
     }
 }
 
@@ -87,9 +56,8 @@ mod tests {
     #[test]
     fn constructs_app_from_valid_definition() {
         let app = App::from_schema(VALID_DEFINITION).unwrap();
-        assert_eq!(app.config().name, "Todo");
-        assert_eq!(app.definition().unwrap().requires.len(), 1);
-        assert!(App::new().definition().is_none());
+        assert_eq!(app.definition().app.name, "Todo");
+        assert_eq!(app.definition().requires.len(), 1);
     }
 
     #[test]
@@ -116,8 +84,8 @@ mod tests {
         std::fs::remove_file(path).unwrap();
 
         let app = loaded.unwrap();
-        assert_eq!(app.config().name, "Todo");
-        assert!(app.definition().is_some());
+        assert_eq!(app.definition().app.name, "Todo");
+        assert_eq!(app.definition().version, 1);
     }
 
     #[test]

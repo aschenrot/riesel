@@ -12,7 +12,7 @@ impl App {
         connectors: &ConnectorRegistry,
     ) -> Result<RunningApp, RuntimeError> {
         let plan = self.preflight(deployment, connectors)?;
-        let schema = self.definition().ok_or(RuntimeError::MissingDefinition)?;
+        let schema = self.definition();
         let requirements: BTreeMap<_, _> = schema
             .requires
             .iter()

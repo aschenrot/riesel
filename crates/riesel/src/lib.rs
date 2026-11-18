@@ -9,7 +9,7 @@ pub use records::{Record, Records};
 pub use rpc_connector::RpcConnector;
 
 pub use riesel_app::{
-    App, AppConfig, AppError, AppRunError, CancellationToken, CapabilityConnector,
+    App, AppError, AppRunError, CancellationToken, CapabilityConnector,
     ConnectedProvider, ConnectorError, ConnectorRegistry, DeploymentConfig, DeploymentError,
     LocalProviderFactory, ProviderRegistry, ResolutionError, ResolvedCapability, RunningApp,
     RuntimeError, ServiceEndpoint, SessionToken,
@@ -18,7 +18,7 @@ pub use riesel_macros::{RieselModel, RieselType, capability};
 pub use riesel_schema::{CapabilityDescriptor, ModelField, RieselModel};
 
 pub mod prelude {
-    pub use super::{App, AppConfig, AppError, Application, Result, RieselModel};
+    pub use super::{App, AppError, Application, Result, RieselModel};
 }
 pub use riesel_schema as schema;
 pub use riesel_storage as storage;

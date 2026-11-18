@@ -10,7 +10,7 @@ impl App {
         deployment: &DeploymentConfig,
         connectors: &ConnectorRegistry,
     ) -> Result<DeploymentPlan, RuntimeError> {
-        let schema = self.definition().ok_or(RuntimeError::MissingDefinition)?;
+        let schema = self.definition();
         deployment.validate(schema)?;
 
         let mut services = Vec::with_capacity(schema.requires.len());
@@ -92,7 +92,7 @@ impl App {
     /// capability. This does not allocate sockets or start subprocesses.
     /// Explicit selection remains possible using ServiceEndpoint::Local.
     pub fn start_local(self, connectors: &ConnectorRegistry) -> Result<RunningApp, RuntimeError> {
-        let schema = self.definition().ok_or(RuntimeError::MissingDefinition)?;
+        let schema = self.definition();
         let mut services = BTreeMap::new();
         for requirement in &schema.requires {
             let compatible: Vec<String> = connectors

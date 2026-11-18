@@ -2,8 +2,6 @@ use super::*;
 
 #[derive(Debug, Error)]
 pub enum RuntimeError {
-    #[error("application has no loaded definition")]
-    MissingDefinition,
     #[error("invalid deployment: {0}")]
     Deployment(#[from] DeploymentError),
     #[error("capability resolution failed: {0}")]

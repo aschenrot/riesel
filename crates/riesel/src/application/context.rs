@@ -27,11 +27,7 @@ impl Context<'_> {
     /// Retrieve a typed capability service generated from a Rust contract.
     /// The requirement's declared version is checked before downcasting.
     pub fn capability<C: RpcClientBinding>(&self, name: &str) -> Result<&C::Service> {
-        let definition = self
-            .running
-            .app()
-            .definition()
-            .ok_or_else(|| SdkError::MissingCapability(name.into()))?;
+        let definition = self.running.app().definition();
         let expected = C::definition()?.capability;
         let requirement = definition
             .requires
@@ -48,11 +44,7 @@ impl Context<'_> {
     where
         T: RieselModel + Serialize + DeserializeOwned,
     {
-        let schema = self
-            .running
-            .app()
-            .definition()
-            .ok_or(SdkError::MissingStorage)?;
+        let schema = self.running.app().definition();
         let registered = schema
             .models
             .get(T::MODEL_NAME)
