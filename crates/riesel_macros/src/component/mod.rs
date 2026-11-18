@@ -67,7 +67,7 @@ pub(crate) fn expand_component(args: ComponentArgs, item: ItemStruct) -> syn::Re
     if !item.generics.params.is_empty() || item.generics.where_clause.is_some() {
         return Err(syn::Error::new_spanned(
             &item.generics,
-            "generic components require an explicit factory; the component attribute supports concrete structs",
+            "component attributes currently support concrete structs, not generic component types",
         ));
     }
 
@@ -92,8 +92,15 @@ pub(crate) fn expand_component(args: ComponentArgs, item: ItemStruct) -> syn::Re
     };
 
     let mut definition = quote!(::riesel_app::ComponentDefinition::new(#id, #constructor));
-    for contract in args.provides {
-        definition = quote!(#definition.exposes_contract::<#contract>()?);
+    let mut contracts = args.provides.into_iter().peekable();
+    while let Some(contract) = contracts.next() {
+        // The final registration returns Result directly. Do not generate
+        // Ok(expression?) and trigger needless_question_mark under Clippy.
+        if contracts.peek().is_some() {
+            definition = quote!(#definition.exposes_contract::<#contract>()?);
+        } else {
+            definition = quote!(#definition.exposes_contract::<#contract>());
+        }
     }
 
     Ok(quote! {
@@ -106,7 +113,7 @@ pub(crate) fn expand_component(args: ComponentArgs, item: ItemStruct) -> syn::Re
                     ::riesel_app::ConnectorError
                 >
             {
-                Ok(#definition)
+                #definition
             }
         }
     })
