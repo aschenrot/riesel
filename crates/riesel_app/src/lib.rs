@@ -1,4 +1,5 @@
 pub mod app;
+mod component;
 mod deployment;
 mod plan;
 mod recovery;
@@ -8,6 +9,7 @@ mod supervisor;
 mod tasks;
 
 pub use app::{App, AppError};
+pub use component::ComponentDefinition;
 pub use deployment::{DeploymentConfig, DeploymentError, ServiceEndpoint};
 pub use resolver::{InstanceIdentity, ProviderRegistry, ResolutionError, ResolvedCapability};
 
