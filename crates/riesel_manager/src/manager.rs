@@ -55,7 +55,10 @@ impl ProcessRegistry {
     /// Requires the command to use Stdio::piped() before spawning.
     pub fn take_stdout(&mut self, key: &ProcessKey) -> io::Result<ChildStdout> {
         let process = self.processes.get_mut(key).ok_or_else(|| {
-            io::Error::new(io::ErrorKind::NotFound, format!("process not found: {key:?}"))
+            io::Error::new(
+                io::ErrorKind::NotFound,
+                format!("process not found: {key:?}"),
+            )
         })?;
         process.child.stdout.take().ok_or_else(|| {
             io::Error::new(io::ErrorKind::InvalidInput, "child stdout was not piped")

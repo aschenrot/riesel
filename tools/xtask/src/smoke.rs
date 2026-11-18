@@ -90,10 +90,8 @@ pub fn run() -> TaskResult {
         return Err("Storage listener remains reachable after application exit".into());
     }
     println!("\n==> Running two Todo instances with OS-assigned service ports");
-    let dynamic_path = env::temp_dir().join(format!(
-        "riesel-dynamic-smoke-{}.json",
-        std::process::id()
-    ));
+    let dynamic_path =
+        env::temp_dir().join(format!("riesel-dynamic-smoke-{}.json", std::process::id()));
     let dynamic_config = serde_json::json!({
         "services": {
             "storage": {

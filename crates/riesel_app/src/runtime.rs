@@ -8,16 +8,16 @@ use crate::{
 };
 use riesel_manager::{ProcessKey, ProcessRegistry, ProcessStatus};
 use riesel_schema::{CapabilityContract, ProviderDefinition};
+use serde::Deserialize;
 use std::any::Any;
 use std::collections::BTreeMap;
 use std::error::Error;
 use std::io::{self, BufRead, BufReader, Read};
 use std::net::{SocketAddr, TcpListener};
 use std::process::{Command, ExitStatus, Stdio};
+use std::sync::mpsc;
 use std::thread;
 use std::time::{Duration, Instant};
-use std::sync::mpsc;
-use serde::Deserialize;
 use thiserror::Error;
 
 pub type ConnectorError = Box<dyn Error + Send + Sync>;
@@ -33,10 +33,7 @@ struct ServiceReady {
 
 /// Read a single bounded startup frame from a private child stdout pipe.
 /// Timeout kills the child through ProcessRegistry's drop cleanup.
-fn await_ready<R: Read + Send + 'static>(
-    stdout: R,
-    timeout: Duration,
-) -> io::Result<SocketAddr> {
+fn await_ready<R: Read + Send + 'static>(stdout: R, timeout: Duration) -> io::Result<SocketAddr> {
     let (sender, receiver) = mpsc::sync_channel(1);
     thread::spawn(move || {
         let result = (|| {
@@ -53,13 +50,14 @@ fn await_ready<R: Read + Send + 'static>(
             let line = std::str::from_utf8(&message)
                 .map_err(|err| io::Error::new(io::ErrorKind::InvalidData, err))?;
             let payload = line.strip_prefix("RIESEL_READY ").ok_or_else(|| {
-                io::Error::new(io::ErrorKind::InvalidData, "invalid startup announcement prefix")
+                io::Error::new(
+                    io::ErrorKind::InvalidData,
+                    "invalid startup announcement prefix",
+                )
             })?;
             let ready: ServiceReady = serde_json::from_str(payload)
                 .map_err(|err| io::Error::new(io::ErrorKind::InvalidData, err))?;
-            if ready.protocol != 1
-                || !ready.address.ip().is_loopback()
-                || ready.address.port() == 0
+            if ready.protocol != 1 || !ready.address.ip().is_loopback() || ready.address.port() == 0
             {
                 return Err(io::Error::new(
                     io::ErrorKind::InvalidData,
@@ -78,7 +76,6 @@ fn await_ready<R: Read + Send + 'static>(
         io::Error::new(kind, "waiting for managed service readiness")
     })?
 }
-
 
 /// An inspected, connected service. Each connector owns its transport-specific
 /// adapter. The boxed Rust value is retrieved by the consumer using its type.
@@ -512,24 +509,22 @@ impl App {
                             source,
                         }
                     })?;
-                    let address = match await_ready(
-                        stdout,
-                        Duration::from_millis(*startup_timeout_ms),
-                    ) {
-                        Ok(address) => address,
-                        Err(source) if source.kind() == io::ErrorKind::TimedOut => {
-                            return Err(RuntimeError::ReadinessTimeout {
-                                requirement: requirement.name.clone(),
-                                timeout_ms: *startup_timeout_ms,
-                            });
-                        }
-                        Err(source) => {
-                            return Err(RuntimeError::ServiceStart {
-                                requirement: requirement.name.clone(),
-                                source,
-                            });
-                        }
-                    };
+                    let address =
+                        match await_ready(stdout, Duration::from_millis(*startup_timeout_ms)) {
+                            Ok(address) => address,
+                            Err(source) if source.kind() == io::ErrorKind::TimedOut => {
+                                return Err(RuntimeError::ReadinessTimeout {
+                                    requirement: requirement.name.clone(),
+                                    timeout_ms: *startup_timeout_ms,
+                                });
+                            }
+                            Err(source) => {
+                                return Err(RuntimeError::ServiceStart {
+                                    requirement: requirement.name.clone(),
+                                    source,
+                                });
+                            }
+                        };
 
                     // Connector still verifies the provider ID and exact Rust
                     // contract after the startup channel reports readiness.
@@ -968,11 +963,8 @@ mod tests {
     #[test]
     fn startup_message_accepts_only_versioned_loopback_endpoints() {
         let valid = b"RIESEL_READY {\"protocol\":1,\"address\":\"127.0.0.1:52111\"}\n";
-        let address = await_ready(
-            std::io::Cursor::new(valid.to_vec()),
-            Duration::from_secs(1),
-        )
-        .unwrap();
+        let address =
+            await_ready(std::io::Cursor::new(valid.to_vec()), Duration::from_secs(1)).unwrap();
         assert_eq!(address.port(), 52111);
 
         for invalid in [
@@ -981,10 +973,13 @@ mod tests {
             "RIESEL_READY {\"protocol\":1,\"address\":\"127.0.0.1:0\"}\n",
             "UNTRUSTED_READY {\"protocol\":1,\"address\":\"127.0.0.1:52111\"}\n",
         ] {
-            assert!(await_ready(
-                std::io::Cursor::new(invalid.as_bytes().to_vec()),
-                Duration::from_secs(1),
-            ).is_err());
+            assert!(
+                await_ready(
+                    std::io::Cursor::new(invalid.as_bytes().to_vec()),
+                    Duration::from_secs(1),
+                )
+                .is_err()
+            );
         }
     }
 
@@ -992,10 +987,6 @@ mod tests {
     fn startup_message_is_length_bounded() {
         let mut payload = vec![b'a'; 8192];
         payload.push(b'\n');
-        assert!(await_ready(
-            std::io::Cursor::new(payload),
-            Duration::from_secs(1),
-        ).is_err());
+        assert!(await_ready(std::io::Cursor::new(payload), Duration::from_secs(1),).is_err());
     }
-
 }

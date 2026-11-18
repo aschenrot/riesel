@@ -270,5 +270,4 @@ mod tests {
         config.validate(&app()).unwrap();
         assert!(config.services["storage"].address().is_none());
     }
-
 }
