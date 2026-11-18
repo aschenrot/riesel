@@ -2,6 +2,7 @@ use crate::command::{TaskResult, cargo, workspace_root};
 use std::env;
 use std::fs;
 use std::net::{SocketAddr, TcpStream};
+use std::path::PathBuf;
 use std::process::Command;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
