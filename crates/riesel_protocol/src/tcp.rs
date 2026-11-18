@@ -8,7 +8,7 @@ use serde_json::Value;
 use std::io::{self, BufRead, BufReader, Write};
 use std::net::{SocketAddr, TcpListener, TcpStream};
 use std::sync::{
-    Arc,
+    Arc, Mutex, PoisonError, mpsc,
     atomic::{AtomicBool, Ordering},
 };
 use std::thread;
@@ -16,6 +16,8 @@ use std::time::Duration;
 
 const WIRE_VERSION: u32 = 1;
 const MAX_FRAME_BYTES: usize = 4 * 1024 * 1024;
+const RPC_WORKERS: usize = 4;
+const RPC_PENDING_CONNECTIONS: usize = 32;
 const DESCRIBE: &str = "$describe";
 const PROVIDER: &str = "$provider";
 
@@ -164,36 +166,91 @@ pub fn run_tcp_rpc_host<H: RpcHandler>(address: &str, handler: &H) -> io::Result
     println!("RIESEL_READY {}", ready);
     io::stdout().flush()?;
 
-    let serve = |connection: io::Result<TcpStream>| match connection {
-        Ok(mut stream) => {
-            // On Windows, an accepted stream can inherit the listener's
-            // nonblocking mode. RPC requests use bounded blocking I/O, so
-            // always switch the stream back before handling a frame.
-            if let Err(error) = stream.set_nonblocking(false) {
-                eprintln!("RPC connection configuration failed: {error}");
-            } else if let Err(error) = handle_tcp_connection(handler, &mut stream) {
-                eprintln!("RPC request failed: {error}");
-            }
-        }
-        Err(error) => eprintln!("RPC connection failed: {error}"),
-    };
+    serve_connections(listener, handler, &stopping, controlled)
+}
 
-    if controlled {
-        while !stopping.load(Ordering::Acquire) {
-            match listener.accept() {
-                Err(error) if error.kind() == io::ErrorKind::WouldBlock => {
-                    thread::sleep(Duration::from_millis(10));
+/// Execute a fixed number of request workers. The bounded admission queue
+/// prevents one slow socket from serializing every other client or creating
+/// an unlimited number of per-connection threads.
+fn serve_connections<H: RpcHandler>(
+    listener: TcpListener,
+    handler: &H,
+    stopping: &AtomicBool,
+    controlled: bool,
+) -> io::Result<()> {
+    let (sender, receiver) = mpsc::sync_channel::<TcpStream>(RPC_PENDING_CONNECTIONS);
+    let receiver = Arc::new(Mutex::new(receiver));
+
+    thread::scope(|scope| {
+        for _ in 0..RPC_WORKERS {
+            let worker_receiver = Arc::clone(&receiver);
+            scope.spawn(move || {
+                loop {
+                    let connection = worker_receiver
+                        .lock()
+                        .unwrap_or_else(PoisonError::into_inner)
+                        .recv();
+                    let Ok(mut stream) = connection else {
+                        break;
+                    };
+                    if stopping.load(Ordering::Acquire) {
+                        break;
+                    }
+                    // A nonblocking listener may yield a nonblocking stream
+                    // on Windows, so normalize it before framed RPC reads.
+                    if let Err(error) = stream.set_nonblocking(false) {
+                        eprintln!("RPC socket setup failed: {error}");
+                    } else if let Err(error) = handle_tcp_connection(handler, &mut stream) {
+                        eprintln!("RPC request failed: {error}");
+                    }
                 }
-                other => serve(other.map(|(stream, _)| stream)),
+            });
+        }
+
+        let enqueue = |stream| {
+            match sender.try_send(stream) {
+                Ok(()) => {}
+                Err(mpsc::TrySendError::Full(_)) => {
+                    eprintln!("RPC connection rejected: all workers and queue slots are busy");
+                }
+                Err(mpsc::TrySendError::Disconnected(_)) => {
+                    eprintln!("RPC connection rejected: request workers have stopped");
+                }
+            }
+        };
+
+        let mut result = Ok(());
+        if controlled {
+            while !stopping.load(Ordering::Acquire) {
+                match listener.accept() {
+                    Ok((stream, _)) => enqueue(stream),
+                    Err(error) if error.kind() == io::ErrorKind::WouldBlock => {
+                        thread::sleep(Duration::from_millis(10));
+                    }
+                    Err(error) => {
+                        result = Err(error);
+                        break;
+                    }
+                }
+            }
+        } else {
+            for connection in listener.incoming() {
+                match connection {
+                    Ok(stream) => enqueue(stream),
+                    Err(error) => {
+                        result = Err(error);
+                        break;
+                    }
+                }
             }
         }
-    } else {
-        for connection in listener.incoming() {
-            serve(connection);
-        }
-    }
 
-    Ok(())
+        // Workers finish active bounded I/O, but ignore pending requests once
+        // the controlled host is shutting down. No new work can be enqueued.
+        drop(sender);
+        result
+    })
+
 }
 
 /// Handle exactly one framed call on an already accepted TCP connection.
@@ -302,6 +359,97 @@ fn read_json_line<T: DeserializeOwned>(stream: &mut TcpStream) -> Result<T, RpcE
 #[cfg(test)]
 mod tests {
     use super::*;
+
+
+    struct ParallelHandler {
+        slow_started: Arc<AtomicBool>,
+    }
+
+    impl RpcHandler for ParallelHandler {
+        fn contract(&self) -> Result<CapabilityContract, RpcError> {
+            use riesel_schema::{OperationDefinition, OperationKind, TypeRef};
+            let method = || OperationDefinition {
+                kind: OperationKind::Query,
+                description: "Return a value".into(),
+                inputs: vec![],
+                output: TypeRef::U64,
+                error: TypeRef::Unit,
+            };
+            Ok(CapabilityContract {
+                capability: CapabilityRef {
+                    id: "example.concurrent".into(),
+                    version: 1,
+                },
+                operations: [
+                    ("slow".into(), method()),
+                    ("fast".into(), method()),
+                ]
+                .into_iter()
+                .collect(),
+                types: Default::default(),
+            })
+        }
+
+        fn dispatch(&self, operation: &str, _: Value) -> Result<Value, RpcError> {
+            if operation == "slow" {
+                self.slow_started.store(true, Ordering::Release);
+                thread::sleep(Duration::from_millis(1_000));
+            }
+            Ok(serde_json::json!(7))
+        }
+    }
+
+    #[test]
+    fn slow_connections_do_not_block_independent_requests() {
+        use std::time::Instant;
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let address = listener.local_addr().unwrap();
+        listener.set_nonblocking(true).unwrap();
+        let stopping = Arc::new(AtomicBool::new(false));
+        let slow_started = Arc::new(AtomicBool::new(false));
+        let host = {
+            let stopping = Arc::clone(&stopping);
+            let slow_started = Arc::clone(&slow_started);
+            thread::spawn(move || {
+                serve_connections(
+                    listener,
+                    &ParallelHandler { slow_started },
+                    &stopping,
+                    true,
+                )
+                .unwrap()
+            })
+        };
+        let capability = CapabilityRef {
+            id: "example.concurrent".into(),
+            version: 1,
+        };
+        let slow_call = {
+            let capability = capability.clone();
+            thread::spawn(move || {
+                TcpRpcTransport::new(address)
+                    .call(&capability, "slow", serde_json::json!({}))
+            })
+        };
+        let deadline = Instant::now() + Duration::from_secs(5);
+        while !slow_started.load(Ordering::Acquire) {
+            assert!(Instant::now() < deadline, "slow RPC did not start");
+            thread::sleep(Duration::from_millis(5));
+        }
+        let now = Instant::now();
+        let fast = TcpRpcTransport::new(address)
+            .call(&capability, "fast", serde_json::json!({}))
+            .unwrap();
+        let elapsed = now.elapsed();
+        stopping.store(true, Ordering::Release);
+        assert_eq!(fast, serde_json::json!(7));
+        assert!(
+            elapsed < Duration::from_millis(700),
+            "fast RPC waited for unrelated slow request: {elapsed:?}"
+        );
+        assert_eq!(slow_call.join().unwrap().unwrap(), serde_json::json!(7));
+        host.join().unwrap();
+    }
 
     #[test]
     fn rejects_non_loopback_plaintext_clients() {
