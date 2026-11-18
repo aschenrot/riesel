@@ -105,10 +105,12 @@ fn expand_capability(
     let descriptor_name = format_ident!("{}Contract", trait_name);
     let client_name = format_ident!("{}RpcClient", trait_name);
     let dispatcher_name = format_ident!("{}RpcDispatcher", trait_name);
+    let guarded_name = format_ident!("{}ScopedClient", trait_name);
     let visibility = item.vis.clone();
     let mut generated_operations = Vec::new();
     let mut client_methods = Vec::new();
     let mut trait_methods = Vec::new();
+    let mut scoped_methods = Vec::new();
     let mut dispatch_arms = Vec::new();
 
     for entry in &mut item.items {
@@ -291,6 +293,17 @@ fn expand_capability(
                     })
             }
         });
+        scoped_methods.push(quote! {
+            fn #method_name(
+                &self,
+                #(#client_arguments),*
+            ) -> Result<#result_type, #error_type> {
+                self.session
+                    .check()
+                    .map_err(<#error_type as ::std::convert::From<::riesel_protocol::RpcError>>::from)?;
+                self.provider.#method_name(#(#arg_names),*)
+            }
+        });
         client_methods.push(quote! {
             #[doc = #docs]
             pub fn #method_name(
@@ -344,6 +357,17 @@ fn expand_capability(
     }
     let trait_impl = if client_trait {
         quote! {
+            /// Checks session validity even when callers clone the trait Arc
+            /// out of the original application Context.
+            struct #guarded_name {
+                provider: ::std::sync::Arc<dyn #trait_name + Send + Sync>,
+                session: ::riesel_protocol::SessionToken,
+            }
+
+            impl #trait_name for #guarded_name {
+                #(#scoped_methods)*
+            }
+
             impl<T: ::riesel_protocol::RpcTransport> #trait_name for #client_name<T> {
                 #(#trait_methods)*
             }
@@ -353,6 +377,16 @@ fn expand_capability(
 
                 fn bind(transport: ::riesel_protocol::TcpRpcTransport) -> Self::Service {
                     ::std::sync::Arc::new(#client_name::new(transport))
+                }
+
+                fn guard_local(
+                    service: Self::Service,
+                    session: ::riesel_protocol::SessionToken,
+                ) -> Self::Service {
+                    ::std::sync::Arc::new(#guarded_name {
+                        provider: service,
+                        session,
+                    })
                 }
             }
         }
