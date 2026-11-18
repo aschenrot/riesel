@@ -53,6 +53,8 @@ pub fn run() -> TaskResult {
         "storage_service",
     ])?;
     cargo(&["build", "-p", "todo", "--bin", "todo_client"])?;
+    cargo(&["build", "-p", "riesel_counter_component", "--bin", "counter_service"])?;
+    cargo(&["build", "-p", "riesel_counter_example", "--bins"])?;
 
     // No pre-bind/drop reservation race and no fixed port in deployment.
     let path = env::temp_dir().join(format!("riesel-managed-smoke-{}.json", std::process::id()));
@@ -109,6 +111,10 @@ pub fn run() -> TaskResult {
     println!("\n==> Verifying cooperative Storage shutdown");
     verify_graceful_storage_exit()?;
     println!("\nCooperative Storage shutdown smoke test passed.");
+
+    println!("\n==> Verifying independent Counter capability locally and as managed RPC");
+    verify_counter_provider()?;
+    println!("\nCounter local and managed capability integration passed.");
     Ok(())
 }
 
@@ -309,6 +315,42 @@ fn verify_deployment_preflight() -> TaskResult {
         return Err(format!(
             "deployment plan did not preserve selected target: {plan}"
         ));
+    }
+    Ok(())
+}
+
+fn verify_counter_provider() -> TaskResult {
+    let local_status = Command::new(binary("riesel_counter_example"))
+        .current_dir(workspace_root())
+        .status()
+        .map_err(|error| format!("cannot run local Counter example: {error}"))?;
+    if !local_status.success() {
+        return Err("local Counter capability integration failed".into());
+    }
+
+    let path = env::temp_dir().join(format!("riesel-counter-smoke-{}.json", std::process::id()));
+    let config = serde_json::json!({
+        "services": {
+            "counter": {
+                "transport": "managed",
+                "program": binary("counter_service")
+            }
+        }
+    });
+    fs::write(
+        &path,
+        serde_json::to_vec_pretty(&config).map_err(|error| error.to_string())?,
+    )
+    .map_err(|error| format!("cannot write Counter deployment: {error}"))?;
+    let temporary = TemporaryConfig(path);
+    let managed_status = Command::new(binary("counter_client"))
+        .arg("--deployment")
+        .arg(&temporary.0)
+        .current_dir(workspace_root())
+        .status()
+        .map_err(|error| format!("cannot run managed Counter client: {error}"))?;
+    if !managed_status.success() {
+        return Err("managed Counter capability integration failed".into());
     }
     Ok(())
 }
