@@ -48,6 +48,13 @@ impl TaskGroup {
         if state.closed || self.cancellation.is_cancelled() {
             return Err(RuntimeError::TaskGroupClosed);
         }
+        // Finished workers no longer consume the concurrent task budget.
+        // Join them before recycling slots so unexpected worker panics are
+        // observed rather than silently detaching their JoinHandles.
+        self.reap_finished(&mut state);
+        if self.cancellation.is_cancelled() {
+            return Err(RuntimeError::TaskGroupClosed);
+        }
         if state.handles.len() >= MAX_APPLICATION_TASKS {
             return Err(RuntimeError::TaskLimitExceeded {
                 limit: MAX_APPLICATION_TASKS,
@@ -89,6 +96,27 @@ impl TaskGroup {
             })?;
         state.handles.push((name, handle));
         Ok(())
+    }
+
+    fn reap_finished(&self, state: &mut TaskState) {
+        let mut pending = Vec::with_capacity(state.handles.len());
+        for (name, handle) in std::mem::take(&mut state.handles) {
+            if handle.is_finished() {
+                if handle.join().is_err() {
+                    let mut failure = self.failure.lock().unwrap_or_else(PoisonError::into_inner);
+                    if failure.is_none() {
+                        *failure = Some(TaskFailure {
+                            name,
+                            message: "task worker panicked".into(),
+                        });
+                    }
+                    self.cancellation.cancel();
+                }
+            } else {
+                pending.push((name, handle));
+            }
+        }
+        state.handles = pending;
     }
 
     pub(crate) fn failure(&self) -> Option<RuntimeError> {
@@ -199,6 +227,26 @@ mod tests {
                 limit: MAX_APPLICATION_TASKS
             })
         ));
+        group.join().unwrap();
+    }
+
+    #[test]
+    fn completed_tasks_recycle_slots_and_names() {
+        use std::thread;
+        let group = TaskGroup::new(CancellationToken::default());
+        for _ in 0..(MAX_APPLICATION_TASKS + 5) {
+            group.spawn("reusable".into(), |_| Ok(())).unwrap();
+            while !group
+                .state
+                .lock()
+                .unwrap_or_else(PoisonError::into_inner)
+                .handles[0]
+                .1
+                .is_finished()
+            {
+                thread::yield_now();
+            }
+        }
         group.join().unwrap();
     }
 
