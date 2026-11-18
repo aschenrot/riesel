@@ -124,7 +124,9 @@ impl ProcessRegistry {
             )
         })?;
         let mut exit = process.child.try_wait()?;
-        if exit.is_none() && let Some(timeout) = process.graceful_timeout {
+        if exit.is_none()
+            && let Some(timeout) = process.graceful_timeout
+        {
             let notified = process
                 .child
                 .stdin
