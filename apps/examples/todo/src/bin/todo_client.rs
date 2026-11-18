@@ -13,9 +13,10 @@ fn main() -> Result<(), Box<dyn Error>> {
     let app = App::from_schema(include_str!("../../app.json"))?;
 
     let mut args = std::env::args_os().skip(1);
-    let deployment_path = args.next().map(PathBuf::from).unwrap_or_else(|| {
-        PathBuf::from(concat!(env!("CARGO_MANIFEST_DIR"), "/deployment.json"))
-    });
+    let deployment_path = args
+        .next()
+        .map(PathBuf::from)
+        .unwrap_or_else(|| PathBuf::from(concat!(env!("CARGO_MANIFEST_DIR"), "/deployment.json")));
     if args.next().is_some() {
         return Err(io::Error::new(
             io::ErrorKind::InvalidInput,
@@ -34,14 +35,15 @@ fn main() -> Result<(), Box<dyn Error>> {
 }
 
 fn run_todo(running: &riesel::RunningApp) -> Result<(), riesel::ConnectorError> {
-
     let task_model: ModelDefinition = running
         .app()
         .definition()
         .and_then(|schema| schema.models.get("task"))
         .ok_or_else(|| io::Error::new(io::ErrorKind::InvalidData, "missing task model"))?
         .clone();
-    let store = running.service::<Arc<dyn RecordStore + Send + Sync>>("storage")?.clone();
+    let store = running
+        .service::<Arc<dyn RecordStore + Send + Sync>>("storage")?
+        .clone();
     let todo = Todo::new(store, task_model);
 
     let created = todo.create_task("Build Riesel")?;
@@ -55,7 +57,11 @@ fn run_todo(running: &riesel::RunningApp) -> Result<(), riesel::ConnectorError> 
     assert_eq!(completed.revision, 2);
 
     let tasks = todo.list_tasks()?;
-    assert!(tasks.iter().any(|task| task.id == created.id && task.completed));
+    assert!(
+        tasks
+            .iter()
+            .any(|task| task.id == created.id && task.completed)
+    );
 
     println!("Todo + Riesel runtime: passed");
     Ok(())

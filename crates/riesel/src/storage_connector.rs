@@ -1,7 +1,5 @@
 use crate::storage::{RecordStore, RecordStoreContract, TcpStore};
-use riesel_app::{
-    CapabilityConnector, ConnectedProvider, ConnectorError, ServiceEndpoint,
-};
+use riesel_app::{CapabilityConnector, ConnectedProvider, ConnectorError, ServiceEndpoint};
 use riesel_schema::CapabilityContract;
 use std::io;
 use std::sync::Arc;

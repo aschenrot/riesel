@@ -56,10 +56,7 @@ pub enum DeploymentError {
     #[error("deployment does not configure required service: {0}")]
     MissingService(String),
     #[error("invalid endpoint for requirement {name}: {reason}")]
-    InvalidEndpoint {
-        name: String,
-        reason: &'static str,
-    },
+    InvalidEndpoint { name: String, reason: &'static str },
 }
 
 impl DeploymentConfig {
@@ -76,7 +73,11 @@ impl DeploymentConfig {
     pub fn validate(&self, app: &AppSchema) -> Result<(), DeploymentError> {
         app.validate()?;
         for name in self.services.keys() {
-            if !app.requires.iter().any(|requirement| requirement.name == *name) {
+            if !app
+                .requires
+                .iter()
+                .any(|requirement| requirement.name == *name)
+            {
                 return Err(DeploymentError::UnknownRequirement(name.clone()));
             }
         }
@@ -129,21 +130,25 @@ mod tests {
     use riesel_schema::parse_schema;
 
     fn app() -> AppSchema {
-        parse_schema(r#"{
+        parse_schema(
+            r#"{
             "version": 1,
             "app": {"name": "Todo"},
             "models": {},
             "requires": [{"name": "storage", "capability": {
                 "id": "riesel.storage.records", "version": 1
             }}]
-        }"#).unwrap()
+        }"#,
+        )
+        .unwrap()
     }
 
     #[test]
     fn parses_valid_tcp_binding() {
         let deployment = DeploymentConfig::from_json(
-            r#"{"services":{"storage":{"transport":"tcp","address":"127.0.0.1:47911"}}}"#
-        ).unwrap();
+            r#"{"services":{"storage":{"transport":"tcp","address":"127.0.0.1:47911"}}}"#,
+        )
+        .unwrap();
         deployment.validate(&app()).unwrap();
         assert!(matches!(
             deployment.services["storage"],
@@ -160,8 +165,9 @@ mod tests {
         ));
 
         let unknown = DeploymentConfig::from_json(
-            r#"{"services":{"other":{"transport":"tcp","address":"127.0.0.1:47911"}}}"#
-        ).unwrap();
+            r#"{"services":{"other":{"transport":"tcp","address":"127.0.0.1:47911"}}}"#,
+        )
+        .unwrap();
         assert!(matches!(
             unknown.validate(&app()),
             Err(DeploymentError::UnknownRequirement(name)) if name == "other"
@@ -170,9 +176,12 @@ mod tests {
 
     #[test]
     fn rejects_invalid_addresses_and_unknown_fields() {
-        assert!(DeploymentConfig::from_json(
-            r#"{"services":{"storage":{"transport":"tcp","address":"not an address"}}}"#
-        ).is_err());
+        assert!(
+            DeploymentConfig::from_json(
+                r#"{"services":{"storage":{"transport":"tcp","address":"not an address"}}}"#
+            )
+            .is_err()
+        );
         assert!(DeploymentConfig::from_json(
             r#"{"services":{"storage":{"transport":"tcp","address":"127.0.0.1:47911","extra":1}}}"#
         ).is_err());
@@ -222,5 +231,4 @@ mod tests {
             ));
         }
     }
-
 }

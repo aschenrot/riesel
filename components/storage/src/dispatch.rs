@@ -111,5 +111,4 @@ mod tests {
         assert_eq!(info.contract.capability, info.provider.capabilities[0]);
         info.contract.validate().unwrap();
     }
-
 }

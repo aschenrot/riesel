@@ -15,9 +15,9 @@ fn main() -> io::Result<()> {
             "usage: storage_service <bind-address>",
         ));
     }
-    let address: SocketAddr = address.parse().map_err(|error| {
-        io::Error::new(io::ErrorKind::InvalidInput, error)
-    })?;
+    let address: SocketAddr = address
+        .parse()
+        .map_err(|error| io::Error::new(io::ErrorKind::InvalidInput, error))?;
 
     riesel_storage_component::run_storage_server(&address.to_string())
 }

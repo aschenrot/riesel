@@ -114,28 +114,24 @@ mod tests {
         let client = TcpStore::new(address);
         let service_info = client.describe().unwrap();
         let contract = RecordStoreContract::definition().unwrap();
-        TcpStore::verify_service_info(
-            &service_info,
-            "riesel.storage.memory",
-            &contract.capability,
-        )
-        .unwrap();
+        TcpStore::verify_service_info(&service_info, "riesel.storage.memory", &contract.capability)
+            .unwrap();
 
-        assert!(TcpStore::verify_service_info(
-            &service_info,
-            "riesel.storage.wrong",
-            &contract.capability,
-        )
-        .is_err());
+        assert!(
+            TcpStore::verify_service_info(
+                &service_info,
+                "riesel.storage.wrong",
+                &contract.capability,
+            )
+            .is_err()
+        );
 
         let mut wrong_version = contract.capability.clone();
         wrong_version.version += 1;
-        assert!(TcpStore::verify_service_info(
-            &service_info,
-            "riesel.storage.memory",
-            &wrong_version,
-        )
-        .is_err());
+        assert!(
+            TcpStore::verify_service_info(&service_info, "riesel.storage.memory", &wrong_version,)
+                .is_err()
+        );
 
         let created = client.create("task", json!({"title":"From TCP"})).unwrap();
         assert_eq!(created.revision, 1);
@@ -143,7 +139,12 @@ mod tests {
         assert_eq!(loaded.id, created.id);
 
         let updated = client
-            .update("task", created.id, loaded.revision, json!({"title":"Updated"}))
+            .update(
+                "task",
+                created.id,
+                loaded.revision,
+                json!({"title":"Updated"}),
+            )
             .unwrap();
         assert_eq!(updated.revision, 2);
         let all = client.list("task").unwrap();

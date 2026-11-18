@@ -17,9 +17,7 @@ impl MemoryStore {
         Self::default()
     }
 
-    fn lock_records(
-        &self,
-    ) -> Result<MutexGuard<'_, Records>, StoreError> {
+    fn lock_records(&self) -> Result<MutexGuard<'_, Records>, StoreError> {
         self.records
             .lock()
             .map_err(|_| StoreError::Failed("storage lock poisoned".into()))

@@ -57,7 +57,6 @@ impl App {
     pub fn definition(&self) -> Option<&AppSchema> {
         self.definition.as_ref()
     }
-
 }
 
 impl Default for App {
@@ -93,7 +92,9 @@ mod tests {
         let invalid = r#"{"version":2,"app":{"name":"Todo"},"models":{}}"#;
         assert!(matches!(
             App::from_schema(invalid),
-            Err(AppError::Schema(SchemaError::UnsupportedVersion { version: 2 }))
+            Err(AppError::Schema(SchemaError::UnsupportedVersion {
+                version: 2
+            }))
         ));
     }
 

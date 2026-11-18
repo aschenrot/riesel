@@ -36,4 +36,3 @@ mod provider_tests {
         assert_eq!(provider.capabilities, vec![contract.capability]);
     }
 }
-

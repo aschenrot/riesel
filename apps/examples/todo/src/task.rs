@@ -228,5 +228,4 @@ mod tests {
         let task = todo.create_task("Test provider injection").unwrap();
         assert_eq!(todo.get_task(task.id).unwrap().unwrap(), task);
     }
-
 }
