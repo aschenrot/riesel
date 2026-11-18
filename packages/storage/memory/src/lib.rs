@@ -5,8 +5,8 @@ pub use memory::MemoryStore;
 pub use server::run_storage_server;
 
 use riesel_schema::{ModelDefinition, ProviderDefinition};
-use std::collections::BTreeMap;
 use riesel_storage::RecordStoreContract;
+use std::collections::BTreeMap;
 
 use riesel_app::{ComponentDefinition, ConnectorError, LocalProviderFactory};
 use riesel_storage::{RecordStore, RecordStoreRpcDispatcher};

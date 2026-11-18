@@ -13,8 +13,7 @@ const MAX_RECORD_BYTES: usize = 64 * 1024;
 #[derive(Default)]
 pub struct MemoryStore {
     records: Mutex<Records>,
-    models: Option<BTreeMap<String, ModelDefinition>>,
-}
+    models: Option<BTreeMap<String, ModelDefinition>>,}
 
 impl MemoryStore {
     pub fn new() -> Self {
@@ -33,7 +32,9 @@ impl MemoryStore {
 
     fn validate_data(&self, model: &str, data: &Value) -> Result<(), StoreError> {
         if !data.is_object() {
-            return Err(StoreError::Failed("record data must be a JSON object".into()));
+            return Err(StoreError::Failed(
+                "record data must be a JSON object".into(),
+            ));
         }
         let size = serde_json::to_vec(data)
             .map_err(|error| StoreError::Failed(error.to_string()))?
@@ -196,12 +197,21 @@ mod tests {
 
         let task = store.create("task", json!({"title": "Test"})).unwrap();
 
-        assert_eq!(store.list_page("task", None, MAX_PAGE_SIZE).unwrap().records.len(), 1);
-        assert!(store
-            .list_page("note", None, MAX_PAGE_SIZE)
-            .unwrap()
-            .records
-            .is_empty());
+        assert_eq!(
+            store
+                .list_page("task", None, MAX_PAGE_SIZE)
+                .unwrap()
+                .records
+                .len(),
+            1
+        );
+        assert!(
+            store
+                .list_page("note", None, MAX_PAGE_SIZE)
+                .unwrap()
+                .records
+                .is_empty()
+        );
 
         assert!(store.get("note", task.id).unwrap().is_none());
     }
@@ -260,9 +270,7 @@ mod tests {
         let store = MemoryStore::new();
         let mut ids = Vec::new();
         for index in 0..5 {
-            let record = store
-                .create("task", json!({"index": index}))
-                .unwrap();
+            let record = store.create("task", json!({"index": index})).unwrap();
             ids.push(record.id);
         }
         store.create("note", json!({"index": 99})).unwrap();
@@ -295,7 +303,12 @@ mod tests {
         let store = MemoryStore::new();
         let created = store.create("task", json!({"title": "Test"})).unwrap();
         let updated = store
-            .update("task", created.id, created.revision, json!({"title": "Updated"}))
+            .update(
+                "task",
+                created.id,
+                created.revision,
+                json!({"title": "Updated"}),
+            )
             .unwrap();
         assert!(matches!(
             store.delete("task", created.id, created.revision),
@@ -320,9 +333,7 @@ mod tests {
             .into_iter()
             .collect(),
         };
-        let store = MemoryStore::with_models(
-            [("task".into(), schema)].into_iter().collect(),
-        );
+        let store = MemoryStore::with_models([("task".into(), schema)].into_iter().collect());
         store
             .create("task", json!({"title": "Valid", "completed": false}))
             .unwrap();
@@ -335,7 +346,10 @@ mod tests {
             Err(StoreError::Failed(_))
         ));
         assert!(matches!(
-            store.create("task", json!({"title": "a".repeat(70_000), "completed": false})),
+            store.create(
+                "task",
+                json!({"title": "a".repeat(70_000), "completed": false})
+            ),
             Err(StoreError::Failed(_))
         ));
     }

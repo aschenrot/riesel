@@ -75,14 +75,14 @@ where
             .transpose()
     }
 
-    pub fn list_page(
-        &self,
-        after: Option<Uuid>,
-        limit: u64,
-    ) -> Result<RecordPage<T>, SdkError> {
+    pub fn list_page(&self, after: Option<Uuid>, limit: u64) -> Result<RecordPage<T>, SdkError> {
         let page = self.store.list_page(T::MODEL_NAME, after, limit)?;
         Ok(RecordPage {
-            records: page.records.into_iter().map(Self::decode).collect::<Result<_, _>>()?,
+            records: page
+                .records
+                .into_iter()
+                .map(Self::decode)
+                .collect::<Result<_, _>>()?,
             next_cursor: page.next_cursor,
         })
     }

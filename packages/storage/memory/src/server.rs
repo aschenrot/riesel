@@ -52,7 +52,10 @@ mod tests {
                     if stopping.load(Ordering::Acquire) {
                         break;
                     }
-                    assert!(Instant::now() < deadline, "Storage RPC test host did not stop");
+                    assert!(
+                        Instant::now() < deadline,
+                        "Storage RPC test host did not stop"
+                    );
                     match listener.accept() {
                         Ok((mut stream, _)) => {
                             handle_tcp_connection(&handler, &mut stream).unwrap();

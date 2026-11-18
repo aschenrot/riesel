@@ -82,8 +82,7 @@ pub trait RecordStore {
 
     /// Delete only the revision previously read by the caller.
     #[command]
-    fn delete(&self, model: &str, id: Uuid, expected_revision: u64)
-        -> Result<(), StoreError>;
+    fn delete(&self, model: &str, id: Uuid, expected_revision: u64) -> Result<(), StoreError>;
 }
 
 #[cfg(test)]
