@@ -239,6 +239,9 @@ pub(crate) fn expand_capability(
         let (result_type, error_type) = (result_type.clone(), error_type.clone());
         let method_name = &method.sig.ident;
         if method_async {
+            // Keep the generated adapter's methods disjoint from the user
+            // trait; implementations may freely call self.value() etc.
+            let service_method_name = format_ident!("__riesel_{}", method_name);
             // The user can still implement this trait using ordinary
             // async fn syntax. The Send bound makes object-safe adapters
             // and Tokio-managed dispatch possible without an async-trait
@@ -249,7 +252,7 @@ pub(crate) fn expand_capability(
             );
 
             async_service_methods.push(quote! {
-                fn #method_name<'a>(
+                fn #service_method_name<'a>(
                     &'a self,
                     #(#service_arguments),*
                 ) -> ::std::pin::Pin<::std::boxed::Box<
@@ -258,7 +261,7 @@ pub(crate) fn expand_capability(
                 >>;
             });
             async_service_impls.push(quote! {
-                fn #method_name<'a>(
+                fn #service_method_name<'a>(
                     &'a self,
                     #(#service_arguments),*
                 ) -> ::std::pin::Pin<::std::boxed::Box<
@@ -277,7 +280,7 @@ pub(crate) fn expand_capability(
                     #(#client_arguments),*
                 ) -> Result<#result_type, ::riesel_protocol::CallError<#error_type>> {
                     self.session.check()?;
-                    let result = #async_service_name::#method_name(
+                    let result = #async_service_name::#service_method_name(
                         self.provider.as_ref(), #(#arg_names),*
                     ).await;
                     self.session.check()?;
