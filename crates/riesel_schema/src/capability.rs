@@ -83,9 +83,18 @@ mod tests {
     #[test]
     fn generated_private_id_is_valid_deterministic_and_case_sensitive() {
         let id = CapabilityRef::private_rust_id("my_crate::sample", "Counter");
-        assert_eq!(id, CapabilityRef::private_rust_id("my_crate::sample", "Counter"));
-        assert_ne!(id, CapabilityRef::private_rust_id("my_crate::sample", "counter"));
-        assert_ne!(id, CapabilityRef::private_rust_id("my_crate::other", "Counter"));
+        assert_eq!(
+            id,
+            CapabilityRef::private_rust_id("my_crate::sample", "Counter")
+        );
+        assert_ne!(
+            id,
+            CapabilityRef::private_rust_id("my_crate::sample", "counter")
+        );
+        assert_ne!(
+            id,
+            CapabilityRef::private_rust_id("my_crate::other", "Counter")
+        );
         assert_ne!(
             CapabilityRef::private_rust_id("my_crate::a_b", "Counter"),
             CapabilityRef::private_rust_id("my_crate::a0b", "Counter")

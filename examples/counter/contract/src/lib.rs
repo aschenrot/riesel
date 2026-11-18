@@ -76,10 +76,7 @@ mod private_identity_tests {
         assert_eq!(contract.capability.version, 1);
         assert_eq!(
             contract.capability.id,
-            riesel_schema::CapabilityRef::private_rust_id(
-                module_path!(),
-                "PrivateCounter"
-            )
+            riesel_schema::CapabilityRef::private_rust_id(module_path!(), "PrivateCounter")
         );
         let handler = PrivateCounterRpcDispatcher::new(PrivateImplementation);
         assert_eq!(handler.contract().unwrap().capability, contract.capability);
