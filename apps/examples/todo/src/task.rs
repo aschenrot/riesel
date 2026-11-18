@@ -200,11 +200,12 @@ mod tests {
     }
 
     #[test]
-    fn resolves_declared_storage_requirement_from_generated_provider_metadata() {
-        use riesel::ProviderRegistry;
+    fn resolves_and_injects_storage_without_coupling_todo_to_a_provider() {
+        use riesel::{CapabilityBindings, ProviderRegistry};
         use std::collections::BTreeMap;
+        use std::sync::Arc;
 
-        let schema = parse_schema(include_str!("../app.json")).unwrap();
+        let mut schema = parse_schema(include_str!("../app.json")).unwrap();
         let mut registry = ProviderRegistry::new();
         registry
             .register(riesel_storage_component::memory_provider_definition().unwrap())
@@ -214,6 +215,18 @@ mod tests {
         assert_eq!(resolved.len(), 1);
         assert_eq!(resolved[0].requirement, "storage");
         assert_eq!(resolved[0].provider, "riesel.storage.memory");
+
+        let mut instances = CapabilityBindings::<dyn RecordStore>::new();
+        instances
+            .register("riesel.storage.memory", Arc::new(MemoryStore::new()))
+            .unwrap();
+
+        let store = instances.get(&resolved[0]).unwrap();
+        let task_model = schema.models.remove("task").unwrap();
+        let todo = Todo::new(store, task_model);
+
+        let task = todo.create_task("Test provider injection").unwrap();
+        assert_eq!(todo.get_task(task.id).unwrap().unwrap(), task);
     }
 
 }

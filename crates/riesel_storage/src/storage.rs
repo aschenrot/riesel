@@ -51,6 +51,31 @@ pub trait RecordStore {
     ) -> Result<StoredRecord, StoreError>;
 }
 
+/// Allow dynamic capability implementations to be shared across consumers.
+impl<T: RecordStore + ?Sized> RecordStore for std::sync::Arc<T> {
+    fn create(&self, model: &str, data: Value) -> Result<StoredRecord, StoreError> {
+        self.as_ref().create(model, data)
+    }
+
+    fn get(&self, model: &str, id: Uuid) -> Result<Option<StoredRecord>, StoreError> {
+        self.as_ref().get(model, id)
+    }
+
+    fn list(&self, model: &str) -> Result<Vec<StoredRecord>, StoreError> {
+        self.as_ref().list(model)
+    }
+
+    fn update(
+        &self,
+        model: &str,
+        id: Uuid,
+        expected_revision: u64,
+        data: Value,
+    ) -> Result<StoredRecord, StoreError> {
+        self.as_ref().update(model, id, expected_revision, data)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::RecordStoreContract;
