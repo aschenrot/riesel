@@ -17,6 +17,8 @@ use std::time::Duration;
 
 #[cfg(feature = "async-tcp")]
 mod async_client;
+#[cfg(feature = "async-tcp")]
+mod async_server;
 mod client;
 mod server;
 #[cfg(test)]
@@ -25,6 +27,8 @@ mod wire;
 
 #[cfg(feature = "async-tcp")]
 pub use async_client::AsyncTcpRpcTransport;
+#[cfg(feature = "async-tcp")]
+pub use async_server::{handle_async_tcp_connection, serve_async_tcp_rpc_host};
 pub use client::TcpRpcTransport;
 pub use server::{handle_tcp_connection, run_tcp_rpc_host};
 

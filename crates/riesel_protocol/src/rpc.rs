@@ -136,6 +136,11 @@ pub type AsyncRpcFuture<'a> = Pin<Box<dyn Future<Output = Result<Value, RpcError
 pub trait AsyncRpcHandler: Send + Sync {
     fn contract(&self) -> Result<CapabilityContract, RpcError>;
 
+    /// Advertised provider metadata is optional and is not authentication.
+    fn provider(&self) -> Option<ProviderDefinition> {
+        None
+    }
+
     fn dispatch<'a>(&'a self, operation: &'a str, arguments: Value) -> AsyncRpcFuture<'a>;
 
     fn dispatch_for<'a>(
