@@ -57,6 +57,7 @@ impl ProcessRegistry {
             io::Error::new(
                 io::ErrorKind::NotFound,
                 format!("process not found: {key:?}"),
+            )
         })?;
 
         Ok(match process.child.try_wait()? {
