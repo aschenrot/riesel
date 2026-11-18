@@ -264,4 +264,48 @@ mod tests {
         supervisor.stop().unwrap();
         assert!(supervisor.cancellation_token().is_cancelled());
     }
+
+    #[test]
+    fn long_running_test_child() {
+        if std::env::var_os("RIESEL_SUPERVISOR_TEST_SLEEP").is_some() {
+            thread::sleep(Duration::from_secs(30));
+        }
+    }
+
+    #[test]
+    fn intentional_shutdown_does_not_report_a_spurious_crash() {
+        use std::process::{Command, Stdio};
+
+        let key = ProcessKey::new(99, Some("healthy".into()));
+        let mut child = Command::new(std::env::current_exe().unwrap());
+        child
+            .args(["--exact", "supervisor::tests::long_running_test_child"])
+            .env("RIESEL_SUPERVISOR_TEST_SLEEP", "1")
+            .stdin(Stdio::null())
+            .stdout(Stdio::null())
+            .stderr(Stdio::null());
+        let mut registry = ProcessRegistry::new();
+        registry.spawn(key.clone(), &mut child).unwrap();
+        let registry = Arc::new(Mutex::new(registry));
+        let mut monitor = ServiceMonitor::start(
+            Arc::clone(&registry),
+            BTreeMap::from([("healthy".into(), key)]),
+        )
+        .unwrap();
+
+        assert!(!monitor
+            .cancellation_token()
+            .wait_cancelled_timeout(Duration::from_millis(100)));
+        assert!(monitor.check_now().is_none());
+
+        monitor.stop().unwrap();
+        registry.lock().unwrap().stop_all().unwrap();
+        assert!(monitor
+            .failure
+            .lock()
+            .unwrap()
+            .is_none());
+        assert!(monitor.cancellation_token().is_cancelled());
+    }
+
 }

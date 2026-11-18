@@ -912,6 +912,79 @@ mod tests {
             Err(RuntimeError::ServiceStart { .. })
         ));
     }
+
+    /// Construct an app backed by a real OS child that exits immediately.
+    /// No fake process status or forced error injection is involved.
+    fn with_exiting_managed_child() -> RunningApp {
+        let key = ProcessKey::new(1, Some("counter".into()));
+        let mut command = Command::new(std::env::current_exe().unwrap());
+        command
+            .args(["--exact", "runtime::tests::child_exits_immediately"])
+            .stdin(Stdio::null())
+            .stdout(Stdio::null())
+            .stderr(Stdio::null());
+        let mut registry = ProcessRegistry::new();
+        registry.spawn(key.clone(), &mut command).unwrap();
+        let processes = Arc::new(Mutex::new(registry));
+        let supervisor = ServiceMonitor::start(
+            Arc::clone(&processes),
+            BTreeMap::from([("counter".into(), key)]),
+        )
+        .unwrap();
+        RunningApp {
+            app: app(),
+            resolved: vec![],
+            services: BTreeMap::new(),
+            processes,
+            supervisor,
+        }
+    }
+
+    #[test]
+    fn managed_child_exit_cancels_application_and_returns_supervision_error() {
+        let running = with_exiting_managed_child();
+        let token = running.cancellation_token();
+        let result = RunningApp::execute(running, |app| {
+            assert!(token.wait_cancelled_timeout(Duration::from_secs(8)));
+            assert!(matches!(
+                app.check_processes(),
+                Err(RuntimeError::ServiceExited { requirement, .. })
+                    if requirement == "counter"
+            ));
+            Ok(())
+        });
+        match result {
+            Err(AppRunError::Supervision {
+                failure,
+                entry: None,
+                shutdown: None,
+            }) => assert!(matches!(
+                *failure,
+                RuntimeError::ServiceExited { requirement, .. }
+                    if requirement == "counter"
+            )),
+            other => panic!("expected managed service failure, received {other:?}"),
+        }
+    }
+
+    #[test]
+    fn supervision_preserves_concurrent_business_error() {
+        let running = with_exiting_managed_child();
+        let token = running.cancellation_token();
+        let result = RunningApp::execute(running, |_| {
+            assert!(token.wait_cancelled_timeout(Duration::from_secs(8)));
+            Err(io::Error::other("entrypoint failed after cancellation").into())
+        });
+        assert!(matches!(
+            result,
+            Err(AppRunError::Supervision {
+                entry: Some(_),
+                shutdown: None,
+                ..
+            })
+        ));
+    }
+
     struct LocalCounter(&'static str);
 
     impl LocalProviderFactory for LocalCounter {
