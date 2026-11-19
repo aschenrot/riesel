@@ -159,10 +159,10 @@ impl ProviderCatalog {
                     let mut endpoint = placement.endpoint.clone();
                     // One catalog placement represents one managed instance,
                     // even when multiple capability aliases select it.
-                    if let ServiceEndpoint::Managed { instance, .. } = &mut endpoint {
-                        if instance.is_none() {
-                            *instance = Some(choice.clone());
-                        }
+                    if let ServiceEndpoint::Managed { instance, .. } = &mut endpoint
+                        && instance.is_none()
+                    {
+                        *instance = Some(choice.clone());
                     }
                     endpoint
                 } else if let Some(provider) = locals.get(choice) {

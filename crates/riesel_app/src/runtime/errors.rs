@@ -53,8 +53,8 @@ pub enum RuntimeError {
     )]
     ProviderIdentityMismatch {
         requirement: String,
-        expected: ProviderDefinition,
-        actual: ProviderDefinition,
+        expected: Box<ProviderDefinition>,
+        actual: Box<ProviderDefinition>,
     },
     #[error("unknown running requirement: {0}")]
     MissingService(String),

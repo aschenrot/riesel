@@ -27,8 +27,8 @@ impl App {
                     {
                         return Err(RuntimeError::ProviderIdentityMismatch {
                             requirement: requirement.name.clone(),
-                            expected: expected.clone(),
-                            actual: local.definition.clone(),
+                            expected: Box::new(expected.clone()),
+                            actual: Box::new(local.definition.clone()),
                         });
                     }
                     if !local

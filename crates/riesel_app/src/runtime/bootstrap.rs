@@ -371,8 +371,8 @@ impl<'a> StartupState<'a> {
         {
             return Err(RuntimeError::ProviderIdentityMismatch {
                 requirement: requirement.name.clone(),
-                expected: expected.clone(),
-                actual: connected.definition,
+                expected: Box::new(expected.clone()),
+                actual: Box::new(connected.definition),
             });
         }
         if !connected
