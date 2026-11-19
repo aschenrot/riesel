@@ -51,14 +51,14 @@ Prefix: `/api/v1`. JSON field names use snake_case. The HTTP layer calls the exi
 | `PATCH /tasks/{id}` | `{revision:u64,title:string}` **or** `{revision:u64,completed:bool}`, exactly one change | `200` updated record |
 | `DELETE /tasks/{id}` | `{revision:u64}` | `204` no body |
 
-A record is `{id,revision,title,completed}`; list pagination uses the existing non-snapshot cursor contract. The HTTP adapter must preserve update/delete optimistic revision checks, **never** prefetch a new revision to silently retry.
+A record is `{id,revision,title,completed}`; list pagination uses the existing non-snapshot cursor contract. The HTTP adapter must preserve update/delete optimistic revision checks, **never** prefetch a new revision to silently retry. If pagination needs a new `Todo::list_tasks_page` helper, add it to the Rust domain rather than bypassing `Todo` in HTTP handlers.
 
 All errors use `{error:{code,message}}` with stable short codes. Proposed mapping: `400` malformed input, `403` browser origin/Host rejected, `404` not found, `409` stale revision, `413` oversized, `415` wrong media type, `429/503` capacity/service unavailable, `500` unexpected backend failures. Final route and error fixtures should be reviewed before #18 starts; client messages must not expose raw database paths.
 
 ## Session ownership and synchronous Storage
 
 1. Start linked SQLite through the existing `Application::async_handler`; only then bind the listener. A failed bind must fail the application startup without leaving active provider work or an orphan listener.
-2. Keep the server alive independently of individual HTTP connections. The async handler owns the server and uses **bounded graceful shutdown** on Ctrl-C or session invalidation; drain in-flight requests before dropping provider handles.
+2. Keep the server alive independently of individual HTTP connections. On **normal Ctrl-C**, initiate bounded graceful shutdown and join admitted Storage work before dropping providers. On **unexpected session revocation**, Riesel's current `run_scoped` drops the handler future promptly; do **not** promise that every HTTP connection drains or receives a response. Verify that started Storage work is joined before provider teardown, and interrupted requests are not silently replayed.
 3. Do **not** invoke synchronous SQLite operations directly on the current-thread Tokio reactor. Use the existing **`AsyncTasks::spawn_blocking`** with a bounded per-request result channel (e.g. Tokio oneshot) and a unique task name; return capacity errors when admission fails.
 4. Expected validation/conflict/not-found outcomes are **HTTP responses**, not `spawn_blocking` task failures that revoke the whole application session. The blocking closure should deliver the result and return `Ok(())` unless there is an actual fatal runtime error.
 5. If a client disconnects, a previously admitted mutation may still commit. Do not infer a failed write from a closed HTTP connection or retry it automatically.
@@ -71,7 +71,7 @@ The `AsyncTasks` scope currently permits at most eight admitted blocking jobs. D
 - **Security:** foreign Host (including rebinding-style name), missing/null/cross-site Origin, conflicting Fetch Metadata, cross-origin reads and malformed/missing content type are rejected; valid same-origin reads and writes succeed. Verify that rejected requests cannot mutate data.
 - **Contract:** CRUD/paging, distinct invalid input, missing, and stale-revision responses; no duplicate title/completion validation or task state in HTTP. Require client-observed revision.
 - **Resources:** oversized bodies, excessive simultaneous requests, blocking-budget exhaustion and cancellation behavior have deterministic bounded failures.
-- **Lifecycle:** failed listener startup, graceful server stop, concurrent in-flight requests, browser disconnect/reconnect, persistent SQLite state across backend restart. No orphan background tasks or provider teardown race.
+- **Lifecycle:** failed listener startup, normal Ctrl-C graceful server stop, abrupt session revocation, concurrent in-flight requests, browser disconnect/reconnect, and persistent SQLite state across backend restart. No Storage operation may outlive provider teardown; abrupt revocation does not guarantee completed HTTP responses.
 - **Build:** supported pinned Rust toolchain, Linux `cargo validate --check` and `cargo smoke`, HTTP integration tests. The frontend must be able to use stable route fixtures independently of its visual design.
 
 ## Decision gate
