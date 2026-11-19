@@ -24,6 +24,7 @@ struct TaskState {
     active: bool,
     closed: bool,
     handles: Vec<(String, JoinHandle<()>)>,
+    executor: Option<tokio::runtime::Handle>,
 }
 
 /// Internal async task ownership. No detached application work may survive
@@ -95,11 +96,9 @@ impl AsyncTasks {
         {
             return Err(RuntimeError::InvalidTaskName(name));
         }
-        let executor =
-            tokio::runtime::Handle::try_current().map_err(|error| RuntimeError::TaskStart {
-                name: name.clone(),
-                source: io::Error::other(error),
-            })?;
+        // Always spawn on the executor owned by this session, not an
+        // unrelated Tokio runtime that happens to call a cloned spawner.
+        let executor = state.executor.as_ref().ok_or(RuntimeError::TaskGroupClosed)?.clone();
         let session = self.inner.session.clone();
         let worker = executor.spawn(async move {
             let mut work = std::pin::pin!(task);
@@ -157,6 +156,13 @@ impl AsyncTasks {
         if state.active || state.closed || !self.inner.session.is_active() {
             return Err(RuntimeError::TaskGroupClosed);
         }
+        let executor = tokio::runtime::Handle::try_current().map_err(|error| {
+            RuntimeError::TaskStart {
+                name: "async-scope".into(),
+                source: io::Error::other(error),
+            }
+        })?;
+        state.executor = Some(executor);
         state.active = true;
         Ok(())
     }
@@ -173,6 +179,7 @@ impl AsyncTasks {
                 .unwrap_or_else(PoisonError::into_inner);
             state.active = false;
             state.closed = true;
+            state.executor = None;
             self.inner.session.invalidate();
             self.inner.cancellation.cancel();
             std::mem::take(&mut state.handles)
@@ -200,6 +207,7 @@ impl AsyncTasks {
             .unwrap_or_else(PoisonError::into_inner);
         state.closed = true;
         state.active = false;
+        state.executor = None;
         self.inner.session.invalidate();
         self.inner.cancellation.cancel();
         for (_, watcher) in std::mem::take(&mut state.handles) {
