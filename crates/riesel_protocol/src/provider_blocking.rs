@@ -122,7 +122,8 @@ impl ProviderBlocking {
                 limit: MAX_PROVIDER_BLOCKING,
             })?;
         let (sender, receiver) = oneshot::channel();
-        let mut workers = self
+        {
+            let mut workers = self
             .group
             .workers
             .lock()
@@ -168,8 +169,8 @@ impl ProviderBlocking {
                 name: name.clone(),
                 source,
             })?;
-        workers.handles.push(handle);
-        drop(workers);
+            workers.handles.push(handle);
+        }
 
         match receiver.await {
             Ok(Ok(Some(value))) if self.group.session.is_active() => Ok(value),
