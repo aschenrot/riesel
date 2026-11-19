@@ -1,7 +1,7 @@
 /** Browser transport for the accepted Todo /api/v1 contract. */
 export interface Task {
   id: string;
-  revision: number;
+  revision: string;
   title: string;
   completed: boolean;
 }

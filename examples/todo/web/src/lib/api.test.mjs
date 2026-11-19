@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { ApiError, listPage, createTask, updateTask, removeTask } from './api.ts';
 
-const record = { id: 'task-1', title: 'Write tests', completed: false, revision: 4 };
+const record = { id: 'task-1', title: 'Write tests', completed: false, revision: '18446744073709551615' };
 
 test('list preserves bounded cursor contract', async () => {
   let observed;
@@ -40,9 +40,9 @@ test('edits and deletion preserve the caller-observed revision', async () => {
   await updateTask(record, { title: 'Revised' }, mock);
   await removeTask(record, mock);
   assert.deepEqual(requests.map((x) => x.data), [
-    { revision: 4, completed: true },
-    { revision: 4, title: 'Revised' },
-    { revision: 4 }
+    { revision: '18446744073709551615', completed: true },
+    { revision: '18446744073709551615', title: 'Revised' },
+    { revision: '18446744073709551615' }
   ]);
   assert.deepEqual(requests.map((x) => x.method), ['PATCH', 'PATCH', 'DELETE']);
 });

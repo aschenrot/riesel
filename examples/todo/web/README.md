@@ -17,6 +17,6 @@ The local Vite proxy forwards /api and adjusts Host/Origin to the trusted loopba
 
 Run npm run check, npm test, and npm run build. The static app is generated into build/ via adapter-static; this directory is gitignored. Test the built assets through the Rust same-origin host before R2 acceptance.
 
-All mutations include the last observed task revision. A stale write is surfaced as a conflict, not retried. Lists request at most 32 tasks per page using the backend's opaque cursor. No PWA installation, offline writes, subscriptions, or synchronization is included.
+All mutations include the last observed task revision as a decimal string (not a JavaScript number), preserving the entire Rust u64 range. A stale write is surfaced as a conflict, not retried. Lists request at most 32 tasks per page using the backend's opaque cursor. No PWA installation, offline writes, subscriptions, or synchronization is included.
 
 **Delivery status:** This frontend is a separate workstream. The static asset serving integration and browser end-to-end tests depend on the accepted and merged Todo HTTP backend implementation.
