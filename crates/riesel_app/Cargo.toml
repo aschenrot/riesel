@@ -8,9 +8,10 @@ publish = false
 
 [features]
 default = []
-async-tcp = ["riesel_protocol/async-tcp"]
+async-tcp = ["riesel_protocol/async-tcp", "dep:tokio"]
 
 [dependencies]
+tokio = { workspace = true, optional = true }
 riesel_schema.workspace = true
 riesel_protocol.workspace = true
 riesel_manager.workspace = true
