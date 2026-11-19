@@ -27,9 +27,11 @@ fn macro_and_builder_have_equivalent_definition_and_run_linked_counter() {
     let defined: serde_json::Value =
         serde_json::from_slice(&output(&["--print-definition"]).stdout).unwrap();
     let builder = Application::new("CounterMacro")
-        .async_handler(|_counter: NativeHandleParam<riesel_counter::AsyncCounterHandle>| async move {
-            Ok::<(), CallError<CounterError>>(())
-        })
+        .async_handler(
+            |_counter: NativeHandleParam<riesel_counter::AsyncCounterHandle>| async move {
+                Ok::<(), CallError<CounterError>>(())
+            },
+        )
         .unwrap()
         .component::<AsyncMemoryCounter>()
         .unwrap();
@@ -78,4 +80,32 @@ fn identical_macro_binary_works_with_managed_provider_without_code_changes() {
     assert_eq!(plan["services"].as_array().unwrap().len(), 1);
     let managed = output(&["--deployment", path.to_str().expect("UTF-8 test path")]);
     assert!(String::from_utf8_lossy(&managed.stdout).contains("Counter macro: 3"));
+}
+
+#[test]
+fn macro_supports_two_explicit_aliases_with_one_local_provider_instance() {
+    let output = Command::new(env!("CARGO_BIN_EXE_counter_macro_alias"))
+        .output()
+        .expect("aliased counter example must launch");
+    assert!(
+        output.status.success(),
+        "aliased macro failed: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert!(String::from_utf8_lossy(&output.stdout).contains("Aliases share counter: 2"));
+
+    let output = Command::new(env!("CARGO_BIN_EXE_counter_macro_alias"))
+        .arg("--print-definition")
+        .output()
+        .unwrap();
+    assert!(output.status.success());
+    let schema: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    let mut aliases: Vec<String> = schema["requires"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|item| item["name"].as_str().unwrap().to_owned())
+        .collect();
+    aliases.sort();
+    assert_eq!(aliases, ["primary", "secondary"]);
 }
