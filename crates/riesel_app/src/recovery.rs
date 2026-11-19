@@ -89,13 +89,25 @@ pub(crate) fn run_with_recovery(
         let Err(error) = result else {
             return Ok(());
         };
+        // A native async entrypoint reports SessionExpired when a monitored
+        // child fails. That is cancellation caused by supervision, not a
+        // business error, and is eligible for the same opt-in whole-session
+        // restart as a synchronous entrypoint that returned normally.
+        // All other entrypoint errors remain ineligible: never replay an
+        // arbitrary failed command or user handler.
         let eligible = matches!(
             &error,
             AppRunError::Supervision {
                 failure,
-                entry: None,
+                entry,
                 shutdown: None,
             } if matches!(failure.as_ref(), RuntimeError::ServiceExited { .. })
+                && entry.as_ref().is_none_or(|source| {
+                    matches!(
+                        source.downcast_ref::<riesel_protocol::RpcError>(),
+                        Some(riesel_protocol::RpcError::SessionExpired)
+                    )
+                })
         );
         if !eligible {
             return Err(error);
