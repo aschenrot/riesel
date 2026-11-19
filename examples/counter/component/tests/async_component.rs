@@ -74,8 +74,8 @@ fn generated_native_async_component_runs_under_existing_manager() {
         shutdown_timeout_ms: 2_000,
     };
     let config = DeploymentConfig::new(BTreeMap::from([
-        ("counter".into(), target("shared-native-async")),
-        ("observer".into(), target("shared-native-async")),
+        ("counter".into(), target("shared")),
+        ("observer".into(), target("shared")),
     ]));
     exercise(Some(config));
 }
