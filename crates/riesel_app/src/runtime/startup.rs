@@ -227,7 +227,7 @@ impl App {
             });
         }
         let processes = Arc::new(Mutex::new(processes));
-        let supervisor = ServiceMonitor::start(Arc::clone(&processes), managed)
+        let supervisor = ServiceMonitor::start(Arc::clone(&processes), managed, session.clone())
             .map_err(RuntimeError::MonitorStart)?;
         let tasks = TaskGroup::new(supervisor.cancellation_token());
         Ok(RunningApp {

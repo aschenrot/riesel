@@ -53,8 +53,10 @@ impl RunningApp {
         // Tasks receive cancellation before providers are stopped. Keep the
         // supervisor running during task joins: a managed child can still
         // exit unexpectedly while application-owned work is finishing.
-        let tasks = self.tasks.join();
+        // Revoke capability handles before joining application tasks.
+        // Pending async I/O must be cancelled promptly during shutdown.
         self.session.invalidate();
+        let tasks = self.tasks.join();
         // The monitor takes its final snapshot only after every task joined,
         // but before intentional managed-process teardown.
         let monitor = self.supervisor.stop();

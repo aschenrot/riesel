@@ -3,6 +3,7 @@
 //! No restart is attempted. Required managed providers use fail-fast policy.
 
 use crate::runtime::RuntimeError;
+use riesel_protocol::SessionToken;
 use riesel_manager::{ProcessKey, ProcessRegistry, ProcessStatus};
 use std::collections::BTreeMap;
 use std::io;
@@ -113,6 +114,7 @@ pub(crate) struct ServiceMonitor {
     managed: BTreeMap<String, ProcessKey>,
     failure: Arc<Mutex<Option<ServiceFailure>>>,
     cancellation: CancellationToken,
+    session: SessionToken,
     stop: Option<mpsc::Sender<()>>,
     worker: Option<JoinHandle<()>>,
 }
@@ -121,6 +123,7 @@ impl ServiceMonitor {
     pub(crate) fn start(
         processes: Arc<Mutex<ProcessRegistry>>,
         managed: BTreeMap<String, ProcessKey>,
+        session: SessionToken,
     ) -> io::Result<Self> {
         let failure = Arc::new(Mutex::new(None));
         let cancellation = CancellationToken::default();
@@ -131,6 +134,7 @@ impl ServiceMonitor {
             let managed_for_worker = managed.clone();
             let failure_for_worker = Arc::clone(&failure);
             let cancellation_for_worker = cancellation.clone();
+            let session_for_worker = session.clone();
             let (stop, signal) = mpsc::channel();
             let worker = thread::Builder::new()
                 .name("riesel-service-monitor".into())
@@ -139,7 +143,12 @@ impl ServiceMonitor {
                         if let Some(observed) =
                             Self::scan(&processes_for_worker, &managed_for_worker)
                         {
-                            Self::record(&failure_for_worker, &cancellation_for_worker, observed);
+                            Self::record(
+                                &failure_for_worker,
+                                &cancellation_for_worker,
+                                &session_for_worker,
+                                observed,
+                            );
                             return;
                         }
                         match signal.recv_timeout(MONITOR_INTERVAL) {
@@ -155,6 +164,7 @@ impl ServiceMonitor {
             managed,
             failure,
             cancellation,
+            session,
             stop,
             worker,
         })
@@ -191,11 +201,13 @@ impl ServiceMonitor {
     fn record(
         first: &Mutex<Option<ServiceFailure>>,
         cancellation: &CancellationToken,
+        session: &SessionToken,
         observed: ServiceFailure,
     ) {
         let mut guard = first.lock().unwrap_or_else(PoisonError::into_inner);
         if guard.is_none() {
             *guard = Some(observed);
+            session.invalidate();
             cancellation.cancel();
         }
     }
@@ -216,7 +228,7 @@ impl ServiceMonitor {
         // though they unexpectedly disappeared.
         self.stop.as_ref()?;
         if let Some(observed) = Self::scan(&self.processes, &self.managed) {
-            Self::record(&self.failure, &self.cancellation, observed);
+            Self::record(&self.failure, &self.cancellation, &self.session, observed);
         }
         self.observed_failure()
     }
@@ -234,8 +246,9 @@ impl ServiceMonitor {
             None => Ok(()),
         };
         if was_monitoring && let Some(observed) = Self::scan(&self.processes, &self.managed) {
-            Self::record(&self.failure, &self.cancellation, observed);
+            Self::record(&self.failure, &self.cancellation, &self.session, observed);
         }
+        self.session.invalidate();
         self.cancellation.cancel();
         join
     }
@@ -266,11 +279,13 @@ mod tests {
     #[test]
     fn no_managed_services_do_not_trigger_cancellation() {
         let registry = Arc::new(Mutex::new(ProcessRegistry::new()));
-        let mut supervisor = ServiceMonitor::start(registry, BTreeMap::new()).unwrap();
+        let session = SessionToken::new();
+        let mut supervisor = ServiceMonitor::start(registry, BTreeMap::new(), session.clone()).unwrap();
         assert!(supervisor.check_now().is_none());
         assert!(!supervisor.cancellation_token().is_cancelled());
         supervisor.stop().unwrap();
         assert!(supervisor.cancellation_token().is_cancelled());
+        assert!(!session.is_active());
     }
 
     #[test]
@@ -298,6 +313,7 @@ mod tests {
         let mut monitor = ServiceMonitor::start(
             Arc::clone(&registry),
             BTreeMap::from([("healthy".into(), key)]),
+            SessionToken::new(),
         )
         .unwrap();
 
@@ -342,12 +358,14 @@ mod tests {
         registry.spawn(second.clone(), &mut second_command).unwrap();
 
         let registry = Arc::new(Mutex::new(registry));
+        let session = SessionToken::new();
         let mut supervisor = ServiceMonitor::start(
             Arc::clone(&registry),
             BTreeMap::from([
                 ("first".into(), first.clone()),
                 ("second".into(), second.clone()),
             ]),
+            session.clone(),
         )
         .unwrap();
         assert!(
@@ -360,6 +378,7 @@ mod tests {
             Some(RuntimeError::ServiceExited { requirement, .. })
                 if requirement == "second"
         ));
+        assert!(!session.is_active(), "failed child must revoke the capability session");
 
         supervisor.stop().unwrap();
         let mut processes = registry.lock().unwrap();
