@@ -36,9 +36,7 @@ impl SqliteStore {
             .models
             .get(model)
             .ok_or_else(|| StoreError::Failed(format!("unknown model: {model}")))?;
-        definition
-            .validate_record(data)
-            .map_err(failed)?;
+        definition.validate_record(data).map_err(failed)?;
         let bytes = serde_json::to_vec(data).map_err(failed)?;
         if bytes.len() > MAX_RECORD_BYTES {
             return Err(StoreError::Failed("record exceeds 64 KiB".into()));
@@ -46,12 +44,20 @@ impl SqliteStore {
         Ok(bytes)
     }
 
-    fn decode(&self, model: &str, id: Uuid, revision: Vec<u8>, data: Vec<u8>)
-        -> Result<StoredRecord, StoreError>
-    {
+    fn decode(
+        &self,
+        model: &str,
+        id: Uuid,
+        revision: Vec<u8>,
+        data: Vec<u8>,
+    ) -> Result<StoredRecord, StoreError> {
         let data: Value = serde_json::from_slice(&data).map_err(failed)?;
         self.serialize(model, &data)?;
-        Ok(StoredRecord { id, data, revision: decode_revision(&revision)? })
+        Ok(StoredRecord {
+            id,
+            data,
+            revision: decode_revision(&revision)?,
+        })
     }
 
     fn lock(&self) -> Result<std::sync::MutexGuard<'_, Connection>, StoreError> {
@@ -61,9 +67,7 @@ impl SqliteStore {
     }
 }
 
-fn current_revision(conn: &Connection, model: &str, id: Uuid)
-    -> Result<u64, StoreError>
-{
+fn current_revision(conn: &Connection, model: &str, id: Uuid) -> Result<u64, StoreError> {
     let raw: Option<Vec<u8>> = conn
         .query_row(
             "SELECT revision FROM records WHERE model=?1 AND id=?2",
@@ -95,9 +99,15 @@ impl RecordStore for SqliteStore {
                 continue;
             }
             tx.commit().map_err(failed)?;
-            return Ok(StoredRecord { id, data, revision: 1 });
+            return Ok(StoredRecord {
+                id,
+                data,
+                revision: 1,
+            });
         }
-        Err(StoreError::Failed("could not generate unique record identifier".into()))
+        Err(StoreError::Failed(
+            "could not generate unique record identifier".into(),
+        ))
     }
 
     fn get(&self, model: &str, id: Uuid) -> Result<Option<StoredRecord>, StoreError> {
@@ -111,7 +121,8 @@ impl RecordStore for SqliteStore {
             )
             .optional()
             .map_err(failed)?;
-        row.map(|(revision, data)| self.decode(model, id, revision, data)).transpose()
+        row.map(|(revision, data)| self.decode(model, id, revision, data))
+            .transpose()
     }
 
     fn list_page(
@@ -149,7 +160,10 @@ impl RecordStore for SqliteStore {
         } else {
             None
         };
-        Ok(RecordPage { records, next_cursor })
+        Ok(RecordPage {
+            records,
+            next_cursor,
+        })
     }
 
     fn update(
@@ -188,7 +202,11 @@ impl RecordStore for SqliteStore {
             return Err(StoreError::RevisionConflict);
         }
         tx.commit().map_err(failed)?;
-        Ok(StoredRecord { id, data, revision: next })
+        Ok(StoredRecord {
+            id,
+            data,
+            revision: next,
+        })
     }
 
     fn delete(&self, model: &str, id: Uuid, expected_revision: u64) -> Result<(), StoreError> {
@@ -203,7 +221,11 @@ impl RecordStore for SqliteStore {
         let changed = tx
             .execute(
                 "DELETE FROM records WHERE model=?1 AND id=?2 AND revision=?3",
-                params![model, &id.as_bytes()[..], &revision_bytes(expected_revision)[..]],
+                params![
+                    model,
+                    &id.as_bytes()[..],
+                    &revision_bytes(expected_revision)[..]
+                ],
             )
             .map_err(failed)?;
         if changed != 1 {

@@ -3,7 +3,11 @@ use riesel_schema::{ModelDefinition, TypeRef};
 use riesel_storage::{MAX_PAGE_SIZE, RecordStore, StoreError};
 use riesel_storage_sqlite::{SqliteStore, sqlite_storage_provider};
 use serde_json::json;
-use std::{collections::BTreeMap, sync::{Arc, Barrier}, thread};
+use std::{
+    collections::BTreeMap,
+    sync::{Arc, Barrier},
+    thread,
+};
 use uuid::Uuid;
 
 fn models() -> BTreeMap<String, ModelDefinition> {
@@ -29,7 +33,12 @@ fn crud_revisions_and_pages_survive_restart() {
     let store = SqliteStore::open(&path, models()).unwrap();
     let mut ids = Vec::new();
     for index in 0..6 {
-        ids.push(store.create("task", task(&format!("task {index}"))).unwrap().id);
+        ids.push(
+            store
+                .create("task", task(&format!("task {index}")))
+                .unwrap()
+                .id,
+        );
     }
     ids.sort();
 
@@ -53,7 +62,9 @@ fn crud_revisions_and_pages_survive_restart() {
         Err(StoreError::InvalidPageSize)
     ));
     let before = store.get("task", ids[0]).unwrap().unwrap();
-    let after = store.update("task", before.id, before.revision, task("updated")).unwrap();
+    let after = store
+        .update("task", before.id, before.revision, task("updated"))
+        .unwrap();
     assert_eq!(after.revision, 2);
     assert!(matches!(
         store.update("task", before.id, before.revision, task("stale")),
@@ -66,7 +77,10 @@ fn crud_revisions_and_pages_survive_restart() {
     drop(store);
 
     let store = SqliteStore::open(&path, models()).unwrap();
-    assert_eq!(store.get("task", ids[0]).unwrap().unwrap().data, task("updated"));
+    assert_eq!(
+        store.get("task", ids[0]).unwrap().unwrap().data,
+        task("updated")
+    );
     assert_eq!(store.get("task", ids[0]).unwrap().unwrap().revision, 2);
     store.delete("task", ids[0], 2).unwrap();
     assert!(store.get("task", ids[0]).unwrap().is_none());
@@ -105,7 +119,10 @@ fn rejects_invalid_unknown_oversized_and_incompatible_models() {
     let error = SqliteStore::open(&path, incompatible).err().unwrap();
     assert!(matches!(error, StoreError::Failed(_)));
     let store = SqliteStore::open(&path, models()).unwrap();
-    assert_eq!(store.get("task", saved.id).unwrap().unwrap().data, task("keep"));
+    assert_eq!(
+        store.get("task", saved.id).unwrap().unwrap().data,
+        task("keep")
+    );
 }
 
 #[test]
@@ -125,10 +142,16 @@ fn concurrent_expected_revision_mutation_has_one_winner() {
         })
         .collect::<Vec<_>>();
     barrier.wait();
-    let results = threads.into_iter().map(|thread| thread.join().unwrap()).collect::<Vec<_>>();
+    let results = threads
+        .into_iter()
+        .map(|thread| thread.join().unwrap())
+        .collect::<Vec<_>>();
     assert_eq!(results.iter().filter(|result| result.is_ok()).count(), 1);
     assert_eq!(
-        results.iter().filter(|result| matches!(result, Err(StoreError::RevisionConflict))).count(),
+        results
+            .iter()
+            .filter(|result| matches!(result, Err(StoreError::RevisionConflict)))
+            .count(),
         1
     );
     assert_eq!(store.get("task", record.id).unwrap().unwrap().revision, 2);
@@ -180,7 +203,9 @@ fn registration_and_preflight_do_not_open_database() {
     let app = App::from_schema(schema).unwrap();
     let deployment = DeploymentConfig::new(BTreeMap::from([(
         "storage".into(),
-        ServiceEndpoint::Local { provider: "riesel.storage.sqlite".into() },
+        ServiceEndpoint::Local {
+            provider: "riesel.storage.sqlite".into(),
+        },
     )]));
     app.preflight(&deployment, &connectors).unwrap();
     assert!(!path.exists());
