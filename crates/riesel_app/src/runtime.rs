@@ -6,6 +6,8 @@ use crate::plan::{DeploymentPlan, PlannedService, PlannedTarget};
 use crate::recovery::run_with_recovery;
 use crate::supervisor::{CancellationToken, ServiceMonitor};
 use crate::tasks::TaskGroup;
+#[cfg(feature = "async-tcp")]
+use crate::AsyncTasks;
 use crate::{
     App, DeploymentConfig, DeploymentError, ProviderRegistry, ResolutionError, ResolvedCapability,
     ServiceEndpoint,
