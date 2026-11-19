@@ -35,8 +35,8 @@ mod records;
 mod rpc_connector;
 
 pub use application::{
-    Application, ApplicationHandler, ApplicationParam, Capability, Context, HandlerParams,
-    PreparedApplication, Result, SdkError,
+    Application, ApplicationHandler, ApplicationModule, ApplicationParam, Capability, Context,
+    HandlerParams, PreparedApplication, Result, SdkError,
 };
 #[cfg(feature = "async-tcp")]
 pub use application::{

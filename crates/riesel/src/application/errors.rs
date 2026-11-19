@@ -46,6 +46,10 @@ pub enum SdkError {
     RequirementConflict(String),
     #[error("capability {0} already has a different transport adapter")]
     ConnectorModeConflict(String),
+    #[error("module is already registered: {0}")]
+    DuplicateModule(String),
+    #[error("module {0} replaced the application instead of composing registrations")]
+    ModuleReplacedApplication(String),
     #[error("invalid application arguments: {0}")]
     Arguments(String),
     #[error("a provider catalog is required to resolve selected placements")]

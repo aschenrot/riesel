@@ -9,6 +9,7 @@ use syn::{Attribute, FnArg, Ident, ItemFn, LitStr, Pat, Path, ReturnType, Token,
 
 pub(crate) struct AppArgs {
     components: Vec<Path>,
+    modules: Vec<Path>,
     name: Option<LitStr>,
     catalog: Option<Path>,
     development: bool,
@@ -17,6 +18,7 @@ pub(crate) struct AppArgs {
 impl Parse for AppArgs {
     fn parse(input: ParseStream<'_>) -> syn::Result<Self> {
         let mut components = None;
+        let mut modules = None;
         let mut name = None;
         let mut catalog = None;
         let mut development = false;
@@ -47,6 +49,24 @@ impl Parse for AppArgs {
                         }
                     }
                     components = Some(paths);
+                } else if key == "modules" {
+                    if modules.is_some() {
+                        return Err(syn::Error::new(key.span(), "duplicate modules list"));
+                    }
+                    let contents;
+                    bracketed!(contents in input);
+                    let list = Punctuated::<Path, Token![,]>::parse_terminated(&contents)?;
+                    let paths: Vec<Path> = list.into_iter().collect();
+                    let mut seen = BTreeSet::new();
+                    for path in &paths {
+                        if !seen.insert(quote!(#path).to_string()) {
+                            return Err(syn::Error::new_spanned(
+                                path,
+                                "application module was registered more than once",
+                            ));
+                        }
+                    }
+                    modules = Some(paths);
                 } else if key == "catalog" {
                     if catalog.is_some() {
                         return Err(syn::Error::new(key.span(), "duplicate catalog factory"));
@@ -67,7 +87,7 @@ impl Parse for AppArgs {
                 } else {
                     return Err(syn::Error::new(
                         key.span(),
-                        "expected components = [...], catalog = factory, name = \"...\", or development",
+                        "expected components = [...], modules = [...], catalog = factory, name = \"...\", or development",
                     ));
                 }
             }
@@ -77,6 +97,7 @@ impl Parse for AppArgs {
         }
         Ok(Self {
             components: components.unwrap_or_default(),
+            modules: modules.unwrap_or_default(),
             name,
             catalog,
             development,
@@ -235,6 +256,7 @@ pub(crate) fn expand_app(args: AppArgs, mut item: ItemFn) -> syn::Result<TokenSt
                 .async_handler(#handler)?
         }
     };
+    let modules = args.modules;
     let components = args.components;
     let catalog = if let Some(factory) = args.catalog {
         quote! {
@@ -256,6 +278,9 @@ pub(crate) fn expand_app(args: AppArgs, mut item: ItemFn) -> syn::Result<TokenSt
             #item
 
             let __riesel_prepared = #builder;
+            #(
+                let __riesel_prepared = __riesel_prepared.module::<#modules>()?;
+            )*
             #(
                 let __riesel_prepared = __riesel_prepared.component::<#components>()?;
             )*

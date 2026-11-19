@@ -124,6 +124,11 @@ where
         self.application.deployment_plan(config)
     }
 
+    pub fn module<M: super::ApplicationModule>(mut self) -> Result<Self> {
+        self.application = self.application.module::<M>()?;
+        Ok(self)
+    }
+
     pub fn component<C: riesel_app::DeclarativeComponent>(mut self) -> Result<Self> {
         self.application = self.application.component::<C>()?;
         Ok(self)

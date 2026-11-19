@@ -10,6 +10,7 @@ pub struct Application {
     pub(super) selections: BTreeMap<String, String>,
     pub(super) catalog_recovery: RecoveryPolicy,
     pub(super) selection_manifest_loaded: bool,
+    pub(super) modules: BTreeSet<String>,
 }
 
 impl Application {
@@ -28,6 +29,7 @@ impl Application {
             selections: BTreeMap::new(),
             catalog_recovery: RecoveryPolicy::FailFast,
             selection_manifest_loaded: false,
+            modules: BTreeSet::new(),
         }
     }
 

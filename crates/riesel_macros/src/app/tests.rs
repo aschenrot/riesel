@@ -128,3 +128,22 @@ fn catalog_factory_is_wired_through_existing_prepared_application() {
     assert!(generated.contains("run_from_env"));
     assert!(syn::parse_str::<AppArgs>("catalog = first, catalog = second").is_err());
 }
+
+#[test]
+fn explicit_modules_expand_before_individual_component_registration() {
+    let args: AppArgs = parse_quote! {
+        modules = [RequirementsModule, ProviderModule],
+        components = [LocalProvider]
+    };
+    let source: ItemFn = parse_quote! {
+        async fn main(counter: CounterHandle) -> AppResult<()> {
+            Ok(())
+        }
+    };
+    let expanded = expand_app(args, source).unwrap().to_string();
+    assert!(expanded.find(". module").unwrap() < expanded.find(". component").unwrap());
+    assert!(expanded.contains("RequirementsModule"));
+    assert!(expanded.contains("ProviderModule"));
+    assert!(syn::parse_str::<AppArgs>("modules = [A, A]").is_err());
+    assert!(syn::parse_str::<AppArgs>("modules = [A], modules = [B]").is_err());
+}
