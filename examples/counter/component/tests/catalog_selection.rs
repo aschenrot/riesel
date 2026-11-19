@@ -2,8 +2,8 @@
 //! Stage 5.5: real catalog-selected native async Counter providers, from
 //! local state, a Riesel-owned child and an operator-owned loopback process.
 use riesel::{
-    AppRunError, Application, AsyncCapability, CatalogError, ProviderCatalog, RuntimeError,
-    ProviderSelectionConfig, SdkError, ServiceEndpoint,
+    AppRunError, Application, AsyncCapability, CatalogError, ProviderCatalog,
+    ProviderSelectionConfig, RuntimeError, SdkError, ServiceEndpoint,
 };
 use riesel_app::{LocalProviderFactory, PlannedTarget};
 use riesel_counter::{AsyncCounterContract, AsyncCounterObserverContract, CounterError};
@@ -253,9 +253,10 @@ fn operator_selection_manifest_runs_the_shared_managed_provider() {
     let plan = app.catalog_plan().unwrap();
     assert_eq!(plan.services.len(), 2);
     assert!(plan.services.iter().all(|service| {
-        service.expected_provider.as_ref().is_some_and(|provider| {
-            provider.id == "riesel.counter.async.memory"
-        })
+        service
+            .expected_provider
+            .as_ref()
+            .is_some_and(|provider| provider.id == "riesel.counter.async.memory")
     }));
     app.run().unwrap();
 }

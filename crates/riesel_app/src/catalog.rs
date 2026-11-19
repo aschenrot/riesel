@@ -6,10 +6,10 @@
 use crate::{
     ConnectorRegistry, DeploymentConfig, DeploymentError, RecoveryPolicy, ServiceEndpoint,
 };
-use serde::Deserialize;
-use std::path::Path;
 use riesel_schema::{AppSchema, ProviderDefinition, ProviderError, SchemaError};
+use serde::Deserialize;
 use std::collections::BTreeMap;
+use std::path::Path;
 use thiserror::Error;
 
 #[derive(Debug, Error)]
@@ -391,14 +391,18 @@ mod tests {
             config.expected_providers["counter"].id,
             "example.counter.memory"
         );
-        assert!(ProviderSelectionConfig::from_json(
-            r#"{"services":{"counter":"managed"},"extra":true}"#
-        )
-        .is_err());
-        assert!(ProviderSelectionConfig::from_json(
-            r#"{"services":{"counter":{"transport":"managed","program":"evil"}}}"#
-        )
-        .is_err());
+        assert!(
+            ProviderSelectionConfig::from_json(
+                r#"{"services":{"counter":"managed"},"extra":true}"#
+            )
+            .is_err()
+        );
+        assert!(
+            ProviderSelectionConfig::from_json(
+                r#"{"services":{"counter":{"transport":"managed","program":"evil"}}}"#
+            )
+            .is_err()
+        );
     }
 
     #[test]

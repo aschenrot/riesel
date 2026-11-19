@@ -90,7 +90,10 @@ impl App {
                 requirement: requirement.name.clone(),
                 capability: requirement.capability.clone(),
                 depends_on: requirement.depends_on.clone(),
-                expected_provider: deployment.expected_providers.get(&requirement.name).cloned(),
+                expected_provider: deployment
+                    .expected_providers
+                    .get(&requirement.name)
+                    .cloned(),
                 target,
             });
         }
