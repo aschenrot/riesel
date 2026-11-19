@@ -1,0 +1,27 @@
+name: Temporary Storage lockfile generation
+
+on:
+  pull_request:
+    paths:
+      - "Cargo.toml"
+      - "packages/storage/sqlite/**"
+      - ".github/workflows/storage-lockgen-research.yml"
+permissions:
+  contents: read
+
+jobs:
+  lock:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install pinned Rust
+        run: |
+          rustup toolchain install 1.100.0 --profile minimal
+          rustup default 1.100.0
+      - name: Emit generated lockfile for reviewed commit
+        run: |
+          cargo generate-lockfile
+          echo LOCKFILE_BASE64_BEGIN
+          base64 -w0 Cargo.lock
+          echo
+          echo LOCKFILE_BASE64_END
