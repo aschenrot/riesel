@@ -4,7 +4,6 @@
 
 use riesel_counter::AsyncCounterContract;
 use riesel_protocol::{RpcTransport, TcpRpcTransport};
-use riesel_schema::CapabilityDescriptor;
 use std::io::{BufRead, BufReader, Write};
 use std::net::SocketAddr;
 use std::process::{Child, Command, Stdio};
