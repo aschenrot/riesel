@@ -41,7 +41,9 @@ pub trait CapabilityConnector: Send + Sync {
         endpoint: &'a ServiceEndpoint,
         session: &'a SessionToken,
     ) -> std::pin::Pin<
-        Box<dyn std::future::Future<Output = Result<ConnectedProvider, ConnectorError>> + Send + 'a>,
+        Box<
+            dyn std::future::Future<Output = Result<ConnectedProvider, ConnectorError>> + Send + 'a,
+        >,
     > {
         Box::pin(async move { self.connect(endpoint, session) })
     }
