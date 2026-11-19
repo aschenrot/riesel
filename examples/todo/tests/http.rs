@@ -222,24 +222,45 @@ fn security_guards_precede_mutations_and_invalid_requests_fail_closed() {
     assert_eq!(foreign_host.0, 403);
     // An untrusted website must not read data via Fetch Metadata either.
     assert_eq!(
-        server.request(
-            "GET", "/api/v1/tasks", "", Some(&server.authority),
-            None, Some("cross-site"), None
-        ).0,
+        server
+            .request(
+                "GET",
+                "/api/v1/tasks",
+                "",
+                Some(&server.authority),
+                None,
+                Some("cross-site"),
+                None
+            )
+            .0,
         403
     );
     assert_eq!(
-        server.request(
-            "GET", "/api/v1/tasks", "", Some(&server.authority),
-            None, Some("same-site"), None
-        ).0,
+        server
+            .request(
+                "GET",
+                "/api/v1/tasks",
+                "",
+                Some(&server.authority),
+                None,
+                Some("same-site"),
+                None
+            )
+            .0,
         403
     );
     assert_eq!(
-        server.request(
-            "POST", "/api/v1/tasks", r#"{"title":"forged"}"#,
-            Some(&server.authority), Some("null"), None, Some("application/json")
-        ).0,
+        server
+            .request(
+                "POST",
+                "/api/v1/tasks",
+                r#"{"title":"forged"}"#,
+                Some(&server.authority),
+                Some("null"),
+                None,
+                Some("application/json")
+            )
+            .0,
         403
     );
     let foreign_post = server.request(
@@ -358,7 +379,6 @@ fn ctrl_c_shuts_down_independent_backend_without_killing_browser_state() {
     assert!(status.success(), "graceful HTTP shutdown failed: {status}");
 }
 
-
 #[test]
 fn failed_listener_bind_reports_error_without_ready_announcement() {
     let occupied = TcpListener::bind("127.0.0.1:0").unwrap();
@@ -378,7 +398,10 @@ fn failed_listener_bind_reports_error_without_ready_announcement() {
         "failed bind must never announce readiness"
     );
     let error = String::from_utf8_lossy(&output.stderr);
-    assert!(error.contains("bind") || error.contains("use") || error.contains("address"), "{error}");
+    assert!(
+        error.contains("bind") || error.contains("use") || error.contains("address"),
+        "{error}"
+    );
 }
 
 #[test]
@@ -389,7 +412,10 @@ fn disconnected_client_does_not_end_http_backend_or_auto_retry_writes() {
     let body = r#"{"title":"Disconnected caller"}"#;
     let wire = format!(
         "POST /api/v1/tasks HTTP/1.1\r\nHost: {}\r\nOrigin: http://{}\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
-        server.authority, server.authority, body.len(), body
+        server.authority,
+        server.authority,
+        body.len(),
+        body
     );
     stream.write_all(wire.as_bytes()).unwrap();
     drop(stream);

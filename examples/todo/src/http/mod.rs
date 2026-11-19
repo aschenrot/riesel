@@ -104,7 +104,6 @@ pub async fn serve(records: Records<TaskData>, tasks: AsyncTasks, port: u16) -> 
     Ok(())
 }
 
-
 #[cfg(test)]
 mod tests {
     use super::*;

@@ -66,7 +66,6 @@ pub(super) async fn gate(State(state): State<HttpState>, request: Request, next:
     next.run(request).await
 }
 
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -80,7 +79,10 @@ mod tests {
         assert!(unique(&headers, header::HOST).is_err());
 
         let mut headers = HeaderMap::new();
-        headers.append(header::ORIGIN, HeaderValue::from_static("http://127.0.0.1:1"));
+        headers.append(
+            header::ORIGIN,
+            HeaderValue::from_static("http://127.0.0.1:1"),
+        );
         headers.append(header::ORIGIN, HeaderValue::from_static("null"));
         assert!(unique(&headers, header::ORIGIN).is_err());
     }
