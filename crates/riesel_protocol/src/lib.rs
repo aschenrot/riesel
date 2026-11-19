@@ -15,5 +15,7 @@ pub use tcp::{TcpRpcTransport, handle_tcp_connection, run_tcp_rpc_host};
 pub use session::SessionToken;
 
 pub use host::{run_component_from_env, serve_component};
+#[cfg(feature = "async-tcp")]
+pub use host::run_async_tcp_rpc_host;
 
 pub use host::serve_router;

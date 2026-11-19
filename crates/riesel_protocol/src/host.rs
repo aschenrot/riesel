@@ -24,6 +24,63 @@ pub fn serve_router(address: &str, router: RpcRouter) -> io::Result<()> {
     run_tcp_rpc_host(address, &router)
 }
 
+/// Run a native async host with the same managed process handshake as the
+/// synchronous host. The runtime controls readiness and stdin shutdown;
+/// Tokio owns nonblocking request tasks and cancels them on shutdown.
+///
+/// This is a low-level hosting entrypoint; component-generated registration
+/// will call it once native async component wiring is implemented.
+#[cfg(feature = "async-tcp")]
+pub fn run_async_tcp_rpc_host(
+    address: &str,
+    handler: std::sync::Arc<dyn crate::AsyncRpcHandler>,
+) -> io::Result<()> {
+    use std::io::Write;
+    use std::sync::{
+        Arc,
+        atomic::{AtomicBool, Ordering},
+    };
+
+    let address: SocketAddr = address.parse().map_err(io::Error::other)?;
+    if !address.ip().is_loopback() {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidInput,
+            "unauthenticated RPC services must listen on loopback",
+        ));
+    }
+    handler.validate_host().map_err(io::Error::other)?;
+
+    let runtime = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()?;
+    runtime.block_on(async move {
+        let listener = tokio::net::TcpListener::bind(address).await?;
+        let controlled = std::env::var_os("RIESEL_CONTROL_STDIN").is_some();
+        let stopping = Arc::new(AtomicBool::new(false));
+        if controlled {
+            let stopping = Arc::clone(&stopping);
+            std::thread::spawn(move || {
+                let mut line = String::new();
+                if io::stdin().read_line(&mut line).is_ok()
+                    && line.trim_end() == "RIESEL_SHUTDOWN"
+                {
+                    stopping.store(true, Ordering::Release);
+                }
+            });
+        }
+
+        let ready = serde_json::json!({
+            "protocol": 1,
+            "address": listener.local_addr()?.to_string(),
+            "shutdown": controlled.then_some("stdin_line")
+        });
+        println!("RIESEL_READY {}", ready);
+        io::stdout().flush()?;
+
+        crate::serve_async_tcp_rpc_host(listener, handler, stopping).await
+    })
+}
+
 /// Let an executable accept an explicit bind address or the managed runtime's
 /// RIESEL_BIND_ADDRESS environment setting without repeating startup code.
 pub fn run_component_from_env(serve: impl FnOnce(&str) -> io::Result<()>) -> io::Result<()> {
