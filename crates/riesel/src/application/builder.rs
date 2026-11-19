@@ -9,6 +9,7 @@ pub struct Application {
     pub(super) catalog: Option<ProviderCatalog>,
     pub(super) selections: BTreeMap<String, String>,
     pub(super) catalog_recovery: RecoveryPolicy,
+    pub(super) selection_manifest_loaded: bool,
 }
 
 impl Application {
@@ -26,6 +27,7 @@ impl Application {
             catalog: None,
             selections: BTreeMap::new(),
             catalog_recovery: RecoveryPolicy::FailFast,
+            selection_manifest_loaded: false,
         }
     }
 
@@ -204,6 +206,9 @@ impl Application {
     ) -> Result<Self> {
         let requirement = requirement.into();
         let choice = choice.into();
+        if self.selection_manifest_loaded {
+            return Err(SdkError::ProviderSelectionConflict(requirement));
+        }
         if let Some(previous) = self.selections.get(&requirement)
             && previous != &choice
         {
@@ -216,13 +221,14 @@ impl Application {
     /// Configure only previously registered provider placement names from
     /// an operator-controlled selection manifest, including recovery policy.
     pub fn provider_selections(mut self, config: ProviderSelectionConfig) -> Result<Self> {
-        if !self.selections.is_empty() {
+        if self.selection_manifest_loaded || !self.selections.is_empty() {
             return Err(SdkError::ProviderSelectionConflict(
                 "selection configuration".into(),
             ));
         }
         self.selections = config.services;
         self.catalog_recovery = config.recovery;
+        self.selection_manifest_loaded = true;
         Ok(self)
     }
 
@@ -236,9 +242,15 @@ impl Application {
     }
 
     pub(super) fn selected_deployment(&self) -> Result<Option<DeploymentConfig>> {
+        if self.deployment.is_some()
+            && (self.catalog.is_some()
+                || !self.selections.is_empty()
+                || self.selection_manifest_loaded)
+        {
+            return Err(SdkError::ConflictingDeploymentSource);
+        }
         match (&self.deployment, &self.catalog) {
-            (Some(_), Some(_)) => Err(SdkError::ConflictingDeploymentSource),
-            (Some(config), None) if self.selections.is_empty() => Ok(Some(config.clone())),
+            (Some(config), None) => Ok(Some(config.clone())),
             (None, Some(catalog)) => Ok(Some(catalog.deployment_from_config(
                 &self.definition,
                 &self.providers,
@@ -247,7 +259,9 @@ impl Application {
                     recovery: self.catalog_recovery.clone(),
                 },
             )?)),
-            (None, None) if self.selections.is_empty() => Ok(None),
+            (None, None) if self.selections.is_empty() && !self.selection_manifest_loaded => {
+                Ok(None)
+            }
             _ => Err(SdkError::MissingProviderCatalog),
         }
     }

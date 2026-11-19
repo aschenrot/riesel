@@ -279,6 +279,126 @@ fn application_arguments_coexist_with_framework_flags() {
     assert!(invoked);
 }
 
+#[cfg(feature = "records")]
+#[test]
+fn catalog_cli_selects_pinned_provider_and_preserves_recovery_without_starting_it() {
+    use std::ffi::OsString;
+
+    fn app() -> Application {
+        let mut catalog = ProviderCatalog::new();
+        catalog
+            .register(
+                "managed",
+                riesel_schema::ProviderDefinition {
+                    id: "riesel.storage.approved".into(),
+                    capabilities: vec![
+                        <RecordStoreContract as riesel_schema::CapabilityDescriptor>::definition()
+                            .unwrap()
+                            .capability,
+                    ],
+                },
+                riesel_app::ServiceEndpoint::Managed {
+                    instance: None,
+                    program: "deliberately-missing-binary".into(),
+                    args: Vec::new(),
+                    startup_timeout_ms: 2_000,
+                    shutdown_timeout_ms: 2_000,
+                },
+            )
+            .unwrap();
+        Application::new("CatalogCli")
+            .rpc::<RecordStoreContract>("storage")
+            .unwrap()
+            .catalog(catalog)
+    }
+
+    let filename = std::env::temp_dir().join(format!(
+        "riesel-catalog-cli-{}-{}.json",
+        std::process::id(),
+        line!()
+    ));
+    std::fs::write(
+        &filename,
+        r#"{"services":{"storage":"managed"},"recovery":{"mode":"restart_application","max_restarts":1}}"#,
+    )
+    .unwrap();
+    struct Cleanup(std::path::PathBuf);
+    impl Drop for Cleanup {
+        fn drop(&mut self) {
+            let _ = std::fs::remove_file(&self.0);
+        }
+    }
+    let _cleanup = Cleanup(filename.clone());
+    let path = filename.as_os_str().to_os_string();
+
+    for args in [
+        vec![
+            OsString::from("--inspect-catalog"),
+            OsString::from("--select-providers"),
+            path.clone(),
+        ],
+        vec![
+            OsString::from("--select-providers"),
+            path.clone(),
+            OsString::from("--inspect-catalog"),
+        ],
+    ] {
+        assert!(app().configure_args(&args, false).unwrap().is_none());
+    }
+
+    let (selected, _) = app()
+        .configure_args(&[OsString::from("--select-providers"), path], false)
+        .unwrap()
+        .unwrap();
+    let deployment = selected.selected_deployment().unwrap().unwrap();
+    assert!(matches!(
+        deployment.recovery,
+        riesel_app::RecoveryPolicy::RestartApplication {
+            max_restarts: 1,
+            ..
+        }
+    ));
+    let plan = selected.catalog_plan().unwrap();
+    assert_eq!(
+        plan.services[0].expected_provider.as_ref().unwrap().id,
+        "riesel.storage.approved"
+    );
+}
+
+#[test]
+fn empty_selection_manifest_is_not_silently_reapplied_or_combined_with_deployment() {
+    let empty = ProviderSelectionConfig::new(BTreeMap::new());
+    let application = Application::new("Duplicate")
+        .provider_selections(empty.clone())
+        .unwrap();
+    assert!(matches!(
+        application.provider_selections(empty.clone()),
+        Err(SdkError::ProviderSelectionConflict(_))
+    ));
+    let application = Application::new("ManualAfterManifest")
+        .provider_selections(empty.clone())
+        .unwrap();
+    assert!(matches!(
+        application.select_provider("counter", "manual"),
+        Err(SdkError::ProviderSelectionConflict(_))
+    ));
+    let application = Application::new("Conflict")
+        .deployment(DeploymentConfig::new(BTreeMap::new()))
+        .provider_selections(empty.clone())
+        .unwrap();
+    assert!(matches!(
+        application.selected_deployment(),
+        Err(SdkError::ConflictingDeploymentSource)
+    ));
+    let application = Application::new("NoCatalog")
+        .provider_selections(empty)
+        .unwrap();
+    assert!(matches!(
+        application.selected_deployment(),
+        Err(SdkError::MissingProviderCatalog)
+    ));
+}
+
 #[test]
 fn strict_cli_rejects_unknown_arguments_before_execution() {
     use std::ffi::OsString;
