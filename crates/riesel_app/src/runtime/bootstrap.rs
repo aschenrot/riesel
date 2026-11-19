@@ -406,10 +406,45 @@ impl<'a> StartupState<'a> {
         Ok(())
     }
 
-    pub(super) fn finish(self) -> Result<RunningApp, RuntimeError> {
-        let mut resolved = self
+    /// Roll back partial startup explicitly so cleanup errors cannot be
+    /// discarded by the process-registry Drop fallback.
+    pub(super) fn rollback(mut self, startup: RuntimeError) -> RuntimeError {
+        self.session.invalidate();
+        let mut cleanup = Vec::new();
+        #[cfg(feature = "async-tcp")]
+        for local in self.local_instances.values_mut() {
+            if let Some(blocking) = local.blocking.take()
+                && let Err(source) = blocking.close_and_join()
+            {
+                cleanup.push(RuntimeError::ProviderBlockingShutdown { source });
+            }
+        }
+        self.services.clear();
+        self.local_instances.clear();
+        if let Err(source) = self.processes.stop_all() {
+            cleanup.push(RuntimeError::Shutdown(source));
+        }
+        match cleanup.len() {
+            0 => startup,
+            1 => RuntimeError::StartupRollback {
+                startup: Box::new(startup),
+                cleanup: Box::new(cleanup.remove(0)),
+            },
+            _ => RuntimeError::StartupRollback {
+                startup: Box::new(startup),
+                cleanup: Box::new(RuntimeError::ShutdownFailures { errors: cleanup }),
+            },
+        }
+    }
+
+    pub(super) fn finish(mut self) -> Result<RunningApp, RuntimeError> {
+        let mut resolved = match self
             .registry
-            .resolve(self.app.definition(), &self.selected)?;
+            .resolve(self.app.definition(), &self.selected)
+        {
+            Ok(resolved) => resolved,
+            Err(error) => return Err(self.rollback(error.into())),
+        };
         for binding in &mut resolved {
             binding.instance = Some(match &self.deployment.services[&binding.requirement] {
                 ServiceEndpoint::Local { provider } => crate::InstanceIdentity::Local {
@@ -425,10 +460,20 @@ impl<'a> StartupState<'a> {
                 }
             });
         }
-        let processes = Arc::new(Mutex::new(self.processes));
-        let supervisor =
-            ServiceMonitor::start(Arc::clone(&processes), self.managed, self.session.clone())
-                .map_err(RuntimeError::MonitorStart)?;
+        let processes = Arc::new(Mutex::new(std::mem::take(&mut self.processes)));
+        let supervisor = match ServiceMonitor::start(
+            Arc::clone(&processes),
+            self.managed,
+            self.session.clone(),
+        ) {
+            Ok(supervisor) => supervisor,
+            Err(source) => {
+                self.processes = std::mem::take(
+                    &mut *processes.lock().unwrap_or_else(PoisonError::into_inner),
+                );
+                return Err(self.rollback(RuntimeError::MonitorStart(source)));
+            }
+        };
         let tasks = TaskGroup::new(supervisor.cancellation_token(), self.session.clone());
         #[cfg(feature = "async-tcp")]
         let async_tasks = AsyncTasks::new(self.session.clone(), supervisor.cancellation_token());
