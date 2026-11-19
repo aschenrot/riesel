@@ -66,7 +66,7 @@ impl AsyncRpcHandler for Writer {
                 .ok_or_else(|| RpcError::InvalidArguments("missing amount".into()))?;
             let previous = self
                 .0
-                .fetch_update(Ordering::SeqCst, Ordering::SeqCst, |value| {
+                .try_update(Ordering::SeqCst, Ordering::SeqCst, |value| {
                     value.checked_add(amount)
                 })
                 .map_err(|_| RpcError::InvalidArguments("counter overflow".into()))?;
