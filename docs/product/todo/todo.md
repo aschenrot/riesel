@@ -84,6 +84,8 @@ Acceptance:
 
 **Deferred:** PWA installation, offline editing/synchronization, push notifications, real-time subscriptions, desktop packaging, and remote-user deployment.
 
+Local-only browser API and lifecycle contract: [accepted HTTP integration boundary](http-local-browser-contract.md). Implementation still requires security and lifecycle tests.
+
 Delivery work: [Todo browser API and backend lifecycle](https://github.com/aschenrot/riesel/issues/17) and [Todo SvelteKit browser interface](https://github.com/aschenrot/riesel/issues/18).
 
 ## Scope boundaries

@@ -1,6 +1,6 @@
 # Todo R2 — Local HTTP API and browser boundary
 
-**Status: proposal, not accepted.** [Specification Issue #36](https://github.com/aschenrot/riesel/issues/36) owns the decision. [HTTP implementation #17](https://github.com/aschenrot/riesel/issues/17) and [SvelteKit UI #18](https://github.com/aschenrot/riesel/issues/18) remain separate. This document is an implementation boundary for review, not authorization to expose an unauthenticated server publicly.
+**Status: accepted for local-only implementation, not production security certification.** [Specification Issue #36](https://github.com/aschenrot/riesel/issues/36) records the bounded decision. [HTTP implementation #17](https://github.com/aschenrot/riesel/issues/17) and [SvelteKit UI #18](https://github.com/aschenrot/riesel/issues/18) remain separate. This contract does not authorize exposing an unauthenticated server publicly.
 
 ## Outcome and existing constraints
 
@@ -26,7 +26,7 @@ Evidence: [Axum serve](https://docs.rs/axum/latest/axum/serve/struct.Serve.html)
 
 No engine prototype or integration tests have yet been performed. The decision is conditional on toolchain and lifecycle verification, not a claim of universal superiority.
 
-## Proposed security and deployment contract
+## Local security and deployment contract
 
 The threats are **cross-origin websites**, CSRF, DNS rebinding, unauthorized browser reads/writes, malformed requests and resource exhaustion. This is **not authentication against another untrusted local OS process**; such processes may forge HTTP headers.
 
@@ -39,7 +39,7 @@ The threats are **cross-origin websites**, CSRF, DNS rebinding, unauthorized bro
 
 This protects against the specified browser-origin threats only under the stated assumptions. Origin/Host headers are **not** OS-user authentication. Defenses follow [OWASP CSRF guidance](https://cheatsheetseries.owasp.org/cheatsheets/Cross-Site_Request_Forgery_Prevention_Cheat_Sheet.html), [OWASP DNS rebinding tests](https://wstg.owasp.org/latest/4-Web_Application_Security_Testing/11-Client-side/21-DNS_Rebinding/) and [GitHub's localhost security analysis](https://github.blog/security/application-security/localhost-dangers-cors-and-dns-rebinding/).
 
-## Proposed API contract
+## Local API contract
 
 Prefix: `/api/v1`. JSON field names use snake_case. The HTTP layer calls the existing typed `Todo` methods.
 
@@ -76,6 +76,6 @@ The `AsyncTasks` scope currently permits at most eight admitted blocking jobs. D
 
 ## Decision gate
 
-A maintainer records **accept, revise or defer** in Issue #36, with rationale and outstanding risks. The chosen adapter, Host/Origin policy, synchronous Store scheduling, HTTP contract and shutdown guarantee must be explicit before #17 is treated as ready for implementation. The review may accept a narrower API if the exclusions are documented.
+Gate B acceptance of this local-only contract is recorded in [Issue #36](https://github.com/aschenrot/riesel/issues/36). Implementation #17 must still verify the Host/Origin policy, response contract, bounded blocking behavior, startup/shutdown and cancellation invariants before merge; passing documentation CI does not establish those guarantees.
 
 No general HTTP capability, browser auth product, real-time subscription, cross-host deployment, SvelteKit runtime dependency or generic Riesel networking abstraction is approved by this proposal.
