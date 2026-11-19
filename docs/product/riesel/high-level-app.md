@@ -124,8 +124,11 @@ and `--print-definition` remain available for direct configurations.
   Advertised provider contract metadata does not authenticate peers.
 - Use the direct `Application` builder and `Context` for dynamic/library
   scenarios that require more control. Both use the same schema and resolver.
-- Modules, ordered lifecycle handlers and scheduled systems remain Stage 5.7.
-  Production remote security, persistence and observability belong to Stage 6.
+- Optional registration modules and `#[app(modules = [...])]` are now
+  Linux-verified as the first Stage 5.7 slice. Ordered lifecycle handlers
+  and scheduled systems are not yet implemented. See
+  [application modules](application-modules.md).
+- Production remote security, persistence and observability belong to Stage 6.
 
 The Counter, alias, managed, remote-only, catalog and Todo examples are
 executable regression binaries. Their generated schemas and startup

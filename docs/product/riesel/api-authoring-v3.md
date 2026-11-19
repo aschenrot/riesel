@@ -25,7 +25,9 @@ The `components` list makes an implementation available when statically
 linked. Without it, configured managed/external providers may satisfy the
 same capability. An application signature declares each dependency exactly
 once. A simple one-shot entrypoint is distinct from long-lived lifecycle
-handlers and scheduled systems. Module composition is optional.
+handlers and scheduled systems. Optional module registration is now
+implemented; ordered lifecycle handlers and scheduled systems remain
+Stage 5.7 work.
 
 A capability author should be able to write `#[riesel::capability]` for a
 private contract. For published contracts, one stable externally recognized
