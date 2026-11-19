@@ -93,6 +93,24 @@ fn identical_macro_binary_works_with_managed_provider_without_code_changes() {
 
     let managed = output(&["--deployment", path.to_str().expect("UTF-8 test path")]);
     assert!(String::from_utf8_lossy(&managed.stdout).contains("Counter macro: 3"));
+
+    // An application without any linked component must never discover or
+    // silently construct an in-memory fallback.
+    let bare = Command::new(env!("CARGO_BIN_EXE_counter_macro_remote"))
+        .output()
+        .expect("remote-only macro binary should launch");
+    assert!(!bare.status.success());
+
+    let remote = Command::new(env!("CARGO_BIN_EXE_counter_macro_remote"))
+        .args(["--deployment", path.to_str().expect("UTF-8 test path")])
+        .output()
+        .unwrap();
+    assert!(
+        remote.status.success(),
+        "remote-only macro failed: {}",
+        String::from_utf8_lossy(&remote.stderr)
+    );
+    assert!(String::from_utf8_lossy(&remote.stdout).contains("Remote macro: 3"));
 }
 
 #[test]
