@@ -124,51 +124,51 @@ impl ProviderBlocking {
         let (sender, receiver) = oneshot::channel();
         {
             let mut workers = self
-            .group
-            .workers
-            .lock()
-            .unwrap_or_else(PoisonError::into_inner);
-        if workers.closed || !self.group.session.is_active() {
-            return Err(ProviderBlockingError::Closed);
-        }
-        // Reap completed workers by joining, never by detaching their
-        // JoinHandles. All still-running workers remain owned by this scope.
-        let mut active = Vec::new();
-        for handle in std::mem::take(&mut workers.handles) {
-            if handle.is_finished() {
-                let _ = handle.join();
-            } else {
-                active.push(handle);
+                .group
+                .workers
+                .lock()
+                .unwrap_or_else(PoisonError::into_inner);
+            if workers.closed || !self.group.session.is_active() {
+                return Err(ProviderBlockingError::Closed);
             }
-        }
-        workers.handles = active;
-        let cancellation = ProviderCancellation {
-            session: self.group.session.clone(),
-        };
-        let failures = Arc::clone(&self.group.failures);
-        let worker_name = name.clone();
-        let handle = thread::Builder::new()
-            .name(format!("riesel-provider-{name}"))
-            .spawn(move || {
-                let _permit = permit;
-                let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-                    if cancellation.is_cancelled() {
-                        return None;
-                    }
-                    Some(task(cancellation))
-                }));
-                if result.is_err() {
-                    failures
-                        .lock()
-                        .unwrap_or_else(PoisonError::into_inner)
-                        .push(worker_name);
+            // Reap completed workers by joining, never by detaching their
+            // JoinHandles. All still-running workers remain owned by this scope.
+            let mut active = Vec::new();
+            for handle in std::mem::take(&mut workers.handles) {
+                if handle.is_finished() {
+                    let _ = handle.join();
+                } else {
+                    active.push(handle);
                 }
-                let _ = sender.send(result);
-            })
-            .map_err(|source| ProviderBlockingError::ThreadStart {
-                name: name.clone(),
-                source,
-            })?;
+            }
+            workers.handles = active;
+            let cancellation = ProviderCancellation {
+                session: self.group.session.clone(),
+            };
+            let failures = Arc::clone(&self.group.failures);
+            let worker_name = name.clone();
+            let handle = thread::Builder::new()
+                .name(format!("riesel-provider-{name}"))
+                .spawn(move || {
+                    let _permit = permit;
+                    let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                        if cancellation.is_cancelled() {
+                            return None;
+                        }
+                        Some(task(cancellation))
+                    }));
+                    if result.is_err() {
+                        failures
+                            .lock()
+                            .unwrap_or_else(PoisonError::into_inner)
+                            .push(worker_name);
+                    }
+                    let _ = sender.send(result);
+                })
+                .map_err(|source| ProviderBlockingError::ThreadStart {
+                    name: name.clone(),
+                    source,
+                })?;
             workers.handles.push(handle);
         }
 
