@@ -272,10 +272,12 @@ mod tests {
             id: "example.async.single".into(),
             capabilities: vec![first.capability.clone()],
         };
-        assert!(crate::AsyncRpcRouter::new(unexpected)
-            .unwrap()
-            .route(SecondHandler)
-            .is_err());
+        assert!(
+            crate::AsyncRpcRouter::new(unexpected)
+                .unwrap()
+                .route(SecondHandler)
+                .is_err()
+        );
 
         let runtime = tokio::runtime::Builder::new_current_thread()
             .enable_all()
@@ -289,13 +291,11 @@ mod tests {
                 .unwrap()
                 .route(ExampleHandler)
                 .unwrap();
-            assert!(serve_async_tcp_rpc_host(
-                listener,
-                Arc::new(missing),
-                Arc::clone(&stopping),
-            )
-            .await
-            .is_err());
+            assert!(
+                serve_async_tcp_rpc_host(listener, Arc::new(missing), Arc::clone(&stopping),)
+                    .await
+                    .is_err()
+            );
         });
     }
 
@@ -331,7 +331,10 @@ mod tests {
             let client = AsyncTcpRpcTransport::new(address);
             for contract in [&first, &second] {
                 client.verify(contract).await.unwrap();
-                assert_eq!(client.provider(&contract.capability).await.unwrap(), provider);
+                assert_eq!(
+                    client.provider(&contract.capability).await.unwrap(),
+                    provider
+                );
             }
             assert_eq!(
                 client
@@ -363,5 +366,4 @@ mod tests {
                 .unwrap();
         });
     }
-
 }
