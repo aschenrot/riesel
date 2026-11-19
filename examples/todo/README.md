@@ -3,6 +3,20 @@
 Todo is the first reference application for Riesel's typed model,
 generated capability RPC, and runtime lifecycle.
 
+## Local HTTP backend (Todo R2, development)
+
+The optional Rust backend implements the accepted [local browser contract](../../docs/product/todo/http-local-browser-contract.md) without changing the R0 or R1 binaries:
+
+```sh
+cargo run --locked -p todo --features http --bin todo_http -- --db ./tasks.db --port 0
+```
+
+The process prints `TODO_HTTP_READY 127.0.0.1:PORT` once the database and listener are ready. It serves `/api/v1/tasks` with JSON operations. The backend survives browser disconnects. Ctrl-C requests graceful shutdown; abrupt runtime revocation does not guarantee HTTP responses have completed.
+
+This first adapter is **loopback-only**, not a remote service or authenticated multi-user server. Every request must use the numeric loopback `Host` matching the announced port. POST, PATCH and DELETE additionally require `Origin: http://127.0.0.1:PORT` and JSON content type. Requests from foreign web origins, nonlocal Hosts and oversized bodies are rejected; `Access-Control-Allow-Origin` is not enabled. Host/Origin checks protect the stated browser threat boundary, not against arbitrary local OS clients able to forge request headers.
+
+The backend has no visual interface yet. Issue #18 will add same-origin SvelteKit assets after HTTP API #17 acceptance. The API is opt-in via the `http` Cargo feature; normal R0/R1 execution remains unchanged.
+
 ## Usable persistent CLI — Todo R1
 
 The separate `todo_cli` executable is a headless task manager. Specify the
