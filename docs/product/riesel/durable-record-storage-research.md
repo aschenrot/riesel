@@ -80,7 +80,7 @@ Starting references: [SQLite durability](https://www.sqlite.org/pragma.html#prag
 - [ ] The candidate-discovery method, eligibility criteria, comparison dimensions, evidence standards and bounded stopping rule are reviewable.
 - [ ] No backend, deployment topology, new core factory API or new durability guarantee is implicitly accepted.
 
-Approving and merging this **research brief** allows the investigation to proceed; it does not complete Issue #24 or authorize implementation.
+Reviewing this **research brief** establishes scope for substantive research; preliminary discovery does not require prior approval. Merging it does not complete Issue #24 or authorize implementation.
 
 ### Gate B — architecture decision (Issue #24, subsequent reviewed change)
 
