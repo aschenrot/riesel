@@ -105,10 +105,16 @@ fn managed_async_host_shares_state_and_stops_on_private_control_request() {
     let deadline = Instant::now() + Duration::from_secs(3);
     loop {
         if let Some(status) = child.0.try_wait().unwrap() {
-            assert!(status.success(), "async managed host did not shut down cleanly");
+            assert!(
+                status.success(),
+                "async managed host did not shut down cleanly"
+            );
             break;
         }
-        assert!(Instant::now() < deadline, "async managed host shutdown timed out");
+        assert!(
+            Instant::now() < deadline,
+            "async managed host shutdown timed out"
+        );
         thread::sleep(Duration::from_millis(10));
     }
 }
