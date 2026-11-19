@@ -124,9 +124,9 @@ and `--print-definition` remain available for direct configurations.
   Advertised provider contract metadata does not authenticate peers.
 - Use the direct `Application` builder and `Context` for dynamic/library
   scenarios that require more control. Both use the same schema and resolver.
-- Optional registration modules and `#[app(modules = [...])]` are now
-  Linux-verified as the first Stage 5.7 slice. Ordered lifecycle handlers
-  and scheduled systems are not yet implemented. See
+- Optional `ApplicationModule` composition and named, typed async start/stop
+  hooks are implemented within Stage 5.7. They use the existing dependency DAG
+  and session owner; no general scheduler is included. See
   [application modules](application-modules.md).
 - Production remote security, persistence and observability belong to Stage 6.
 

@@ -429,7 +429,7 @@ impl<'a> StartupState<'a> {
         let supervisor =
             ServiceMonitor::start(Arc::clone(&processes), self.managed, self.session.clone())
                 .map_err(RuntimeError::MonitorStart)?;
-        let tasks = TaskGroup::new(supervisor.cancellation_token());
+        let tasks = TaskGroup::new(supervisor.cancellation_token(), self.session.clone());
         #[cfg(feature = "async-tcp")]
         let async_tasks = AsyncTasks::new(self.session.clone(), supervisor.cancellation_token());
         #[cfg(feature = "async-tcp")]

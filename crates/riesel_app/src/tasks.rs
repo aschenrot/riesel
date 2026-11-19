@@ -2,6 +2,7 @@
 //! cancellation token and is joined before any provider is torn down.
 use crate::runtime::{ConnectorError, RuntimeError};
 use crate::supervisor::CancellationToken;
+use riesel_protocol::SessionToken;
 use std::panic::{self, AssertUnwindSafe};
 use std::sync::{Arc, Mutex, PoisonError};
 use std::thread::{self, JoinHandle};
@@ -28,14 +29,16 @@ pub(crate) struct TaskGroup {
     state: Mutex<TaskState>,
     failure: Arc<Mutex<Option<TaskFailure>>>,
     cancellation: CancellationToken,
+    session: SessionToken,
 }
 
 impl TaskGroup {
-    pub(crate) fn new(cancellation: CancellationToken) -> Self {
+    pub(crate) fn new(cancellation: CancellationToken, session: SessionToken) -> Self {
         Self {
             state: Mutex::new(TaskState::default()),
             failure: Arc::new(Mutex::new(None)),
             cancellation,
+            session,
         }
     }
 
@@ -45,14 +48,14 @@ impl TaskGroup {
         task: impl FnOnce(CancellationToken) -> Result<(), ConnectorError> + Send + 'static,
     ) -> Result<(), RuntimeError> {
         let mut state = self.state.lock().unwrap_or_else(PoisonError::into_inner);
-        if state.closed || self.cancellation.is_cancelled() {
+        if state.closed || self.cancellation.is_cancelled() || !self.session.is_active() {
             return Err(RuntimeError::TaskGroupClosed);
         }
         // Finished workers no longer consume the concurrent task budget.
         // Join them before recycling slots so unexpected worker panics are
         // observed rather than silently detaching their JoinHandles.
         self.reap_finished(&mut state);
-        if self.cancellation.is_cancelled() {
+        if self.cancellation.is_cancelled() || !self.session.is_active() {
             return Err(RuntimeError::TaskGroupClosed);
         }
         if state.handles.len() >= MAX_APPLICATION_TASKS {
@@ -68,6 +71,7 @@ impl TaskGroup {
             return Err(RuntimeError::InvalidTaskName(name));
         }
         let token = self.cancellation.clone();
+        let session = self.session.clone();
         let failure = Arc::clone(&self.failure);
         let task_name = name.clone();
         let handle = thread::Builder::new()
@@ -87,6 +91,7 @@ impl TaskGroup {
                             source,
                         });
                     }
+                    session.invalidate();
                     token.cancel();
                 }
             })
@@ -110,6 +115,7 @@ impl TaskGroup {
                             source: Arc::new(std::io::Error::other("task worker panicked")),
                         });
                     }
+                    self.session.invalidate();
                     self.cancellation.cancel();
                 }
             } else {
@@ -147,6 +153,7 @@ impl TaskGroup {
                         name,
                         source: Arc::new(std::io::Error::other("task worker panicked")),
                     });
+                    self.session.invalidate();
                 }
             }
         }
@@ -169,7 +176,7 @@ mod tests {
     #[test]
     fn shutdown_signals_and_joins_cooperative_tasks() {
         let token = CancellationToken::default();
-        let group = TaskGroup::new(token.clone());
+        let group = TaskGroup::new(token.clone(), SessionToken::new());
         let finished = Arc::new(std::sync::atomic::AtomicBool::new(false));
         let flag = Arc::clone(&finished);
         group
@@ -191,7 +198,7 @@ mod tests {
     #[test]
     fn background_failure_cancels_entire_session_and_is_retained() {
         let token = CancellationToken::default();
-        let group = TaskGroup::new(token.clone());
+        let group = TaskGroup::new(token.clone(), SessionToken::new());
         group
             .spawn("failing".into(), |_| {
                 Err(io::Error::other("broken task").into())
@@ -212,7 +219,7 @@ mod tests {
     #[test]
     fn task_budget_blocks_unbounded_os_thread_creation() {
         let token = CancellationToken::default();
-        let group = TaskGroup::new(token);
+        let group = TaskGroup::new(token, SessionToken::new());
         for i in 0..MAX_APPLICATION_TASKS {
             group
                 .spawn(format!("worker-{i}"), |cancel| {
@@ -233,7 +240,7 @@ mod tests {
     #[test]
     fn completed_tasks_recycle_slots_and_names() {
         use std::thread;
-        let group = TaskGroup::new(CancellationToken::default());
+        let group = TaskGroup::new(CancellationToken::default(), SessionToken::new());
         for _ in 0..(MAX_APPLICATION_TASKS + 5) {
             group.spawn("reusable".into(), |_| Ok(())).unwrap();
             while !group
@@ -251,9 +258,29 @@ mod tests {
     }
 
     #[test]
+    fn task_failure_expires_cloned_session_handles() {
+        let token = CancellationToken::default();
+        let session = SessionToken::new();
+        let cloned = session.clone();
+        let group = TaskGroup::new(token.clone(), session);
+        group
+            .spawn("failing".into(), |_| {
+                Err(std::io::Error::other("injected failure").into())
+            })
+            .unwrap();
+        assert!(token.wait_cancelled_timeout(std::time::Duration::from_secs(5)));
+        assert!(!cloned.is_active());
+        assert!(matches!(
+            group.spawn("late".into(), |_| Ok(())),
+            Err(RuntimeError::TaskGroupClosed)
+        ));
+        assert!(group.join().is_err());
+    }
+
+    #[test]
     fn task_panics_are_reported_instead_of_detached() {
         let token = CancellationToken::default();
-        let group = TaskGroup::new(token.clone());
+        let group = TaskGroup::new(token.clone(), SessionToken::new());
         group
             .spawn("panic".into(), |_| panic!("test injected panic"))
             .unwrap();

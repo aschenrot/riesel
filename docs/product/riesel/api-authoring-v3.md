@@ -1,6 +1,6 @@
 # Riesel — Accepted Application Authoring Contract (v3)
 
-**Status:** Stages 5.1–5.6 implemented and Linux-verified, 2026-11-19. This document defines durable API and composition rules, not a record of each implementation commit. See [executable high-level examples](high-level-app.md) for exact current syntax and supported features.
+**Status:** Stages 5.1–5.7 implemented and Linux-verified, 2026-11-19. This document defines durable API and composition rules, not a record of each implementation commit. See [executable high-level examples](high-level-app.md) for exact current syntax and supported features.
 
 ## Mental model
 
@@ -34,11 +34,11 @@ The high-level `#[riesel::app]` macro is the convenience authoring surface for o
 - Native async work must be genuinely nonblocking. Provider-owned blocking operations use an explicit, bounded worker boundary and cooperative shutdown.
 - Multiple capability interfaces on one component share state and lifecycle except where explicit, validated configuration says otherwise.
 
-## Modules and future lifecycle work
+## Modules and application lifecycle
 
 Optional `ApplicationModule` registrations reuse the same builder and dependency DAG. Module registration ordering is **not** a substitute for declared dependency ordering. Repeated or conflicting registration is rejected before startup.
 
-Ordered application lifecycle hooks and scheduling are **not** delivered by Stage 5.6 or the initial Stage 5.7 module slice. Those require a separate accepted session-scoped lifecycle contract. See [application modules](application-modules.md) and the [roadmap](implementation-roadmap.md).
+Optional named start/stop hooks now use the existing application session, typed parameter extraction and capability dependency DAG. A general scheduler remains outside Stage 5.7. See [application modules](application-modules.md) for precise execution and recovery guarantees, and the [roadmap](implementation-roadmap.md) for the verification gate.
 
 ## Safety and extensibility boundaries
 
@@ -49,6 +49,6 @@ Ordered application lifecycle hooks and scheduling are **not** delivered by Stag
 
 ## Acceptance evidence
 
-Stage 5.6's Counter, Todo, catalog selection and schema-equivalence integration tests were Linux-verified. Subsequent module registration was also verified. Refer to the [active roadmap](implementation-roadmap.md) for stage gates and to [high-level app authoring](high-level-app.md) for actual runnable syntax.
+Counter, Todo, catalog selection, macro/builder equivalence, module composition and session-hook integration tests were Linux-verified through Stage 5.7. Refer to the [active roadmap](implementation-roadmap.md) for stage gates and to [high-level app authoring](high-level-app.md) for actual runnable syntax.
 
 Do not mark an API complete based on an illustrative example alone; executable tests, versioned contracts and CI are authoritative.

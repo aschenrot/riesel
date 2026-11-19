@@ -224,13 +224,43 @@ fn native_async_managed_crash_cancels_tasks_and_restarts_fresh_session() {
     };
 
     let attempts = Arc::new(AtomicUsize::new(0));
+    let started_hooks = Arc::new(AtomicUsize::new(0));
+    let stopped_hooks = Arc::new(AtomicUsize::new(0));
     let previous = Arc::new(Mutex::new(None::<AsyncCounterHandle>));
     let cancelled_task_dropped = Arc::new(AtomicBool::new(false));
     let for_attempts = Arc::clone(&attempts);
     let for_previous = Arc::clone(&previous);
     let for_dropped = Arc::clone(&cancelled_task_dropped);
 
+    let starts = Arc::clone(&started_hooks);
+    let stops = Arc::clone(&stopped_hooks);
     Application::new("NativeAsyncRecovery")
+        .on_start_with_aliases(
+            "session_hook",
+            move |counter: AsyncCapability<AsyncCounterContract>| {
+                let starts = Arc::clone(&starts);
+                async move {
+                    assert_eq!(counter.value().await?, 0);
+                    starts.fetch_add(1, Ordering::SeqCst);
+                    Ok::<(), CallError<CounterError>>(())
+                }
+            },
+            ["counter"],
+        )
+        .unwrap()
+        .on_stop_with_aliases(
+            "session_hook",
+            move |counter: AsyncCapability<AsyncCounterContract>| {
+                let stops = Arc::clone(&stops);
+                async move {
+                    assert_eq!(counter.value().await?, 9);
+                    stops.fetch_add(1, Ordering::SeqCst);
+                    Ok::<(), CallError<CounterError>>(())
+                }
+            },
+            ["counter"],
+        )
+        .unwrap()
         .async_handler_with_aliases(
             move |counter: AsyncCapability<AsyncCounterContract>,
                   observer: AsyncCapability<AsyncCounterObserverContract>,
@@ -287,6 +317,8 @@ fn native_async_managed_crash_cancels_tasks_and_restarts_fresh_session() {
         .unwrap();
 
     assert_eq!(attempts.load(Ordering::SeqCst), 2);
+    assert_eq!(started_hooks.load(Ordering::SeqCst), 2);
+    assert_eq!(stopped_hooks.load(Ordering::SeqCst), 1);
     assert!(marker.exists(), "the child must actually have crashed once");
     assert!(cancelled_task_dropped.load(Ordering::Acquire));
 }

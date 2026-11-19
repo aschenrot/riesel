@@ -188,11 +188,11 @@ where
             aliases,
             ..
         } = self;
-        application.run_async_entrypoint(move |context| {
+        application.run_async_entrypoint(move |context, lifecycle| {
             run_scoped(
                 context.session_token(),
                 Some(context.async_tasks()),
-                handler.invoke(context, &aliases),
+                lifecycle.execute(context, || handler.invoke(context, &aliases)),
             )
         })
     }
@@ -206,11 +206,11 @@ where
         } = self;
         let args: Vec<_> = std::env::args_os().skip(1).collect();
         if let Some((application, _)) = application.configure_args(&args, false)? {
-            application.run_async_entrypoint(move |context| {
+            application.run_async_entrypoint(move |context, lifecycle| {
                 run_scoped(
                     context.session_token(),
                     Some(context.async_tasks()),
-                    handler.invoke(context, &aliases),
+                    lifecycle.execute(context, || handler.invoke(context, &aliases)),
                 )
             })?;
         }

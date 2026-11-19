@@ -289,7 +289,7 @@ fn with_exiting_managed_child() -> RunningApp {
         SessionToken::new(),
     )
     .unwrap();
-    let tasks = TaskGroup::new(supervisor.cancellation_token());
+    let tasks = TaskGroup::new(supervisor.cancellation_token(), SessionToken::new());
     RunningApp {
         app: app(),
         resolved: vec![],
@@ -376,7 +376,7 @@ fn managed_failure_during_task_join_is_not_missed() {
         SessionToken::new(),
     )
     .unwrap();
-    let tasks = TaskGroup::new(supervisor.cancellation_token());
+    let tasks = TaskGroup::new(supervisor.cancellation_token(), SessionToken::new());
     let running = RunningApp {
         app: app(),
         resolved: vec![],

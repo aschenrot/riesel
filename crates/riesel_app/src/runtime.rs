@@ -39,7 +39,7 @@ mod startup;
 #[cfg(test)]
 mod tests;
 
-pub use errors::{AppRunError, RuntimeError};
+pub use errors::{AppRunError, HookFailure, HookPhase, LifecycleFailure, RuntimeError};
 pub use registry::{
     CapabilityConnector, ConnectedProvider, ConnectorRegistry, LocalCapabilityBinding,
     LocalComponentFactory, LocalProviderFactory, LocalProviderInstance, SingleLocalProvider,

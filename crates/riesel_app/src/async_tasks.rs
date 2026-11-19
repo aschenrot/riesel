@@ -8,8 +8,9 @@ use crate::supervisor::CancellationToken;
 use riesel_protocol::SessionToken;
 use std::future::Future;
 use std::io;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
-use tokio::sync::Semaphore;
+use tokio::sync::{Notify, Semaphore};
 use tokio::task::JoinHandle;
 
 const MAX_ASYNC_TASKS: usize = 64;
@@ -38,6 +39,8 @@ pub(crate) struct AsyncTaskGroup {
     session: SessionToken,
     cancellation: CancellationToken,
     blocking_slots: Arc<Semaphore>,
+    stopping: AtomicBool,
+    stop_signal: Notify,
 }
 
 /// Cloneable, session-bound task spawner for typed async application handlers.
@@ -56,6 +59,8 @@ impl AsyncTasks {
                 session,
                 cancellation,
                 blocking_slots: Arc::new(Semaphore::new(MAX_BLOCKING_TASKS)),
+                stopping: AtomicBool::new(false),
+                stop_signal: Notify::new(),
             }),
         }
     }
@@ -76,15 +81,17 @@ impl AsyncTasks {
         let name = name.into();
         let (mut state, executor) = self.reserve(&name)?;
         let session = self.inner.session.clone();
+        let stopping = Arc::clone(&self.inner);
         let worker = executor.spawn(async move {
             let mut work = std::pin::pin!(task);
             let mut expiry = std::pin::pin!(session.cancelled());
+            let mut shutdown = std::pin::pin!(stopping.stop_requested());
             std::future::poll_fn(|cx| {
                 use std::task::Poll;
                 if let Poll::Ready(result) = work.as_mut().poll(cx) {
                     return Poll::Ready(Some(result));
                 }
-                if expiry.as_mut().poll(cx).is_ready() {
+                if expiry.as_mut().poll(cx).is_ready() || shutdown.as_mut().poll(cx).is_ready() {
                     return Poll::Ready(None);
                 }
                 Poll::Pending
@@ -218,10 +225,11 @@ impl AsyncTasks {
         Ok(())
     }
 
-    /// Cancel and await every owned task before the executor and providers
-    /// are dropped. This is called even when the entrypoint itself fails.
+    /// Stop admitting tasks, cancel and join owned work while capability handles
+    /// are still valid for lifecycle cleanup hooks. A worker that ignores its
+    /// cooperative cancellation token can still block this operation.
     #[doc(hidden)]
-    pub async fn finish_scope(&self) -> Result<(), RuntimeError> {
+    pub async fn prepare_stop(&self) -> Result<(), RuntimeError> {
         let handles = {
             let mut state = self
                 .inner
@@ -231,7 +239,8 @@ impl AsyncTasks {
             state.active = false;
             state.closed = true;
             state.executor = None;
-            self.inner.session.invalidate();
+            self.inner.stopping.store(true, Ordering::Release);
+            self.inner.stop_signal.notify_waiters();
             self.inner.cancellation.cancel();
             std::mem::take(&mut state.handles)
         };
@@ -241,6 +250,15 @@ impl AsyncTasks {
             }
         }
         self.failure().map_or(Ok(()), Err)
+    }
+
+    /// The final scope boundary revokes all capability handles after any
+    /// application stop hooks and owned background work have completed.
+    #[doc(hidden)]
+    pub async fn finish_scope(&self) -> Result<(), RuntimeError> {
+        let result = self.prepare_stop().await;
+        self.inner.session.invalidate();
+        result
     }
 
     pub(crate) fn failure(&self) -> Option<RuntimeError> {
@@ -259,6 +277,8 @@ impl AsyncTasks {
         state.closed = true;
         state.active = false;
         state.executor = None;
+        self.inner.stopping.store(true, Ordering::Release);
+        self.inner.stop_signal.notify_waiters();
         self.inner.session.invalidate();
         self.inner.cancellation.cancel();
         for (_, watcher) in std::mem::take(&mut state.handles) {
@@ -268,6 +288,18 @@ impl AsyncTasks {
 }
 
 impl AsyncTaskGroup {
+    async fn stop_requested(self: Arc<Self>) {
+        loop {
+            let notified = self.stop_signal.notified();
+            let mut notified = std::pin::pin!(notified);
+            notified.as_mut().enable();
+            if self.stopping.load(Ordering::Acquire) {
+                return;
+            }
+            notified.await;
+        }
+    }
+
     fn report(&self, name: String, source: Arc<dyn std::error::Error + Send + Sync>) {
         let mut failure = self.failure.lock().unwrap_or_else(PoisonError::into_inner);
         if failure.is_none() {
@@ -336,6 +368,31 @@ mod tests {
                 group.spawn("late", async { Ok(()) }),
                 Err(RuntimeError::TaskGroupClosed)
             ));
+        });
+    }
+
+    #[test]
+    fn preparing_lifecycle_cleanup_drains_tasks_without_expiring_handles() {
+        executor().block_on(async {
+            let session = SessionToken::new();
+            let cancellation = CancellationToken::default();
+            let tasks = AsyncTasks::new(session.clone(), cancellation.clone());
+            tasks.begin_scope().unwrap();
+            tasks
+                .spawn("pending", async {
+                    std::future::pending::<()>().await;
+                    Ok(())
+                })
+                .unwrap();
+            tasks.prepare_stop().await.unwrap();
+            assert!(session.is_active());
+            assert!(cancellation.is_cancelled());
+            assert!(matches!(
+                tasks.spawn("late", async { Ok(()) }),
+                Err(RuntimeError::TaskGroupClosed)
+            ));
+            tasks.finish_scope().await.unwrap();
+            assert!(!session.is_active());
         });
     }
 
