@@ -24,3 +24,8 @@ tokio.workspace = true
 name = "async_counter_service"
 path = "src/bin/async_counter_service.rs"
 required-features = ["async-tcp"]
+
+[[bin]]
+name = "async_counter_crash_fixture"
+path = "src/bin/async_counter_crash_fixture.rs"
+required-features = ["async-tcp"]
