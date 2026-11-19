@@ -119,7 +119,7 @@ fn json<T>(result: Result<Json<T>, JsonRejection>) -> Result<T, ApiError> {
 }
 
 #[derive(Serialize)]
-struct TaskView {
+pub(super) struct TaskView {
     id: Uuid,
     revision: u64,
     title: String,
@@ -138,14 +138,14 @@ impl From<Task> for TaskView {
 }
 
 #[derive(Serialize)]
-struct TaskPage {
+pub(super) struct TaskPage {
     records: Vec<TaskView>,
     next_cursor: Option<Uuid>,
 }
 
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
-struct ListQuery {
+pub(super) struct ListQuery {
     after: Option<String>,
     limit: Option<u64>,
 }
@@ -189,7 +189,7 @@ pub(super) async fn show(
 
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
-struct CreateTask {
+pub(super) struct CreateTask {
     title: String,
 }
 
@@ -206,7 +206,7 @@ pub(super) async fn create(
 
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
-struct PatchTask {
+pub(super) struct PatchTask {
     revision: u64,
     title: Option<String>,
     completed: Option<bool>,
@@ -238,7 +238,7 @@ pub(super) async fn patch(
 
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
-struct DeleteTask {
+pub(super) struct DeleteTask {
     revision: u64,
 }
 
