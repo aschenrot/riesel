@@ -16,8 +16,7 @@ type LocalBinding<S> = Box<
         + Send
         + Sync,
 >;
-type HostedBinding<S> =
-    Box<dyn Fn(Arc<S>) -> Result<ComponentHandler, RpcError> + Send + Sync>;
+type HostedBinding<S> = Box<dyn Fn(Arc<S>) -> Result<ComponentHandler, RpcError> + Send + Sync>;
 
 struct ComponentCapability<S> {
     contract: CapabilityContract,
