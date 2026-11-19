@@ -463,7 +463,7 @@ impl<'a> StartupState<'a> {
         let processes = Arc::new(Mutex::new(std::mem::take(&mut self.processes)));
         let supervisor = match ServiceMonitor::start(
             Arc::clone(&processes),
-            self.managed,
+            std::mem::take(&mut self.managed),
             self.session.clone(),
         ) {
             Ok(supervisor) => supervisor,
