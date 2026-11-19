@@ -140,3 +140,84 @@ fn macro_supports_two_explicit_aliases_with_one_local_provider_instance() {
     aliases.sort();
     assert_eq!(aliases, ["primary", "secondary"]);
 }
+
+#[test]
+fn high_level_catalog_accepts_only_declared_managed_placements() {
+    use riesel::ProviderSelectionConfig;
+
+    let bin = env!("CARGO_BIN_EXE_counter_macro_catalog");
+    let plain = Command::new(bin).output().unwrap();
+    assert!(
+        plain.status.success(),
+        "catalog app local execution failed: {}",
+        String::from_utf8_lossy(&plain.stderr)
+    );
+    assert!(String::from_utf8_lossy(&plain.stdout).contains("Catalog counter: 3"));
+
+    let required = AsyncCounterContract::definition()
+        .unwrap()
+        .capability
+        .default_requirement_alias();
+    let manifest = ProviderSelectionConfig::new(std::collections::BTreeMap::from([
+        (required.clone(), "managed".to_owned()),
+    ]));
+    let path = std::env::temp_dir().join(format!(
+        "riesel-macro-catalog-{}-{}.json",
+        std::process::id(),
+        line!()
+    ));
+    // Selection files must remain strict and may not change managed
+    // executable paths or provider contract identities.
+    std::fs::write(
+        &path,
+        serde_json::json!({"services":manifest.services}).to_string(),
+    )
+    .unwrap();
+    struct Cleanup(std::path::PathBuf);
+    impl Drop for Cleanup {
+        fn drop(&mut self) {
+            let _ = std::fs::remove_file(&self.0);
+        }
+    }
+    let _cleanup = Cleanup(path.clone());
+
+    let inspect = Command::new(bin)
+        .args([
+            "--inspect-catalog",
+            "--select-providers",
+            path.to_str().unwrap(),
+        ])
+        .output()
+        .unwrap();
+    assert!(
+        inspect.status.success(),
+        "catalog inspection failed: {}",
+        String::from_utf8_lossy(&inspect.stderr)
+    );
+    let plan: serde_json::Value = serde_json::from_slice(&inspect.stdout).unwrap();
+    let provider = &plan["services"][0]["expected_provider"];
+    assert_eq!(provider["id"], "riesel.counter.async.memory");
+    assert_eq!(plan["services"][0]["target"]["transport"], "managed");
+
+    let managed = Command::new(bin)
+        .args(["--select-providers", path.to_str().unwrap()])
+        .output()
+        .unwrap();
+    assert!(
+        managed.status.success(),
+        "catalog managed execution failed: {}",
+        String::from_utf8_lossy(&managed.stderr)
+    );
+    assert!(String::from_utf8_lossy(&managed.stdout).contains("Catalog counter: 3"));
+
+    let unknown = Command::new(bin)
+        .args([
+            "--select-providers",
+            path.to_str().unwrap(),
+            "--deployment",
+            "does-not-exist.json",
+        ])
+        .output()
+        .unwrap();
+    assert!(!unknown.status.success(), "mixed config may not succeed");
+}

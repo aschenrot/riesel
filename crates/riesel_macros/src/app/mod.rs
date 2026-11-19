@@ -10,6 +10,7 @@ use syn::{Attribute, FnArg, Ident, ItemFn, LitStr, Pat, Path, ReturnType, Token,
 pub(crate) struct AppArgs {
     components: Vec<Path>,
     name: Option<LitStr>,
+    catalog: Option<Path>,
     development: bool,
 }
 
@@ -17,6 +18,7 @@ impl Parse for AppArgs {
     fn parse(input: ParseStream<'_>) -> syn::Result<Self> {
         let mut components = None;
         let mut name = None;
+        let mut catalog = None;
         let mut development = false;
         while !input.is_empty() {
             let key: Ident = input.parse()?;
@@ -45,6 +47,11 @@ impl Parse for AppArgs {
                         }
                     }
                     components = Some(paths);
+                } else if key == "catalog" {
+                    if catalog.is_some() {
+                        return Err(syn::Error::new(key.span(), "duplicate catalog factory"));
+                    }
+                    catalog = Some(input.parse::<Path>()?);
                 } else if key == "name" {
                     if name.is_some() {
                         return Err(syn::Error::new(key.span(), "duplicate application name"));
@@ -60,7 +67,7 @@ impl Parse for AppArgs {
                 } else {
                     return Err(syn::Error::new(
                         key.span(),
-                        "expected components = [...], name = \"...\", or development",
+                        "expected components = [...], catalog = factory, name = \"...\", or development",
                     ));
                 }
             }
@@ -71,6 +78,7 @@ impl Parse for AppArgs {
         Ok(Self {
             components: components.unwrap_or_default(),
             name,
+            catalog,
             development,
         })
     }
@@ -228,6 +236,13 @@ pub(crate) fn expand_app(args: AppArgs, mut item: ItemFn) -> syn::Result<TokenSt
         }
     };
     let components = args.components;
+    let catalog = if let Some(factory) = args.catalog {
+        quote! {
+            let __riesel_prepared = __riesel_prepared.catalog(#factory()?);
+        }
+    } else {
+        quote!()
+    };
     let development = if args.development {
         quote! {
             let __riesel_prepared = __riesel_prepared.development()?;
@@ -244,6 +259,7 @@ pub(crate) fn expand_app(args: AppArgs, mut item: ItemFn) -> syn::Result<TokenSt
             #(
                 let __riesel_prepared = __riesel_prepared.component::<#components>()?;
             )*
+            #catalog
             #development
             __riesel_prepared.run_from_env()
         }

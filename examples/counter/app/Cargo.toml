@@ -43,3 +43,7 @@ path = "src/bin/counter_macro_alias.rs"
 [[bin]]
 name = "counter_macro_remote"
 path = "src/bin/counter_macro_remote.rs"
+
+[[bin]]
+name = "counter_macro_catalog"
+path = "src/bin/counter_macro_catalog.rs"

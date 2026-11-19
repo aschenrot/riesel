@@ -4,7 +4,8 @@
 //! operator-approved managed or loopback TCP placements of published provider
 //! definitions. Its names identify *placements*, not provider identities.
 use crate::{
-    ConnectorRegistry, DeploymentConfig, DeploymentError, RecoveryPolicy, ServiceEndpoint,
+    ConnectorError, ConnectorRegistry, DeclarativeComponent, DeploymentConfig, DeploymentError,
+    RecoveryPolicy, ServiceEndpoint,
 };
 use riesel_schema::{AppSchema, ProviderDefinition, ProviderError, SchemaError};
 use serde::Deserialize;
@@ -53,6 +54,8 @@ pub enum CatalogError {
         requirement: String,
         choices: Vec<String>,
     },
+    #[error("cannot derive published metadata from a component: {0}")]
+    ComponentDefinition(#[source] ConnectorError),
     #[error(transparent)]
     Schema(#[from] SchemaError),
     #[error(transparent)]
@@ -142,6 +145,20 @@ impl ProviderCatalog {
         self.placements
             .insert(choice, Placement { provider, endpoint });
         Ok(())
+    }
+
+    /// Register a deployment placement for the same implementation used
+    /// by a linked component and its managed executable. No duplicated
+    /// provider IDs or capability lists are needed in application code.
+    pub fn register_component<C: DeclarativeComponent>(
+        &mut self,
+        choice: impl Into<String>,
+        endpoint: ServiceEndpoint,
+    ) -> Result<(), CatalogError> {
+        let definition = C::component_definition()
+            .and_then(|component| component.definition())
+            .map_err(CatalogError::ComponentDefinition)?;
+        self.register(choice, definition, endpoint)
     }
 
     /// Turn explicit placement selections into the existing deployment

@@ -111,3 +111,23 @@ fn app_options_reject_duplicate_development_and_empty_names() {
     assert!(syn::parse_str::<AppArgs>("name = \"\"").is_err());
     assert!(syn::parse_str::<AppArgs>("name = \"One\", name = \"Two\"").is_err());
 }
+
+#[test]
+fn catalog_factory_is_wired_through_existing_prepared_application() {
+    let args: AppArgs = parse_quote! {
+        components = [CounterState], catalog = approved_counter_providers
+    };
+    let source: ItemFn = parse_quote! {
+        async fn main(counter: CounterHandle) -> AppResult<()> {
+            Ok(())
+        }
+    };
+    let generated = expand_app(args, source).unwrap().to_string();
+    assert!(generated.contains("approved_counter_providers"));
+    assert!(generated.contains(". catalog"));
+    assert!(generated.contains("run_from_env"));
+    assert!(syn::parse_str::<AppArgs>(
+        "catalog = first, catalog = second"
+    )
+    .is_err());
+}
