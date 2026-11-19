@@ -61,7 +61,7 @@ examples in that document do not imply macros or async handles already exist.
 | 5.1 | Identity and injection semantics, API contract, compatibility and lifecycle rules | Complete on Linux | Contract recorded; deterministic private ID and stable external Counter/Storage IDs verified |
 | 5.2 | Type-driven dependency extraction, aliases, record-model bindings | Complete on Linux | Function handlers register/extract typed dependencies; Counter (local/managed), Todo, alias/error and schema-equivalence tests pass |
 | 5.3 | Generated local/managed component adapters | Complete on Linux | `#[component]` generates registration; Counter/Observer share state locally and managed; custom factories, private IDs and missing-impl compile-fail test validated |
-| 5.4 | Async transport, generated handles, cancellation and error propagation | In progress — shared nonblocking async startup and application blocking boundary verified | Native local/managed async parity, bounded async and blocking application tasks, real managed async recovery, nonblocking contract inspection and managed readiness; provider-owned blocking lifecycle remains |
+| 5.4 | Async transport, generated handles, cancellation and error propagation | Complete — Linux validation and managed-host lifecycle verified | Generated native async local/managed bindings, real nonblocking startup, bounded async and blocking tasks, native crash/recovery, provider-owned blocking scope with cooperative shutdown and joins; Windows manual before release |
 | 5.5 | Deterministic provider catalog and deployment configuration | Not started | Linked, managed and remote providers selected explicitly; preflight rejects missing/ambiguous/untrusted choices |
 | 5.6 | `#[riesel::app]` and ergonomic model/Records injection | Not started | Minimal Counter and Todo examples compile with generated requirements; builder equivalent |
 | 5.7 | Optional modules and lifecycle handlers | Not started | Multi-module app with ordering, conflict detection, cancellation and bounded shutdown |
@@ -229,15 +229,38 @@ async component implementations into managed work. CI run
 [44487397907](https://github.com/aschenrot/riesel/actions/runs/44487397907)
 passed `cargo validate --check` and `cargo smoke` on Linux.
 
-**Stage 5.4 remains open:** Native async **provider implementations**
-still need an explicitly owned, bounded blocking-work execution policy
-with safe host shutdown semantics. Simply wrapping provider code in
-detached `tokio::task::spawn_blocking` is insufficient because cancellation
-cannot preempt started OS-thread work. Application-owned blocking jobs
-already have a structured boundary; the remaining design must provide
-equivalent guarantees for hosted component work. The final
-`#[riesel::app] async fn` macro remains Stage 5.6. See
-[async execution contract](async-execution-contract.md).
+**Stage 5.4 provider-owned blocking work verified (2026-11-19):**
+`ProviderBlocking` is an opt-in resource injected through
+`#[component(factory_with_blocking = create_component)]`. Existing
+zero-argument constructors are unchanged. The resource follows the
+same component state in local and managed modes and admits at most
+eight named, synchronous OS-thread jobs per component instance.
+`ProviderCancellation` provides explicit cooperative shutdown; work
+is rejected after the session closes. Dropping or timing out an RPC
+future does **not** detach its already-running blocking job: the
+provider owner retains and joins every worker before state teardown.
+Panic diagnostics and bounded-admission failures remain observable.
+Concurrent shutdown callers wait for the same completed joins.
+Synchronous capability bindings are rejected early if configured with
+a provider blocking factory.
+
+Real Counter integration covers identical local and managed native async
+operations without blocking the Tokio reactor. A separate managed-host
+fixture starts an actual blocking RPC worker, interrupts the request
+through private-stdin shutdown and verifies the worker finished before
+the child process exited. CI run
+[44493550783](https://github.com/aschenrot/riesel/actions/runs/44493550783)
+passed `cargo validate --check` and `cargo smoke` on Linux.
+
+**Stage 5.4 completion boundary:** All planned Stage 5.4 acceptance
+requirements are implemented and Linux-verified. Blocking Rust code that
+ignores cooperative cancellation is **not** forcibly preemptible:
+local shutdown must wait for it, and the managed parent retains its
+configured process-kill fallback. Production-wide budgets, isolation and
+scheduling belong to Stage 6+. Windows verification remains manual
+before release. Stage 5.5 (deterministic provider catalogs) is next;
+the final `#[riesel::app] async fn` macro belongs to Stage 5.6.
+See [async execution contract](async-execution-contract.md).
 
 **Sequencing:** 5.1 is a gate for 5.2–5.8. Component adapters can follow
 parallel to dependency extraction after their shared contract is settled;
