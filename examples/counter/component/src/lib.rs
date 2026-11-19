@@ -74,6 +74,56 @@ pub fn memory_provider_definition() -> Result<ProviderDefinition, ConnectorError
     memory_counter_provider()?.definition()
 }
 
+/// A native async component implemented once for local and managed modes.
+#[component(
+    id = "riesel.counter.async.memory",
+    provides = [riesel_counter::AsyncCounterContract, riesel_counter::AsyncCounterObserverContract]
+)]
+#[derive(Default)]
+pub struct AsyncMemoryCounter {
+    value: Mutex<u64>,
+}
+
+impl riesel_counter::AsyncCounter for AsyncMemoryCounter {
+    async fn value(&self) -> Result<u64, CounterError> {
+        Ok(*self
+            .value
+            .lock()
+            .map_err(|_| CounterError::Internal("counter lock poisoned".into()))?)
+    }
+
+    async fn add(&self, amount: u64) -> Result<u64, CounterError> {
+        if amount == 0 {
+            return Err(CounterError::ZeroIncrement);
+        }
+        let mut value = self
+            .value
+            .lock()
+            .map_err(|_| CounterError::Internal("counter lock poisoned".into()))?;
+        *value = value.checked_add(amount).ok_or(CounterError::Overflow)?;
+        Ok(*value)
+    }
+
+    async fn label(&self, prefix: &str) -> Result<String, CounterError> {
+        Ok(format!(
+            "{prefix}: {}",
+            riesel_counter::AsyncCounter::value(self).await?
+        ))
+    }
+}
+
+impl riesel_counter::AsyncCounterObserver for AsyncMemoryCounter {
+    async fn observe(&self) -> Result<u64, CounterError> {
+        riesel_counter::AsyncCounter::value(self).await
+    }
+}
+
+/// Both async contracts derive their local and managed adapters from the same
+/// generated component declaration.
+pub fn memory_async_counter_provider() -> Result<ComponentDefinition<AsyncMemoryCounter>, ConnectorError> {
+    AsyncMemoryCounter::component_definition()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
