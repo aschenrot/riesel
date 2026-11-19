@@ -7,7 +7,8 @@
     "build": "vite build",
     "preview": "vite preview --host 127.0.0.1",
     "check": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json",
-    "test": "node --experimental-strip-types --test src/lib/api.test.mjs vite-proxy-security.test.mjs"
+    "test": "node --experimental-strip-types --test src/lib/api.test.mjs vite-proxy-security.test.mjs",
+    "test:e2e": "node e2e/run.mjs"
   },
   "devDependencies": {
     "@sveltejs/adapter-static": "^3.0.6",
@@ -17,7 +18,8 @@
     "svelte": "^5.45.0",
     "svelte-check": "^4.3.0",
     "typescript": "^5.9.0",
-    "vite": "^8.3.0"
+    "vite": "^8.3.0",
+    "@playwright/test": "^1.60.0"
   },
   "engines": {
     "node": ">=22.12"
