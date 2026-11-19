@@ -355,12 +355,9 @@ fn exercise_provider_owned_blocking(deployment: Option<DeploymentConfig>) {
                 let operation = counter.add(7);
                 let mut operation = Box::pin(operation);
                 assert!(
-                    tokio::time::timeout(
-                        std::time::Duration::from_millis(15),
-                        &mut operation
-                    )
-                    .await
-                    .is_err(),
+                    tokio::time::timeout(std::time::Duration::from_millis(15), &mut operation)
+                        .await
+                        .is_err(),
                     "provider-owned blocking work stalled the Tokio reactor"
                 );
                 assert_eq!(operation.await?, 7);
