@@ -55,6 +55,6 @@ Riesel currently permits aggressive API cleanup, but breaking changes still requ
 
 ## Integration policy
 
-Use short-lived branches and coherent PRs. While Stage 5.6 is active, do not change the current integration branch or move `main` without a clean validation boundary. Migration to `main` is tracked in Issue #2. Prefer squash merges for ordinary PRs, and retain the full history when the change requires it.
+Use short-lived branches created from `main` and target `main` in coherent Pull Requests. Merge only after relevant Linux validation and smoke checks pass on the intended result; favor squash merges for routine work and preserve full history where justified. Branch protection and default-branch settings are repository controls, not substitutes for CI evidence or code review.
 
 Linux `cargo validate --check` and `cargo smoke` are the normal acceptance checks. Windows remains an explicit manual pre-release check until policy changes through an accepted PR.
