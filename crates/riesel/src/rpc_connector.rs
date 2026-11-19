@@ -85,8 +85,8 @@ impl<C: AsyncRpcClientBinding> CapabilityConnector for AsyncRpcConnector<C> {
         Ok(C::definition()?)
     }
 
-    fn accepts_local_service(&self) -> bool {
-        false
+    fn local_binding_mode(&self) -> riesel_protocol::LocalBindingMode {
+        riesel_protocol::LocalBindingMode::Async
     }
 
     fn connect(
