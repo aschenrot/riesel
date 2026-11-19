@@ -243,15 +243,93 @@ pub trait RpcClientBinding: CapabilityDescriptor {
     fn guard_local(service: Self::Service, session: crate::SessionToken) -> Self::Service;
 }
 
-/// Connect a generated capability contract to a concrete component's Rust
-/// implementation. The contract macro generates this adapter, so components
-/// do not handwrite trait-object coercions or RPC dispatcher construction.
-/// This binds one capability, not an instance or a deployment.
-pub trait ComponentAdapter<S>: RpcClientBinding {
-    type Handler: RpcHandler + 'static;
+/// Kind of typed local service supplied by a provider. Checked at preflight.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum LocalBindingMode {
+    Sync,
+    Async,
+}
 
-    fn local(state: Arc<S>) -> Self::Service;
-    fn hosted(state: Arc<S>) -> Self::Handler;
+/// Hosted view generated from one capability declaration.
+pub enum ComponentHandler {
+    Sync(Box<dyn RpcHandler>),
+    Async(Box<dyn AsyncRpcHandler>),
+}
+
+impl ComponentHandler {
+    pub fn contract(&self) -> Result<CapabilityContract, RpcError> {
+        match self {
+            Self::Sync(handler) => handler.contract(),
+            Self::Async(handler) => handler.contract(),
+        }
+    }
+}
+
+/// Generated adapter sharing one state between local and hosted execution.
+pub trait ComponentAdapter<S>: CapabilityDescriptor {
+    type Service: Any + Send + Sync + 'static;
+    const MODE: LocalBindingMode;
+
+    fn local(state: Arc<S>, session: crate::SessionToken) -> Self::Service;
+    fn hosted(state: Arc<S>) -> ComponentHandler;
+}
+
+impl<T: RpcHandler + ?Sized> RpcHandler for Box<T> {
+    fn contract(&self) -> Result<CapabilityContract, RpcError> {
+        self.as_ref().contract()
+    }
+
+    fn dispatch(&self, operation: &str, arguments: Value) -> Result<Value, RpcError> {
+        self.as_ref().dispatch(operation, arguments)
+    }
+
+    fn provider(&self) -> Option<ProviderDefinition> {
+        self.as_ref().provider()
+    }
+
+    fn contract_for(&self, capability: &CapabilityRef) -> Result<CapabilityContract, RpcError> {
+        self.as_ref().contract_for(capability)
+    }
+
+    fn dispatch_for(
+        &self,
+        capability: &CapabilityRef,
+        operation: &str,
+        arguments: Value,
+    ) -> Result<Value, RpcError> {
+        self.as_ref().dispatch_for(capability, operation, arguments)
+    }
+}
+
+impl<T: AsyncRpcHandler + ?Sized> AsyncRpcHandler for Box<T> {
+    fn contract(&self) -> Result<CapabilityContract, RpcError> {
+        self.as_ref().contract()
+    }
+
+    fn provider(&self) -> Option<ProviderDefinition> {
+        self.as_ref().provider()
+    }
+
+    fn validate_host(&self) -> Result<(), RpcError> {
+        self.as_ref().validate_host()
+    }
+
+    fn contract_for(&self, capability: &CapabilityRef) -> Result<CapabilityContract, RpcError> {
+        self.as_ref().contract_for(capability)
+    }
+
+    fn dispatch<'a>(&'a self, operation: &'a str, arguments: Value) -> AsyncRpcFuture<'a> {
+        self.as_ref().dispatch(operation, arguments)
+    }
+
+    fn dispatch_for<'a>(
+        &'a self,
+        capability: &'a CapabilityRef,
+        operation: &'a str,
+        arguments: Value,
+    ) -> AsyncRpcFuture<'a> {
+        self.as_ref().dispatch_for(capability, operation, arguments)
+    }
 }
 
 /// Host-supplied provider identity and generated dispatcher, checked once.
