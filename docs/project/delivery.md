@@ -39,7 +39,7 @@ Implementation is ready when the relevant behavior, guarantees, failure/compatib
 
 ### Evidence-based investigation (when alternatives matter)
 
-A specification Issue should state the decision, requirements and evidence needed **before** a solution is favored. For a material choice among alternatives, document candidate discovery scope, eligibility criteria, comparable evaluation dimensions and evidence sources; separate mandatory guarantees from preferences. Record dated findings, unknowns and exclusion reasons, and use focused tests only for decision-critical gaps. The outcome may be a recommendation **or a documented deferral**; neither a candidate inventory nor passing CI constitutes acceptance. This is part of the existing specification workflow, not a new mandatory Issue type or research ceremony.
+For material decisions among alternatives, define a bounded research plan: discovery scope, required outcomes versus preferences, common comparison criteria and evidence sources. Record dated findings, unknowns and exclusion reasons. Investigate decision-critical gaps with focused tests; stop when more research is unlikely to change the choice, or defer when evidence is insufficient. A reviewed research plan permits investigation but does **not** approve the resulting architecture or implementation. Use the existing specification Issue rather than requiring another Issue type.
 
 ## GitHub Issue contract
 
