@@ -1,8 +1,10 @@
 # Riesel — High-level Application Authoring Contract (v3)
 
-Decision: **accepted as implementation target** on 2026-11-18. This file
-specifies design requirements, not features already implemented. The accepted
-mental model is **application uses capabilities; component implements
+Decision: **accepted as the application authoring contract** on
+2026-11-18. Stages 5.1–5.6 have been implemented and Linux-verified;
+later lifecycle/module features remain targets. For current executable
+examples and limits, see [high-level app authoring](high-level-app.md).
+The mental model is **application uses capabilities; component implements
 capabilities; Riesel composes and runs them**.
 
 ## Target surface (conceptual syntax)
@@ -135,7 +137,9 @@ high-level async app macro. Track actual status only after CI passes.
   binding registration from the explicit contract list, and the SDK offers
   `.component::<MyComponent>()` for statically linked components. Optional
   stable IDs and factory paths are supported; no global discovery is added.
-- Async generated handles and declarative `#[riesel::app]` remain future work.
+- At this 2026-11-18 checkpoint, async generated handles and the
+  declarative `#[riesel::app]` were future work. Both are now implemented
+  and Linux-verified (see the roadmap's Stage 5.4 and 5.6 evidence).
 - Linux CI validated the changes, including workspace tests and runtime smoke
   tests: https://github.com/aschenrot/riesel/actions/runs/44411860685
 
@@ -164,10 +168,11 @@ The existing Counter integration checks both capabilities share state locally
 and in a managed process; compile-fail tests reject missing trait implementations.
 Linux validation and smoke: https://github.com/aschenrot/riesel/actions/runs/44416458416
 
-**Remaining:** No general provider discovery, async generated handles,
-`#[riesel::app]` entrypoint, or module scheduler has been added. The next
-milestone is a genuine async transport/structured-concurrency design and
-implementation, not a Future wrapper around synchronous TCP.
+**At the Stage 5.3 checkpoint:** Async generated handles, declarative
+`#[riesel::app]`, and a module scheduler were not yet implemented.
+The first two are now Linux-verified. Application modules and lifecycle
+handlers remain Stage 5.7, and generic implicit provider discovery is not
+planned.
 
 ## Stage 5.4 — async transport foundation (verified 2026-11-19)
 
