@@ -223,7 +223,10 @@ fn invalid_database_path_fails_without_fallback() {
 
 #[test]
 fn rejects_ephemeral_sqlite_paths() {
-    for path in [std::path::PathBuf::new(), std::path::PathBuf::from(":memory:")] {
+    for path in [
+        std::path::PathBuf::new(),
+        std::path::PathBuf::from(":memory:"),
+    ] {
         assert!(matches!(
             SqliteStore::open(path, models()),
             Err(StoreError::Failed(_))
