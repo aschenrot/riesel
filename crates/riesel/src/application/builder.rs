@@ -200,6 +200,23 @@ impl Application {
         Ok(app.preflight(config, &self.providers)?)
     }
 
+    /// Async handler startup awaits native async connector inspection using
+    /// the same application schema, selected providers and recovery policy.
+    #[cfg(feature = "async-tcp")]
+    pub(super) fn run_async_entrypoint(
+        self,
+        mut entrypoint: impl FnMut(&Context<'_>) -> std::result::Result<(), ConnectorError>,
+    ) -> Result<()> {
+        let app = App::from_definition(self.definition)?;
+        let invoke = |running: &RunningApp| entrypoint(&Context { running });
+        if let Some(deployment) = self.deployment {
+            app.run_with_async_startup(&deployment, &self.providers, invoke)?;
+        } else {
+            app.run_local(&self.providers, invoke)?;
+        }
+        Ok(())
+    }
+
     pub fn run(
         self,
         mut entrypoint: impl FnMut(&Context<'_>) -> std::result::Result<(), ConnectorError>,
