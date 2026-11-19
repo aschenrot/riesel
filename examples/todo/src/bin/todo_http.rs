@@ -69,11 +69,7 @@ async fn shutdown_signal() {
     let _ = tokio::signal::ctrl_c().await;
 }
 
-fn run() -> Result<(), Box<dyn Error + Send + Sync>> {
-    let Some((path, port)) = parse()? else {
-        println!("{USAGE}");
-        return Ok(());
-    };
+fn run(path: PathBuf, port: u16) -> Result<(), Box<dyn Error + Send + Sync>> {
     Application::new("Todo HTTP")
         .async_handler(move |records: Records<TaskData>| async move {
             let listener = TcpListener::bind((Ipv4Addr::LOCALHOST, port)).await?;
@@ -87,7 +83,18 @@ fn run() -> Result<(), Box<dyn Error + Send + Sync>> {
 }
 
 fn main() -> ExitCode {
-    match run() {
+    let (path, port) = match parse() {
+        Ok(Some(arguments)) => arguments,
+        Ok(None) => {
+            println!("{USAGE}");
+            return ExitCode::SUCCESS;
+        }
+        Err(message) => {
+            eprintln!("{message}\n\n{USAGE}");
+            return ExitCode::from(2);
+        }
+    };
+    match run(path, port) {
         Ok(()) => ExitCode::SUCCESS,
         Err(error) => {
             eprintln!("error: {error}");
@@ -96,12 +103,7 @@ fn main() -> ExitCode {
                 eprintln!("caused by: {source}");
                 cause = source.source();
             }
-            if error.is::<String>() {
-                eprintln!("\n{USAGE}");
-                ExitCode::from(2)
-            } else {
-                ExitCode::from(1)
-            }
+            ExitCode::from(1)
         }
     }
 }
