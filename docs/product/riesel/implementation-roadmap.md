@@ -61,7 +61,7 @@ examples in that document do not imply macros or async handles already exist.
 | 5.1 | Identity and injection semantics, API contract, compatibility and lifecycle rules | Complete on Linux | Contract recorded; deterministic private ID and stable external Counter/Storage IDs verified |
 | 5.2 | Type-driven dependency extraction, aliases, record-model bindings | Complete on Linux | Function handlers register/extract typed dependencies; Counter (local/managed), Todo, alias/error and schema-equivalence tests pass |
 | 5.3 | Generated local/managed component adapters | Complete on Linux | `#[component]` generates registration; Counter/Observer share state locally and managed; custom factories, private IDs and missing-impl compile-fail test validated |
-| 5.4 | Async transport, generated handles, cancellation and error propagation | In progress — structured async tasks and native managed recovery verified | Local/managed async capability parity; per-session bounded async tasks, cancellation and joins; real managed async crash and opt-in whole-session recovery; fully async startup and explicit blocking boundaries remain |
+| 5.4 | Async transport, generated handles, cancellation and error propagation | In progress — shared nonblocking async startup and application blocking boundary verified | Native local/managed async parity, bounded async and blocking application tasks, real managed async recovery, nonblocking contract inspection and managed readiness; provider-owned blocking lifecycle remains |
 | 5.5 | Deterministic provider catalog and deployment configuration | Not started | Linked, managed and remote providers selected explicitly; preflight rejects missing/ambiguous/untrusted choices |
 | 5.6 | `#[riesel::app]` and ergonomic model/Records injection | Not started | Minimal Counter and Todo examples compile with generated requirements; builder equivalent |
 | 5.7 | Optional modules and lifecycle handlers | Not started | Multi-module app with ordering, conflict detection, cancellation and bounded shutdown |
@@ -204,14 +204,39 @@ automatically retried. CI run
 [44443292891](https://github.com/aschenrot/riesel/actions/runs/44443292891)
 passed workspace validation and executable smoke checks.
 
-**Stage 5.4 remains open:** Async connector startup currently performs
-bounded synchronous contract/provider inspection before the Tokio async
-handler starts. The manager needs a nonblocking startup/inspection path,
-without introducing a second provider resolver or weakening startup
-preflight. Native async component implementations also need an explicit
-blocking-work boundary: blocking I/O must not silently occupy the
-single-thread Tokio executor. Stage 5.6 still owns the final
-`#[riesel::app] async fn` macro. See
+**Stage 5.4 asynchronous startup and structured blocking work verified
+(2026-11-19):** Native async connectors inspect the exact published
+contract and provider metadata through nonblocking Tokio TCP rather
+than synchronous `TcpRpcTransport`. The new `App::start_async` shares one
+`StartupState` implementation with synchronous `App::start` for dependency
+ordering, local instance ownership, managed instance reuse, contract checks,
+failure rollback and session/monitor construction. Managed process startup
+and bounded readiness waiting use an explicit Tokio blocking worker.
+`PreparedAsyncApplication::run` and `run_from_env` reuse the existing
+resolver, strict CLI and opt-in recovery while driving this async startup
+on a runtime-owned executor. Legacy sync-only connectors are rejected
+**before** any provider state or managed child is created; a connector
+must explicitly advertise and implement nonblocking startup. An async
+startup regression verifies yielding while metadata arrives slowly.
+
+Application-owned blocking work now has an explicit
+`AsyncTasks::spawn_blocking(name, |cancellation| ...)` API with a separate
+limit of eight active OS workers, bounded admission, cooperative cancellation,
+joining before provider teardown and named failure/panic propagation.
+Local and managed native async Counter tests cover the boundary. This
+does **not** automatically convert arbitrary blocking calls inside native
+async component implementations into managed work. CI run
+[44487397907](https://github.com/aschenrot/riesel/actions/runs/44487397907)
+passed `cargo validate --check` and `cargo smoke` on Linux.
+
+**Stage 5.4 remains open:** Native async **provider implementations**
+still need an explicitly owned, bounded blocking-work execution policy
+with safe host shutdown semantics. Simply wrapping provider code in
+detached `tokio::task::spawn_blocking` is insufficient because cancellation
+cannot preempt started OS-thread work. Application-owned blocking jobs
+already have a structured boundary; the remaining design must provide
+equivalent guarantees for hosted component work. The final
+`#[riesel::app] async fn` macro remains Stage 5.6. See
 [async execution contract](async-execution-contract.md).
 
 **Sequencing:** 5.1 is a gate for 5.2–5.8. Component adapters can follow
