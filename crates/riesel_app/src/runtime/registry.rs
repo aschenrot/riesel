@@ -31,6 +31,13 @@ pub trait CapabilityConnector: Send + Sync {
         session: &SessionToken,
     ) -> Result<ConnectedProvider, ConnectorError>;
 
+    /// Pure metadata used to reject unsupported async endpoints before any
+    /// provider factory or managed executable is started.
+    #[cfg(feature = "async-tcp")]
+    fn supports_async_startup(&self) -> bool {
+        false
+    }
+
     /// Nonblocking startup inspection with the same validated contract and
     /// provider registry as sync startup. A connector must opt in explicitly;
     /// invoking sync connect() inside this future would block a Tokio worker.
