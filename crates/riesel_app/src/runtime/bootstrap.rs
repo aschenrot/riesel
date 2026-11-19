@@ -438,10 +438,7 @@ impl<'a> StartupState<'a> {
     }
 
     pub(super) fn finish(mut self) -> Result<RunningApp, RuntimeError> {
-        let mut resolved = match self
-            .registry
-            .resolve(self.app.definition(), &self.selected)
-        {
+        let mut resolved = match self.registry.resolve(self.app.definition(), &self.selected) {
             Ok(resolved) => resolved,
             Err(error) => return Err(self.rollback(error.into())),
         };
@@ -468,9 +465,8 @@ impl<'a> StartupState<'a> {
         ) {
             Ok(supervisor) => supervisor,
             Err(source) => {
-                self.processes = std::mem::take(
-                    &mut *processes.lock().unwrap_or_else(PoisonError::into_inner),
-                );
+                self.processes =
+                    std::mem::take(&mut *processes.lock().unwrap_or_else(PoisonError::into_inner));
                 return Err(self.rollback(RuntimeError::MonitorStart(source)));
             }
         };

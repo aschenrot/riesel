@@ -1022,7 +1022,6 @@ fn startup_message_is_length_bounded() {
     assert!(await_ready(std::io::Cursor::new(payload), Duration::from_secs(1),).is_err());
 }
 
-
 #[cfg(feature = "async-tcp")]
 struct PanickingBlockingLocal;
 
@@ -1154,10 +1153,7 @@ fn assert_startup_and_rollback_errors(error: RuntimeError) {
         RuntimeError::ProviderBlockingShutdown { source }
             if source.to_string().contains("fixture-failure")
     ));
-    assert!(
-        Error::source(&error)
-            .is_some_and(|source| source.to_string().contains("later"))
-    );
+    assert!(Error::source(&error).is_some_and(|source| source.to_string().contains("later")));
 }
 
 #[cfg(feature = "async-tcp")]
