@@ -143,6 +143,26 @@ pub trait AsyncRpcHandler: Send + Sync {
 
     fn dispatch<'a>(&'a self, operation: &'a str, arguments: Value) -> AsyncRpcFuture<'a>;
 
+    /// Validate the complete hosted declaration before accepting connections.
+    fn validate_host(&self) -> Result<(), RpcError> {
+        self.contract()?
+            .validate()
+            .map_err(|error| RpcError::Contract(error.to_string()))
+    }
+
+    /// Select the contract advertised at a multiplexed endpoint.
+    fn contract_for(&self, capability: &CapabilityRef) -> Result<CapabilityContract, RpcError> {
+        let contract = self.contract()?;
+        if &contract.capability == capability {
+            Ok(contract)
+        } else {
+            Err(RpcError::WrongCapability {
+                expected: format!("{}@{}", contract.capability.id, contract.capability.version),
+                received: format!("{}@{}", capability.id, capability.version),
+            })
+        }
+    }
+
     fn dispatch_for<'a>(
         &'a self,
         capability: &'a CapabilityRef,
@@ -150,13 +170,7 @@ pub trait AsyncRpcHandler: Send + Sync {
         arguments: Value,
     ) -> AsyncRpcFuture<'a> {
         Box::pin(async move {
-            let contract = self.contract()?;
-            if &contract.capability != capability {
-                return Err(RpcError::WrongCapability {
-                    expected: format!("{}@{}", contract.capability.id, contract.capability.version),
-                    received: format!("{}@{}", capability.id, capability.version),
-                });
-            }
+            self.contract_for(capability)?;
             self.dispatch(operation, arguments).await
         })
     }
@@ -276,6 +290,128 @@ impl<H: RpcHandler> RpcHandler for RpcHost<H> {
 
     fn dispatch(&self, operation: &str, arguments: Value) -> Result<Value, RpcError> {
         self.handler.dispatch(operation, arguments)
+    }
+
+    fn provider(&self) -> Option<ProviderDefinition> {
+        Some(self.provider.clone())
+    }
+}
+
+/// A nonblocking, multi-capability host for one provider-owned instance.
+/// Native async dispatchers can share an Arc-backed state, process and port.
+/// The router validates exact advertised contract versions before listening.
+pub struct AsyncRpcRouter {
+    provider: ProviderDefinition,
+    routes: BTreeMap<(String, u32), (CapabilityContract, Box<dyn AsyncRpcHandler>)>,
+}
+
+impl AsyncRpcRouter {
+    pub fn new(provider: ProviderDefinition) -> Result<Self, RpcError> {
+        provider
+            .validate()
+            .map_err(|error| RpcError::Contract(error.to_string()))?;
+        Ok(Self {
+            provider,
+            routes: BTreeMap::new(),
+        })
+    }
+
+    pub fn route(mut self, handler: impl AsyncRpcHandler + 'static) -> Result<Self, RpcError> {
+        let contract = handler.contract()?;
+        contract
+            .validate()
+            .map_err(|error| RpcError::Contract(error.to_string()))?;
+        if !self.provider.capabilities.contains(&contract.capability) {
+            return Err(RpcError::Contract(
+                "handler capability is not advertised by provider".into(),
+            ));
+        }
+        let key = (contract.capability.id.clone(), contract.capability.version);
+        if self.routes.contains_key(&key) {
+            return Err(RpcError::Contract(
+                "provider capability registered more than once".into(),
+            ));
+        }
+        self.routes.insert(key, (contract, Box::new(handler)));
+        Ok(self)
+    }
+
+    /// Reject incomplete registrations before a host starts accepting calls.
+    pub fn validate_routes(&self) -> Result<(), RpcError> {
+        if self.routes.len() != self.provider.capabilities.len() {
+            return Err(RpcError::Contract(
+                "provider has an unbound capability".into(),
+            ));
+        }
+        Ok(())
+    }
+
+    fn route_for(
+        &self,
+        capability: &CapabilityRef,
+    ) -> Result<&(CapabilityContract, Box<dyn AsyncRpcHandler>), RpcError> {
+        self.routes
+            .get(&(capability.id.clone(), capability.version))
+            .ok_or_else(|| RpcError::WrongCapability {
+                expected: self
+                    .provider
+                    .capabilities
+                    .iter()
+                    .map(|cap| format!("{}@{}", cap.id, cap.version))
+                    .collect::<Vec<_>>()
+                    .join(", "),
+                received: format!("{}@{}", capability.id, capability.version),
+            })
+    }
+}
+
+impl AsyncRpcHandler for AsyncRpcRouter {
+    fn contract(&self) -> Result<CapabilityContract, RpcError> {
+        if self.routes.len() != 1 {
+            return Err(RpcError::Contract(
+                "multi-capability async router requires a capability selector".into(),
+            ));
+        }
+        Ok(self.routes.values().next().expect("one route").0.clone())
+    }
+
+    fn validate_host(&self) -> Result<(), RpcError> {
+        self.validate_routes()
+    }
+
+    fn contract_for(&self, capability: &CapabilityRef) -> Result<CapabilityContract, RpcError> {
+        Ok(self.route_for(capability)?.0.clone())
+    }
+
+    fn dispatch<'a>(&'a self, operation: &'a str, arguments: Value) -> AsyncRpcFuture<'a> {
+        Box::pin(async move {
+            if self.routes.len() != 1 {
+                return Err(RpcError::Contract(
+                    "multi-capability async router requires a capability selector".into(),
+                ));
+            }
+            self.routes
+                .values()
+                .next()
+                .expect("one route")
+                .1
+                .dispatch(operation, arguments)
+                .await
+        })
+    }
+
+    fn dispatch_for<'a>(
+        &'a self,
+        capability: &'a CapabilityRef,
+        operation: &'a str,
+        arguments: Value,
+    ) -> AsyncRpcFuture<'a> {
+        Box::pin(async move {
+            self.route_for(capability)?
+                .1
+                .dispatch(operation, arguments)
+                .await
+        })
     }
 
     fn provider(&self) -> Option<ProviderDefinition> {

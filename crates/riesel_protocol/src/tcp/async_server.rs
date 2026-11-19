@@ -49,13 +49,7 @@ async fn respond(
             request.version
         )));
     }
-    let contract = handler.contract()?;
-    if contract.capability != request.capability {
-        return Err(RpcError::WrongCapability {
-            expected: format!("{}@{}", contract.capability.id, contract.capability.version),
-            received: format!("{}@{}", request.capability.id, request.capability.version),
-        });
-    }
+    let contract = handler.contract_for(&request.capability)?;
     if request.operation == DESCRIBE || request.operation == PROVIDER {
         if request.arguments != serde_json::json!({}) {
             return Err(RpcError::InvalidArguments(
@@ -72,7 +66,7 @@ async fn respond(
         return serde_json::to_value(provider).map_err(|error| RpcError::Codec(error.to_string()));
     }
     handler
-        .dispatch(&request.operation, request.arguments)
+        .dispatch_for(&request.capability, &request.operation, request.arguments)
         .await
 }
 
@@ -117,6 +111,7 @@ pub async fn serve_async_tcp_rpc_host(
             "unauthenticated RPC services must listen on loopback",
         ));
     }
+    handler.validate_host().map_err(io::Error::other)?;
 
     let permits = Arc::new(Semaphore::new(MAX_ACTIVE_CONNECTIONS));
     let mut tasks = JoinSet::new();
@@ -238,4 +233,135 @@ mod tests {
                 .unwrap();
         });
     }
+    struct SecondHandler;
+
+    impl AsyncRpcHandler for SecondHandler {
+        fn contract(&self) -> Result<CapabilityContract, RpcError> {
+            let mut contract = ExampleHandler.contract()?;
+            contract.capability.id = "example.async.secondary".into();
+            Ok(contract)
+        }
+
+        fn dispatch<'a>(&'a self, operation: &'a str, _: Value) -> AsyncRpcFuture<'a> {
+            Box::pin(async move {
+                if operation == "value" {
+                    Ok(serde_json::json!({"Ok": 11}))
+                } else {
+                    Err(RpcError::UnknownOperation(operation.into()))
+                }
+            })
+        }
+    }
+
+    #[test]
+    fn async_router_validates_routes_before_hosting() {
+        let first = ExampleHandler.contract().unwrap();
+        let second = SecondHandler.contract().unwrap();
+        let provider = ProviderDefinition {
+            id: "example.async.group".into(),
+            capabilities: vec![first.capability.clone(), second.capability.clone()],
+        };
+        let incomplete = crate::AsyncRpcRouter::new(provider.clone())
+            .unwrap()
+            .route(ExampleHandler)
+            .unwrap();
+        assert!(incomplete.validate_routes().is_err());
+        assert!(incomplete.route(ExampleHandler).is_err());
+
+        let unexpected = ProviderDefinition {
+            id: "example.async.single".into(),
+            capabilities: vec![first.capability.clone()],
+        };
+        assert!(crate::AsyncRpcRouter::new(unexpected)
+            .unwrap()
+            .route(SecondHandler)
+            .is_err());
+
+        let runtime = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .unwrap();
+        runtime.block_on(async {
+            let listener = AsyncTcpListener::bind("127.0.0.1:0").await.unwrap();
+            let stopping = Arc::new(AtomicBool::new(false));
+            // An incomplete route set cannot enter the accept loop.
+            let missing = crate::AsyncRpcRouter::new(provider.clone())
+                .unwrap()
+                .route(ExampleHandler)
+                .unwrap();
+            assert!(serve_async_tcp_rpc_host(
+                listener,
+                Arc::new(missing),
+                Arc::clone(&stopping),
+            )
+            .await
+            .is_err());
+        });
+    }
+
+    #[test]
+    fn async_router_serves_two_capabilities_over_one_provider_endpoint() {
+        let runtime = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .unwrap();
+        runtime.block_on(async {
+            let first = ExampleHandler.contract().unwrap();
+            let second = SecondHandler.contract().unwrap();
+            let provider = ProviderDefinition {
+                id: "example.async.group".into(),
+                capabilities: vec![first.capability.clone(), second.capability.clone()],
+            };
+            let router = crate::AsyncRpcRouter::new(provider.clone())
+                .unwrap()
+                .route(ExampleHandler)
+                .unwrap()
+                .route(SecondHandler)
+                .unwrap();
+            router.validate_routes().unwrap();
+
+            let listener = AsyncTcpListener::bind("127.0.0.1:0").await.unwrap();
+            let address = listener.local_addr().unwrap();
+            let stopping = Arc::new(AtomicBool::new(false));
+            let host = tokio::spawn(serve_async_tcp_rpc_host(
+                listener,
+                Arc::new(router),
+                Arc::clone(&stopping),
+            ));
+            let client = AsyncTcpRpcTransport::new(address);
+            for contract in [&first, &second] {
+                client.verify(contract).await.unwrap();
+                assert_eq!(client.provider(&contract.capability).await.unwrap(), provider);
+            }
+            assert_eq!(
+                client
+                    .call(&first.capability, "value", serde_json::json!({}))
+                    .await
+                    .unwrap(),
+                serde_json::json!({"Ok": 7})
+            );
+            assert_eq!(
+                client
+                    .call(&second.capability, "value", serde_json::json!({}))
+                    .await
+                    .unwrap(),
+                serde_json::json!({"Ok": 11})
+            );
+            let invalid = CapabilityRef {
+                id: "example.unknown".into(),
+                version: 1,
+            };
+            assert!(matches!(
+                client.call(&invalid, "value", serde_json::json!({})).await,
+                Err(RpcError::WrongCapability { .. })
+            ));
+            stopping.store(true, Ordering::Release);
+            timeout(Duration::from_secs(2), host)
+                .await
+                .expect("async router did not shut down")
+                .unwrap()
+                .unwrap();
+        });
+    }
+
 }
