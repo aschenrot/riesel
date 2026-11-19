@@ -21,4 +21,17 @@ fn macro_records_app_runs_without_silent_storage_fallback() {
     assert_eq!(definition["app"]["name"], "TodoMacro");
     assert_eq!(definition["requires"].as_array().unwrap().len(), 1);
     assert!(definition["model_bindings"]["task"].is_array());
+
+    // The macro must derive precisely the same record/model requirements
+    // as a plain typed handler, with explicit development storage.
+    let builder = riesel::Application::new("TodoMacro")
+        .async_handler(|_tasks: riesel::Records<todo::TaskData>| async move {
+            Ok::<(), std::io::Error>(())
+        })
+        .unwrap()
+        .development()
+        .unwrap();
+    let expected: serde_json::Value =
+        serde_json::from_str(&builder.definition_json().unwrap()).unwrap();
+    assert_eq!(definition, expected);
 }

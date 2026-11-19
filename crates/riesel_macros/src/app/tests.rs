@@ -91,3 +91,23 @@ fn rejects_invalid_binding_aliases_and_more_than_four_parameters() {
     };
     assert!(expand_app(args, excess).is_err());
 }
+
+#[test]
+fn registered_parameter_type_alias_can_explicitly_skip_handle_adaptation() {
+    let args: AppArgs = parse_quote! {};
+    let source: ItemFn = parse_quote! {
+        async fn main(#[riesel(parameter)] records: MyRecordsAlias) -> AppResult<()> {
+            Ok(())
+        }
+    };
+    let expanded = expand_app(args, source).unwrap().to_string();
+    assert!(expanded.contains("__riesel_parameter_0 : MyRecordsAlias"));
+    assert!(!expanded.contains("NativeHandleParam"));
+}
+
+#[test]
+fn app_options_reject_duplicate_development_and_empty_names() {
+    assert!(syn::parse_str::<AppArgs>("development, development").is_err());
+    assert!(syn::parse_str::<AppArgs>("name = \"\"").is_err());
+    assert!(syn::parse_str::<AppArgs>("name = \"One\", name = \"Two\"").is_err());
+}

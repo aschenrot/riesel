@@ -78,6 +78,19 @@ fn identical_macro_binary_works_with_managed_provider_without_code_changes() {
     ]);
     let plan: serde_json::Value = serde_json::from_slice(&inspected.stdout).unwrap();
     assert_eq!(plan["services"].as_array().unwrap().len(), 1);
+    let explicit = riesel::DeploymentConfig::from_json(&config.to_string()).unwrap();
+    let builder = Application::new("CounterMacro")
+        .async_handler(
+            |_counter: NativeHandleParam<riesel_counter::AsyncCounterHandle>| async move {
+                Ok::<(), CallError<CounterError>>(())
+            },
+        )
+        .unwrap()
+        .component::<AsyncMemoryCounter>()
+        .unwrap();
+    let expected_plan = serde_json::to_value(builder.deployment_plan(&explicit).unwrap()).unwrap();
+    assert_eq!(plan, expected_plan);
+
     let managed = output(&["--deployment", path.to_str().expect("UTF-8 test path")]);
     assert!(String::from_utf8_lossy(&managed.stdout).contains("Counter macro: 3"));
 }
