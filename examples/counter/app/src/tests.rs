@@ -593,12 +593,12 @@ fn async_connector_rejects_expired_session_before_network_inspection() {
 
 #[test]
 fn async_application_startup_uses_nonblocking_connector_and_shared_resolver() {
+    use riesel::schema::CapabilityContract;
     use riesel::{
         App, Application, CapabilityConnector, ConnectedProvider, ConnectorError,
         ConnectorRegistry, DeploymentConfig, ServiceEndpoint,
     };
     use riesel_protocol::SessionToken;
-    use riesel::schema::CapabilityContract;
     use std::collections::BTreeMap;
 
     struct DelayedConnector;
@@ -687,7 +687,9 @@ fn async_startup_does_not_execute_legacy_blocking_connectors() {
         .definition()
         .clone();
     let mut providers = ConnectorRegistry::new();
-    providers.register(RpcConnector::<CounterContract>::new()).unwrap();
+    providers
+        .register(RpcConnector::<CounterContract>::new())
+        .unwrap();
     let deployment = DeploymentConfig::new(BTreeMap::from([(
         "counter".into(),
         ServiceEndpoint::Tcp {
