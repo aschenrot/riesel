@@ -23,10 +23,8 @@ impl Drop for OwnedChild {
 
 #[test]
 fn managed_async_host_joins_abandoned_blocking_worker_on_shutdown() {
-    let prefix = std::env::temp_dir().join(format!(
-        "riesel-provider-worker-{}",
-        std::process::id()
-    ));
+    let prefix =
+        std::env::temp_dir().join(format!("riesel-provider-worker-{}", std::process::id()));
     let started = prefix.with_extension("started");
     let joined = prefix.with_extension("joined");
     let _ = std::fs::remove_file(&started);
@@ -74,11 +72,7 @@ fn managed_async_host_joins_abandoned_blocking_worker_on_shutdown() {
 
     let capability = AsyncCounterContract::definition().unwrap().capability;
     let request = thread::spawn(move || {
-        TcpRpcTransport::new(address).call(
-            &capability,
-            "add",
-            serde_json::json!({"amount": 1}),
-        )
+        TcpRpcTransport::new(address).call(&capability, "add", serde_json::json!({"amount": 1}))
     });
     let deadline = Instant::now() + Duration::from_secs(3);
     while !started.exists() {
@@ -104,6 +98,9 @@ fn managed_async_host_joins_abandoned_blocking_worker_on_shutdown() {
         assert!(Instant::now() < deadline, "managed host shutdown timed out");
         thread::sleep(Duration::from_millis(10));
     }
-    assert!(joined.exists(), "host exited before joining its blocking worker");
+    assert!(
+        joined.exists(),
+        "host exited before joining its blocking worker"
+    );
     let _ = request.join().unwrap();
 }
