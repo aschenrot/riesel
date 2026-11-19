@@ -5,6 +5,7 @@
 //! definitions. Its names identify *placements*, not provider identities.
 use crate::{
     ConnectorError, ConnectorRegistry, DeclarativeComponent, DeploymentConfig, DeploymentError,
+    LocalProviderFactory,
     RecoveryPolicy, ServiceEndpoint,
 };
 use riesel_schema::{AppSchema, ProviderDefinition, ProviderError, SchemaError};

@@ -4,7 +4,7 @@ use riesel::{AppResult, ProviderCatalog, ServiceEndpoint, app};
 use riesel_counter::AsyncCounterHandle;
 use riesel_counter_component::AsyncMemoryCounter;
 
-fn approved_counter_providers() -> riesel::Result<ProviderCatalog> {
+fn approved_counter_providers() -> Result<ProviderCatalog, riesel::CatalogError> {
     let mut catalog = ProviderCatalog::new();
     let mut service = std::env::current_exe()?;
     service.set_file_name(format!(
