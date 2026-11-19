@@ -1,4 +1,3 @@
-#![cfg(feature = "async-tcp")]
 use riesel::{Application, ApplicationModule, AsyncCapability, RuntimeError, SdkError};
 use riesel_counter::{AsyncCounterContract, AsyncCounterObserverContract, CounterError};
 use riesel_counter_component::AsyncMemoryCounter;
