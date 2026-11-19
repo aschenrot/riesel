@@ -330,6 +330,49 @@ mod tests {
     }
 
     #[test]
+    fn concurrent_shutdown_callers_wait_for_the_same_worker_join() {
+        executor().block_on(async {
+            let blocking = ProviderBlocking::new(SessionToken::new());
+            let started = Arc::new(AtomicBool::new(false));
+            let finished = Arc::new(AtomicBool::new(false));
+            let start_marker = Arc::clone(&started);
+            let finish_marker = Arc::clone(&finished);
+            let work = blocking.run("owned", move |cancellation| {
+                start_marker.store(true, Ordering::Release);
+                assert!(cancellation.wait_cancelled_timeout(Duration::from_secs(2)));
+                thread::sleep(Duration::from_millis(140));
+                finish_marker.store(true, Ordering::Release);
+            });
+            let mut work = Box::pin(work);
+            assert!(
+                tokio::time::timeout(Duration::from_millis(15), &mut work)
+                    .await
+                    .is_err()
+            );
+            assert!(started.load(Ordering::Acquire));
+            let first_owner = blocking.clone();
+            let first = thread::spawn(move || first_owner.close_and_join().unwrap());
+            let deadline = Instant::now() + Duration::from_secs(1);
+            while blocking.group.session.is_active() {
+                assert!(Instant::now() < deadline);
+                thread::sleep(Duration::from_millis(1));
+            }
+            let second_owner = blocking.clone();
+            let (sender, receiver) = std::sync::mpsc::sync_channel(1);
+            let second = thread::spawn(move || {
+                sender.send(()).unwrap();
+                second_owner.close_and_join().unwrap();
+            });
+            receiver.recv_timeout(Duration::from_secs(1)).unwrap();
+            thread::sleep(Duration::from_millis(20));
+            assert!(!second.is_finished(), "second closer returned before the join");
+            first.join().unwrap();
+            second.join().unwrap();
+            assert!(finished.load(Ordering::Acquire));
+        });
+    }
+
+    #[test]
     fn strict_capacity_and_panic_reporting() {
         executor().block_on(async {
             let blocking = ProviderBlocking::new(SessionToken::new());
