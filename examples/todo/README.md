@@ -3,6 +3,38 @@
 Todo is the first reference application for Riesel's typed model,
 generated capability RPC, and runtime lifecycle.
 
+## Usable persistent CLI — Todo R1
+
+The separate `todo_cli` executable is a headless task manager. Specify the
+database path explicitly on **every invocation**, for example:
+
+```sh
+cargo run --locked -p todo --bin todo_cli -- --db ./tasks.db add "Build Riesel"
+cargo run --locked -p todo --bin todo_cli -- --db ./tasks.db list
+cargo run --locked -p todo --bin todo_cli -- --db ./tasks.db show UUID
+cargo run --locked -p todo --bin todo_cli -- --db ./tasks.db edit UUID REV "Revised title"
+cargo run --locked -p todo --bin todo_cli -- --db ./tasks.db complete UUID REV
+cargo run --locked -p todo --bin todo_cli -- --db ./tasks.db reopen UUID REV
+cargo run --locked -p todo --bin todo_cli -- --db ./tasks.db delete UUID REV
+```
+
+Replace `UUID` and `REV` with values returned by `add`, `show`, or `list`.
+Each task prints its identifier, revision, completion state, and escaped title
+as tab-separated fields; successful deletion prints the removed identifier.
+Edit, complete, reopen, and delete **require the revision observed by the
+caller** and reject stale writes. Run `todo_cli --help` for command syntax.
+
+The path must refer to a writable local file under an existing directory.
+The CLI uses the opt-in `sqlite-storage` feature and the same Rust `Todo`
+domain operations as the in-memory reference example. It does **not** fall
+back to MemoryStore when the database fails to open. It does not promise
+power-loss immunity, managed Storage, browser access or multi-user safety.
+Invalid command arguments exit with code 2; domain or Storage failures
+exit with code 1. Successful operations exit with code 0.
+
+The original `todo` executable below remains the independent **R0
+in-memory reference and managed-process smoke fixture**.
+
 ## Run locally — no JSON or TCP required
 
 From the workspace root:
@@ -101,7 +133,9 @@ Rebuild any clients and regenerate managed deployment files.
 
 ## Boundaries
 
-Current Storage is in-memory, so state is lost on process termination.
+The R0 `todo` reference uses in-memory Storage, so its state is lost on
+process termination. The separate R1 `todo_cli` uses explicit linked SQLite
+and retains task state across supported restarts.
 The TCP transport is unencrypted and unauthenticated. Both the client and
 Storage server enforce loopback addresses. Endpoint announcements and
 contract verification do not authenticate a service. Use only trusted

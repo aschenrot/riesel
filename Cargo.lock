@@ -565,6 +565,7 @@ dependencies = [
  "riesel_storage_component",
  "serde",
  "serde_json",
+ "tempfile",
  "thiserror",
  "uuid",
 ]
