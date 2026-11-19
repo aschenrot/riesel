@@ -19,6 +19,7 @@ fn expands_native_handle_into_existing_typed_handler_and_local_component() {
     assert!(generated.contains("run_from_env"));
     assert!(generated.contains("CounterHandle"));
     assert!(generated.contains("__riesel_app_entrypoint"));
+    assert!(generated.contains("NativeHandleParam"));
 }
 
 #[test]

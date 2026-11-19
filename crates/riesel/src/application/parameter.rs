@@ -156,16 +156,24 @@ where
     }
 }
 
-/// Generated native async handles are first-class typed application
-/// parameters. This uses the same declaration and extraction contract as
-/// the explicit AsyncCapability wrapper, not a second DI runtime.
+/// A typed, zero-cost injection adapter for generated native async handles.
+/// It avoids overlapping blanket ApplicationParam implementations with
+/// existing parameter types (notably the session-scoped AsyncTasks).
 #[cfg(feature = "async-tcp")]
-impl<H> ApplicationParam for H
-where
-    H: riesel_protocol::NativeAsyncHandle,
-{
+#[doc(hidden)]
+pub struct NativeHandleParam<H: riesel_protocol::NativeAsyncHandle>(H);
+
+#[cfg(feature = "async-tcp")]
+impl<H: riesel_protocol::NativeAsyncHandle> NativeHandleParam<H> {
+    pub fn into_inner(self) -> H {
+        self.0
+    }
+}
+
+#[cfg(feature = "async-tcp")]
+impl<H: riesel_protocol::NativeAsyncHandle> ApplicationParam for NativeHandleParam<H> {
     fn default_alias() -> Result<String> {
-        Ok(H::Contract::definition()?
+        Ok(<H::Contract as riesel_schema::CapabilityDescriptor>::definition()?
             .capability
             .default_requirement_alias())
     }
@@ -175,7 +183,7 @@ where
     }
 
     fn extract(context: &Context<'_>, alias: &str) -> Result<Self> {
-        Ok(context.async_capability::<H::Contract>(alias)?.clone())
+        Ok(Self(context.async_capability::<H::Contract>(alias)?.clone()))
     }
 }
 

@@ -39,7 +39,9 @@ pub use application::{
     PreparedApplication, Result, SdkError,
 };
 #[cfg(feature = "async-tcp")]
-pub use application::{AsyncApplicationHandler, AsyncCapability, PreparedAsyncApplication};
+pub use application::{
+    AsyncApplicationHandler, AsyncCapability, NativeHandleParam, PreparedAsyncApplication,
+};
 #[cfg(feature = "records")]
 pub use records::{Record, RecordPage, Records};
 #[cfg(feature = "async-tcp")]

@@ -76,8 +76,9 @@ impl Parse for AppArgs {
     }
 }
 
-fn extract_alias(attrs: &mut Vec<Attribute>) -> syn::Result<Option<LitStr>> {
+fn extract_binding_options(attrs: &mut Vec<Attribute>) -> syn::Result<(Option<LitStr>, bool)> {
     let mut alias = None;
+    let mut parameter = false;
     let mut retained = Vec::new();
     for attr in attrs.drain(..) {
         if !attr.path().is_ident("riesel") {
@@ -85,22 +86,45 @@ fn extract_alias(attrs: &mut Vec<Attribute>) -> syn::Result<Option<LitStr>> {
             continue;
         }
         attr.parse_nested_meta(|meta| {
-            if !meta.path.is_ident("alias") {
-                return Err(meta.error("expected #[riesel(alias = \"name\")]"));
+            if meta.path.is_ident("parameter") {
+                if parameter {
+                    return Err(meta.error("duplicate riesel parameter option"));
+                }
+                parameter = true;
+                return Ok(());
             }
-            if alias.is_some() {
-                return Err(meta.error("duplicate riesel alias"));
+            if meta.path.is_ident("alias") {
+                if alias.is_some() {
+                    return Err(meta.error("duplicate riesel alias"));
+                }
+                let value: LitStr = meta.value()?.parse()?;
+                if value.value().is_empty() {
+                    return Err(meta.error("requirement alias must not be empty"));
+                }
+                alias = Some(value);
+                return Ok(());
             }
-            let value: LitStr = meta.value()?.parse()?;
-            if value.value().is_empty() {
-                return Err(meta.error("requirement alias must not be empty"));
-            }
-            alias = Some(value);
-            Ok(())
+            Err(meta.error("expected riesel(alias = \"name\") or riesel(parameter)"))
         })?;
     }
     *attrs = retained;
-    Ok(alias)
+    Ok((alias, parameter))
+}
+
+/// Built-in Riesel application parameter types already implement
+/// ApplicationParam. Generated native async client handles use the explicit
+/// NativeHandleParam bridge. A type alias to a custom parameter can opt into
+/// the former with #[riesel(parameter)], without guessing its contract ID.
+fn is_framework_parameter(ty: &Type) -> bool {
+    let Type::Path(path) = ty else {
+        return false;
+    };
+    path.path.segments.last().is_some_and(|segment| {
+        matches!(
+            segment.ident.to_string().as_str(),
+            "Records" | "Capability" | "AsyncCapability" | "AsyncTasks"
+        )
+    })
 }
 
 pub(crate) fn expand_app(args: AppArgs, mut item: ItemFn) -> syn::Result<TokenStream> {
@@ -136,7 +160,7 @@ pub(crate) fn expand_app(args: AppArgs, mut item: ItemFn) -> syn::Result<TokenSt
         ));
     }
 
-    let mut aliases: Vec<(Type, Option<LitStr>)> = Vec::new();
+    let mut bindings: Vec<(Type, Option<LitStr>, bool)> = Vec::new();
     for argument in &mut item.sig.inputs {
         let FnArg::Typed(binding) = argument else {
             return Err(syn::Error::new_spanned(
@@ -150,8 +174,8 @@ pub(crate) fn expand_app(args: AppArgs, mut item: ItemFn) -> syn::Result<TokenSt
                 "riesel::app requires a named parameter: name: Type",
             ));
         }
-        let alias = extract_alias(&mut binding.attrs)?;
-        aliases.push(((*binding.ty).clone(), alias));
+        let (alias, parameter) = extract_binding_options(&mut binding.attrs)?;
+        bindings.push(((*binding.ty).clone(), alias, parameter));
     }
 
     let attrs = std::mem::take(&mut item.attrs);
@@ -164,19 +188,42 @@ pub(crate) fn expand_app(args: AppArgs, mut item: ItemFn) -> syn::Result<TokenSt
     item.sig.ident = Ident::new("__riesel_app_entrypoint", name.span());
     item.vis = syn::Visibility::Inherited;
 
-    let builder = if aliases.iter().any(|(_, alias)| alias.is_some()) {
-        let expressions = aliases.iter().map(|(ty, alias)| match alias {
-            Some(alias) => quote!(::std::string::String::from(#alias)),
-            None => quote!(<#ty as ::riesel::ApplicationParam>::default_alias()?),
+    let mut arguments = Vec::new();
+    let mut call_arguments = Vec::new();
+    let mut registered_types = Vec::new();
+    for (index, (ty, _, parameter)) in bindings.iter().enumerate() {
+        let binding_name = quote::format_ident!("__riesel_parameter_{index}");
+        if *parameter || is_framework_parameter(ty) {
+            arguments.push(quote!(#binding_name: #ty));
+            call_arguments.push(quote!(#binding_name));
+            registered_types.push(quote!(#ty));
+        } else {
+            let registered = quote!(::riesel::NativeHandleParam<#ty>);
+            arguments.push(quote!(#binding_name: #registered));
+            call_arguments.push(quote!(#binding_name.into_inner()));
+            registered_types.push(registered);
+        }
+    }
+    let handler = quote! {
+        |#(#arguments),*| async move {
+            __riesel_app_entrypoint(#(#call_arguments),*).await
+        }
+    };
+    let builder = if bindings.iter().any(|(_, alias, _)| alias.is_some()) {
+        let expressions = registered_types.iter().zip(&bindings).map(|(ty, (_, alias, _))| {
+            match alias {
+                Some(alias) => quote!(::std::string::String::from(#alias)),
+                None => quote!(<#ty as ::riesel::ApplicationParam>::default_alias()?),
+            }
         });
         quote! {
             ::riesel::Application::new(#app_name)
-                .async_handler_with_aliases(__riesel_app_entrypoint, [#(#expressions),*])?
+                .async_handler_with_aliases(#handler, [#(#expressions),*])?
         }
     } else {
         quote! {
             ::riesel::Application::new(#app_name)
-                .async_handler(__riesel_app_entrypoint)?
+                .async_handler(#handler)?
         }
     };
     let components = args.components;
