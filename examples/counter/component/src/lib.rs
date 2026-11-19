@@ -153,6 +153,64 @@ mod tests {
         }
     }
 
+    // A mixed-mode component can still be linked locally, but it must not
+    // pretend a single managed listener can serve both execution models.
+     static MIXED_CONSTRUCTIONS: std::sync::atomic::AtomicUsize =
+        std::sync::atomic::AtomicUsize::new(0);
+
+    fn create_mixed() -> MixedCounterDeclaration {
+        MIXED_CONSTRUCTIONS.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+        MixedCounterDeclaration
+    }
+
+    #[component(
+        provides = [CounterContract, riesel_counter::AsyncCounterContract],
+        factory = create_mixed
+    )]
+    struct MixedCounterDeclaration;
+
+    impl Counter for MixedCounterDeclaration {
+        fn value(&self) -> Result<u64, CounterError> {
+            Ok(0)
+        }
+
+        fn add(&self, amount: u64) -> Result<u64, CounterError> {
+            Ok(amount)
+        }
+
+        fn label(&self, prefix: &str) -> Result<String, CounterError> {
+            Ok(prefix.into())
+        }
+    }
+
+    impl riesel_counter::AsyncCounter for MixedCounterDeclaration {
+        async fn value(&self) -> Result<u64, CounterError> {
+            Ok(0)
+        }
+
+        async fn add(&self, amount: u64) -> Result<u64, CounterError> {
+            Ok(amount)
+        }
+
+        async fn label(&self, prefix: &str) -> Result<String, CounterError> {
+            Ok(prefix.into())
+        }
+    }
+
+    #[test]
+    fn mixed_mode_host_fails_before_constructing_component_state() {
+        let before = MIXED_CONSTRUCTIONS.load(std::sync::atomic::Ordering::SeqCst);
+        let err = MixedCounterDeclaration::component_definition()
+            .unwrap()
+            .serve("127.0.0.1:0")
+            .unwrap_err();
+        assert_eq!(err.kind(), std::io::ErrorKind::InvalidInput);
+        assert_eq!(
+            MIXED_CONSTRUCTIONS.load(std::sync::atomic::Ordering::SeqCst),
+            before
+        );
+    }
+
     #[test]
     fn private_component_uses_generated_identity_and_custom_constructor() {
         let definition = PrivateCounter::component_definition().unwrap();
