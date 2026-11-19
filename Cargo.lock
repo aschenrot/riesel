@@ -171,11 +171,13 @@ dependencies = [
 name = "riesel_counter_component"
 version = "0.1.0"
 dependencies = [
+ "riesel",
  "riesel_app",
  "riesel_counter",
  "riesel_macros",
  "riesel_protocol",
  "riesel_schema",
+ "tokio",
 ]
 
 [[package]]
