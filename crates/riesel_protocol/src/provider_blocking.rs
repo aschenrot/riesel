@@ -5,7 +5,7 @@
 //! releasing provider state or completing managed-host shutdown.
 
 use crate::SessionToken;
-use std::sync::{Arc, Mutex, PoisonError};
+use std::sync::{Arc, Condvar, Mutex, PoisonError};
 use std::thread::{self, JoinHandle};
 use std::time::{Duration, Instant};
 use thiserror::Error;
@@ -64,12 +64,14 @@ impl ProviderCancellation {
 #[derive(Default)]
 struct WorkerState {
     closed: bool,
+    joined: bool,
     handles: Vec<JoinHandle<()>>,
 }
 
 struct ProviderBlockingGroup {
     session: SessionToken,
     workers: Mutex<WorkerState>,
+    joined: Condvar,
     slots: Arc<Semaphore>,
     failures: Arc<Mutex<Vec<String>>>,
 }
@@ -91,6 +93,7 @@ impl ProviderBlocking {
             group: Arc::new(ProviderBlockingGroup {
                 session,
                 workers: Mutex::new(WorkerState::default()),
+                joined: Condvar::new(),
                 slots: Arc::new(Semaphore::new(MAX_PROVIDER_BLOCKING)),
                 failures: Arc::new(Mutex::new(Vec::new())),
             }),
@@ -194,24 +197,46 @@ impl ProviderBlocking {
     /// for it to return. Managed application shutdown retains its external
     /// process-kill timeout as the last resort.
     pub fn close_and_join(&self) -> std::io::Result<()> {
-        let workers = {
+        let work_to_join = {
             let mut state = self
                 .group
                 .workers
                 .lock()
                 .unwrap_or_else(PoisonError::into_inner);
-            state.closed = true;
-            self.group.session.invalidate();
-            std::mem::take(&mut state.handles)
-        };
-        for worker in workers {
-            if worker.join().is_err() {
-                self.group
-                    .failures
-                    .lock()
-                    .unwrap_or_else(PoisonError::into_inner)
-                    .push("uncaught panic".into());
+            if state.closed {
+                // Concurrent callers must not return before the first owner
+                // joins the workers it removed from the shared registry.
+                while !state.joined {
+                    state = self
+                        .group
+                        .joined
+                        .wait(state)
+                        .unwrap_or_else(PoisonError::into_inner);
+                }
+                None
+            } else {
+                state.closed = true;
+                self.group.session.invalidate();
+                Some(std::mem::take(&mut state.handles))
             }
+        };
+        if let Some(workers) = work_to_join {
+            for worker in workers {
+                if worker.join().is_err() {
+                    self.group
+                        .failures
+                        .lock()
+                        .unwrap_or_else(PoisonError::into_inner)
+                        .push("uncaught panic".into());
+                }
+            }
+            let mut state = self
+                .group
+                .workers
+                .lock()
+                .unwrap_or_else(PoisonError::into_inner);
+            state.joined = true;
+            self.group.joined.notify_all();
         }
         let failed = self
             .group
