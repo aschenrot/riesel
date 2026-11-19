@@ -102,7 +102,11 @@ impl ProviderBlocking {
     ///
     /// The user closure must observe `ProviderCancellation` and place
     /// boundaries on blocking I/O. A started OS thread cannot be preempted.
-    pub async fn run<T, F>(&self, name: impl Into<String>, task: F) -> Result<T, ProviderBlockingError>
+    pub async fn run<T, F>(
+        &self,
+        name: impl Into<String>,
+        task: F,
+    ) -> Result<T, ProviderBlockingError>
     where
         T: Send + 'static,
         F: FnOnce(ProviderCancellation) -> T + Send + 'static,
@@ -118,19 +122,25 @@ impl ProviderBlocking {
                 limit: MAX_PROVIDER_BLOCKING,
             })?;
         let (sender, receiver) = oneshot::channel();
-        let mut workers = self.group.workers.lock().unwrap_or_else(PoisonError::into_inner);
+        let mut workers = self
+            .group
+            .workers
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner);
         if workers.closed || !self.group.session.is_active() {
             return Err(ProviderBlockingError::Closed);
         }
-        // Reap completed threads while holding the owner lock. Their
-        // failure diagnostics were recorded even if the request was dropped.
-        workers.handles.retain(|handle| {
+        // Reap completed workers by joining, never by detaching their
+        // JoinHandles. All still-running workers remain owned by this scope.
+        let mut active = Vec::new();
+        for handle in std::mem::take(&mut workers.handles) {
             if handle.is_finished() {
-                false
+                let _ = handle.join();
             } else {
-                true
+                active.push(handle);
             }
-        });
+        }
+        workers.handles = active;
         let cancellation = ProviderCancellation {
             session: self.group.session.clone(),
         };
@@ -181,7 +191,11 @@ impl ProviderBlocking {
     /// process-kill timeout as the last resort.
     pub fn close_and_join(&self) -> std::io::Result<()> {
         let workers = {
-            let mut state = self.group.workers.lock().unwrap_or_else(PoisonError::into_inner);
+            let mut state = self
+                .group
+                .workers
+                .lock()
+                .unwrap_or_else(PoisonError::into_inner);
             state.closed = true;
             self.group.session.invalidate();
             std::mem::take(&mut state.handles)
@@ -195,7 +209,11 @@ impl ProviderBlocking {
                     .push("uncaught panic".into());
             }
         }
-        let failed = self.group.failures.lock().unwrap_or_else(PoisonError::into_inner);
+        let failed = self
+            .group
+            .failures
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner);
         if failed.is_empty() {
             Ok(())
         } else {
@@ -210,7 +228,10 @@ impl ProviderBlocking {
 impl Drop for ProviderBlockingGroup {
     fn drop(&mut self) {
         self.session.invalidate();
-        let workers = self.workers.get_mut().unwrap_or_else(PoisonError::into_inner);
+        let workers = self
+            .workers
+            .get_mut()
+            .unwrap_or_else(PoisonError::into_inner);
         for handle in std::mem::take(&mut workers.handles) {
             let _ = handle.join();
         }
@@ -240,8 +261,12 @@ mod tests {
                 observed.store(true, Ordering::Release);
                 17_u64
             });
-            let mut work = std::pin::pin!(work);
-            assert!(tokio::time::timeout(Duration::from_millis(15), &mut work).await.is_err());
+            let mut work = Box::pin(work);
+            assert!(
+                tokio::time::timeout(Duration::from_millis(15), &mut work)
+                    .await
+                    .is_err()
+            );
             assert_eq!(work.await.unwrap(), 17);
             blocking.close_and_join().unwrap();
             assert!(finished.load(Ordering::Acquire));
@@ -263,8 +288,12 @@ mod tests {
                 assert!(cancel.wait_cancelled_timeout(Duration::from_secs(2)));
                 done.store(true, Ordering::Release);
             });
-            let mut work = std::pin::pin!(work);
-            assert!(tokio::time::timeout(Duration::from_millis(15), &mut work).await.is_err());
+            let mut work = Box::pin(work);
+            assert!(
+                tokio::time::timeout(Duration::from_millis(15), &mut work)
+                    .await
+                    .is_err()
+            );
             drop(work);
             blocking.close_and_join().unwrap();
             assert!(finished.load(Ordering::Acquire));
@@ -298,7 +327,9 @@ mod tests {
             .unwrap();
             assert!(matches!(
                 blocking.run("ninth", |_| ()).await,
-                Err(ProviderBlockingError::LimitExceeded { limit: MAX_PROVIDER_BLOCKING })
+                Err(ProviderBlockingError::LimitExceeded {
+                    limit: MAX_PROVIDER_BLOCKING
+                })
             ));
             blocking.close_and_join().unwrap();
             for job in pending {
@@ -306,7 +337,9 @@ mod tests {
             }
 
             let failed = ProviderBlocking::new(SessionToken::new());
-            let panic = failed.run("panic", |_| -> () { panic!("worker failed") }).await;
+            let panic = failed
+                .run("panic", |_| -> () { panic!("worker failed") })
+                .await;
             assert!(matches!(panic, Err(ProviderBlockingError::Panicked { .. })));
             assert!(failed.close_and_join().is_err());
         });
