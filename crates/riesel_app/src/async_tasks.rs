@@ -68,8 +68,14 @@ impl AsyncTasks {
         task: impl Future<Output = Result<(), ConnectorError>> + Send + 'static,
     ) -> Result<(), RuntimeError> {
         let name = name.into();
-        let mut state = self.inner.state.lock().unwrap_or_else(PoisonError::into_inner);
-        if !state.active || state.closed || !self.inner.session.is_active()
+        let mut state = self
+            .inner
+            .state
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner);
+        if !state.active
+            || state.closed
+            || !self.inner.session.is_active()
             || self.inner.cancellation.is_cancelled()
         {
             return Err(RuntimeError::TaskGroupClosed);
@@ -89,12 +95,11 @@ impl AsyncTasks {
         {
             return Err(RuntimeError::InvalidTaskName(name));
         }
-        let executor = tokio::runtime::Handle::try_current().map_err(|error| {
-            RuntimeError::TaskStart {
+        let executor =
+            tokio::runtime::Handle::try_current().map_err(|error| RuntimeError::TaskStart {
                 name: name.clone(),
                 source: io::Error::other(error),
-            }
-        })?;
+            })?;
         let session = self.inner.session.clone();
         let worker = executor.spawn(async move {
             let mut work = std::pin::pin!(task);
@@ -117,13 +122,12 @@ impl AsyncTasks {
         let session = self.inner.session.clone();
         let task_name = name.clone();
         let watcher = executor.spawn(async move {
-            let source: Option<Arc<dyn std::error::Error + Send + Sync>> =
-                match worker.await {
-                    Ok(None | Some(Ok(()))) => None,
-                    Ok(Some(Err(error))) => Some(Arc::from(error)),
-                    Err(error) if error.is_cancelled() && !session.is_active() => None,
-                    Err(error) => Some(Arc::new(error)),
-                };
+            let source: Option<Arc<dyn std::error::Error + Send + Sync>> = match worker.await {
+                Ok(None | Some(Ok(()))) => None,
+                Ok(Some(Err(error))) => Some(Arc::from(error)),
+                Err(error) if error.is_cancelled() && !session.is_active() => None,
+                Err(error) => Some(Arc::new(error)),
+            };
             if let Some(source) = source {
                 let mut guard = recorded.lock().unwrap_or_else(PoisonError::into_inner);
                 if guard.is_none() {
@@ -145,7 +149,11 @@ impl AsyncTasks {
     /// scope or attach tasks after session invalidation.
     #[doc(hidden)]
     pub fn begin_scope(&self) -> Result<(), RuntimeError> {
-        let mut state = self.inner.state.lock().unwrap_or_else(PoisonError::into_inner);
+        let mut state = self
+            .inner
+            .state
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner);
         if state.active || state.closed || !self.inner.session.is_active() {
             return Err(RuntimeError::TaskGroupClosed);
         }
@@ -158,7 +166,11 @@ impl AsyncTasks {
     #[doc(hidden)]
     pub async fn finish_scope(&self) -> Result<(), RuntimeError> {
         let handles = {
-            let mut state = self.inner.state.lock().unwrap_or_else(PoisonError::into_inner);
+            let mut state = self
+            .inner
+            .state
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner);
             state.active = false;
             state.closed = true;
             self.inner.session.invalidate();
@@ -181,7 +193,11 @@ impl AsyncTasks {
     /// already joined them in finish_scope; emergency cleanup aborts any
     /// leftover watcher if the async executor unwound unexpectedly.
     pub(crate) fn close_for_shutdown(&self) {
-        let mut state = self.inner.state.lock().unwrap_or_else(PoisonError::into_inner);
+        let mut state = self
+            .inner
+            .state
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner);
         state.closed = true;
         state.active = false;
         self.inner.session.invalidate();
@@ -271,7 +287,9 @@ mod tests {
             let group = AsyncTasks::new(session.clone(), CancellationToken::default());
             group.begin_scope().unwrap();
             group
-                .spawn("broken", async { Err(io::Error::other("async failure").into()) })
+                .spawn("broken", async {
+                    Err(io::Error::other("async failure").into())
+                })
                 .unwrap();
             tokio::time::timeout(Duration::from_secs(1), session.cancelled())
                 .await
@@ -300,7 +318,9 @@ mod tests {
             }
             assert!(matches!(
                 group.spawn("overflow", async { Ok(()) }),
-                Err(RuntimeError::TaskLimitExceeded { limit: MAX_ASYNC_TASKS })
+                Err(RuntimeError::TaskLimitExceeded {
+                    limit: MAX_ASYNC_TASKS
+                })
             ));
             assert!(matches!(
                 group.spawn("pending-0", async { Ok(()) }),
