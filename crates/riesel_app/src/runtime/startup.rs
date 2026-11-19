@@ -71,6 +71,7 @@ impl App {
                         let registered = local.contracts.get(&key);
                         if !registered
                             .is_some_and(|expected| binding.contract.has_same_api_shape(expected))
+                            || binding.mode != local.factory.binding_mode(&binding.contract.capability)
                             || bound
                                 .insert(
                                     key,
