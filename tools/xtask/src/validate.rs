@@ -38,6 +38,10 @@ pub fn run(mode: FormatMode) -> TaskResult {
         ),
         ("Tests", &["test", "--locked", "--workspace"]),
         (
+            "Todo local HTTP API (opt-in)",
+            &["test", "--locked", "-p", "todo", "--features", "http"],
+        ),
+        (
             "Minimal SDK without standard capability packages",
             &["test", "--locked", "-p", "riesel", "--no-default-features"],
         ),

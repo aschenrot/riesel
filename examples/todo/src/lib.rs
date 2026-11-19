@@ -25,3 +25,6 @@ pub fn run_demo(records: riesel::Records<TaskData>) -> Result<(), TodoError> {
     println!("Todo + Riesel Rust SDK: passed");
     Ok(())
 }
+
+#[cfg(feature = "http")]
+pub mod http;
