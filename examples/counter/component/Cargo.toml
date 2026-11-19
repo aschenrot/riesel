@@ -11,3 +11,16 @@ riesel_app.workspace = true
 riesel_macros.workspace = true
 riesel_protocol.workspace = true
 riesel_schema.workspace = true
+
+[features]
+default = []
+async-tcp = ["riesel_app/async-tcp", "riesel_protocol/async-tcp"]
+
+[dev-dependencies]
+riesel = { workspace = true, features = ["async-tcp"] }
+tokio.workspace = true
+
+[[bin]]
+name = "async_counter_service"
+path = "src/bin/async_counter_service.rs"
+required-features = ["async-tcp"]
