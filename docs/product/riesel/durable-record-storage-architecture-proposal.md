@@ -56,14 +56,20 @@ Persist and compare model metadata against existing data. The planned error must
 
 Require an explicit database path/configuration bound to the chosen provider instance; avoid fixed ports, implicit application-wide defaults and unrelated current-working-directory paths. Define new-file creation versus open-existing behavior, filesystem permissions, lock contention, corrupted-file policy, and safe backup/restore procedures (including WAL-related files). Do not permit network-filesystem sharing as a supported first-release topology without independent evidence.
 
+## Focused engine research evidence
+
+On 2026-11-19, isolated Rust 1.100.0 probes compiled and tested **rusqlite 0.43.0** and **redb 5.0.0** without adding either to the Riesel workspace. [Research PR #29](https://github.com/aschenrot/riesel/pull/29), [5/5 engine tests](https://github.com/aschenrot/riesel/actions/runs/44568798067), and [standard Linux validation](https://github.com/aschenrot/riesel/actions/runs/44568798124) passed.
+
+The tests exercised SQLite binary UUID ordering, cursor pagination, full `u64` BLOB revisions, stale CAS and two concurrent writers; redb ordered keys, `u64` revisions and two competing write transactions; and for **both engines** reopen after a commit followed by abrupt child process exit without closing the handle. This is narrow **engine feasibility evidence**, not integrated Riesel provider readiness, model registration, cross-process shared-file policy, corrupt-database recovery, or OS/power-loss verification. Neither candidate was disproven by these tests.
+
 ## Evidence still required before accepting Gate B
 
-1. **SQLite proof:** in an isolated investigation, verify conditional revision writes, UUID/page ordering, the complete `u64` revision representation, model metadata mismatch behavior, and reopening after clean shutdown and forced process termination with the chosen SQLite sync mode.
-2. **redb comparator:** resolve any decision-critical uncertainty in equivalent semantics under a pinned redb version, especially its newly documented process-sharing behavior and file-format upgrade policy. A full second provider is unnecessary unless the choice remains genuinely contested.
+1. **Riesel integration:** verify chosen engine's model metadata, bounded pagination, errors and durability policy in the actual `RecordStore` adapter, including local and managed placements. The isolated tests do not establish compatibility with generated RPC or the Riesel lifecycle.
+2. **Failure boundaries:** test relevant lock/busy, disk-full/invalid-path, corrupted-file and failed-startup outcomes, plus documented backup/upgrade policy. Preserve distinct process-crash and OS/power-loss claims.
 3. **Runtime design:** review and verify a minimal fallible factory path through local startup, managed readiness failure and rollback, without side effects in preflight.
 4. **Schema/channel design:** accept how model definitions reach the correct provider in both placements without duplicating developer-facing declarations.
-5. **Platform policy:** validate selected dependency versions under Rust 1.100.0 on Linux, record licensing and build requirements, and retain manual Windows pre-release testing. Do not infer power-loss behavior from process-kill tests.
-6. **Operations:** document the lock, corruption, disk-full, backup and shutdown behavior with testable error mapping.
+5. **Platform policy:** record exact dependency versions, licensing and build requirements; Rust 1.100.0 Linux builds passed, but Windows remains a manual pre-release check. Confirm the final provider rather than extrapolating from standalone tests.
+6. **Process ownership:** decide whether another process may directly open the file, and establish the selected engine's locking/recovery rules for that topology.
 
 ## Decision gate and implementation decomposition
 
