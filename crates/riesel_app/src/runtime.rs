@@ -29,6 +29,7 @@ use thiserror::Error;
 
 pub type ConnectorError = Box<dyn Error + Send + Sync>;
 
+mod bootstrap;
 mod errors;
 mod managed;
 mod planning;
