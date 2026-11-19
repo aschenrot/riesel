@@ -1,6 +1,6 @@
-//! Typed, owned parameters for the forthcoming declarative application API.
-//! Registration and extraction share one contract; high-level macros will
-//! invoke this instead of duplicating requirement and context wiring.
+//! Typed, owned parameters for Rust-first application authoring.
+//! Registration and extraction share one contract; high-level macros reuse
+//! these mechanisms instead of duplicating requirement and context wiring.
 
 use super::{Application, Context, Result};
 #[cfg(feature = "async-tcp")]
@@ -29,7 +29,7 @@ pub trait ApplicationParam: Sized {
 
 /// An owned, session-scoped capability handle. Existing generated trait-Arc
 /// bindings remain in use; cloning them preserves session invalidation.
-/// This is synchronous until the async transport milestone is implemented.
+/// This wrapper is synchronous; native async contracts use `AsyncCapability`.
 pub struct Capability<C: RpcClientBinding> {
     service: C::Service,
     _contract: PhantomData<fn() -> C>,
