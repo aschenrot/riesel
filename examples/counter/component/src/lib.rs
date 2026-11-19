@@ -155,7 +155,7 @@ mod tests {
 
     // A mixed-mode component can still be linked locally, but it must not
     // pretend a single managed listener can serve both execution models.
-     static MIXED_CONSTRUCTIONS: std::sync::atomic::AtomicUsize =
+    static MIXED_CONSTRUCTIONS: std::sync::atomic::AtomicUsize =
         std::sync::atomic::AtomicUsize::new(0);
 
     fn create_mixed() -> MixedCounterDeclaration {
