@@ -10,13 +10,14 @@ publish = false
 default = []
 records = ["dep:riesel_storage"]
 dev-memory-storage = ["records", "dep:riesel_storage_component"]
-async-tcp = ["riesel_protocol/async-tcp"]
+async-tcp = ["riesel_protocol/async-tcp", "dep:tokio"]
 
 [dependencies]
 serde.workspace = true
 serde_json.workspace = true
 uuid.workspace = true
 thiserror.workspace = true
+tokio = { workspace = true, optional = true }
 riesel_storage_component = { path = "../../packages/storage/memory", optional = true }
 riesel_app.workspace = true
 riesel_macros.workspace = true

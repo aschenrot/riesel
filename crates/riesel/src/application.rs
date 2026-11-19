@@ -24,6 +24,8 @@ mod cli;
 mod context;
 mod errors;
 mod handler;
+#[cfg(feature = "async-tcp")]
+mod async_handler;
 mod parameter;
 #[cfg(test)]
 mod tests;
@@ -32,6 +34,8 @@ pub use builder::Application;
 pub use context::Context;
 pub use errors::{Result, SdkError};
 pub use handler::{ApplicationHandler, HandlerParams, PreparedApplication};
+#[cfg(feature = "async-tcp")]
+pub use async_handler::{AsyncApplicationHandler, PreparedAsyncApplication};
 #[cfg(feature = "async-tcp")]
 pub use parameter::AsyncCapability;
 pub use parameter::{ApplicationParam, Capability};
