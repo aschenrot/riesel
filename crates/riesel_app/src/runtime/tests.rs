@@ -694,7 +694,7 @@ impl LocalProviderFactory for LocalCounter {
                 contract(1),
                 Box::new(Arc::new(123_u64)),
             )],
-        #[cfg(feature = "async-tcp")]
+            #[cfg(feature = "async-tcp")]
             blocking: None,
         })
     }
@@ -725,7 +725,7 @@ impl LocalProviderFactory for TrackedLocal {
                 contract(1),
                 Box::new(Arc::new(123_u64)),
             )],
-        #[cfg(feature = "async-tcp")]
+            #[cfg(feature = "async-tcp")]
             blocking: None,
         })
     }
@@ -813,7 +813,7 @@ impl LocalProviderFactory for MultiVersionLocal {
                     LocalCapabilityBinding::raw(contract, Box::new(Arc::clone(&shared)))
                 })
                 .collect(),
-        #[cfg(feature = "async-tcp")]
+            #[cfg(feature = "async-tcp")]
             blocking: None,
         })
     }
