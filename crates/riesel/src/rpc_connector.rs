@@ -125,6 +125,10 @@ impl<C: AsyncRpcClientBinding> CapabilityConnector for AsyncRpcConnector<C> {
         riesel_protocol::LocalBindingMode::Async
     }
 
+    fn supports_async_startup(&self) -> bool {
+        true
+    }
+
     fn connect(
         &self,
         endpoint: &ServiceEndpoint,
