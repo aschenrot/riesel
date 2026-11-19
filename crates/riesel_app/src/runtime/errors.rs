@@ -26,7 +26,9 @@ pub enum RuntimeError {
     },
     #[error("connector for {requirement} exposes a different local API or version")]
     LocalContractMismatch { requirement: String },
-    #[error("requirement {requirement} uses an async transport without a compatible local async binding")]
+    #[error(
+        "requirement {requirement} uses an async transport without a compatible local async binding"
+    )]
     UnsupportedLocalBinding { requirement: String },
     #[error("connecting requirement {requirement} failed: {source}")]
     Connection {
