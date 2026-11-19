@@ -97,11 +97,19 @@ impl AsyncTasks {
         })?;
         let session = self.inner.session.clone();
         let worker = executor.spawn(async move {
-            tokio::select! {
-                biased;
-                result = task => Some(result),
-                _ = session.cancelled() => None,
-            }
+            let mut work = std::pin::pin!(task);
+            let mut expiry = std::pin::pin!(session.cancelled());
+            std::future::poll_fn(|cx| {
+                use std::task::Poll;
+                if let Poll::Ready(result) = work.as_mut().poll(cx) {
+                    return Poll::Ready(Some(result));
+                }
+                if expiry.as_mut().poll(cx).is_ready() {
+                    return Poll::Ready(None);
+                }
+                Poll::Pending
+            })
+            .await
         });
 
         let recorded = Arc::clone(&self.inner.failure);
