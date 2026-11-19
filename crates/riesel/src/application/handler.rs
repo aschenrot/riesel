@@ -1,5 +1,5 @@
 //! Function-signature-driven synchronous handler registration.
-//! The future high-level application macro builds on these semantics.
+//! The high-level application macro and explicit builder share these semantics.
 //! A handler is invoked afresh for each runtime session (including recovery).
 
 use super::{
