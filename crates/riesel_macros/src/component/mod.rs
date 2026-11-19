@@ -66,9 +66,7 @@ impl Parse for ComponentArgs {
             return Err(input.error("a component must provide at least one capability"));
         }
         if factory.is_some() && factory_with_blocking.is_some() {
-            return Err(input.error(
-                "choose either factory or factory_with_blocking, not both",
-            ));
+            return Err(input.error("choose either factory or factory_with_blocking, not both"));
         }
         Ok(Self {
             id,
