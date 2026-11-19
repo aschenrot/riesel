@@ -753,7 +753,10 @@ fn explicit_sqlite_storage_persists_without_duplicate_model_metadata() {
     assert!(!path.exists(), "registration must not open the database");
     let definition = app.definition_json().unwrap();
     assert!(definition.contains("model_bindings"));
-    assert!(!path.exists(), "schema inspection must remain side-effect free");
+    assert!(
+        !path.exists(),
+        "schema inspection must remain side-effect free"
+    );
 
     let mut id = None;
     app.run(|context| {
@@ -787,7 +790,10 @@ fn explicit_sqlite_storage_persists_without_duplicate_model_metadata() {
         .sqlite_storage(path)
         .unwrap()
         .run(|_| Ok(()));
-    assert!(failure.is_err(), "incompatible persisted model must reject startup");
+    assert!(
+        failure.is_err(),
+        "incompatible persisted model must reject startup"
+    );
 }
 
 #[cfg(feature = "sqlite-storage")]
@@ -815,14 +821,16 @@ fn prepared_handler_can_use_explicit_sqlite_storage() {
     let temporary = tempfile::tempdir().unwrap();
     let path = temporary.path().join("prepared.db");
     Application::new("PreparedTodo")
-        .handler(|records: Records<TodoModel>| -> std::result::Result<(), SdkError> {
-            let created = records.create(TodoModel {
-                title: "Prepared".into(),
-                completed: false,
-            })?;
-            assert_eq!(created.revision, 1);
-            Ok(())
-        })
+        .handler(
+            |records: Records<TodoModel>| -> std::result::Result<(), SdkError> {
+                let created = records.create(TodoModel {
+                    title: "Prepared".into(),
+                    completed: false,
+                })?;
+                assert_eq!(created.revision, 1);
+                Ok(())
+            },
+        )
         .unwrap()
         .sqlite_storage(path.clone())
         .unwrap()
