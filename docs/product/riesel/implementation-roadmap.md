@@ -1,6 +1,6 @@
 # Riesel — Implementation Roadmap
 
-Status reviewed: 2026-11-19. Stage 5.7 reference commit: `b778658d` (Linux [validation and smoke passed](https://github.com/aschenrot/riesel/actions/runs/44530550169)). This document tracks **accepted delivery scope and tested progress**. Git commits, Pull Requests and CI retain implementation history; this roadmap is not a running change log.
+Status reviewed: 2026-11-19. Stage 5 reference commit: `b862e3f` (Linux [validation and smoke passed](https://github.com/aschenrot/riesel/actions/runs/44535298922)). This document tracks **accepted delivery scope and tested progress**. Git commits, Pull Requests and CI retain implementation history; this roadmap is not a running change log.
 
 ## Current delivery position
 
@@ -11,7 +11,7 @@ Status reviewed: 2026-11-19. Stage 5.7 reference commit: `b778658d` (Linux [vali
 | 2 — Provider resolution | Implemented for exact versions | Validated registration, selection and ambiguity/missing-provider errors |
 | 3 — Capability binding | Reference implementation | Generated typed local/managed RPC and shared component instances |
 | 4 — Runtime lifecycle | Implemented within cooperative scope | Dependency ordering, preflight, rollback, supervision, task joins and opt-in whole-session restart |
-| 5 — Developer experience | In progress | 5.1–5.7 completed on Linux; 5.8 DX review remains |
+| 5 — Developer experience | Implemented within reference scope | 5.1–5.8 verified on Linux; Windows remains a manual release gate |
 | 6 — Production reliability | Not delivered | Persistence, secure remote transport, authorization, observability and operational hardening |
 
 **Implemented** here means tested within a stated reference scope, not production maturity. Windows validation remains manual before releases.
@@ -27,7 +27,7 @@ Status reviewed: 2026-11-19. Stage 5.7 reference commit: `b778658d` (Linux [vali
 | 5.5 — Provider catalog | Complete | Explicit named placement, strict selection-only manifest, pinned metadata, side-effect-free inspection |
 | 5.6 — High-level app API | Complete | `#[riesel::app]`, native async Counter, Records Todo, aliases, catalog choices and builder-equivalence tests |
 | 5.7 — Modules and lifecycle | **Complete** | Optional typed start/stop hooks, DAG ordering, scoped shutdown and local/managed recovery regressions |
-| 5.8 — DX and regression review | **Not started** | Review diagnostics, examples, documentation, inspection and full validation against the accepted API |
+| 5.8 — DX and regression review | **Complete** | Documented Hello/Todo/Counter entrypoints, macro diagnostics, inspection and Markdown link checks verified |
 
 Detailed delivered authoring APIs: [High-level application](high-level-app.md), [accepted authoring contract](api-authoring-v3.md), [application modules](application-modules.md), and [provider catalog](provider-catalog.md). Async execution invariants: [execution contract](async-execution-contract.md). Runtime lifecycle and recovery invariants: [runtime lifecycle](runtime-lifecycle.md).
 
@@ -37,18 +37,24 @@ Optional `ApplicationModule` registrations now include named, typed async start/
 
 Counter integration tests verify order, partial startup cleanup, combined error sources, local/managed parity and fresh hooks after a real managed crash. Stage 5.7 acceptance evidence: [Issue #10](https://github.com/aschenrot/riesel/issues/10), [implementation PR #14](https://github.com/aschenrot/riesel/pull/14), and [Linux validation and smoke](https://github.com/aschenrot/riesel/actions/runs/44530550169). Precise semantics and limitations: [application modules](application-modules.md) and [runtime lifecycle](runtime-lifecycle.md).
 
-## Next priority — Stage 5.8 developer experience
+## Stage 5.8 — verified developer experience
 
-After lifecycle behavior stabilizes:
+The documented Hello, schema-based Hello, and high-level Todo entrypoints now
+execute in `cargo smoke`, which also inspects Todo's generated definition.
+Existing Counter, macro/builder equivalence, provider catalog, deployment
+inspection, and side-effect-free preflight tests remain in place. Macro tests
+assert concrete diagnostics for invalid signatures and duplicate declarations,
+with a representative compile-fail application example.
 
-- Make the minimal Counter and Todo authoring paths compile and run exactly as documented.
-- Verify that compile-fail diagnostics explain invalid macros, alias collisions, component requirements and unsupported execution modes.
-- Confirm builder and macro output remain equivalent where both APIs support the same composition.
-- Audit documentation for stale feature claims and consolidate redundant setup/implementation history.
-- Cover the supported CLI deployment/catalog inspection modes and validate no provider is started during side-effect-free inspection.
-- Run Linux validation and smoke. Record the separate manual Windows release gate.
-
-**Exit gate:** a new developer can understand the public model, compile supported examples, inspect provider selection, and diagnose an invalid configuration without studying framework internals.
+All relative Markdown destinations are now checked by the existing
+`cargo validate --check` gate, without adding a separate CI job or dependency.
+The link checker was delivered in [PR #16](https://github.com/aschenrot/riesel/pull/16);
+authoring and diagnostics checks are covered by
+[PR #15](https://github.com/aschenrot/riesel/pull/15).
+Acceptance evidence: [Issue #11](https://github.com/aschenrot/riesel/issues/11)
+and [combined Linux validation and smoke](https://github.com/aschenrot/riesel/actions/runs/44535298922).
+Manual Windows verification remains required before release, not for routine
+Linux milestone integration.
 
 ## Production follow-on — Stage 6 (not a release promise)
 
