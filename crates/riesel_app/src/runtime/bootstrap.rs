@@ -93,15 +93,15 @@ impl<'a> StartupState<'a> {
             requirement.capability.id.clone(),
             requirement.capability.version,
         );
-        let adapter = self
-            .connectors
-            .adapters
-            .get(&key)
-            .ok_or_else(|| RuntimeError::MissingConnector {
-                requirement: requirement.name.clone(),
-                id: requirement.capability.id.clone(),
-                version: requirement.capability.version,
-            })?;
+        let adapter =
+            self.connectors
+                .adapters
+                .get(&key)
+                .ok_or_else(|| RuntimeError::MissingConnector {
+                    requirement: requirement.name.clone(),
+                    id: requirement.capability.id.clone(),
+                    version: requirement.capability.version,
+                })?;
         if adapter.contract.capability != requirement.capability {
             return Err(RuntimeError::LocalContractMismatch {
                 requirement: requirement.name.clone(),
@@ -174,7 +174,10 @@ impl<'a> StartupState<'a> {
             requirement.capability.id.clone(),
             requirement.capability.version,
         );
-        if !local.definition.capabilities.contains(&requirement.capability)
+        if !local
+            .definition
+            .capabilities
+            .contains(&requirement.capability)
             || !local.contracts.contains_key(&key)
         {
             return Err(RuntimeError::LocalContractMismatch {
@@ -199,8 +202,7 @@ impl<'a> StartupState<'a> {
                     binding.contract.capability.version,
                 );
                 let registered = local.contracts.get(&binding_key);
-                if !registered
-                    .is_some_and(|expected| binding.contract.has_same_api_shape(expected))
+                if !registered.is_some_and(|expected| binding.contract.has_same_api_shape(expected))
                     || binding.mode != local.factory.binding_mode(&binding.contract.capability)
                     || bound
                         .insert(
@@ -346,8 +348,7 @@ impl<'a> StartupState<'a> {
         if let Some(key) = connection.managed {
             self.managed.insert(requirement.name.clone(), key);
         }
-        self.selected
-            .insert(requirement.name.clone(), provider_id);
+        self.selected.insert(requirement.name.clone(), provider_id);
         self.services
             .insert(requirement.name, connected.service.into());
         Ok(())
@@ -378,8 +379,7 @@ impl<'a> StartupState<'a> {
                 .map_err(RuntimeError::MonitorStart)?;
         let tasks = TaskGroup::new(supervisor.cancellation_token());
         #[cfg(feature = "async-tcp")]
-        let async_tasks =
-            AsyncTasks::new(self.session.clone(), supervisor.cancellation_token());
+        let async_tasks = AsyncTasks::new(self.session.clone(), supervisor.cancellation_token());
         Ok(RunningApp {
             app: self.app,
             resolved,
