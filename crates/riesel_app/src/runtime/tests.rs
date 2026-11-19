@@ -272,6 +272,8 @@ fn with_exiting_managed_child() -> RunningApp {
         tasks,
         #[cfg(feature = "async-tcp")]
         async_tasks: AsyncTasks::new(SessionToken::new(), CancellationToken::default()),
+        #[cfg(feature = "async-tcp")]
+        local_blocking: Vec::new(),
         session: SessionToken::new(),
     }
 }
@@ -357,6 +359,8 @@ fn managed_failure_during_task_join_is_not_missed() {
         tasks,
         #[cfg(feature = "async-tcp")]
         async_tasks: AsyncTasks::new(SessionToken::new(), CancellationToken::default()),
+        #[cfg(feature = "async-tcp")]
+        local_blocking: Vec::new(),
         session: SessionToken::new(),
     };
     let result = RunningApp::execute(running, |running| {
