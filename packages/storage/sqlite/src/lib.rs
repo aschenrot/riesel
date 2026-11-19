@@ -15,10 +15,9 @@ use std::{collections::BTreeMap, path::PathBuf, sync::Arc};
 /// Register a durable linked provider without touching the filesystem.
 /// Models are authoritative application schema, not a second developer-maintained file.
 pub fn sqlite_storage_provider(
-    path: impl Into<PathBuf>,
+    path: PathBuf,
     models: BTreeMap<String, ModelDefinition>,
 ) -> Result<impl LocalProviderFactory, ConnectorError> {
-    let path = path.into();
     Ok(LocalComponentFactory::new(
         "riesel.storage.sqlite",
         move |definition: &riesel_schema::ProviderDefinition| -> Result<_, ConnectorError> {

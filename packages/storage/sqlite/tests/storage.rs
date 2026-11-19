@@ -8,7 +8,6 @@ use std::{
     sync::{Arc, Barrier},
     thread,
 };
-use uuid::Uuid;
 
 fn models() -> BTreeMap<String, ModelDefinition> {
     BTreeMap::from([(
@@ -185,7 +184,7 @@ fn preserves_u64_revision_domain_and_checks_overflow() {
 fn registration_and_preflight_do_not_open_database() {
     let dir = tempfile::tempdir().unwrap();
     let path = dir.path().join("tasks.db");
-    let provider = sqlite_storage_provider(&path, models()).unwrap();
+    let provider = sqlite_storage_provider(path.clone(), models()).unwrap();
     assert!(!path.exists());
     let def = provider.definition().unwrap();
     assert_eq!(def.id, "riesel.storage.sqlite");
