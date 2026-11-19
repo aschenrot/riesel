@@ -34,3 +34,41 @@ jobs:
         run: npm test
       - name: Build static assets
         run: npm run build
+
+  browser:
+    needs: frontend
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    defaults:
+      run:
+        working-directory: examples/todo/web
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - name: Install pinned Rust
+        run: |
+          rustup toolchain install 1.100.0 --profile minimal
+          rustup default 1.100.0
+      - name: Install frontend
+        run: npm ci --no-audit --no-fund
+      - name: Install headless Chromium
+        run: npx playwright install --with-deps --only-shell chromium
+      - name: Build browser assets
+        run: npm run build
+      - name: Build Rust Todo HTTP host
+        working-directory: .
+        run: cargo build --locked -p todo --features http --bin todo_http
+      - name: Real browser end-to-end tests
+        run: npm run test:e2e
+      - name: Retain failed browser evidence
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: todo-web-browser-failure
+          path: |
+            examples/todo/web/test-results
+            examples/todo/web/playwright-report
+          retention-days: 7
+          if-no-files-found: ignore
