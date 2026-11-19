@@ -3,7 +3,11 @@
 //! Linked components remain registered in ConnectorRegistry. A catalog adds
 //! operator-approved managed or loopback TCP placements of published provider
 //! definitions. Its names identify *placements*, not provider identities.
-use crate::{ConnectorRegistry, DeploymentConfig, DeploymentError, ServiceEndpoint};
+use crate::{
+    ConnectorRegistry, DeploymentConfig, DeploymentError, RecoveryPolicy, ServiceEndpoint,
+};
+use serde::Deserialize;
+use std::path::Path;
 use riesel_schema::{AppSchema, ProviderDefinition, ProviderError, SchemaError};
 use std::collections::BTreeMap;
 use thiserror::Error;
@@ -53,6 +57,37 @@ pub enum CatalogError {
     Schema(#[from] SchemaError),
     #[error(transparent)]
     Deployment(#[from] DeploymentError),
+    #[error("cannot read provider selections: {0}")]
+    Io(#[from] std::io::Error),
+    #[error("invalid provider selections JSON: {0}")]
+    Json(#[from] serde_json::Error),
+}
+
+/// Operator-controlled choices only. This manifest cannot declare arbitrary
+/// process executables, ports or unapproved remote destinations.
+#[derive(Debug, Clone, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ProviderSelectionConfig {
+    pub services: BTreeMap<String, String>,
+    #[serde(default)]
+    pub recovery: RecoveryPolicy,
+}
+
+impl ProviderSelectionConfig {
+    pub fn new(services: BTreeMap<String, String>) -> Self {
+        Self {
+            services,
+            recovery: RecoveryPolicy::FailFast,
+        }
+    }
+
+    pub fn from_json(source: &str) -> Result<Self, CatalogError> {
+        Ok(serde_json::from_str(source)?)
+    }
+
+    pub fn load(path: impl AsRef<Path>) -> Result<Self, CatalogError> {
+        Self::from_json(&std::fs::read_to_string(path)?)
+    }
 }
 
 struct Placement {
@@ -115,6 +150,20 @@ impl ProviderCatalog {
     ///
     /// Without a selection, only an unambiguous linked provider can be
     /// chosen. A remote or managed placement is never silently launched.
+    /// Compile named placement selections and an optional whole-session
+    /// recovery policy to the one existing deployment/startup pipeline.
+    pub fn deployment_from_config(
+        &self,
+        app: &AppSchema,
+        connectors: &ConnectorRegistry,
+        selection: &ProviderSelectionConfig,
+    ) -> Result<DeploymentConfig, CatalogError> {
+        let mut deployment = self.deployment(app, connectors, &selection.services)?;
+        deployment.recovery = selection.recovery.clone();
+        deployment.validate(app)?;
+        Ok(deployment)
+    }
+
     pub fn deployment(
         &self,
         app: &AppSchema,
@@ -323,6 +372,33 @@ mod tests {
             ),
             Err(CatalogError::UnsupportedPlacement(_))
         ));
+    }
+
+    #[test]
+    fn operator_manifest_is_strict_and_cannot_override_placement_endpoints() {
+        let manifest = ProviderSelectionConfig::from_json(
+            r#"{"services":{"counter":"managed"},"recovery":{"mode":"fail_fast"}}"#,
+        )
+        .unwrap();
+        let mut catalog = ProviderCatalog::new();
+        catalog
+            .register("managed", provider("example.counter.memory", 1), target())
+            .unwrap();
+        let config = catalog
+            .deployment_from_config(&app(), &ConnectorRegistry::new(), &manifest)
+            .unwrap();
+        assert_eq!(
+            config.expected_providers["counter"].id,
+            "example.counter.memory"
+        );
+        assert!(ProviderSelectionConfig::from_json(
+            r#"{"services":{"counter":"managed"},"extra":true}"#
+        )
+        .is_err());
+        assert!(ProviderSelectionConfig::from_json(
+            r#"{"services":{"counter":{"transport":"managed","program":"evil"}}}"#
+        )
+        .is_err());
     }
 
     #[test]

@@ -179,7 +179,7 @@ impl DeploymentConfig {
                 }
                 if let Some(pinned) = self.expected_providers.get(name)
                     && let Some(previous) = instance_providers.insert(instance, pinned)
-                    && previous != pinned
+                    && !previous.has_same_definition(pinned)
                 {
                     return Err(DeploymentError::ConflictingInstanceProvider(
                         instance.clone(),

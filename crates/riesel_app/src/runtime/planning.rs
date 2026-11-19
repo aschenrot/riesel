@@ -23,7 +23,7 @@ impl App {
                         .get(provider)
                         .ok_or_else(|| RuntimeError::UnknownLocalProvider(provider.clone()))?;
                     if let Some(expected) = deployment.expected_providers.get(&requirement.name)
-                        && expected != &local.definition
+                        && !expected.has_same_definition(&local.definition)
                     {
                         return Err(RuntimeError::ProviderIdentityMismatch {
                             requirement: requirement.name.clone(),
@@ -90,6 +90,7 @@ impl App {
                 requirement: requirement.name.clone(),
                 capability: requirement.capability.clone(),
                 depends_on: requirement.depends_on.clone(),
+                expected_provider: deployment.expected_providers.get(&requirement.name).cloned(),
                 target,
             });
         }

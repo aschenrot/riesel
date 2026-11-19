@@ -367,7 +367,7 @@ impl<'a> StartupState<'a> {
             .validate()
             .map_err(|source| RuntimeError::InvalidContract { source })?;
         if let Some(expected) = self.deployment.expected_providers.get(&requirement.name)
-            && &connected.definition != expected
+            && !connected.definition.has_same_definition(expected)
         {
             return Err(RuntimeError::ProviderIdentityMismatch {
                 requirement: requirement.name.clone(),
@@ -387,7 +387,7 @@ impl<'a> StartupState<'a> {
         }
         let provider_id = connected.definition.id.clone();
         if let Some(registered) = self.provider_definitions.get(&provider_id) {
-            if registered != &connected.definition {
+            if !registered.has_same_definition(&connected.definition) {
                 return Err(RuntimeError::ConflictingProvider {
                     provider: provider_id,
                 });

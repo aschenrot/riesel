@@ -34,6 +34,17 @@ pub enum ProviderError {
 }
 
 impl ProviderDefinition {
+    /// Compare published identity and capability sets without depending on
+    /// the declaration order of independent capability contracts.
+    pub fn has_same_definition(&self, other: &Self) -> bool {
+        self.id == other.id
+            && self.capabilities.len() == other.capabilities.len()
+            && self
+                .capabilities
+                .iter()
+                .all(|capability| other.capabilities.contains(capability))
+    }
+
     pub fn validate(&self) -> Result<(), ProviderError> {
         if !valid_capability_id(&self.id) {
             return Err(ProviderError::InvalidId(self.id.clone()));
@@ -82,6 +93,20 @@ mod tests {
         let serialized = serde_json::to_string(&provider).unwrap();
         let restored: ProviderDefinition = serde_json::from_str(&serialized).unwrap();
         assert_eq!(restored, provider);
+    }
+
+    #[test]
+    fn provider_identity_is_independent_of_capability_declaration_order() {
+        let mut first = definition();
+        first.capabilities.push(CapabilityRef {
+            id: "riesel.storage.observer".into(),
+            version: 1,
+        });
+        let mut reordered = first.clone();
+        reordered.capabilities.reverse();
+        assert!(first.has_same_definition(&reordered));
+        reordered.capabilities[0].version = 2;
+        assert!(!first.has_same_definition(&reordered));
     }
 
     #[test]

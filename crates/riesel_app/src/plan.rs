@@ -2,7 +2,7 @@
 //! sockets, or construct local providers. Runtime connection verification
 //! still occurs when each selected service actually starts.
 
-use riesel_schema::CapabilityRef;
+use riesel_schema::{CapabilityRef, ProviderDefinition};
 use serde::Serialize;
 use std::net::SocketAddr;
 use std::path::PathBuf;
@@ -19,6 +19,10 @@ pub struct PlannedService {
     pub requirement: String,
     pub capability: CapabilityRef,
     pub depends_on: Vec<String>,
+    /// Pinned provider definition for inspected managed/remote selections.
+    /// This checks metadata consistency, not cryptographic authentication.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub expected_provider: Option<ProviderDefinition>,
     pub target: PlannedTarget,
 }
 
