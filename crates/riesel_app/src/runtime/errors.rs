@@ -30,6 +30,8 @@ pub enum RuntimeError {
         "requirement {requirement} uses an async transport without a compatible local async binding"
     )]
     UnsupportedLocalBinding { requirement: String },
+    #[error("connector for requirement {requirement} cannot perform nonblocking async startup")]
+    UnsupportedAsyncStartup { requirement: String },
     #[error("connecting requirement {requirement} failed: {source}")]
     Connection {
         requirement: String,
