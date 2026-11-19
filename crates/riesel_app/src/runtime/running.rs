@@ -181,7 +181,7 @@ impl RunningApp {
             .is_err_and(|error| error.is::<LifecycleFailure>())
         {
             return Err(AppRunError::Lifecycle {
-                failure: outcome.err().expect("lifecycle failure was checked"),
+                failure: outcome.expect_err("lifecycle failure was checked"),
                 shutdown: shutdown.map(Box::new),
             });
         }
