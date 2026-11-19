@@ -1,0 +1,23 @@
+name: Storage research probes
+
+permissions:
+  contents: read
+
+on:
+  pull_request:
+    paths:
+      - "research/storage-probe/**"
+      - ".github/workflows/storage-research.yml"
+
+jobs:
+  rust-probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install pinned Rust
+        run: |
+          rustup toolchain install 1.100.0 --profile minimal
+          rustup default 1.100.0
+      - name: Run isolated Storage engine research
+        run: cargo test --manifest-path research/storage-probe/Cargo.toml -- --nocapture
