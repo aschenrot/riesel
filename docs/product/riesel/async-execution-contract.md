@@ -1,6 +1,6 @@
 # Riesel — Async Execution Contract (Stage 5.4)
 
-Status: native async contracts, managed-host lifecycle and generated local/managed component parity verified on Linux, 2026-11-19.
+Status: generated local/managed async parity, structured task ownership and native provider crash/recovery verified on Linux, 2026-11-19.
 This defines the next engineering gates for the accepted
 [high-level application authoring API](api-authoring-v3.md).
 The user-facing mental model stays **app uses capabilities, components
@@ -107,6 +107,34 @@ mandatory ECS, transport object or executor type in the default authoring API.
   dedicated application-level regression tests. Async startup inspection
   still uses bounded synchronous I/O; this is an explicit limitation.
 
+## Session-owned async tasks and real managed recovery now verified
+
+- `AsyncTasks` can be injected into a typed async application handler
+  without inventing an application capability, transport, or provider.
+  Its bounded 64-task admission budget, active-name validation and
+  completed-slot reuse mirror the existing structured thread task group.
+- An application-owned Tokio executor is captured when the async handler
+  scope begins. All spawned futures, including requests issued from clones
+  on other OS threads, are scheduled onto that **same** executor.
+  Tasks are not detached: their watchers observe errors and panics,
+  cancel the session on failure, and are joined before provider teardown.
+  Outstanding futures are dropped when the scope or session ends. This
+  cannot roll back a remote command that already executed.
+- A failing background task produces a named `AppRunError::TaskFailure`
+  instead of silently losing the failure or replaying the entrypoint.
+  Pending entrypoints wake when a task cancels their session.
+- Native async Counter and Observer regressions exercise task execution
+  and shutdown with both local and manager-owned components.
+  A separate real-child crash fixture verifies readiness, supervisor
+  cancellation, old-handle expiry, task cleanup, fresh task scope and
+  bounded **opt-in whole-session** recovery. The recovery gate treats
+  `RpcError::SessionExpired` caused by confirmed managed-child failure
+  as cancellation rather than an arbitrary business error.
+  Evidence: https://github.com/aschenrot/riesel/actions/runs/44443292891
+- This completes task ownership and native async crash/recovery
+  regressions, **not** fully asynchronous startup/inspection or the
+  explicit blocking-work execution policy.
+
 ## Typed async application execution now verified
 
 - The existing supervisor now invalidates the same `SessionToken` carried
@@ -146,25 +174,35 @@ service lifecycle, including readiness, private-stdin shutdown and provider
 selection. The same typed application handler runs against both modes.
 Mixed-mode hosting is rejected rather than blocking a Tokio worker.
 
-**Remaining:** explicit native async provider crash/recovery tests through the
-application monitor, and an explicit blocking-work boundary for native async
-implementation code. No independent service runtime or transparent replay of
-commands may be introduced.
+**Verified:** real native async provider failure now goes through the
+application monitor, revokes the prior capability session, cancels pending
+async background work, and restarts only under explicitly configured bounded
+whole-session recovery. Stale handles and task scopes do not cross restarts.
+
+**Remaining:** an explicit blocking-work boundary for native async
+implementation code. No independent service runtime or transparent replay
+of commands may be introduced.
 
 ### 2. Session ownership, background tasks and execution policy
 
-The SDK now owns a current-thread Tokio executor per async application
+The SDK owns a current-thread Tokio executor per async application
 session and cancels its entrypoint future on session invalidation.
-**Still required:** session-owned async background task groups, bounded
-concurrency, joining and structured task error propagation, integrated with
-the existing Rust-thread task group and service manager. Do not introduce
-detached `tokio::spawn` work or hide blocking operations in the executor.
+**Implemented and tested:** `AsyncTasks` provides bounded, named,
+session-owned async task registration, cancellation, joins and failure/panic
+propagation, integrated with the existing service manager and synchronous
+thread task group. All tasks use the executor belonging to the active async
+handler scope. Late spawns and stale task spawners are rejected.
 
-A failed managed child now promptly cancels dependent pending Tokio TCP
-calls and the pending async entrypoint. Dropping a future cancels waiting
+A failed managed child promptly cancels dependent pending Tokio TCP
+calls, tasks and entrypoint. Dropping a future cancels waiting
 and socket ownership, **not** proof that the provider did not execute the
-command. Preserve opt-in whole-session recovery and no command replay.
+command. Explicit whole-session recovery recreates handles and task
+scopes; no individual command is replayed automatically.
 Keep structured domain/transport/session errors and stale-clone rejection.
+
+**Still required:** a nonblocking contract/provider startup-inspection
+pipeline and an explicit blocking-work boundary for native async provider
+implementations. Avoid hidden blocking I/O on the Tokio executor.
 
 ### 3. Developer-facing injection and error model
 
@@ -194,12 +232,12 @@ not change that security posture.
 2. Genuine nonblocking remote calls, bounded Tokio request admission and
    direct native async local invocation are **implemented and tested**.
    One generated typed handle works in local and managed modes.
-3. Session invalidation on managed-child failure and prompt async RPC /
-   entrypoint cancellation are **implemented and tested** independently.
-   Native async provider crash/recovery regression coverage and bounded
-   runtime-owned asynchronous background task groups remain. The manager-owned
-   native async host's readiness, shared state and cooperative shutdown
-   are **verified**.
+3. Session invalidation, prompt async I/O cancellation, bounded
+   runtime-owned background task groups and joining, and real native async
+   managed-child crash/recovery are **implemented and tested**. Task
+   failures/panics cancel the session and retain their error names/sources.
+   Whole-session restart is explicit and bounded; stale handles do not
+   survive recovery.
 4. Domain/transport/cancellation/session errors remain distinguishable;
    no automatic command retry, even after timeout.
 5. Generated async bindings derive the same validated contract and provider
@@ -207,6 +245,8 @@ not change that security posture.
 6. `cargo validate --check` and `cargo smoke` pass on Linux; Windows stays
    manual and required before release.
 
-Only after this gate should the high-level `#[riesel::app] async fn` milestone
-claim to be ready. Stage 5.5 provider catalog work can proceed independently
+The remaining 5.4 gate is nonblocking startup inspection and a defined
+blocking-work execution policy for native async implementations. Only after
+that gate should the high-level `#[riesel::app] async fn` milestone claim
+to be ready. Stage 5.5 provider catalog work can proceed independently
 without weakening these boundaries.
