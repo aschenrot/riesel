@@ -1,8 +1,8 @@
 pub mod app;
 #[cfg(feature = "async-tcp")]
 mod async_tasks;
-mod component;
 mod catalog;
+mod component;
 mod deployment;
 mod plan;
 mod recovery;

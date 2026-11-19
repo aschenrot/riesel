@@ -104,7 +104,8 @@ impl ProviderCatalog {
         if self.placements.contains_key(&choice) {
             return Err(CatalogError::DuplicateChoice(choice));
         }
-        self.placements.insert(choice, Placement { provider, endpoint });
+        self.placements
+            .insert(choice, Placement { provider, endpoint });
         Ok(())
     }
 
@@ -266,7 +267,9 @@ mod tests {
     #[test]
     fn remote_and_managed_are_never_implicit_and_selection_is_pinned() {
         let mut catalog = ProviderCatalog::new();
-        catalog.register("managed", provider("example.counter.memory", 1), target()).unwrap();
+        catalog
+            .register("managed", provider("example.counter.memory", 1), target())
+            .unwrap();
         let choices = BTreeMap::new();
         let empty = ConnectorRegistry::new();
         assert!(matches!(
@@ -276,7 +279,10 @@ mod tests {
         ));
         let choices = BTreeMap::from([("counter".into(), "managed".into())]);
         let config = catalog.deployment(&app(), &empty, &choices).unwrap();
-        assert_eq!(config.expected_providers["counter"].id, "example.counter.memory");
+        assert_eq!(
+            config.expected_providers["counter"].id,
+            "example.counter.memory"
+        );
         assert!(matches!(
             &config.services["counter"],
             ServiceEndpoint::Managed { instance: Some(name), .. } if name == "managed"
@@ -294,11 +300,15 @@ mod tests {
             catalog.register(
                 "remote",
                 provider("example.counter.memory", 1),
-                ServiceEndpoint::Tcp { address: "192.0.2.1:4000".parse().unwrap() }
+                ServiceEndpoint::Tcp {
+                    address: "192.0.2.1:4000".parse().unwrap()
+                }
             ),
             Err(CatalogError::InsecureRemote(_))
         ));
-        catalog.register("remote", provider("example.counter.memory", 1), target()).unwrap();
+        catalog
+            .register("remote", provider("example.counter.memory", 1), target())
+            .unwrap();
         assert!(matches!(
             catalog.register("remote", provider("example.counter.memory", 1), target()),
             Err(CatalogError::DuplicateChoice(_))
@@ -307,7 +317,9 @@ mod tests {
             catalog.register(
                 "linked",
                 provider("example.counter.memory", 1),
-                ServiceEndpoint::Local { provider: "example.counter.memory".into() }
+                ServiceEndpoint::Local {
+                    provider: "example.counter.memory".into()
+                }
             ),
             Err(CatalogError::UnsupportedPlacement(_))
         ));
@@ -316,25 +328,30 @@ mod tests {
     #[test]
     fn unknown_and_incompatible_placements_fail_before_startup() {
         let mut catalog = ProviderCatalog::new();
-        catalog.register("managed", provider("example.counter.old", 2), target()).unwrap();
+        catalog
+            .register("managed", provider("example.counter.old", 2), target())
+            .unwrap();
         let empty = ConnectorRegistry::new();
         assert!(matches!(
             catalog.deployment(
-                &app(), &empty,
+                &app(),
+                &empty,
                 &BTreeMap::from([("counter".into(), "managed".into())])
             ),
             Err(CatalogError::IncompatibleChoice { version: 1, .. })
         ));
         assert!(matches!(
             catalog.deployment(
-                &app(), &empty,
+                &app(),
+                &empty,
                 &BTreeMap::from([("counter".into(), "unregistered".into())])
             ),
             Err(CatalogError::UnknownChoice { .. })
         ));
         assert!(matches!(
             catalog.deployment(
-                &app(), &empty,
+                &app(),
+                &empty,
                 &BTreeMap::from([("missing".into(), "managed".into())])
             ),
             Err(CatalogError::UnknownRequirement(_))
