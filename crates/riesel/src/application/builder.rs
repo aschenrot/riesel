@@ -90,7 +90,10 @@ impl Application {
         let capability = C::definition()?.capability;
         self = self.require::<C>(name)?;
         if self.providers.has_connector(&capability) {
-            if !self.providers.connector_is::<AsyncRpcConnector<C>>(&capability) {
+            if !self
+                .providers
+                .connector_is::<AsyncRpcConnector<C>>(&capability)
+            {
                 return Err(SdkError::ConnectorModeConflict(capability.id));
             }
         } else {

@@ -3,9 +3,9 @@
 //! invoke this instead of duplicating requirement and context wiring.
 
 use super::{Application, Context, Result};
-use riesel_protocol::RpcClientBinding;
 #[cfg(feature = "async-tcp")]
 use riesel_protocol::AsyncRpcClientBinding;
+use riesel_protocol::RpcClientBinding;
 use std::marker::PhantomData;
 use std::ops::Deref;
 

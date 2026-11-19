@@ -1,9 +1,9 @@
 //! Generated-contract-first remote connector: no Storage-specific methods or
 //! protocol adapter. Capability macros opt into RpcClientBinding once.
 use riesel_app::{CapabilityConnector, ConnectedProvider, ConnectorError, ServiceEndpoint};
-use riesel_protocol::{RpcClientBinding, SessionToken, TcpRpcTransport};
 #[cfg(feature = "async-tcp")]
 use riesel_protocol::{AsyncRpcClientBinding, AsyncRpcTransport, AsyncTcpRpcTransport};
+use riesel_protocol::{RpcClientBinding, SessionToken, TcpRpcTransport};
 use riesel_schema::CapabilityContract;
 use std::io;
 use std::marker::PhantomData;
@@ -84,7 +84,10 @@ impl<C: AsyncRpcClientBinding> CapabilityConnector for AsyncRpcConnector<C> {
         session: &SessionToken,
     ) -> Result<ConnectedProvider, ConnectorError> {
         let address = endpoint.address().ok_or_else(|| {
-            io::Error::new(io::ErrorKind::InvalidInput, "async RPC needs a TCP endpoint")
+            io::Error::new(
+                io::ErrorKind::InvalidInput,
+                "async RPC needs a TCP endpoint",
+            )
         })?;
         let expected = C::definition()?;
         // Startup/selection is synchronous today; inspect the remote
@@ -100,9 +103,8 @@ impl<C: AsyncRpcClientBinding> CapabilityConnector for AsyncRpcConnector<C> {
             .into());
         }
         let provider = inspection.provider(&expected.capability)?;
-        let transport: std::sync::Arc<dyn AsyncRpcTransport> = std::sync::Arc::new(
-            AsyncTcpRpcTransport::with_session(address, session.clone()),
-        );
+        let transport: std::sync::Arc<dyn AsyncRpcTransport> =
+            std::sync::Arc::new(AsyncTcpRpcTransport::with_session(address, session.clone()));
         Ok(ConnectedProvider {
             definition: provider,
             contract,

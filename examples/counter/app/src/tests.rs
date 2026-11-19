@@ -370,7 +370,7 @@ fn generated_async_client_operates_over_real_nonblocking_tcp() {
 #[test]
 fn typed_async_handler_uses_existing_remote_provider_resolver_and_session() {
     use riesel::{Application, AsyncCapability, DeploymentConfig};
-    use riesel_protocol::{AsyncRpcClientBinding, AsyncRpcTransport, RpcHost};
+    use riesel_protocol::{AsyncRpcClientBinding, RpcHost};
     use std::sync::{Arc, Mutex};
 
     type Service = <CounterContract as AsyncRpcClientBinding>::Service;
