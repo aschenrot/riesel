@@ -48,6 +48,31 @@ pub trait CounterObserver {
     fn observe(&self) -> Result<u64, CounterError>;
 }
 
+/// Native async version of Counter. It uses the same domain error model
+/// but is independently versioned from the published synchronous contract.
+#[capability(id = "riesel.counter.async.operations", version = 1)]
+pub trait AsyncCounter {
+    /// Read the current asynchronous counter value.
+    #[query]
+    async fn value(&self) -> Result<u64, CounterError>;
+
+    /// Add a nonzero increment without wrapping on overflow.
+    #[command]
+    async fn add(&self, amount: u64) -> Result<u64, CounterError>;
+
+    /// Render a prefix and the current counter value.
+    #[query]
+    async fn label(&self, prefix: &str) -> Result<String, CounterError>;
+}
+
+/// An independent native async read-only view over the same component state.
+#[capability(id = "riesel.counter.async.observer", version = 1)]
+pub trait AsyncCounterObserver {
+    /// Observe the shared native async counter.
+    #[query]
+    async fn observe(&self) -> Result<u64, CounterError>;
+}
+
 #[cfg(test)]
 #[allow(dead_code)]
 mod private_identity_tests {
