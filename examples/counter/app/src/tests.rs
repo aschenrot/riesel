@@ -554,8 +554,16 @@ fn async_connector_inspection_yields_to_tokio_and_preserves_provider_identity() 
     });
     server.join().unwrap();
     assert_eq!(result.definition.id, "riesel.counter.memory");
-    assert!(result.contract.has_same_api_shape(&CounterContract::definition().unwrap()));
-    assert!(result.service.is::<<CounterContract as AsyncRpcClientBinding>::Service>());
+    assert!(
+        result
+            .contract
+            .has_same_api_shape(&CounterContract::definition().unwrap())
+    );
+    assert!(
+        result
+            .service
+            .is::<<CounterContract as AsyncRpcClientBinding>::Service>()
+    );
 }
 
 #[test]
