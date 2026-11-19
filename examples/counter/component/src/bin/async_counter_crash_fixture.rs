@@ -1,7 +1,6 @@
 //! Fault injection: the first managed native async provider exits after
 //! becoming ready; subsequent starts reuse the same marker and stay healthy.
 use riesel_counter_component::memory_async_counter_provider;
-use riesel_protocol::run_component_from_env;
 use std::fs::OpenOptions;
 use std::io;
 use std::thread;
@@ -29,9 +28,13 @@ fn main() -> io::Result<()> {
             std::process::exit(73);
         });
     }
-    run_component_from_env(|address| {
-        memory_async_counter_provider()
-            .map_err(io::Error::other)?
-            .serve(address)
-    })
+    // The first CLI argument belongs to this fault-injection fixture,
+    // not to the shared component host's optional bind-address parser.
+    // Managed processes always receive their OS-assigned bind request in
+    // RIESEL_BIND_ADDRESS, so the normal host still owns readiness/shutdown.
+    let address = std::env::var("RIESEL_BIND_ADDRESS")
+        .map_err(|error| io::Error::new(io::ErrorKind::InvalidInput, error))?;
+    memory_async_counter_provider()
+        .map_err(io::Error::other)?
+        .serve(&address)
 }
