@@ -607,6 +607,10 @@ fn async_application_startup_uses_nonblocking_connector_and_shared_resolver() {
             Ok(CounterContract::definition()?)
         }
 
+        fn supports_async_startup(&self) -> bool {
+            true
+        }
+
         fn connect(
             &self,
             _: &ServiceEndpoint,
@@ -679,7 +683,6 @@ fn async_startup_does_not_execute_legacy_blocking_connectors() {
         ServiceEndpoint,
     };
     use std::collections::BTreeMap;
-    use std::io;
 
     let definition = Application::new("NoBlockingConnector")
         .require::<CounterContract>("counter")
@@ -692,8 +695,12 @@ fn async_startup_does_not_execute_legacy_blocking_connectors() {
         .unwrap();
     let deployment = DeploymentConfig::new(BTreeMap::from([(
         "counter".into(),
-        ServiceEndpoint::Tcp {
-            address: "127.0.0.1:1".parse().unwrap(),
+        ServiceEndpoint::Managed {
+            instance: None,
+            program: std::path::PathBuf::from("nonexistent_provider_not_started"),
+            args: Vec::new(),
+            startup_timeout_ms: 2_000,
+            shutdown_timeout_ms: 2_000,
         },
     )]));
     let runtime = tokio::runtime::Builder::new_current_thread()
@@ -707,8 +714,7 @@ fn async_startup_does_not_execute_legacy_blocking_connectors() {
     );
     assert!(matches!(
         result,
-        Err(RuntimeError::Connection { source, .. })
-            if source.downcast_ref::<io::Error>()
-                .is_some_and(|error| error.kind() == io::ErrorKind::Unsupported)
+        Err(RuntimeError::UnsupportedAsyncStartup { requirement })
+            if requirement == "counter"
     ));
 }
