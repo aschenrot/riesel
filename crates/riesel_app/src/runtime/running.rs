@@ -11,6 +11,8 @@ pub struct RunningApp {
     pub(super) tasks: TaskGroup,
     #[cfg(feature = "async-tcp")]
     pub(super) async_tasks: AsyncTasks,
+    #[cfg(feature = "async-tcp")]
+    pub(super) local_blocking: Vec<ProviderBlocking>,
     pub(super) session: SessionToken,
 }
 
@@ -81,6 +83,19 @@ impl RunningApp {
         #[cfg(feature = "async-tcp")]
         self.async_tasks.close_for_shutdown();
         let tasks = self.tasks.join();
+        // The provider's own OS-thread workers are never detached from
+        // abandoned RPC futures. Join before releasing local provider state.
+        #[cfg(feature = "async-tcp")]
+        let provider_failures: Vec<_> = self
+            .local_blocking
+            .drain(..)
+            .filter_map(|blocking| {
+                blocking
+                    .close_and_join()
+                    .err()
+                    .map(|source| RuntimeError::ProviderBlockingShutdown { source })
+            })
+            .collect();
         // The monitor takes its final snapshot only after every task joined,
         // but before intentional managed-process teardown.
         let monitor = self.supervisor.stop();
@@ -101,6 +116,8 @@ impl RunningApp {
         if let Some(failure) = self.async_tasks.failure() {
             failures.push(failure);
         }
+        #[cfg(feature = "async-tcp")]
+        failures.extend(provider_failures);
         match failures.len() {
             0 => Ok(()),
             1 => Err(failures.remove(0)),
