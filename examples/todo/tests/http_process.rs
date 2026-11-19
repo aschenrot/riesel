@@ -56,9 +56,8 @@ fn request(port: u16, method: &str, body: Option<&str>) -> String {
         .set_read_timeout(Some(Duration::from_secs(5)))
         .unwrap();
     let payload = body.unwrap_or("");
-    let mut request = format!(
-        "{method} /api/tasks HTTP/1.1\r\nHost: 127.0.0.1:{port}\r\nConnection: close\r\n"
-    );
+    let mut request =
+        format!("{method} /api/tasks HTTP/1.1\r\nHost: 127.0.0.1:{port}\r\nConnection: close\r\n");
     if body.is_some() {
         request.push_str(&format!(
             "Origin: http://127.0.0.1:{port}\r\nContent-Type: application/json\r\nContent-Length: {}\r\n",
