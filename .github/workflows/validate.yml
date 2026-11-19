@@ -1,5 +1,14 @@
 name: Validate
 
+# Repository validation needs read-only source access.
+permissions:
+  contents: read
+
+# Superseded PR runs can be cancelled; push and manually requested release checks are retained.
+concurrency:
+  group: validate-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 on:
   push:
     branches:
