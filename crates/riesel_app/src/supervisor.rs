@@ -3,8 +3,8 @@
 //! No restart is attempted. Required managed providers use fail-fast policy.
 
 use crate::runtime::RuntimeError;
-use riesel_protocol::SessionToken;
 use riesel_manager::{ProcessKey, ProcessRegistry, ProcessStatus};
+use riesel_protocol::SessionToken;
 use std::collections::BTreeMap;
 use std::io;
 use std::process::ExitStatus;
@@ -280,7 +280,8 @@ mod tests {
     fn no_managed_services_do_not_trigger_cancellation() {
         let registry = Arc::new(Mutex::new(ProcessRegistry::new()));
         let session = SessionToken::new();
-        let mut supervisor = ServiceMonitor::start(registry, BTreeMap::new(), session.clone()).unwrap();
+        let mut supervisor =
+            ServiceMonitor::start(registry, BTreeMap::new(), session.clone()).unwrap();
         assert!(supervisor.check_now().is_none());
         assert!(!supervisor.cancellation_token().is_cancelled());
         supervisor.stop().unwrap();
@@ -378,7 +379,10 @@ mod tests {
             Some(RuntimeError::ServiceExited { requirement, .. })
                 if requirement == "second"
         ));
-        assert!(!session.is_active(), "failed child must revoke the capability session");
+        assert!(
+            !session.is_active(),
+            "failed child must revoke the capability session"
+        );
 
         supervisor.stop().unwrap();
         let mut processes = registry.lock().unwrap();

@@ -43,7 +43,7 @@ impl SessionToken {
     pub async fn cancelled(&self) {
         loop {
             let notified = self.changed.notified();
-            tokio::pin!(notified);
+            let mut notified = std::pin::pin!(notified);
             notified.as_mut().enable();
             if !self.is_active() {
                 return;

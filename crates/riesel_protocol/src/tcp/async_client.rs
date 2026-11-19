@@ -6,6 +6,7 @@ use super::*;
 use crate::AsyncRpcTransport;
 use std::future::Future;
 use std::pin::Pin;
+use std::task::Poll;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpStream as AsyncTcpStream;
 use tokio::sync::Semaphore;
@@ -49,11 +50,20 @@ impl AsyncTcpRpcTransport {
     ) -> Result<Value, RpcError> {
         // Invalidating the session drops any pending I/O future and its
         // socket/permit. Commands already sent may still have executed.
-        tokio::select! {
-            biased;
-            () = self.session.cancelled() => Err(RpcError::SessionExpired),
-            result = self.exchange_active(capability, operation, arguments) => result,
-        }
+        let cancellation = self.session.cancelled();
+        let active = self.exchange_active(capability, operation, arguments);
+        let mut cancellation = std::pin::pin!(cancellation);
+        let mut active = std::pin::pin!(active);
+        std::future::poll_fn(|cx| {
+            if cancellation.as_mut().poll(cx).is_ready() {
+                return Poll::Ready(Err(RpcError::SessionExpired));
+            }
+            match active.as_mut().poll(cx) {
+                Poll::Ready(result) => Poll::Ready(self.session.check().and(result)),
+                Poll::Pending => Poll::Pending,
+            }
+        })
+        .await
     }
 
     async fn exchange_active(
@@ -330,10 +340,8 @@ mod tests {
     #[test]
     fn invalidating_session_interrupts_concurrency_queue() {
         let session = SessionToken::new();
-        let client = AsyncTcpRpcTransport::with_session(
-            "127.0.0.1:1".parse().unwrap(),
-            session.clone(),
-        );
+        let client =
+            AsyncTcpRpcTransport::with_session("127.0.0.1:1".parse().unwrap(), session.clone());
         let permits = Arc::clone(&client.permits);
         runtime().block_on(async {
             let mut locked = Vec::new();
@@ -345,7 +353,7 @@ mod tests {
                 version: 1,
             };
             let call = client.call(&cap, "value", serde_json::json!({}));
-            tokio::pin!(call);
+            let mut call = std::pin::pin!(call);
             assert!(
                 tokio::time::timeout(Duration::from_millis(20), &mut call)
                     .await
