@@ -123,9 +123,11 @@ impl AsyncTasks {
             }
             task(cancellation)
         });
-        let watcher = self.watch(&executor, name.clone(), async move {
-            worker.await.map(Some)
-        });
+        let watcher = self.watch(
+            &executor,
+            name.clone(),
+            async move { worker.await.map(Some) },
+        );
         state.handles.push((name, watcher));
         Ok(())
     }
@@ -169,7 +171,12 @@ impl AsyncTasks {
         Ok((state, executor))
     }
 
-    fn watch<F>(&self, executor: &tokio::runtime::Handle, name: String, completed: F) -> JoinHandle<()>
+    fn watch<F>(
+        &self,
+        executor: &tokio::runtime::Handle,
+        name: String,
+        completed: F,
+    ) -> JoinHandle<()>
     where
         F: Future<Output = Result<Option<Result<(), ConnectorError>>, tokio::task::JoinError>>
             + Send
