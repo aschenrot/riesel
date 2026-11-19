@@ -151,6 +151,8 @@ pub enum AppRunError {
     Startup(#[from] RuntimeError),
     #[error("application entrypoint failed: {0}")]
     Entrypoint(ConnectorError),
+    #[error("application shutdown failed: {0}")]
+    Shutdown(RuntimeError),
     #[error("application entrypoint failed: {entry}; shutdown also failed: {shutdown}")]
     EntrypointAndShutdown {
         entry: ConnectorError,

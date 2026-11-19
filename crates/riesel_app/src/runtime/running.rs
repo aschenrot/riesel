@@ -179,7 +179,7 @@ impl RunningApp {
         match (outcome, shutdown) {
             (Ok(()), None) => Ok(()),
             (Err(entry), None) => Err(AppRunError::Entrypoint(entry)),
-            (Ok(()), Some(shutdown)) => Err(AppRunError::Startup(shutdown)),
+            (Ok(()), Some(shutdown)) => Err(AppRunError::Shutdown(shutdown)),
             (Err(entry), Some(shutdown)) => {
                 Err(AppRunError::EntrypointAndShutdown { entry, shutdown })
             }

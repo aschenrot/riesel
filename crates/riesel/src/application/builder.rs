@@ -70,7 +70,18 @@ impl Application {
             .iter_mut()
             .find(|requirement| requirement.name == name)
             .ok_or_else(|| SdkError::MissingCapability(name.into()))?;
-        requirement.depends_on = dependencies.into_iter().map(Into::into).collect();
+        let mut declared = BTreeSet::new();
+        for dependency in dependencies.into_iter().map(Into::into) {
+            if requirement.depends_on.contains(&dependency)
+                || !declared.insert(dependency.clone())
+            {
+                return Err(SdkError::DuplicateDependency {
+                    requirement: name.into(),
+                    dependency,
+                });
+            }
+            requirement.depends_on.push(dependency);
+        }
         Ok(self)
     }
 

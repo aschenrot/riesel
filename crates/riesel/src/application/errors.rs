@@ -44,6 +44,11 @@ pub enum SdkError {
     CapabilityMismatch(String),
     #[error("requirement {0} is already used for a different capability")]
     RequirementConflict(String),
+    #[error("requirement {requirement} declares dependency {dependency} more than once")]
+    DuplicateDependency {
+        requirement: String,
+        dependency: String,
+    },
     #[error("capability {0} already has a different transport adapter")]
     ConnectorModeConflict(String),
     #[error("module is already registered: {0}")]
