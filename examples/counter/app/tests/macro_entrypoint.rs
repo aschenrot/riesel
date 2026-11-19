@@ -1,6 +1,6 @@
 //! The generated high-level entrypoint uses the same authoritative
 //! schema and provider resolver as the explicit typed-handler builder.
-use riesel::{Application, AsyncCounterHandle};
+use riesel::Application;
 use riesel_counter::{AsyncCounterContract, CounterError};
 use riesel_counter_component::AsyncMemoryCounter;
 use riesel_protocol::CallError;
@@ -41,7 +41,6 @@ fn macro_and_builder_have_equivalent_definition_and_run_linked_counter() {
 
 #[test]
 fn identical_macro_binary_works_with_managed_provider_without_code_changes() {
-    use riesel::CapabilityDescriptor;
     let alias = AsyncCounterContract::definition()
         .unwrap()
         .capability
@@ -77,9 +76,6 @@ fn identical_macro_binary_works_with_managed_provider_without_code_changes() {
     ]);
     let plan: serde_json::Value = serde_json::from_slice(&inspected.stdout).unwrap();
     assert_eq!(plan["services"].as_array().unwrap().len(), 1);
-    let managed = output(&[
-        "--deployment",
-        path.to_str().expect("UTF-8 test path"),
-    ]);
+    let managed = output(&["--deployment", path.to_str().expect("UTF-8 test path")]);
     assert!(String::from_utf8_lossy(&managed.stdout).contains("Counter macro: 3"));
 }
