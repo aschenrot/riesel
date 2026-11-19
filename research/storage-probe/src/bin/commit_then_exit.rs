@@ -25,7 +25,7 @@ fn commit_sqlite(path: &Path) {
 fn commit_redb(path: &Path) {
     let db = Database::create(path).unwrap();
     let mut write = db.begin_write().unwrap();
-    write.set_durability(Durability::Immediate);
+    write.set_durability(Durability::Immediate).unwrap();
     {
         let mut table = write.open_table(RECORDS).unwrap();
         table.insert("task/after_ack", 1).unwrap();

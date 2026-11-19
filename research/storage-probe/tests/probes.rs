@@ -1,4 +1,4 @@
-use redb::{Database, Durability, ReadableTable, TableDefinition};
+use redb::{Database, Durability, ReadableDatabase, ReadableTable, TableDefinition};
 use rusqlite::{Connection, TransactionBehavior, params};
 use std::process::Command;
 use std::sync::{Arc, Barrier};
@@ -125,7 +125,7 @@ fn redb_order_revisions_and_reopen() {
     let path = dir.path().join("redb.db");
     let db = Database::create(&path).unwrap();
     let mut txn = db.begin_write().unwrap();
-    txn.set_durability(Durability::Immediate);
+    txn.set_durability(Durability::Immediate).unwrap();
     {
         let mut table = txn.open_table(REDB).unwrap();
         for key in ["task/2", "task/1", "task/3"] {
@@ -146,7 +146,7 @@ fn redb_order_revisions_and_reopen() {
     drop(txn);
 
     let mut txn = db.begin_write().unwrap();
-    txn.set_durability(Durability::Immediate);
+    txn.set_durability(Durability::Immediate).unwrap();
     {
         let mut table = txn.open_table(REDB).unwrap();
         assert_eq!(table.get("task/1").unwrap().unwrap().value(), 1);
@@ -180,7 +180,7 @@ fn redb_competing_writes_one_winner() {
             std::thread::spawn(move || {
                 barrier.wait();
                 let mut txn = db.begin_write().unwrap();
-                txn.set_durability(Durability::Immediate);
+                txn.set_durability(Durability::Immediate).unwrap();
                 let result = {
                     let mut table = txn.open_table(REDB).unwrap();
                     let current = table.get("task/record").unwrap().unwrap().value();
