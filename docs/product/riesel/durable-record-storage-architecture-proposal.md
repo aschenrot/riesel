@@ -1,91 +1,75 @@
-# Stage 6 — Durable Record Storage architecture proposal
+# Stage 6 — Durable Record Storage architecture
 
-**Status: proposed; Gate B not accepted.** Decision owner and evidence: [Specification Issue #24](https://github.com/aschenrot/riesel/issues/24). Research: [brief](durable-record-storage-research.md), [candidate evaluation](durable-record-storage-evaluation.md). This document is a reviewable recommendation, not implementation authorization.
+**Status: proposed for Gate B acceptance.** Decision evidence: [Issue #24](https://github.com/aschenrot/riesel/issues/24), [research brief](durable-record-storage-research.md), [backend comparison](durable-record-storage-evaluation.md), and [isolated Rust probes](https://github.com/aschenrot/riesel/pull/29). Merging the reviewed decision PR accepts the **bounded first-delivery contract below**; it does not certify production durability or complete Stage 6.
 
-## Proposed first delivery
+## Decision and rationale
 
-Introduce an explicit **SQLite-backed `RecordStore` provider** using a supported `rusqlite` version. It would be a reusable provider under `packages/storage/`, alongside—not replacing—MemoryStore, with `RecordStore` v2 and `Records<T>` preserved.
+Deliver a reusable **linked, SQLite-backed** provider for `RecordStore` v2, using `rusqlite`. The first supported deployment is **one local host, one logical provider owner per database file**, on a documented local filesystem. A managed-process provider, PostgreSQL-based remote provider, sharing the file across hosts, and replication are separate future deliveries. Do not imply local/managed parity until the managed model-configuration and readiness semantics are accepted and verified.
 
-The proposed topology is **one host, a local database file, and one logical owning provider per file**. Other application clients access records through the capability rather than modifying the file themselves. **Which placements belong to the first delivery is unresolved:** linked-only can satisfy Todo R1, while managed parity additionally requires a reliable model-configuration channel. A separate PostgreSQL-backed provider is a later deployment option, not automatically equivalent to embedded storage.
+SQLite is preferred for the first provider because it has documented transaction/synchronization behavior, established inspection/backup and schema-management facilities, and can implement ordered CRUD with revision-checked atomic changes. **redb remains a viable alternative**, especially for an accepted pure-Rust requirement; the candidate research did not identify a decisive correctness disadvantage in either engine. This choice is based on first-delivery operational fit, not unmeasured benchmarks or a preference for SQL itself.
 
-**Rationale:** conditional SQLite preference is supported by established transactional semantics, documented sync behavior, on-disk inspection and upgrade tooling. redb remains a credible pure-Rust fallback. The current `RecordStore` has no demonstrated need for a more complex LSM or distributed engine. This is not a performance conclusion. See the [dated comparison](durable-record-storage-evaluation.md).
+## Accepted scope upon integration
 
-## Delivery scope to accept
-
-| Option | Benefit | Added obligation |
-| --- | --- | --- |
-| **Linked provider first** | Delivers Todo R1 persistence and the reusable `RecordStore` capability with a smaller integration surface | Explicitly document managed Storage as unsupported until independently accepted and tested |
-| **Linked + managed parity immediately** | Exercises the same durable provider in both existing runtime placements | Must resolve managed model metadata/configuration, readiness diagnostics, file ownership and crash/recovery validation before the first release |
-
-**Provisional scope preference:** linked provider first, unless managed parity is an accepted Stage 6 exit criterion. This is a sequencing proposal, not permission to claim complete production Storage or to make an ephemeral managed provider persistent by assumption. Both options require provider-side model validation and fallible startup; the second requires an additional managed configuration/identity decision.
-
-## Proposed observable guarantees
-
-| Behavior | Proposed contract |
+| Area | First-delivery requirement |
 | --- | --- |
-| Lifecycle | File is not opened or created during schema inspection, provider registration or preflight. Opening and metadata validation occur during provider startup; failures reject startup without false readiness or panic. |
-| Persistence | A successfully acknowledged mutation survives a clean provider/application restart and an abrupt provider **process** termination when the configured engine commit has completed. |
-| Durability policy | SQLite WAL with `synchronous=FULL` as the initial durability-oriented default, on a documented supported local filesystem. Crash and power-loss guarantees remain limited by the OS, storage device and correct synchronization; test what can be tested. |
-| Atomic writes | Create/replace/delete is transactional. Update/delete only succeeds if model, UUID and the observed revision still match. Two concurrent operations on the same revision cannot both succeed. |
-| Identity and ordering | Generated UUIDs and revisions survive reopening. Model + UUID keys preserve bounded UUID-order cursor pagination; no multi-page snapshot is promised. |
-| Validation | A durable provider enforces **authoritative registered model definitions**, including raw `RecordStore` callers, not just typed `Records<T>` callers. Unknown models and incompatible model metadata fail safely. |
-| Schema evolution | Persist record format/version and model definitions. First release requires exact model compatibility by default; unsupported changes fail **before readiness** without rewriting data. Automatic migrations are deferred. |
-| Error semantics | Preserve existing v2 `NotFound`, `RevisionConflict`, `InvalidPageSize`, `Failed` and `Transport` behavior. Document recoverable lock, read-only, disk-full and corruption failures; expand typed errors only through a separately accepted versioned contract. |
-| Recovery | No implicit retry of ambiguous writes, no transparent rebinding across provider failure, and no fallback to MemoryStore. |
+| Capability | Preserve the published `RecordStore` v2 operations, `Records<T>` API and error variants; do not change unrelated capabilities |
+| Placement | Linked provider only. Applications register it explicitly; it must never become an implicit fallback from an unavailable persistent provider |
+| Database ownership | Explicit path, single logical provider owner, and local disk; no claim of multi-process direct-file sharing or network-filesystem safety |
+| Preflight | Inspect factory metadata, contracts and placement **without opening, creating or modifying** any database files |
+| Startup | Open/create the database, configure SQLite, inspect persistent metadata and fail through the existing local factory result **before** capability use |
+| Mutations | Each acknowledged write is a committed SQLite transaction; update/delete use atomic compare-and-swap against the expected revision; stale and missing records stay distinguishable |
+| Durability | Initial WAL with `synchronous=FULL`; acknowledge only after a successful commit. State explicitly that real host power-loss safety also depends on OS, filesystem and device behavior |
+| Identity and pagination | Stable UUIDs and full `u64` revisions across restarts; ordered model+UUID bounded pages with the existing non-snapshot cursor behavior |
+| Model enforcement | Provider validates authoritative application model definitions even for raw `RecordStore` callers; unknown models and invalid data fail |
+| Compatibility | Persist format/version and model definition metadata. Initially **exact schema match** for reopening existing databases; incompatible schema fails during startup without rewriting records; migrations deferred |
+| Failure behavior | Preserve `NotFound`, `RevisionConflict`, `InvalidPageSize`, `Failed`, and `Transport`; fail closed on database open, permission, lock, corruption or incompatible schema errors; do not silently repair corrupted data |
+| Recovery | Existing runtime session semantics remain; no automatic retry/exactly-once command semantics, transparent rebinding or silent MemoryStore fallback |
 
-The above are **proposed** acceptance boundaries. They are not claims about an already built provider.
+The 32-record page limit is contractual. Mirror the current MemoryStore 64 KiB serialized record bound in this first provider to respect existing RPC frame budgets; changing it requires explicit review.
 
-### Important representation details
+### Data representation
 
-- SQLite `INTEGER` is signed 64-bit, while `StoredRecord.revision` is `u64`. Preserve the full public revision domain (e.g. fixed eight-byte big-endian encoding) or explicitly justify any limitation in a versioned contract. The existing MemoryStore uses checked revision increment and returns an error on overflow.
-- Store UUIDs in an order-preserving representation (e.g. sixteen-byte canonical UUID bytes); test that SQLite ordering matches the existing Rust implementation and page cursor semantics.
-- Enforce the current 32-record page bound and evaluate the existing MemoryStore 64 KiB payload bound as an explicit provider parity rule; do not silently increase RPC frames.
-- Zero affected rows on conditional update/delete must be classified as missing versus stale revision **without a race**. Do the distinction within the relevant transaction, not by an unprotected subsequent read.
-- A committed SQLite transaction is not equivalent to a completed network/RPC call from the client's perspective; a lost response never authorizes automatic replay.
+- Key rows by model name and canonical 16-byte UUID BLOB, using order-preserving SQLite BLOB sorting; verify UUID ordering and exclusive page cursors against the memory provider.
+- Store revision as a fixed **8-byte big-endian BLOB**, not SQLite signed `INTEGER` (which cannot represent every `u64`). Reject `u64::MAX` updates with a documented overflow error; delete at that revision remains possible.
+- Store JSON data in a bounded deterministic representation; validate its shape, declared model fields and maximum size before any mutation. Treat invalid decoded persistent records as errors rather than returning misleading application data.
+- Use explicit SQLite transactions for create/update/delete and metadata updates. If a conditional write affects zero rows, distinguish missing records from stale revisions **inside the same transaction**. Generate UUIDs in the application/provider and retry an extremely unlikely insert collision without reusing an acknowledged ID.
+- Version the provider's on-disk format separately from application model shapes. Compare stored model metadata against the supplied model set on startup; do not auto-migrate existing records in the first delivery.
 
-## Architecture interfaces that require explicit decisions
+## Reuse existing runtime mechanisms
 
-### A. Fallible provider initialization
+### Fallible startup — no new generic runtime API needed
 
-Current `ComponentDefinition<S>` accepts only an infallible `Fn() -> S`, although `LocalProviderFactory::create` and the hosted server return `Result`. The existing startup code can propagate a failing factory and roll back earlier providers; the **component constructor** cannot express such a failure yet.
+`LocalProviderFactory::create()` already returns `Result<LocalProviderInstance, ConnectorError>`. The existing generic `LocalComponentFactory` accepts a fallible creation closure, and runtime startup already propagates local factory errors and rolls back earlier initialized components. **Use these interfaces for the linked provider.**
 
-**Preferred direction to review:** add an opt-in fallible component factory, preserving `ComponentDefinition::new` compatibility and using the existing startup/rollback machinery. An alternative is a Storage-specific `LocalProviderFactory`, but that would duplicate generic local/managed construction semantics. Confirm this trade-off before changing the core runtime.
+The SQLite connection must be opened only within that closure, not in provider registration, `definition()`, `contracts()`, preflight or a `ComponentDefinition::new` infallible constructor. No generic fallible `ComponentDefinition` extension is required for this scope. Such an extension may be considered later if managed-component parity or another reusable use case justifies it; this decision does not approve it.
 
-For the linked provider, initialization must fail through the local factory result; preflight remains pure. **If managed placement is included**, the service must initialize and validate its database before emitting `RIESEL_READY`; fatal startup causes must remain diagnosable. Do not claim that the existing readiness frame already transmits model definitions.
+### Model metadata — no second source of truth
 
-### B. Authoritative model metadata across placements
+`Application::records<T>()` already registers Rust-derived definitions in `AppSchema.models` with `model_bindings` indicating the Storage requirement. Reuse these definitions to construct the linked provider; do **not** require application authors to maintain a parallel schema file or trust only SDK-side checks.
 
-`AppSchema` already carries `models` and `model_bindings`; `Application::development()` passes cloned models to the MemoryStore development provider. In managed mode, the current provider readiness/selection channel contains **capability metadata, not model definitions**. A durable provider cannot assume the client SDK has validated every raw RPC request.
+The implementation must make an unambiguous binding between a selected Storage alias, its registered models and its provider configuration. An explicit SDK helper is acceptable if its API remains minimal and does not silently collect models from unrelated aliases. Verify builder call ordering or defer configuration binding until the final application schema is known. The backend provider API itself may accept explicit model definitions for standalone tests.
 
-**Required for the first delivery:** provide model definitions to the selected linked provider from authoritative application declarations without duplicating hand-maintained schemas; the existing `Application::development()` pattern shows one possible path. **Required before managed support is claimed:** design and test a deliberate startup/configuration channel for that instance, comparing application-generated configuration with an explicit model manifest. Do not add silent global discovery, a second resolver or an unauthenticated schema-mutation RPC merely for convenience.
+A managed provider will additionally require an accepted authenticated/owned model-configuration channel and startup validation before it advertises readiness; **that work is not part of the initial linked delivery**.
 
-Persist and compare model metadata against existing data. The planned error must identify the incompatible model without modifying the database. Resolve app/provider sharing and model-set changes before implementation.
+### Path, errors and operational safety
 
-### C. Path ownership and safe operations
+Use an explicit per-provider path and startup policy; no hardcoded ports, implicit working-directory path or implicit Storage fallback. Verify file creation permissions and failure behavior. Document SQLite WAL side files, locking/timeout behavior and backup/restore (use SQLite's backup facilities or a documented safe shutdown procedure). Do not claim networked or multi-owner file access is supported.
 
-Require an explicit database path/configuration bound to the chosen provider instance; avoid fixed ports, implicit application-wide defaults and unrelated current-working-directory paths. Define new-file creation versus open-existing behavior, filesystem permissions, lock contention, corrupted-file policy, and safe backup/restore procedures (including WAL-related files). Do not permit network-filesystem sharing as a supported first-release topology without independent evidence.
+`StoreError::Failed` is adequate to preserve v2 for first-delivery operational failures only if diagnostic messages are safe and actionable. Record error categories in tests, without changing the transport contract or leaking secrets/filesystem data inadvertently.
 
-## Focused engine research evidence
+## Evidence and limitations
 
-On 2026-11-19, isolated Rust 1.100.0 probes compiled and tested **rusqlite 0.43.0** and **redb 5.0.0** without adding either to the Riesel workspace. [Research PR #29](https://github.com/aschenrot/riesel/pull/29) and the [corrected research CI run](https://github.com/aschenrot/riesel/actions/runs/44569551231) passed **5/5** engine tests.
+On 2026-11-19, [Rust 1.100.0 research CI](https://github.com/aschenrot/riesel/actions/runs/44569551231) passed **5/5** isolated tests for `rusqlite 0.43.0` and `redb 5.0.0`: ordered keys, full `u64` representations, revision conflicts, competing writers and committed values after forced process exit **with handles still live**. The initial process-exit test was corrected before this result (see [Issue #24](https://github.com/aschenrot/riesel/issues/24#issuecomment-7015633350)). These tests confirm narrow engine feasibility; they do **not** prove Riesel integration, cross-process ownership, fault injection, OS-crash behavior or power-loss durability.
 
-The tests exercised SQLite binary UUID ordering, cursor pagination, full `u64` BLOB revisions, stale CAS and two concurrent writers; redb ordered keys, `u64` revisions and two competing write transactions; and **both engines** reopening an acknowledged record after child-process exit while the storage handle remains open. An initial probe incorrectly dropped the handle before exit; the corrected code exits **inside** the helper before Rust destructors run. The [Issue #24 evidence comment](https://github.com/aschenrot/riesel/issues/24#issuecomment-7015633350) records the correction.
+The accepted implementation must add Riesel-specific tests for provider registration/preflight purity, missing/invalid paths, schema mismatch, raw model validation, parity against MemoryStore, concurrent revisions, page boundaries, clean restart and process-termination recovery. Appropriate smoke and standard `cargo validate --check` / `cargo smoke` are mandatory. Windows remains a manual pre-release check; Linux CI alone is not production certification.
 
-This is narrow **engine feasibility evidence**, not integrated Riesel provider readiness, model registration, cross-process shared-file policy, corrupt-database recovery, or OS/power-loss verification. Neither candidate was disproven by these tests.
+## Implementation boundaries and dependencies
 
-## Evidence still required before accepting Gate B
+1. **Durable provider:** a separate `packages/storage/` implementation using the existing fallible `LocalComponentFactory`, explicit configuration, persistent metadata and atomic `RecordStore` operations.
+2. **Developer-facing linked registration:** bind already-declared Rust models to the correct Storage alias without manual duplicate schema. Work may proceed in parallel with the provider if the provider constructor/contract is agreed.
+3. **Parity and restart verification:** independent fixtures and contract-level tests, integrated with the provider before merging accepted behavior.
+4. **Todo R1:** adopt the accepted provider and implement usable headless commands only after durable Storage and startup contracts pass.
 
-1. **Riesel integration:** verify chosen engine's model metadata, bounded pagination, errors and durability policy in the actual `RecordStore` adapter, including local and managed placements. The isolated tests do not establish compatibility with generated RPC or the Riesel lifecycle.
-2. **Failure boundaries:** test relevant lock/busy, disk-full/invalid-path, corrupted-file and failed-startup outcomes, plus documented backup/upgrade policy. Preserve distinct process-crash and OS/power-loss claims.
-3. **Runtime design:** review and verify a minimal fallible factory path through local startup, managed readiness failure and rollback, without side effects in preflight.
-4. **Schema/channel design:** accept model propagation and validation for the first supported placement; resolve the managed manifest/registration channel before managed parity is delivered.
-5. **Platform policy:** record exact dependency versions, licensing and build requirements; Rust 1.100.0 Linux engine builds passed, but Windows remains a manual pre-release check. Confirm the final provider rather than extrapolating from standalone tests.
-6. **Process ownership:** decide whether another process may directly open the file, and establish the selected engine's locking/recovery rules for that topology.
+Do not interpret completion of this first Storage slice as completion of Stage 6 production reliability. Managed-process durability, migrations, network trust, authorization, external connectivity and generic fallible component construction remain independently scoped.
 
-## Decision gate and implementation decomposition
-
-**Gate B is not complete.** A maintainer must explicitly approve or revise the first-delivery placement scope, file ownership, backend, durability guarantee, model channel, error semantics and startup interface, with evidence linked in Issue #24. An unacceptable unknown permits a documented deferral or a return to alternative candidates.
-
-Only then create independent implementation Issues, for example: (a) fallible factory support if approved, (b) durable provider/storage configuration and model policy, (c) contract/parity, concurrency and restart tests, and (d) Todo R1 integration after the provider is available. Agents may work in parallel against accepted interfaces; separate the tasks only where changes and tests are independently reviewable.
-
-Excluded: distributed replication, automatic remote synchronization, public unauthenticated access, transparent exactly-once/retry, multi-user authorization and a generic migration framework.
+**Gate B decision:** an accountable reviewer must explicitly accept, revise or defer this limited architecture. After acceptance is recorded in Issue #24 and the corresponding PR is merged, create independently verifiable implementation Issues with accepted dependencies and verification boundaries.
