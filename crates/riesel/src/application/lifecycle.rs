@@ -152,14 +152,14 @@ impl LifecycleHooks {
         let task_shutdown = tasks.prepare_stop().await.err();
         if context.session_token().is_active() {
             for hook in self.stop.iter_mut().rev() {
-                if initialized_all || initialized.contains(&hook.name) {
-                    if let Err(source) = hook.handler.invoke(context).await {
-                        failures.push(HookFailure {
-                            phase: HookPhase::Stop,
-                            name: hook.name.clone(),
-                            source,
-                        });
-                    }
+                if (initialized_all || initialized.contains(&hook.name))
+                    && let Err(source) = hook.handler.invoke(context).await
+                {
+                    failures.push(HookFailure {
+                        phase: HookPhase::Stop,
+                        name: hook.name.clone(),
+                        source,
+                    });
                 }
             }
         }
