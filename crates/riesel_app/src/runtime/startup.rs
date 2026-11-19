@@ -91,7 +91,7 @@ impl App {
         let startup_executor = tokio::runtime::Builder::new_current_thread()
             .enable_all()
             .build()
-            .map_err(|source| RuntimeError::StartupExecutor(source))?;
+            .map_err(RuntimeError::StartupExecutor)?;
         run_with_recovery(
             &deployment.recovery,
             || startup_executor.block_on(self.clone().start_async(deployment, connectors)),
