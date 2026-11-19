@@ -90,7 +90,11 @@ impl<'a> StartupState<'a> {
                     .iter()
                     .find(|requirement| requirement.name == planned.requirement)
                     .expect("preflight must only plan registered requirements");
-                if !startup.connector(requirement)?.connector.supports_async_startup() {
+                if !startup
+                    .connector(requirement)?
+                    .connector
+                    .supports_async_startup()
+                {
                     return Err(RuntimeError::UnsupportedAsyncStartup {
                         requirement: requirement.name.clone(),
                     });
