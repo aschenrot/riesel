@@ -1,0 +1,13 @@
+[package]
+name = "riesel-storage-engine-probe"
+version = "0.0.0"
+edition = "2024"
+publish = false
+
+# Standalone investigation: do not add dependencies to the Riesel production workspace.
+[workspace]
+
+[dependencies]
+rusqlite = { version = "=0.43.0", features = ["bundled"] }
+redb = "=5.0.0"
+tempfile = "3.23"
