@@ -1,5 +1,7 @@
 use super::*;
 use std::any::TypeId;
+use riesel_protocol::{ComponentAdapter, LocalBindingMode};
+use riesel_schema::CapabilityRef;
 
 /// An inspected, connected service. Each connector owns its transport-specific
 /// adapter. The boxed Rust value is retrieved by the consumer using its type.
@@ -14,11 +16,14 @@ pub struct ConnectedProvider {
 pub trait CapabilityConnector: Send + Sync {
     fn contract(&self) -> Result<CapabilityContract, ConnectorError>;
 
-    /// A matching remote contract does not imply the registered local
-    /// binding has the same Rust service type. Async-only clients opt out
-    /// until a typed local async binding has been registered.
+    /// The registry checks this against the selected provider before
+    /// running its state factory, so type mismatches are preflight errors.
     fn accepts_local_service(&self) -> bool {
         true
+    }
+
+    fn local_binding_mode(&self) -> LocalBindingMode {
+        LocalBindingMode::Sync
     }
     fn connect(
         &self,
@@ -33,49 +38,30 @@ pub(super) struct RegisteredConnector {
     type_id: TypeId,
 }
 
-/// One executable binding for a capability advertised by a local component.
+/// One validated binding, materialized under the active session token.
 type ErasedLocalService = Box<dyn Any + Send + Sync>;
-type SessionGuardAdapter =
-    fn(ErasedLocalService, SessionToken) -> Result<ErasedLocalService, ConnectorError>;
+type SessionAdapter =
+    Box<dyn FnOnce(SessionToken) -> Result<ErasedLocalService, ConnectorError> + Send + Sync>;
 
 pub struct LocalCapabilityBinding {
     pub contract: CapabilityContract,
-    service: ErasedLocalService,
-    guard: SessionGuardAdapter,
+    pub(super) mode: LocalBindingMode,
+    attach: SessionAdapter,
 }
 
 impl LocalCapabilityBinding {
-    /// Convert the registered typed local service into a session-scoped
-    /// capability handle. Consumers cannot directly construct unguarded
-    /// bindings through the public component factory API.
-    pub(super) fn attach(
-        self,
-        session: SessionToken,
-    ) -> Result<Box<dyn Any + Send + Sync>, ConnectorError> {
-        (self.guard)(self.service, session)
+    pub(super) fn attach(self, session: SessionToken) -> Result<ErasedLocalService, ConnectorError> {
+        (self.attach)(session)
     }
 
     #[cfg(test)]
-    pub(super) fn raw(contract: CapabilityContract, service: Box<dyn Any + Send + Sync>) -> Self {
+    pub(super) fn raw(contract: CapabilityContract, service: ErasedLocalService) -> Self {
         Self {
             contract,
-            service,
-            guard: |service, _| Ok(service),
+            mode: LocalBindingMode::Sync,
+            attach: Box::new(move |_| Ok(service)),
         }
     }
-}
-
-fn guard_local_binding<C: riesel_protocol::RpcClientBinding>(
-    value: Box<dyn Any + Send + Sync>,
-    session: SessionToken,
-) -> Result<Box<dyn Any + Send + Sync>, ConnectorError> {
-    let service = value.downcast::<C::Service>().map_err(|_| {
-        io::Error::new(
-            io::ErrorKind::InvalidData,
-            "invalid typed local component binding",
-        )
-    })?;
-    Ok(Box::new(C::guard_local(*service, session)))
 }
 
 /// An instantiated local component can expose multiple capability interfaces
@@ -99,8 +85,23 @@ impl LocalProviderInstance {
     ) -> Result<Self, ConnectorError> {
         self.bindings.push(LocalCapabilityBinding {
             contract: C::definition()?,
-            service: Box::new(service),
-            guard: guard_local_binding::<C>,
+            mode: LocalBindingMode::Sync,
+            attach: Box::new(move |session| Ok(Box::new(C::guard_local(service, session)))),
+        });
+        Ok(self)
+    }
+
+    /// Bind the same component contract locally without repeating transport
+    /// setup. The handle is created only after its session exists.
+    pub fn bind_component<C, S>(mut self, state: Arc<S>) -> Result<Self, ConnectorError>
+    where
+        C: ComponentAdapter<S> + 'static,
+        S: Send + Sync + 'static,
+    {
+        self.bindings.push(LocalCapabilityBinding {
+            contract: C::definition()?,
+            mode: C::MODE,
+            attach: Box::new(move |session| Ok(Box::new(C::local(state, session)))),
         });
         Ok(self)
     }
@@ -110,6 +111,12 @@ impl LocalProviderInstance {
 pub trait LocalProviderFactory: Send + Sync {
     fn definition(&self) -> Result<ProviderDefinition, ConnectorError>;
     fn contracts(&self) -> Result<Vec<CapabilityContract>, ConnectorError>;
+
+    /// Pure metadata. Existing custom factories are synchronous by default.
+    fn binding_mode(&self, _capability: &CapabilityRef) -> LocalBindingMode {
+        LocalBindingMode::Sync
+    }
+
     fn create(&self) -> Result<LocalProviderInstance, ConnectorError>;
 }
 
