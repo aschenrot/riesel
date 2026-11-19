@@ -1,7 +1,7 @@
 use super::*;
-use std::any::TypeId;
 use riesel_protocol::{ComponentAdapter, LocalBindingMode};
 use riesel_schema::CapabilityRef;
+use std::any::TypeId;
 
 /// An inspected, connected service. Each connector owns its transport-specific
 /// adapter. The boxed Rust value is retrieved by the consumer using its type.
@@ -50,7 +50,10 @@ pub struct LocalCapabilityBinding {
 }
 
 impl LocalCapabilityBinding {
-    pub(super) fn attach(self, session: SessionToken) -> Result<ErasedLocalService, ConnectorError> {
+    pub(super) fn attach(
+        self,
+        session: SessionToken,
+    ) -> Result<ErasedLocalService, ConnectorError> {
         (self.attach)(session)
     }
 
