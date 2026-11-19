@@ -55,8 +55,7 @@ pub use riesel_app::{
     ConnectedProvider, ConnectorError, ConnectorRegistry, DeclarativeComponent, DeploymentConfig,
     DeploymentError, HookFailure, HookPhase, LifecycleFailure, LocalProviderFactory,
     ProviderCatalog, ProviderRegistry, ProviderSelectionConfig, RecoveryPolicy, ResolutionError,
-    ResolvedCapability, RunningApp,
-    RuntimeError, ServiceEndpoint, SessionToken,
+    ResolvedCapability, RunningApp, RuntimeError, ServiceEndpoint, SessionToken,
 };
 pub use riesel_macros::{RieselModel, RieselType, app, capability, component};
 

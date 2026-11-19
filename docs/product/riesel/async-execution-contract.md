@@ -22,7 +22,7 @@ A native async linked provider is invoked directly without serializing local cal
 
 - Each async application session owns its Tokio executor, scoped entrypoint and cancellation token. The startup coordinator shares one dependency/resolution path with synchronous applications, while async transport inspection is nonblocking.
 - Session invalidation wakes pending Tokio RPC calls, including semaphore waits, and drops pending application entrypoint futures; old typed handles reject new calls after session closure.
-- `AsyncTasks` is a bounded (64 active tasks), session-owned spawner. It tracks named task failures/panics, rejects stale or late spawns, cancels work and joins it before provider teardown.
+- `AsyncTasks` is a bounded (64 active tasks), session-owned spawner. It tracks named task failures/panics, rejects stale or late spawns, cancels work and joins it before provider teardown. When lifecycle stop hooks are registered, owned async work is drained before those hooks; the capability session is revoked after eligible hooks finish.
 - Application-owned `AsyncTasks::spawn_blocking` uses a distinct bounded scope (eight concurrent workers in the reference implementation). It requires cooperative cancellation and joins work during shutdown.
 - Provider-owned blocking work is an **explicit** `ProviderBlocking` boundary (up to eight named workers per instance in the reference implementation). The provider retains and joins work before component state is destroyed, even if its RPC caller drops a future.
 - Arbitrary synchronous native code cannot be forcibly preempted safely inside a Rust process. Managed child processes retain a separate, bounded process shutdown/kill fallback where configured.
@@ -40,7 +40,7 @@ The application entrypoint and external side effects must be safe under explicit
 - Invalid mode combinations and unsupported local/provider registrations should fail during preflight, before constructing provider state or launching managed children.
 - Preserve original failures, task names and cleanup diagnostics; do not reduce distinct error sources to a single unstructured string.
 - The accepted `#[riesel::app]` API uses these same execution invariants; see [high-level authoring](high-level-app.md).
-- Optional application modules are implemented, but ordered startup/shutdown hooks remain Stage 5.7 work; they must reuse existing session ownership, `AsyncTasks`, and supervision, not create an independent lifecycle manager.
+- Optional application modules register ordered, session-scoped async start and stop hooks through the existing builder, `AsyncTasks` and supervision path; see [application modules](application-modules.md).
 - Production transport authentication, authorization, persistence, observability, configurable budgets, and selective stateful recovery are **outside** Stage 5.4 and require separate acceptance.
 
 ## Verification

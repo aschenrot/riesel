@@ -22,7 +22,7 @@ Provider-catalog choices and direct deployment configuration compile into the sa
 
 An application can register cooperative tasks. Synchronous owned worker threads have a bounded active-task registry; completed tasks are joined and their names/capacity can be reused. Async sessions additionally own `AsyncTasks` and explicit bounded blocking scopes.
 
-Task errors and panics are propagated with useful sources and trigger session cancellation. Shutdown cancels the session, prevents new uses of stale typed capability handles, joins owned tasks, and then tears down providers in reverse dependency order. Cleanup failures must not silently replace the original business failure.
+Task errors and panics are propagated with useful sources and revoke the session. A normal async application first closes task admission, cancels and joins its owned work, and runs any eligible stop hooks while its provider handles are still valid. It then revokes session handles and tears down providers in reverse dependency order. A synchronous application without hooks revokes handles before task joining as before. Cleanup failures must not silently replace the original business failure.
 
 A Rust thread that never cooperates with cancellation may block local teardown indefinitely; terminating a Rust thread in place is not a safe general recovery mechanism. A configured managed process may be killed after its graceful shutdown deadline.
 
@@ -36,10 +36,12 @@ Recovery is eligible for unexpected managed-process loss under the supported coo
 
 **Important:** Rerunning an application entrypoint can repeat external side effects. Memory-only provider state does not persist. A timeout, lost response or cancelled RPC request does not prove the command was never executed. There is no exactly-once or transparent per-provider rebinding guarantee.
 
-## Future lifecycle work
+## Application lifecycle hooks
 
-Stage 5.7 lifecycle handlers must run within the existing session and dependency DAG, preserve structured cleanup failures, stop before required providers are destroyed, and honor cooperative cancellation. Optional modules group registration only; they do not invent a new service supervisor.
+Optional async start hooks execute after validated provider startup and before the entrypoint. Stop hooks execute in reverse dependency/declaration order after async background work is drained and before successful-session provider teardown. After partial hook startup, only matching stop hooks for completed start hooks are eligible. A crashed managed child revokes the session, so hooks requiring now-invalid capability handles are skipped; there is no cleanup-only rebinding.
 
-Future production behavior requires explicit contracts for safe stateful recovery, external-provider health, configurable budgets, observability and separately authenticated transports.
+Hook and entrypoint errors retain distinct identities and typed sources, including multiple stop-hook failures. Hook callbacks are not serialized into the inspectable application schema. Registration and preflight remain side-effect-free. See [application modules](application-modules.md) for current syntax and precise ordering.
+
+No application-wide hook execution deadline is currently enforced. Async cancellation drops futures but does not undo transmitted RPC commands; non-cooperative Rust threads may block teardown. Configured managed child processes have a separate graceful deadline and kill fallback. Future production behavior requires explicit contracts for safe stateful recovery, external-provider health, configurable budgets, observability and separately authenticated transports.
 
 See [implementation roadmap](implementation-roadmap.md), [async execution contract](async-execution-contract.md), and [provider catalog](provider-catalog.md).

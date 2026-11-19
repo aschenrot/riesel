@@ -62,26 +62,75 @@ provider registry. A module returning an unrelated newly built
 This composition layer is optional. For small applications, registering
 components directly is still the simpler and recommended API.
 
-## Remaining lifecycle design gate
+## Session lifecycle hooks (Stage 5.7)
 
-Stage 5.7 is **not complete**. Module registration does not automatically
-provide lifecycle hooks. The next acceptance slice must preserve all of
-the following:
+Modules can optionally register async `Application::on_start` and
+`Application::on_stop` handlers. An ordinary application does not need hooks.
+They use the same typed parameter declaration and alias extraction as
+`Application::async_handler`; use `on_start_with_aliases` and
+`on_stop_with_aliases` when the default requirement alias is not suitable.
+The high-level macro composes module hooks through the existing builder
+without introducing new macro options.
 
-- **Startup ordering:** validate capability dependencies before launching
-  any provider; run start hooks only in a prepared, owned application
-  session and use deterministically declared ordering rules
-- **Failure propagation:** retain both the original entrypoint/hook error
-  and any cleanup failures; no silent fallback or automatic command replay
-- **Cancellation:** scope asynchronous hooks and spawned work to the
-  current session; a managed child failure must revoke their handles
-- **Shutdown:** run eligible stop hooks before provider state is destroyed,
-  then close and join owned work before stopping children; define a
-  cooperative timeout contract and process fallback for non-cooperative code
-- **Recovery:** opt-in whole-application restart must create fresh hook and
-  provider scope; never reuse expired handles or silently replay commands
+```rust
+impl ApplicationModule for CounterLifecycle {
+    fn register(app: Application) -> riesel::Result<Application> {
+        app.on_start_with_aliases(
+            "counter_session",
+            |counter: AsyncCapability<AsyncCounterContract>| async move {
+                counter.add(1).await?;
+                Ok::<(), CallError<CounterError>>(())
+            },
+            ["counter"],
+        )?
+        .on_stop_with_aliases(
+            "counter_session",
+            |counter: AsyncCapability<AsyncCounterContract>| async move {
+                let _ = counter.value().await?;
+                Ok::<(), CallError<CounterError>>(())
+            },
+            ["counter"],
+        )
+    }
+}
+```
 
-This is a specification for the **remaining work**, not a claim that
-`on_start`, `on_stop` or a scheduler already exist. Reuse
-`RunningApp`, `AsyncTasks` and the existing supervisor; do not add a
-second lifecycle coordinator merely because modules are optional.
+Each name is unique within its phase; the same name pairs start/stop hooks.
+Duplicate or invalid names are rejected during registration. Repeated
+`depends_on` declarations are additive, not silently overwritten, and
+duplicate dependency edges fail validation. Capability dependency cycles,
+invalid bindings and provider configuration fail before provider startup.
+
+After all providers are ready, start hooks run by the **latest required
+capability's position** in the existing dependency DAG. Independent hooks
+retain registration order. The entrypoint runs after all start hooks succeed.
+Stop hooks run in reverse of their corresponding dependency/declaration
+order while their provider handles remain usable. A stop-only hook runs on
+normal completion. If a start hook fails, only completed start hooks'
+matching stop hooks run; the entrypoint is skipped.
+
+The async task scope closes admission, signals cancellation and joins owned
+work before invoking stop hooks. Stop hooks cannot start new background
+tasks. After those hooks, the session token expires and the normal runtime
+tears down providers and managed processes. If a managed child or an owned
+task has already invalidated the session, capability-dependent stop hooks
+are skipped rather than given replacement handles. Old cloned handles do
+not become valid in a restarted session.
+
+Hook errors preserve phase, name and source in `HookFailure` and
+`LifecycleFailure`, surfaced through `AppRunError::Lifecycle`.
+Entry and hook-cleanup errors remain separately inspectable. Hooks do not
+make ordinary business errors eligible for automatic recovery.
+
+No universal deadline or forced termination is promised for Rust hooks.
+A caller must use bounded/cooperative operations; cancelling an async
+future cannot undo commands already sent. Managed children retain their
+configured graceful deadline and process-kill fallback. Recovery replays
+start hooks in a fresh session; callback closures may still capture
+application-owned state outside Riesel, so callers must explicitly handle
+non-idempotent side effects.
+
+The synchronous SDK still has no implicit Tokio dependency; registered
+async hooks require an async application handler. See
+[runtime lifecycle](runtime-lifecycle.md) and
+[execution contract](async-execution-contract.md).
