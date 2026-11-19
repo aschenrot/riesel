@@ -1,3 +1,4 @@
+use riesel::storage::StoreError;
 use riesel::{Record, Records, RieselModel, SdkError};
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
@@ -53,14 +54,55 @@ impl Todo {
         Ok(self.records.list()?)
     }
 
-    pub fn set_completed(&self, id: Uuid, completed: bool) -> Result<Task, TodoError> {
+    /// Update completion only if the caller's observed revision is current.
+    /// An obsolete browser or CLI client must not silently overwrite newer data.
+    pub fn set_completed(
+        &self,
+        id: Uuid,
+        expected_revision: u64,
+        completed: bool,
+    ) -> Result<Task, TodoError> {
+        self.modify_task(id, expected_revision, |task| task.completed = completed)
+    }
+
+    /// Edit a title while preserving concurrent changes and rejecting empty titles.
+    pub fn edit_title(
+        &self,
+        id: Uuid,
+        expected_revision: u64,
+        title: impl Into<String>,
+    ) -> Result<Task, TodoError> {
+        let title = title.into();
+        if title.trim().is_empty() {
+            return Err(TodoError::EmptyTitle);
+        }
+        self.modify_task(id, expected_revision, |task| task.title = title)
+    }
+
+    fn modify_task(
+        &self,
+        id: Uuid,
+        expected_revision: u64,
+        change: impl FnOnce(&mut TaskData),
+    ) -> Result<Task, TodoError> {
+        let mut current = self.get_task(id)?.ok_or(TodoError::NotFound)?;
+        change(&mut current.value);
         self.records
-            .update_with(id, |task| task.completed = completed)?
-            .ok_or(TodoError::NotFound)
+            .update(id, expected_revision, current.value)
+            .map_err(Self::map_storage_error)
     }
 
     pub fn delete_task(&self, id: Uuid, expected_revision: u64) -> Result<(), TodoError> {
-        Ok(self.records.delete(id, expected_revision)?)
+        self.records
+            .delete(id, expected_revision)
+            .map_err(Self::map_storage_error)
+    }
+
+    fn map_storage_error(error: SdkError) -> TodoError {
+        match error {
+            SdkError::Store(StoreError::NotFound) => TodoError::NotFound,
+            error => TodoError::Storage(error),
+        }
     }
 }
 
@@ -100,7 +142,9 @@ mod tests {
     fn completes_a_task() {
         let todo = todo();
         let created = todo.create_task("Build Riesel").unwrap();
-        let completed = todo.set_completed(created.id, true).unwrap();
+        let completed = todo
+            .set_completed(created.id, created.revision, true)
+            .unwrap();
         assert!(completed.value.completed);
         assert_eq!(completed.id, created.id);
         assert_eq!(completed.revision, 2);
@@ -119,7 +163,7 @@ mod tests {
     fn cannot_complete_missing_task() {
         let todo = todo();
         assert!(matches!(
-            todo.set_completed(Uuid::new_v4(), true),
+            todo.set_completed(Uuid::new_v4(), 1, true),
             Err(TodoError::NotFound)
         ));
     }
@@ -140,7 +184,9 @@ mod tests {
 
         let todo = todo();
         let created = todo.create_task("Remove me").unwrap();
-        let changed = todo.set_completed(created.id, true).unwrap();
+        let changed = todo
+            .set_completed(created.id, created.revision, true)
+            .unwrap();
         assert!(matches!(
             todo.delete_task(created.id, created.revision),
             Err(TodoError::Storage(SdkError::Store(
@@ -149,6 +195,77 @@ mod tests {
         ));
         todo.delete_task(created.id, changed.revision).unwrap();
         assert!(todo.get_task(created.id).unwrap().is_none());
+    }
+
+    #[test]
+    fn title_edit_is_validated_and_increments_revision() {
+        let todo = todo();
+        let created = todo.create_task("Original").unwrap();
+        let edited = todo
+            .edit_title(created.id, created.revision, "New title")
+            .unwrap();
+        assert_eq!(edited.value.title, "New title");
+        assert_eq!(edited.id, created.id);
+        assert_eq!(edited.revision, 2);
+        assert!(!edited.value.completed);
+
+        assert!(matches!(
+            todo.edit_title(created.id, edited.revision, "   "),
+            Err(TodoError::EmptyTitle)
+        ));
+        assert_eq!(todo.get_task(created.id).unwrap().unwrap(), edited);
+    }
+
+    #[test]
+    fn stale_clients_cannot_overwrite_newer_title_or_completion() {
+        use riesel::storage::StoreError;
+        let todo = todo();
+        let first_client = todo.create_task("Draft").unwrap();
+        let second_client = todo.get_task(first_client.id).unwrap().unwrap();
+        assert_eq!(first_client.revision, second_client.revision);
+
+        let updated = todo
+            .edit_title(first_client.id, first_client.revision, "Reviewed")
+            .unwrap();
+        assert_eq!(updated.revision, 2);
+        assert!(matches!(
+            todo.set_completed(second_client.id, second_client.revision, true),
+            Err(TodoError::Storage(SdkError::Store(
+                StoreError::RevisionConflict
+            )))
+        ));
+        assert!(matches!(
+            todo.edit_title(second_client.id, second_client.revision, "Stale overwrite"),
+            Err(TodoError::Storage(SdkError::Store(
+                StoreError::RevisionConflict
+            )))
+        ));
+        assert!(matches!(
+            todo.delete_task(second_client.id, second_client.revision),
+            Err(TodoError::Storage(SdkError::Store(
+                StoreError::RevisionConflict
+            )))
+        ));
+        let saved = todo.get_task(first_client.id).unwrap().unwrap();
+        assert_eq!(saved, updated);
+        assert_eq!(saved.value.title, "Reviewed");
+        assert!(!saved.value.completed);
+
+        let completed = todo.set_completed(saved.id, saved.revision, true).unwrap();
+        assert_eq!(completed.revision, 3);
+        assert!(completed.value.completed);
+        assert_eq!(completed.value.title, "Reviewed");
+    }
+
+    #[test]
+    fn edit_and_delete_missing_tasks_return_the_domain_not_found_error() {
+        let todo = todo();
+        let id = Uuid::new_v4();
+        assert!(matches!(
+            todo.edit_title(id, 1, "Missing"),
+            Err(TodoError::NotFound)
+        ));
+        assert!(matches!(todo.delete_task(id, 1), Err(TodoError::NotFound)));
     }
 
     #[test]

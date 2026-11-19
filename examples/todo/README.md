@@ -110,7 +110,7 @@ managed executables and deployment files.
 ## Storage v2 example behavior
 
 The reference application uses cursor-paginated storage, revision-checked
-updates and deletion. `Todo::list_tasks` collects pages for the small
+title edits, completion updates and deletion. `Todo::list_tasks` collects pages for the small
 example dataset, while callers handling larger collections can use
 `Records::<TaskData>::list_page` with a bounded page size. Development
 Storage enforces the registered `TaskData` model shape on provider writes;
@@ -118,6 +118,8 @@ a standalone managed reference provider does not receive that model registry.
 
 The `records` SDK feature is optional for applications that only use
 custom capability contracts. Todo opts into `dev-memory-storage`, which
-includes `records`. Todo's `set_completed` uses `Records::update_with`,
-a single read-modify-write operation that propagates revision conflicts
-instead of silently replaying updates.
+includes `records`. Todo's `edit_title`, `set_completed` and `delete_task`
+require the revision last observed by the caller. Storage compares that
+revision atomically with the stored record and rejects stale writes rather
+than silently refreshing the revision and overwriting a concurrent edit.
+This is a domain/API correctness improvement, not durable persistence.
