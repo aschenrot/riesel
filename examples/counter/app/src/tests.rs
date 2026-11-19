@@ -590,3 +590,123 @@ fn async_connector_rejects_expired_session_before_network_inspection() {
         Some(RpcError::SessionExpired)
     ));
 }
+
+#[test]
+fn async_application_startup_uses_nonblocking_connector_and_shared_resolver() {
+    use riesel::{
+        App, Application, CapabilityConnector, ConnectedProvider, ConnectorError,
+        ConnectorRegistry, DeploymentConfig, ServiceEndpoint,
+    };
+    use riesel_protocol::SessionToken;
+    use riesel_schema::CapabilityContract;
+    use std::collections::BTreeMap;
+
+    struct DelayedConnector;
+    impl CapabilityConnector for DelayedConnector {
+        fn contract(&self) -> Result<CapabilityContract, ConnectorError> {
+            Ok(CounterContract::definition()?)
+        }
+
+        fn connect(
+            &self,
+            _: &ServiceEndpoint,
+            _: &SessionToken,
+        ) -> Result<ConnectedProvider, ConnectorError> {
+            panic!("async application startup used the blocking connector")
+        }
+
+        fn connect_async<'a>(
+            &'a self,
+            _: &'a ServiceEndpoint,
+            _: &'a SessionToken,
+        ) -> std::pin::Pin<
+            Box<
+                dyn std::future::Future<Output = Result<ConnectedProvider, ConnectorError>>
+                    + Send
+                    + 'a,
+            >,
+        > {
+            Box::pin(async {
+                tokio::time::sleep(Duration::from_millis(80)).await;
+                Ok(ConnectedProvider {
+                    definition: riesel_counter_component::memory_provider_definition()?,
+                    contract: CounterContract::definition()?,
+                    service: Box::new(()),
+                })
+            })
+        }
+    }
+
+    let definition = Application::new("AsyncStartup")
+        .require::<CounterContract>("counter")
+        .unwrap()
+        .definition()
+        .clone();
+    let mut providers = ConnectorRegistry::new();
+    providers.register(DelayedConnector).unwrap();
+    let deployment = DeploymentConfig::new(BTreeMap::from([(
+        "counter".into(),
+        ServiceEndpoint::Tcp {
+            address: "127.0.0.1:1".parse().unwrap(),
+        },
+    )]));
+    let runtime = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .unwrap();
+    let mut running = runtime.block_on(async {
+        let startup = App::from_definition(definition)
+            .unwrap()
+            .start_async(&deployment, &providers);
+        let mut startup = std::pin::pin!(startup);
+        assert!(
+            tokio::time::timeout(Duration::from_millis(15), &mut startup)
+                .await
+                .is_err(),
+            "the application startup future did not yield to Tokio"
+        );
+        startup.await.unwrap()
+    });
+    assert_eq!(running.resolved().len(), 1);
+    assert_eq!(running.resolved()[0].provider, "riesel.counter.memory");
+    running.shutdown().unwrap();
+}
+
+#[test]
+fn async_startup_does_not_execute_legacy_blocking_connectors() {
+    use riesel::{
+        App, Application, ConnectorRegistry, DeploymentConfig, RpcConnector, RuntimeError,
+        ServiceEndpoint,
+    };
+    use std::collections::BTreeMap;
+    use std::io;
+
+    let definition = Application::new("NoBlockingConnector")
+        .require::<CounterContract>("counter")
+        .unwrap()
+        .definition()
+        .clone();
+    let mut providers = ConnectorRegistry::new();
+    providers.register(RpcConnector::<CounterContract>::new()).unwrap();
+    let deployment = DeploymentConfig::new(BTreeMap::from([(
+        "counter".into(),
+        ServiceEndpoint::Tcp {
+            address: "127.0.0.1:1".parse().unwrap(),
+        },
+    )]));
+    let runtime = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .unwrap();
+    let result = runtime.block_on(
+        App::from_definition(definition)
+            .unwrap()
+            .start_async(&deployment, &providers),
+    );
+    assert!(matches!(
+        result,
+        Err(RuntimeError::Connection { source, .. })
+            if source.downcast_ref::<io::Error>()
+                .is_some_and(|error| error.kind() == io::ErrorKind::Unsupported)
+    ));
+}
