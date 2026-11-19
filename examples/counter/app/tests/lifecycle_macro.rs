@@ -38,10 +38,7 @@ fn high_level_module_uses_identical_hooks_for_local_and_managed_providers() {
             }
         }
     });
-    let path = std::env::temp_dir().join(format!(
-        "riesel-lifecycle-{}.json",
-        std::process::id()
-    ));
+    let path = std::env::temp_dir().join(format!("riesel-lifecycle-{}.json", std::process::id()));
     std::fs::write(&path, deployment.to_string()).unwrap();
     struct Cleanup(std::path::PathBuf);
     impl Drop for Cleanup {

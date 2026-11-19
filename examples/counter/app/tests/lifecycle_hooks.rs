@@ -1,9 +1,5 @@
-use riesel::{
-    AppRunError, Application, AsyncCapability, LifecycleFailure, SdkError,
-};
-use riesel_counter::{
-    AsyncCounterContract, AsyncCounterObserverContract, CounterError,
-};
+use riesel::{AppRunError, Application, AsyncCapability, LifecycleFailure, SdkError};
+use riesel_counter::{AsyncCounterContract, AsyncCounterObserverContract, CounterError};
 use riesel_counter_component::AsyncMemoryCounter;
 use riesel_protocol::CallError;
 use std::sync::{Arc, Mutex};
@@ -184,7 +180,14 @@ fn entrypoint_and_stop_failures_remain_separate() {
         panic!("expected combined lifecycle error");
     };
     let failure = failure.downcast_ref::<LifecycleFailure>().unwrap();
-    assert!(failure.entry.as_ref().unwrap().to_string().contains("entry failed"));
+    assert!(
+        failure
+            .entry
+            .as_ref()
+            .unwrap()
+            .to_string()
+            .contains("entry failed")
+    );
     assert_eq!(failure.hooks.len(), 1);
     assert_eq!(failure.hooks[0].name, "cleanup");
 }
