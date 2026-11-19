@@ -16,11 +16,13 @@ use riesel::{
 };
 use riesel_storage::RecordStoreContract;
 
+mod authoring;
 mod counter;
 mod fixtures;
 mod inspection;
 mod storage;
 
+use authoring::verify_documented_entrypoints;
 use counter::{
     verify_counter_provider, verify_managed_session_recovery, verify_shared_managed_component,
 };
@@ -38,7 +40,8 @@ pub fn run() -> TaskResult {
         "--bin",
         "storage_service",
     ])?;
-    cargo(&["build", "--locked", "-p", "todo", "--bin", "todo"])?;
+    cargo(&["build", "--locked", "-p", "todo", "--bins"])?;
+    cargo(&["build", "--locked", "-p", "riesel_hello_example", "--bins"])?;
     cargo(&[
         "build",
         "--locked",
@@ -54,6 +57,10 @@ pub fn run() -> TaskResult {
         "riesel_counter_example",
         "--bins",
     ])?;
+
+    println!("\n==> Verifying documented Hello and Todo authoring entrypoints");
+    verify_documented_entrypoints()?;
+    println!("\nHello and Todo authoring examples passed.");
 
     // No pre-bind/drop reservation race and no fixed port in deployment.
     let path = env::temp_dir().join(format!("riesel-managed-smoke-{}.json", std::process::id()));
