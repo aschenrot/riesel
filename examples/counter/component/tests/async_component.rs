@@ -151,20 +151,34 @@ fn typed_async_background_tasks_share_managed_component_and_join_on_return() {
 }
 
 #[test]
-fn failing_background_task_cancels_pending_async_entrypoint_and_is_reported() {
+fn failing_background_task_cancels_entrypoint_without_replaying_it_on_recovery() {
     use riesel::{AppRunError, AsyncTasks, ConnectorError, SdkError};
+    use std::sync::atomic::{AtomicUsize, Ordering};
 
+    let executions = Arc::new(AtomicUsize::new(0));
+    let invoked = Arc::clone(&executions);
+    let mut deployment = DeploymentConfig::new(BTreeMap::new());
+    deployment.recovery = riesel_app::RecoveryPolicy::RestartApplication {
+        max_restarts: 3,
+        initial_backoff_ms: 10,
+        max_backoff_ms: 40,
+    };
     let error = Application::new("AsyncBackgroundFailure")
-        .async_handler(|tasks: AsyncTasks| async move {
-            tasks.spawn("fatal", async {
-                Err(std::io::Error::other("injected background failure").into())
-            })?;
-            std::future::pending::<Result<(), ConnectorError>>().await
+        .async_handler(move |tasks: AsyncTasks| {
+            invoked.fetch_add(1, Ordering::SeqCst);
+            async move {
+                tasks.spawn("fatal", async {
+                    Err(std::io::Error::other("injected background failure").into())
+                })?;
+                std::future::pending::<Result<(), ConnectorError>>().await
+            }
         })
         .unwrap()
+        .deployment(deployment)
         .run()
         .unwrap_err();
 
+    assert_eq!(executions.load(Ordering::SeqCst), 1);
     assert!(matches!(
         error,
         SdkError::Execution(AppRunError::TaskFailure { failure, .. })
