@@ -269,6 +269,42 @@ mod tests {
         }
     }
 
+    // A blocking-work factory cannot silently bind a synchronous
+    // capability, locally or in a managed process.
+    #[cfg(feature = "async-tcp")]
+    #[component(
+        provides = [CounterContract],
+        factory_with_blocking = create_invalid_blocking_sync
+    )]
+    struct InvalidBlockingSync;
+
+    #[cfg(feature = "async-tcp")]
+    fn create_invalid_blocking_sync(_: riesel_app::ProviderBlocking) -> InvalidBlockingSync {
+        InvalidBlockingSync
+    }
+
+    #[cfg(feature = "async-tcp")]
+    impl Counter for InvalidBlockingSync {
+        fn value(&self) -> Result<u64, CounterError> {
+            Ok(0)
+        }
+
+        fn add(&self, amount: u64) -> Result<u64, CounterError> {
+            Ok(amount)
+        }
+
+        fn label(&self, prefix: &str) -> Result<String, CounterError> {
+            Ok(prefix.into())
+        }
+    }
+
+    #[cfg(feature = "async-tcp")]
+    #[test]
+    fn synchronous_component_rejects_blocking_factory_during_registration() {
+        let error = InvalidBlockingSync::component_definition().err().unwrap();
+        assert!(error.to_string().contains("factory_with_blocking"));
+    }
+
     #[test]
     fn mixed_mode_host_fails_before_constructing_component_state() {
         let before = MIXED_CONSTRUCTIONS.load(std::sync::atomic::Ordering::SeqCst);
