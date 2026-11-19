@@ -259,6 +259,7 @@ fn with_exiting_managed_child() -> RunningApp {
     let supervisor = ServiceMonitor::start(
         Arc::clone(&processes),
         BTreeMap::from([("counter".into(), key)]),
+        SessionToken::new(),
     )
     .unwrap();
     let tasks = TaskGroup::new(supervisor.cancellation_token());
@@ -341,6 +342,7 @@ fn managed_failure_during_task_join_is_not_missed() {
     let supervisor = ServiceMonitor::start(
         Arc::clone(&processes),
         BTreeMap::from([("counter".into(), key)]),
+        SessionToken::new(),
     )
     .unwrap();
     let tasks = TaskGroup::new(supervisor.cancellation_token());
