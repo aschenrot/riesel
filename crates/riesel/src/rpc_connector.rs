@@ -73,9 +73,47 @@ impl<C> Default for AsyncRpcConnector<C> {
 }
 
 #[cfg(feature = "async-tcp")]
-impl<C> AsyncRpcConnector<C> {
+impl<C: AsyncRpcClientBinding> AsyncRpcConnector<C> {
     pub fn new() -> Self {
         Self::default()
+    }
+
+    /// Inspect generated contract and provider metadata using the actual
+    /// nonblocking Tokio transport, under the same application session as
+    /// subsequent business calls. No synchronous TcpRpcTransport is involved.
+    async fn inspect(
+        &self,
+        endpoint: &ServiceEndpoint,
+        session: &SessionToken,
+    ) -> Result<ConnectedProvider, ConnectorError> {
+        let address = endpoint.address().ok_or_else(|| {
+            io::Error::new(
+                io::ErrorKind::InvalidInput,
+                "async RPC needs a TCP endpoint",
+            )
+        })?;
+        let expected = C::definition()?;
+        session.check()?;
+        let transport = std::sync::Arc::new(AsyncTcpRpcTransport::with_session(
+            address,
+            session.clone(),
+        ));
+        let contract = transport.describe(&expected.capability).await?;
+        if !contract.has_same_api_shape(&expected) {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidData,
+                "remote async capability contract differs from Rust declaration",
+            )
+            .into());
+        }
+        let provider = transport.provider(&expected.capability).await?;
+        session.check()?;
+        let client_transport: std::sync::Arc<dyn AsyncRpcTransport> = transport;
+        Ok(ConnectedProvider {
+            definition: provider,
+            contract,
+            service: Box::new(C::bind_async(client_transport)),
+        })
     }
 }
 
@@ -94,36 +132,28 @@ impl<C: AsyncRpcClientBinding> CapabilityConnector for AsyncRpcConnector<C> {
         endpoint: &ServiceEndpoint,
         session: &SessionToken,
     ) -> Result<ConnectedProvider, ConnectorError> {
-        let address = endpoint.address().ok_or_else(|| {
-            io::Error::new(
-                io::ErrorKind::InvalidInput,
-                "async RPC needs a TCP endpoint",
-            )
-        })?;
-        let expected = C::definition()?;
-        // Startup/selection is synchronous today; inspect the remote
-        // contract before returning a nonblocking business-call transport.
-        // Both paths use the same capability ID, provider and session.
-        // Startup inspection is one-shot, so do not pool temporary TCP
-        // sockets; single-request hosts and managed multiplexers both work.
-        session.check()?;
-        let inspection = TcpRpcTransport::new(address);
-        let contract = inspection.describe(&expected.capability)?;
-        if !contract.has_same_api_shape(&expected) {
-            return Err(io::Error::new(
-                io::ErrorKind::InvalidData,
-                "remote async capability contract differs from Rust declaration",
+        // The application builder is intentionally synchronous. A temporary
+        // runtime drives real async inspection before the business executor
+        // starts; no blocking socket is ever polled on a Tokio worker.
+        // connect_async is available to the async startup orchestrator.
+        if tokio::runtime::Handle::try_current().is_ok() {
+            return Err(io::Error::other(
+                "synchronous async-RPC startup cannot run inside a Tokio executor",
             )
             .into());
         }
-        let provider = inspection.provider(&expected.capability)?;
-        session.check()?;
-        let transport: std::sync::Arc<dyn AsyncRpcTransport> =
-            std::sync::Arc::new(AsyncTcpRpcTransport::with_session(address, session.clone()));
-        Ok(ConnectedProvider {
-            definition: provider,
-            contract,
-            service: Box::new(C::bind_async(transport)),
-        })
+        let runtime = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()?;
+        runtime.block_on(self.inspect(endpoint, session))
     }
-}
+
+    fn connect_async<'a>(
+        &'a self,
+        endpoint: &'a ServiceEndpoint,
+        session: &'a SessionToken,
+    ) -> std::pin::Pin<
+        Box<dyn std::future::Future<Output = Result<ConnectedProvider, ConnectorError>> + Send + 'a>,
+    > {
+        Box::pin(self.inspect(endpoint, session))
+    }
