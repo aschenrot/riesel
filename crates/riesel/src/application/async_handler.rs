@@ -134,6 +134,14 @@ where
         Ok(self)
     }
 
+    /// Explicit opt-in to the in-memory Storage implementation. This does
+    /// not occur automatically when a Records<T> requirement is present.
+    #[cfg(feature = "dev-memory-storage")]
+    pub fn development(mut self) -> Result<Self> {
+        self.application = self.application.development()?;
+        Ok(self)
+    }
+
     pub fn deployment(mut self, config: DeploymentConfig) -> Self {
         self.application = self.application.deployment(config);
         self

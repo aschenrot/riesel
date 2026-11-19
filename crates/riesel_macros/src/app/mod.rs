@@ -5,9 +5,7 @@ use quote::quote;
 use std::collections::BTreeSet;
 use syn::parse::{Parse, ParseStream};
 use syn::punctuated::Punctuated;
-use syn::{
-    Attribute, FnArg, Ident, ItemFn, LitStr, Pat, Path, ReturnType, Token, Type, bracketed,
-};
+use syn::{Attribute, FnArg, Ident, ItemFn, LitStr, Pat, Path, ReturnType, Token, Type, bracketed};
 
 pub(crate) struct AppArgs {
     components: Vec<Path>,

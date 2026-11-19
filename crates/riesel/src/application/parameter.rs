@@ -165,7 +165,9 @@ where
     H: riesel_protocol::NativeAsyncHandle,
 {
     fn default_alias() -> Result<String> {
-        Ok(H::Contract::definition()?.capability.default_requirement_alias())
+        Ok(H::Contract::definition()?
+            .capability
+            .default_requirement_alias())
     }
 
     fn declare(application: Application, alias: &str) -> Result<Application> {

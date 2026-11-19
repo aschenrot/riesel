@@ -13,3 +13,6 @@ serde.workspace = true
 
 [dev-dependencies]
 riesel_storage_component = { path = "../../packages/storage/memory" }
+[[bin]]
+name = "todo_macro"
+path = "src/bin/todo_macro.rs"

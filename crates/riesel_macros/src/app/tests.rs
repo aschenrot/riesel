@@ -58,12 +58,10 @@ fn rejects_invalid_signatures_and_component_declarations() {
     };
     assert!(expand_app(args, generic).is_err());
 
-    let duplicate: syn::Result<AppArgs> =
-        syn::parse_str("components = [A, A]");
+    let duplicate: syn::Result<AppArgs> = syn::parse_str("components = [A, A]");
     assert!(duplicate.is_err());
 
-    let duplicated_key: syn::Result<AppArgs> =
-        syn::parse_str("components = [A], components = [B]");
+    let duplicated_key: syn::Result<AppArgs> = syn::parse_str("components = [A], components = [B]");
     assert!(duplicated_key.is_err());
 
     let unknown: syn::Result<AppArgs> = syn::parse_str("providers = [A]");
