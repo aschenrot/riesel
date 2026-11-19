@@ -161,7 +161,10 @@ fn local_http_crud_conflicts_paging_and_reopen() {
 
     let (status, body) = server.json("PATCH", &path, r#"{"revision":"1","title":"Beta"}"#);
     assert_eq!(status, 200, "{body}");
-    assert_eq!(serde_json::from_str::<Value>(&body).unwrap()["revision"], "2");
+    assert_eq!(
+        serde_json::from_str::<Value>(&body).unwrap()["revision"],
+        "2"
+    );
 
     let (status, body) = server.json("PATCH", &path, r#"{"revision":"1","completed":true}"#);
     assert_eq!(status, 409, "{body}");
@@ -217,6 +220,28 @@ fn security_guards_precede_mutations_and_invalid_requests_fail_closed() {
         None,
     );
     assert_eq!(foreign_host.0, 403);
+    // An untrusted website must not read data via Fetch Metadata either.
+    assert_eq!(
+        server.request(
+            "GET", "/api/v1/tasks", "", Some(&server.authority),
+            None, Some("cross-site"), None
+        ).0,
+        403
+    );
+    assert_eq!(
+        server.request(
+            "GET", "/api/v1/tasks", "", Some(&server.authority),
+            None, Some("same-site"), None
+        ).0,
+        403
+    );
+    assert_eq!(
+        server.request(
+            "POST", "/api/v1/tasks", r#"{"title":"forged"}"#,
+            Some(&server.authority), Some("null"), None, Some("application/json")
+        ).0,
+        403
+    );
     let foreign_post = server.request(
         "POST",
         "/api/v1/tasks",
@@ -280,10 +305,26 @@ fn security_guards_precede_mutations_and_invalid_requests_fail_closed() {
             .0,
         400
     );
+    // Invalid revision representations must fail before record lookup.
+    let path = format!("/api/v1/tasks/{}", Uuid::nil());
     let large = format!(r#"{{"title":"{}"}}"#, "x".repeat(20 * 1024));
     assert_eq!(server.json("POST", "/api/v1/tasks", &large).0, 413);
-    assert_eq!(server.json("PATCH", &path, r#"{"revision":1,"completed":true}"#).0, 400);
-    assert_eq!(server.json("PATCH", &path, r#"{"revision":"18446744073709551616","completed":true}"#).0, 400);
+    assert_eq!(
+        server
+            .json("PATCH", &path, r#"{"revision":1,"completed":true}"#)
+            .0,
+        400
+    );
+    assert_eq!(
+        server
+            .json(
+                "PATCH",
+                &path,
+                r#"{"revision":"18446744073709551616","completed":true}"#
+            )
+            .0,
+        400
+    );
     let (_status, body) = server.get("/api/v1/tasks");
     assert_eq!(
         serde_json::from_str::<Value>(&body).unwrap()["records"],
