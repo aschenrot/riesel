@@ -5,6 +5,7 @@ members = [
   "examples/todo",
   "examples/counter/app",
   "packages/storage/memory",
+  "packages/storage/sqlite",
   "examples/counter/component",
   "crates/riesel",
   "examples/counter/contract",

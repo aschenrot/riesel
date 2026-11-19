@@ -1,0 +1,17 @@
+[package]
+name = "riesel_storage_sqlite"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+riesel_storage.workspace = true
+riesel_schema.workspace = true
+riesel_app.workspace = true
+rusqlite = { version = "=0.43.0", features = ["bundled"] }
+serde_json.workspace = true
+uuid.workspace = true
+
+[dev-dependencies]
+tempfile = "3.23"
