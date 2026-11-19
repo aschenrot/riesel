@@ -315,7 +315,12 @@ mod tests {
             .insert("storage".into(), pin.clone());
         config.validate(&app()).unwrap();
 
-        config.expected_providers.get_mut("storage").unwrap().capabilities[0].version = 2;
+        config
+            .expected_providers
+            .get_mut("storage")
+            .unwrap()
+            .capabilities[0]
+            .version = 2;
         assert!(matches!(
             config.validate(&app()),
             Err(DeploymentError::IncompatibleProviderPin(_))
