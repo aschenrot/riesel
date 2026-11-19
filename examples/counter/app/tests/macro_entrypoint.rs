@@ -158,9 +158,10 @@ fn high_level_catalog_accepts_only_declared_managed_placements() {
         .unwrap()
         .capability
         .default_requirement_alias();
-    let manifest = ProviderSelectionConfig::new(std::collections::BTreeMap::from([
-        (required.clone(), "managed".to_owned()),
-    ]));
+    let manifest = ProviderSelectionConfig::new(std::collections::BTreeMap::from([(
+        required.clone(),
+        "managed".to_owned(),
+    )]));
     let path = std::env::temp_dir().join(format!(
         "riesel-macro-catalog-{}-{}.json",
         std::process::id(),

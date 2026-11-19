@@ -126,8 +126,5 @@ fn catalog_factory_is_wired_through_existing_prepared_application() {
     assert!(generated.contains("approved_counter_providers"));
     assert!(generated.contains(". catalog"));
     assert!(generated.contains("run_from_env"));
-    assert!(syn::parse_str::<AppArgs>(
-        "catalog = first, catalog = second"
-    )
-    .is_err());
+    assert!(syn::parse_str::<AppArgs>("catalog = first, catalog = second").is_err());
 }
