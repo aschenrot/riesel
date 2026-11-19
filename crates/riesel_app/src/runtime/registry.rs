@@ -13,6 +13,13 @@ pub struct ConnectedProvider {
 /// A connector is registered by its local Rust-generated capability contract.
 pub trait CapabilityConnector: Send + Sync {
     fn contract(&self) -> Result<CapabilityContract, ConnectorError>;
+
+    /// A matching remote contract does not imply the registered local
+    /// binding has the same Rust service type. Async-only clients opt out
+    /// until a typed local async binding has been registered.
+    fn accepts_local_service(&self) -> bool {
+        true
+    }
     fn connect(
         &self,
         endpoint: &ServiceEndpoint,

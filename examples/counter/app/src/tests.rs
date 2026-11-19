@@ -483,3 +483,34 @@ fn transport_mode_collision_is_rejected_during_handler_registration() {
         .unwrap();
     assert_eq!(sync.definition().requires.len(), 1);
 }
+
+#[test]
+fn async_only_remote_binding_rejects_incompatible_local_provider_during_preflight() {
+    use riesel::{Application, AsyncCapability, DeploymentConfig, RuntimeError};
+
+    let app = Application::new("AsyncLocalMismatch")
+        .handler(
+            |_counter: AsyncCapability<CounterContract>| -> Result<(), riesel::ConnectorError> {
+                Ok(())
+            },
+        )
+        .unwrap()
+        .component::<MemoryCounter>()
+        .unwrap();
+    let alias = CounterContract::definition()
+        .unwrap()
+        .capability
+        .default_requirement_alias();
+    let deployment = DeploymentConfig::new(std::collections::BTreeMap::from([(
+        alias.clone(),
+        riesel::ServiceEndpoint::Local {
+            provider: "riesel.counter.memory".into(),
+        },
+    )]));
+    assert!(matches!(
+        app.deployment_plan(&deployment),
+        Err(riesel::SdkError::Runtime(RuntimeError::UnsupportedLocalBinding {
+            requirement,
+        })) if requirement == alias
+    ));
+}

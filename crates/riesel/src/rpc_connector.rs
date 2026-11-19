@@ -85,6 +85,10 @@ impl<C: AsyncRpcClientBinding> CapabilityConnector for AsyncRpcConnector<C> {
         Ok(C::definition()?)
     }
 
+    fn accepts_local_service(&self) -> bool {
+        false
+    }
+
     fn connect(
         &self,
         endpoint: &ServiceEndpoint,
