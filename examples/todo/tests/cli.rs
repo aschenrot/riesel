@@ -77,12 +77,13 @@ fn persistent_commands_share_domain_state_across_independent_processes() {
 fn rejects_invalid_arguments_without_creating_storage() {
     let dir = tempfile::tempdir().unwrap();
     let db = dir.path().join("not-created.db");
+    let missing_id = Uuid::nil().to_string();
     for args in [
         vec!["add"],
         vec!["add", "  "],
         vec!["show", "not-a-uuid"],
         vec!["edit", "not-a-uuid", "1", "title"],
-        vec!["complete", &Uuid::nil().to_string(), "not-a-revision"],
+        vec!["complete", &missing_id, "not-a-revision"],
         vec!["list", "extra"],
         vec!["unexpected"],
     ] {
@@ -112,5 +113,8 @@ fn missing_parent_directory_fails_without_ephemeral_fallback() {
     assert_eq!(output.status.code(), Some(1));
     assert!(!db.exists());
     let error = String::from_utf8_lossy(&output.stderr);
-    assert!(error.contains("storage") || error.contains("SQLite"), "{error}");
+    assert!(
+        error.contains("storage") || error.contains("SQLite"),
+        "{error}"
+    );
 }

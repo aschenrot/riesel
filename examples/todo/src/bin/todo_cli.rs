@@ -1,13 +1,7 @@
 //! Todo R1: explicit persistent, headless task management.
 //! Keep the in-memory R0 demo and its managed-process smoke tests separate.
 use riesel::{Application, Records};
-use std::{
-    env,
-    error::Error,
-    ffi::OsString,
-    path::PathBuf,
-    process::ExitCode,
-};
+use std::{env, error::Error, ffi::OsString, path::PathBuf, process::ExitCode};
 use todo::{Task, TaskData, Todo, TodoError};
 use uuid::Uuid;
 
@@ -39,9 +33,20 @@ enum Command {
     Add(String),
     List,
     Show(Uuid),
-    Edit { id: Uuid, revision: u64, title: String },
-    Complete { id: Uuid, revision: u64, completed: bool },
-    Delete { id: Uuid, revision: u64 },
+    Edit {
+        id: Uuid,
+        revision: u64,
+        title: String,
+    },
+    Complete {
+        id: Uuid,
+        revision: u64,
+        completed: bool,
+    },
+    Delete {
+        id: Uuid,
+        revision: u64,
+    },
 }
 
 fn usage(message: impl Into<String>) -> CliError {
@@ -81,7 +86,9 @@ fn title(arguments: Vec<OsString>) -> Result<String, CliError> {
     Ok(title)
 }
 
-fn parse(arguments: impl IntoIterator<Item = OsString>) -> Result<Option<(PathBuf, Command)>, CliError> {
+fn parse(
+    arguments: impl IntoIterator<Item = OsString>,
+) -> Result<Option<(PathBuf, Command)>, CliError> {
     let mut args = arguments.into_iter();
     let Some(first) = args.next() else {
         return Err(usage("missing --db PATH and command"));
@@ -102,21 +109,33 @@ fn parse(arguments: impl IntoIterator<Item = OsString>) -> Result<Option<(PathBu
     let name = string(args.next().ok_or_else(|| usage("missing command"))?)?;
     let mut rest = args.collect::<Vec<_>>().into_iter();
     let command = match name.as_str() {
-        "add" => Command::Add(title(rest.collect())?),
+        "add" => Command::Add(title(rest.by_ref().collect())?),
         "list" => Command::List,
         "show" => Command::Show(id(rest.next().ok_or_else(|| usage("missing UUID"))?)?),
         "edit" => {
             let id = id(rest.next().ok_or_else(|| usage("missing UUID"))?)?;
             let revision = revision(rest.next().ok_or_else(|| usage("missing revision"))?)?;
-            Command::Edit { id, revision, title: title(rest.collect())? }
+            Command::Edit {
+                id,
+                revision,
+                title: title(rest.by_ref().collect())?,
+            }
         }
         "complete" | "reopen" | "delete" => {
             let id = id(rest.next().ok_or_else(|| usage("missing UUID"))?)?;
             let revision = revision(rest.next().ok_or_else(|| usage("missing revision"))?)?;
             match name.as_str() {
                 "delete" => Command::Delete { id, revision },
-                "complete" => Command::Complete { id, revision, completed: true },
-                _ => Command::Complete { id, revision, completed: false },
+                "complete" => Command::Complete {
+                    id,
+                    revision,
+                    completed: true,
+                },
+                _ => Command::Complete {
+                    id,
+                    revision,
+                    completed: false,
+                },
             }
         }
         _ => return Err(usage(format!("unknown command: {name}"))),
@@ -151,10 +170,18 @@ fn execute(records: Records<TaskData>, command: &Command) -> Result<(), TodoErro
         Command::Show(id) => {
             print_task(&todo.get_task(*id)?.ok_or(TodoError::NotFound)?);
         }
-        Command::Edit { id, revision, title } => {
+        Command::Edit {
+            id,
+            revision,
+            title,
+        } => {
             print_task(&todo.edit_title(*id, *revision, title.clone())?);
         }
-        Command::Complete { id, revision, completed } => {
+        Command::Complete {
+            id,
+            revision,
+            completed,
+        } => {
             print_task(&todo.set_completed(*id, *revision, *completed)?);
         }
         Command::Delete { id, revision } => {
