@@ -443,14 +443,21 @@ fn disconnected_client_does_not_end_http_backend_or_auto_retry_writes() {
     assert!(data["records"].as_array().unwrap().len() <= 1);
 }
 
-
 #[test]
 fn serves_static_sveltekit_assets_from_the_same_origin_as_api() {
     let directory = tempfile::tempdir().unwrap();
     let assets = directory.path().join("build");
     std::fs::create_dir_all(assets.join("_app")).unwrap();
-    std::fs::write(assets.join("200.html"), "<!doctype html><title>Todo browser</title>").unwrap();
-    std::fs::write(assets.join("_app").join("fixture.js"), "window.__todo_fixture = true;").unwrap();
+    std::fs::write(
+        assets.join("200.html"),
+        "<!doctype html><title>Todo browser</title>",
+    )
+    .unwrap();
+    std::fs::write(
+        assets.join("_app").join("fixture.js"),
+        "window.__todo_fixture = true;",
+    )
+    .unwrap();
     let db = directory.path().join("todo.db");
     let server = Server::start_with_assets(&db, Some(&assets));
 
@@ -466,7 +473,10 @@ fn serves_static_sveltekit_assets_from_the_same_origin_as_api() {
     assert!(serde_json::from_str::<Value>(&body).unwrap()["records"].is_array());
     let (status, body) = server.get("/api/v1/does-not-exist");
     assert_eq!(status, 404, "{body}");
-    assert_eq!(serde_json::from_str::<Value>(&body).unwrap()["error"]["code"], "not_found");
+    assert_eq!(
+        serde_json::from_str::<Value>(&body).unwrap()["error"]["code"],
+        "not_found"
+    );
 
     let denied = server.request("GET", "/", "", Some("evil.test"), None, None, None);
     assert_eq!(denied.0, 403);

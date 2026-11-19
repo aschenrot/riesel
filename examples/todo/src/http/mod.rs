@@ -55,22 +55,21 @@ fn router(state: HttpState, directory: Option<&std::path::Path>) -> axum::Router
     assets::mount(
         Router::new()
             .route("/api/v1/tasks", get(routes::list).post(routes::create))
-        .route(
-            "/api/v1/tasks/{id}",
-            get(routes::show)
-                .patch(routes::patch)
-                .delete(routes::delete),
-        )
-        ,
+            .route(
+                "/api/v1/tasks/{id}",
+                get(routes::show)
+                    .patch(routes::patch)
+                    .delete(routes::delete),
+            ),
         directory,
     )
-        .method_not_allowed_fallback(|| async { ApiError::MethodNotAllowed })
-        .layer(DefaultBodyLimit::max(16 * 1024))
-        .layer(middleware::from_fn_with_state(
-            state.clone(),
-            security::gate,
-        ))
-        .with_state(state)
+    .method_not_allowed_fallback(|| async { ApiError::MethodNotAllowed })
+    .layer(DefaultBodyLimit::max(16 * 1024))
+    .layer(middleware::from_fn_with_state(
+        state.clone(),
+        security::gate,
+    ))
+    .with_state(state)
 }
 
 /// Serve on numeric loopback only. No authentication or remote deployment is

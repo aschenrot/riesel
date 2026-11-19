@@ -40,7 +40,10 @@ fn parse() -> Result<Option<(PathBuf, u16, Option<PathBuf>)>, io::Error> {
                 io::Error::new(io::ErrorKind::InvalidInput, "missing assets directory")
             })?);
             if directory.as_os_str().is_empty() {
-                return Err(io::Error::new(io::ErrorKind::InvalidInput, "empty assets directory"));
+                return Err(io::Error::new(
+                    io::ErrorKind::InvalidInput,
+                    "empty assets directory",
+                ));
             }
             assets = Some(directory);
         } else {
@@ -59,12 +62,10 @@ fn run() -> Result<(), Box<dyn Error + Send + Sync>> {
         return Ok(());
     };
     Application::new("TodoHttp")
-        .async_handler(
-            move |records: Records<TaskData>, tasks: AsyncTasks| {
-                let directory = assets.clone();
-                async move { todo::http::serve(records, tasks, port, directory).await }
-            },
-        )?
+        .async_handler(move |records: Records<TaskData>, tasks: AsyncTasks| {
+            let directory = assets.clone();
+            async move { todo::http::serve(records, tasks, port, directory).await }
+        })?
         .sqlite_storage(path)?
         .run()?;
     Ok(())

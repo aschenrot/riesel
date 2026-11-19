@@ -1,7 +1,10 @@
 //! Serve trusted, statically built SvelteKit assets from the Todo API authority.
 use super::{HttpState, routes::ApiError};
 use axum::{Router, routing::any};
-use std::{io, path::{Path, PathBuf}};
+use std::{
+    io,
+    path::{Path, PathBuf},
+};
 use tower_http::services::{ServeDir, ServeFile};
 
 pub(super) fn verify(directory: Option<PathBuf>) -> io::Result<Option<PathBuf>> {
@@ -27,8 +30,7 @@ pub(super) fn mount(router: Router<HttpState>, directory: Option<&Path>) -> Rout
                 .route("/api", any(|| async { ApiError::NotFound }))
                 .route("/api/{*rest}", any(|| async { ApiError::NotFound }))
                 .fallback_service(
-                    ServeDir::new(directory)
-                        .fallback(ServeFile::new(directory.join("200.html"))),
+                    ServeDir::new(directory).fallback(ServeFile::new(directory.join("200.html"))),
                 )
         }
         None => router.fallback(|| async { ApiError::NotFound }),
