@@ -7,7 +7,7 @@ repository.workspace = true
 
 [features]
 default = []
-http = ["dep:axum", "dep:tokio"]
+http = ["dep:axum", "dep:tokio", "dep:tower-http"]
 
 [dependencies]
 riesel = { workspace = true, features = ["dev-memory-storage", "sqlite-storage", "async-tcp"] }
@@ -16,6 +16,7 @@ uuid.workspace = true
 serde.workspace = true
 axum = { version = "=0.8.9", default-features = false, features = ["http1", "json", "query", "tokio"], optional = true }
 tokio = { workspace = true, features = ["signal", "macros"], optional = true }
+tower-http = { version = "=0.6.11", default-features = false, features = ["fs"], optional = true }
 
 [dev-dependencies]
 riesel_storage_component = { path = "../../packages/storage/memory" }
