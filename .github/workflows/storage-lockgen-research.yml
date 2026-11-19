@@ -1,27 +1,32 @@
-name: Temporary Storage lockfile generation
+name: Temporary Storage formatting and test
 
 on:
   pull_request:
     paths:
       - "Cargo.toml"
+      - "Cargo.lock"
       - "packages/storage/sqlite/**"
       - ".github/workflows/storage-lockgen-research.yml"
 permissions:
   contents: read
 
 jobs:
-  lock:
+  format-and-test:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
       - name: Install pinned Rust
         run: |
-          rustup toolchain install 1.100.0 --profile minimal
+          rustup toolchain install 1.100.0 --profile minimal --component rustfmt
           rustup default 1.100.0
-      - name: Emit generated lockfile for reviewed commit
+      - name: Format changed Rust files and emit reviewed output
         run: |
-          cargo generate-lockfile
-          echo LOCKFILE_BASE64_BEGIN
-          base64 -w0 Cargo.lock
-          echo
-          echo LOCKFILE_BASE64_END
+          cargo fmt --all
+          for file in packages/storage/sqlite/src/lib.rs packages/storage/sqlite/src/database.rs packages/storage/sqlite/src/records.rs packages/storage/sqlite/tests/storage.rs; do
+            echo "FORMATTED_FILE_BEGIN:$file"
+            base64 -w0 "$file"
+            echo
+            echo "FORMATTED_FILE_END:$file"
+          done
+      - name: Test new Storage crate
+        run: cargo test --locked -p riesel_storage_sqlite -- --nocapture
