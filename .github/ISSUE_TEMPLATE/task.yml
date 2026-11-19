@@ -1,15 +1,15 @@
 name: Engineering task
-description: Propose an actionable change with explicit acceptance criteria.
+description: Implement an accepted, independently verifiable outcome.
 title: "[Task] "
 body:
   - type: markdown
     attributes:
-      value: "Describe a verifiable outcome, not a list of unrelated code edits. Reference the product requirement or delivery stage where appropriate."
+      value: "For implementation work with understood requirements. If the decision or architecture is unresolved, use the Specification / investigation template first. Link an accepted specification when relevant; small, low-risk changes do not need a separate specification Issue."
   - type: textarea
     id: outcome
     attributes:
       label: Outcome
-      description: What result is needed and why?
+      description: What accepted behavior or improvement is needed and why?
       placeholder: "The user or developer can..."
     validations:
       required: true
@@ -34,13 +34,13 @@ body:
     id: dependencies
     attributes:
       label: Dependencies, risks, or decisions
-      description: Include only material blockers, dependencies, or design choices.
+      description: Link the accepted specification/decision if one was required; include material blockers only.
     validations:
       required: false
   - type: textarea
     id: evidence
     attributes:
       label: Evidence and related work
-      description: Link relevant tests, documents, issues, or PRs when known.
+      description: Link relevant tests, documents, issues or PRs when known.
     validations:
       required: false

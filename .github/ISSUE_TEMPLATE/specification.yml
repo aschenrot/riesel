@@ -1,0 +1,47 @@
+name: Specification / investigation
+description: Investigate a bounded requirement or architecture question before accepting implementation scope.
+title: "[Spec] "
+body:
+  - type: markdown
+    attributes:
+      value: "This Issue is for a decision, not implementation. Define the questions and evidence needed to accept, defer, or reject an outcome. Keep accepted requirements in the relevant product definition and durable semantics in existing architecture documents."
+  - type: textarea
+    id: question
+    attributes:
+      label: Outcome or decision needed
+      description: What question must be resolved, for which product goal, and why now?
+      placeholder: "Decide the durability and compatibility guarantees for Riesel Record Storage."
+    validations:
+      required: true
+  - type: textarea
+    id: scope
+    attributes:
+      label: Investigation scope and constraints
+      description: Specify the boundaries, known requirements, relevant quality attributes, and exclusions. Distinguish facts from assumptions.
+    validations:
+      required: true
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives and evidence to evaluate
+      description: State material options, tests, or unknowns to investigate. Do not preselect a design without evidence.
+    validations:
+      required: false
+  - type: textarea
+    id: acceptance
+    attributes:
+      label: Specification acceptance criteria
+      description: What must be clear to make and record an accept/defer/reject decision? Include testable boundaries.
+      placeholder: |
+        - [ ] Material options and trade-offs are evaluated.
+        - [ ] Requirements, exclusions, and verification criteria are explicit.
+        - [ ] Decision and links to updated authoritative documents are recorded.
+    validations:
+      required: true
+  - type: textarea
+    id: dependencies
+    attributes:
+      label: Dependencies and risks
+      description: Link relevant products, contracts, Issues or known blockers.
+    validations:
+      required: false
