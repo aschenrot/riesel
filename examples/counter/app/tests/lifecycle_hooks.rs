@@ -178,12 +178,16 @@ fn entrypoint_and_stop_failures_remain_separate() {
         })
         .unwrap();
     let error = prepared.run().unwrap_err();
-    assert!(
-        error
-            .source()
-            .and_then(Error::source)
-            .is_some_and(|source| source.is::<LifecycleFailure>())
-    );
+    let mut cause: Option<&(dyn Error + 'static)> = Some(&error);
+    let mut found_lifecycle = false;
+    while let Some(source) = cause {
+        if source.is::<LifecycleFailure>() {
+            found_lifecycle = true;
+            break;
+        }
+        cause = source.source();
+    }
+    assert!(found_lifecycle, "lifecycle error must appear in the source chain");
     let SdkError::Execution(AppRunError::Lifecycle { failure, .. }) = error else {
         panic!("expected combined lifecycle error");
     };
