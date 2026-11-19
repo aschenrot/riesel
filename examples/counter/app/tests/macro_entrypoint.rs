@@ -1,6 +1,6 @@
 //! The generated high-level entrypoint uses the same authoritative
 //! schema and provider resolver as the explicit typed-handler builder.
-use riesel::Application;
+use riesel::{Application, NativeHandleParam};
 use riesel_counter::{AsyncCounterContract, CounterError};
 use riesel_counter_component::AsyncMemoryCounter;
 use riesel_protocol::CallError;
@@ -27,7 +27,7 @@ fn macro_and_builder_have_equivalent_definition_and_run_linked_counter() {
     let defined: serde_json::Value =
         serde_json::from_slice(&output(&["--print-definition"]).stdout).unwrap();
     let builder = Application::new("CounterMacro")
-        .async_handler(|_counter: riesel_counter::AsyncCounterHandle| async move {
+        .async_handler(|_counter: NativeHandleParam<riesel_counter::AsyncCounterHandle>| async move {
             Ok::<(), CallError<CounterError>>(())
         })
         .unwrap()
