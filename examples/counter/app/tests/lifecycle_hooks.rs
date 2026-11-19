@@ -187,7 +187,10 @@ fn entrypoint_and_stop_failures_remain_separate() {
         }
         cause = source.source();
     }
-    assert!(found_lifecycle, "lifecycle error must appear in the source chain");
+    assert!(
+        found_lifecycle,
+        "lifecycle error must appear in the source chain"
+    );
     let SdkError::Execution(AppRunError::Lifecycle { failure, .. }) = error else {
         panic!("expected combined lifecycle error");
     };
