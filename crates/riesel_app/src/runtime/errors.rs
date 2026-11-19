@@ -100,6 +100,12 @@ pub enum RuntimeError {
     },
     #[error("failed to shut down managed processes: {0}")]
     Shutdown(io::Error),
+    #[cfg(feature = "async-tcp")]
+    #[error("provider-owned blocking work failed to join cleanly: {source}")]
+    ProviderBlockingShutdown {
+        #[source]
+        source: io::Error,
+    },
     #[error("could not launch managed service monitor: {0}")]
     MonitorStart(io::Error),
     #[error("could not construct asynchronous startup executor: {0}")]
