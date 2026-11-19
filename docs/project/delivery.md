@@ -37,6 +37,10 @@ Small or well-understood changes can record their acceptance criteria directly i
 
 Implementation is ready when the relevant behavior, guarantees, failure/compatibility boundaries, exclusions, dependencies, and verifiable outcomes are clear and an accountable maintainer has recorded acceptance. This does not require deciding every implementation detail.
 
+### Evidence-based investigation (when alternatives matter)
+
+For material decisions among alternatives, define a bounded research plan: discovery scope, required outcomes versus preferences, common comparison criteria and evidence sources. Record dated findings, unknowns and exclusion reasons. Investigate decision-critical gaps with focused tests; stop when more research is unlikely to change the choice, or defer when evidence is insufficient. A reviewed research plan establishes scope; preliminary discovery needs no approval, and the plan does **not** approve the resulting architecture or implementation. Use the existing specification Issue rather than requiring another Issue type.
+
 ## GitHub Issue contract
 
 For planned work, use two Issue forms. Bug reports retain their existing separate form:
