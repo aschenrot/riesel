@@ -189,10 +189,10 @@ where
     let executor = tokio::runtime::Builder::new_current_thread()
         .enable_all()
         .build()?;
-    if let Some(tasks) = &tasks {
-        tasks.begin_scope()?;
-    }
     executor.block_on(async {
+        if let Some(tasks) = &tasks {
+            tasks.begin_scope()?;
+        }
         let expiry = session.cancelled();
         let mut expiry = std::pin::pin!(expiry);
         let mut future = std::pin::pin!(future);
