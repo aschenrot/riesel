@@ -13,6 +13,8 @@ mod tasks;
 pub use app::{App, AppError};
 #[cfg(feature = "async-tcp")]
 pub use async_tasks::AsyncTasks;
+#[cfg(feature = "async-tcp")]
+pub use riesel_protocol::{ProviderBlocking, ProviderBlockingError, ProviderCancellation};
 pub use component::{ComponentDefinition, DeclarativeComponent};
 pub use deployment::{DeploymentConfig, DeploymentError, ServiceEndpoint};
 pub use resolver::{InstanceIdentity, ProviderRegistry, ResolutionError, ResolvedCapability};
