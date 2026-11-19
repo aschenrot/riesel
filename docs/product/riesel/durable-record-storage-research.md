@@ -1,6 +1,6 @@
 # Stage 6 — Durable Record Storage research brief
 
-**Status: research plan proposed; architecture not accepted.** [Specification Issue #24](https://github.com/aschenrot/riesel/issues/24) owns the investigation and final decision. This document defines what to research, not which database or architecture to implement.
+**Status: research brief; architecture not selected.** [Specification Issue #24](https://github.com/aschenrot/riesel/issues/24) owns the investigation and final decision. This document defines what to research, not which database or architecture to implement.
 
 ## Problem and verified baseline
 
