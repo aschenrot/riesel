@@ -9,7 +9,7 @@ publish = false
 [dependencies]
 riesel = { workspace = true, features = ["async-tcp"] }
 riesel_counter.workspace = true
-riesel_counter_component.workspace = true
+riesel_counter_component = { path = "../component", features = ["async-tcp"] }
 riesel_protocol = { workspace = true, features = ["async-tcp"] }
 serde_json.workspace = true
 
