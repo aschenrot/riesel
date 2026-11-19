@@ -2,10 +2,23 @@
 use proc_macro::TokenStream;
 use syn::parse_macro_input;
 
+mod app;
 mod capability;
 mod component;
 mod derives;
 mod identity;
+
+/// Generate one application entrypoint from a native async Rust function.
+/// The actual runtime and dependency resolver remain owned by riesel.
+#[proc_macro_attribute]
+pub fn app(args: TokenStream, input: TokenStream) -> TokenStream {
+    let args = parse_macro_input!(args as app::AppArgs);
+    let item = parse_macro_input!(input as syn::ItemFn);
+    match app::expand_app(args, item) {
+        Ok(tokens) => tokens.into(),
+        Err(error) => error.to_compile_error().into(),
+    }
+}
 
 #[proc_macro_attribute]
 pub fn capability(args: TokenStream, input: TokenStream) -> TokenStream {

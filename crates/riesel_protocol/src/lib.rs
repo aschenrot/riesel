@@ -7,7 +7,8 @@ pub mod tcp;
 
 pub use rpc::{
     AsyncRpcClientBinding, AsyncRpcFuture, AsyncRpcHandler, AsyncRpcRouter, AsyncRpcTransport,
-    CallError, ComponentAdapter, ComponentHandler, LocalBindingMode, LocalRpc, RpcClientBinding,
+    CallError, ComponentAdapter, ComponentHandler, LocalBindingMode, LocalRpc, NativeAsyncHandle,
+    RpcClientBinding,
     RpcError, RpcHandler, RpcHost, RpcRouter, RpcTransport, decode_result,
 };
 #[cfg(feature = "async-tcp")]

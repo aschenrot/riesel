@@ -27,3 +27,11 @@ path = "tests/fixtures/counter_recovery_client.rs"
 [[bin]]
 name = "counter_dual_client"
 path = "tests/fixtures/counter_dual_client.rs"
+
+[[bin]]
+name = "counter_macro"
+path = "src/bin/counter_macro.rs"
+
+[[bin]]
+name = "counter_macro_managed_service"
+path = "src/bin/counter_macro_managed_service.rs"

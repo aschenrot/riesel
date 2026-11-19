@@ -156,6 +156,27 @@ where
     }
 }
 
+/// Generated native async handles are first-class typed application
+/// parameters. This uses the same declaration and extraction contract as
+/// the explicit AsyncCapability wrapper, not a second DI runtime.
+#[cfg(feature = "async-tcp")]
+impl<H> ApplicationParam for H
+where
+    H: riesel_protocol::NativeAsyncHandle,
+{
+    fn default_alias() -> Result<String> {
+        Ok(H::Contract::definition()?.capability.default_requirement_alias())
+    }
+
+    fn declare(application: Application, alias: &str) -> Result<Application> {
+        application.async_rpc::<H::Contract>(alias)
+    }
+
+    fn extract(context: &Context<'_>, alias: &str) -> Result<Self> {
+        Ok(context.async_capability::<H::Contract>(alias)?.clone())
+    }
+}
+
 /// Injection of session-owned async background work without introducing a
 /// capability dependency, provider, or transport into the app schema.
 /// The spawner is valid only inside its owning async handler invocation.
