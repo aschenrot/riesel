@@ -47,6 +47,21 @@ impl AsyncTcpRpcTransport {
         operation: &str,
         arguments: Value,
     ) -> Result<Value, RpcError> {
+        // Invalidating the session drops any pending I/O future and its
+        // socket/permit. Commands already sent may still have executed.
+        tokio::select! {
+            biased;
+            () = self.session.cancelled() => Err(RpcError::SessionExpired),
+            result = self.exchange_active(capability, operation, arguments) => result,
+        }
+    }
+
+    async fn exchange_active(
+        &self,
+        capability: &CapabilityRef,
+        operation: &str,
+        arguments: Value,
+    ) -> Result<Value, RpcError> {
         self.session.check()?;
         if !self.address.ip().is_loopback() {
             return Err(RpcError::Transport(
@@ -269,6 +284,81 @@ mod tests {
                 .is_err()
             );
             drop(borrowed);
+            assert_eq!(permits.available_permits(), MAX_IN_FLIGHT_REQUESTS);
+        });
+    }
+
+    #[test]
+    fn invalidating_session_interrupts_unresponsive_network_call() {
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let address = listener.local_addr().unwrap();
+        let (sent, received) = std::sync::mpsc::channel();
+        let server = thread::spawn(move || {
+            let (mut stream, _) = listener.accept().unwrap();
+            stream
+                .set_read_timeout(Some(Duration::from_secs(2)))
+                .unwrap();
+            let mut buf = [0_u8; 512];
+            let _ = stream.read(&mut buf);
+            sent.send(()).unwrap();
+            thread::sleep(Duration::from_millis(200));
+        });
+        let session = SessionToken::new();
+        let client = AsyncTcpRpcTransport::with_session(address, session.clone());
+        let cap = CapabilityRef {
+            id: "example.counter".into(),
+            version: 1,
+        };
+        let result = runtime().block_on(async {
+            let revoker = tokio::task::spawn_blocking(move || {
+                received.recv_timeout(Duration::from_secs(2)).unwrap();
+                session.invalidate();
+            });
+            let outcome = tokio::time::timeout(
+                Duration::from_millis(150),
+                client.call(&cap, "value", serde_json::json!({})),
+            )
+            .await
+            .expect("revoked session should preempt the request timeout");
+            revoker.await.unwrap();
+            outcome
+        });
+        assert!(matches!(result, Err(RpcError::SessionExpired)));
+        server.join().unwrap();
+    }
+
+    #[test]
+    fn invalidating_session_interrupts_concurrency_queue() {
+        let session = SessionToken::new();
+        let client = AsyncTcpRpcTransport::with_session(
+            "127.0.0.1:1".parse().unwrap(),
+            session.clone(),
+        );
+        let permits = Arc::clone(&client.permits);
+        runtime().block_on(async {
+            let mut locked = Vec::new();
+            for _ in 0..MAX_IN_FLIGHT_REQUESTS {
+                locked.push(permits.clone().acquire_owned().await.unwrap());
+            }
+            let cap = CapabilityRef {
+                id: "example.counter".into(),
+                version: 1,
+            };
+            let call = client.call(&cap, "value", serde_json::json!({}));
+            tokio::pin!(call);
+            assert!(
+                tokio::time::timeout(Duration::from_millis(20), &mut call)
+                    .await
+                    .is_err()
+            );
+            session.invalidate();
+            assert!(matches!(
+                tokio::time::timeout(Duration::from_millis(100), &mut call)
+                    .await
+                    .unwrap(),
+                Err(RpcError::SessionExpired)
+            ));
+            drop(locked);
             assert_eq!(permits.available_permits(), MAX_IN_FLIGHT_REQUESTS);
         });
     }
