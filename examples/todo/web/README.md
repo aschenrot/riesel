@@ -15,7 +15,7 @@ The local Vite proxy forwards /api but translates Origin only for requests genui
 
 ## Validation and output
 
-Run npm run check, npm test, and npm run build. The static app is generated into build/ via adapter-static; this directory is gitignored. Test the built assets through the Rust same-origin host before R2 acceptance.
+Run npm run check, npm test, and npm run build. The static app is generated into build/ via adapter-static; this directory is gitignored. Start the Rust host with `--assets ./examples/todo/web/build` after building and use its printed `127.0.0.1:PORT` address to test the actual single-origin application. No production Node process is required.
 
 All mutations include the last observed task revision as a decimal string (not a JavaScript number), preserving the entire Rust u64 range. A stale write is surfaced as a conflict, not retried. Lists request at most 32 tasks per page using the backend's opaque cursor. No PWA installation, offline writes, subscriptions, or synchronization is included.
 

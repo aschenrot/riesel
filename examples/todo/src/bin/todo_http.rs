@@ -4,10 +4,10 @@ use std::{env, error::Error, io, path::PathBuf, process::ExitCode};
 use todo::TaskData;
 
 fn usage() -> &'static str {
-    "Usage: todo_http --db PATH [--port PORT]\n     Binds numeric loopback 127.0.0.1; port 0 uses an OS-assigned port."
+    "Usage: todo_http --db PATH [--port PORT] [--assets DIR]\n     Binds 127.0.0.1; port 0 is OS-assigned. --assets serves trusted SvelteKit build/ files."
 }
 
-fn parse() -> Result<Option<(PathBuf, u16)>, io::Error> {
+fn parse() -> Result<Option<(PathBuf, u16, Option<PathBuf>)>, io::Error> {
     let mut args = env::args_os().skip(1);
     let Some(first) = args.next() else {
         return Err(io::Error::new(io::ErrorKind::InvalidInput, usage()));
@@ -25,32 +25,44 @@ fn parse() -> Result<Option<(PathBuf, u16)>, io::Error> {
         args.next()
             .ok_or_else(|| io::Error::new(io::ErrorKind::InvalidInput, usage()))?,
     );
-    let mut port = 0;
-    if let Some(option) = args.next() {
-        if option != "--port" {
+    let mut port = None;
+    let mut assets = None;
+    while let Some(option) = args.next() {
+        if option == "--port" && port.is_none() {
+            port = Some(
+                args.next()
+                    .and_then(|x| x.into_string().ok())
+                    .and_then(|x| x.parse::<u16>().ok())
+                    .ok_or_else(|| io::Error::new(io::ErrorKind::InvalidInput, "invalid port"))?,
+            );
+        } else if option == "--assets" && assets.is_none() {
+            let directory = PathBuf::from(args.next().ok_or_else(|| {
+                io::Error::new(io::ErrorKind::InvalidInput, "missing assets directory")
+            })?);
+            if directory.as_os_str().is_empty() {
+                return Err(io::Error::new(io::ErrorKind::InvalidInput, "empty assets directory"));
+            }
+            assets = Some(directory);
+        } else {
             return Err(io::Error::new(io::ErrorKind::InvalidInput, usage()));
         }
-        port = args
-            .next()
-            .and_then(|x| x.into_string().ok())
-            .and_then(|x| x.parse::<u16>().ok())
-            .ok_or_else(|| io::Error::new(io::ErrorKind::InvalidInput, "invalid port"))?;
     }
-    if args.next().is_some() || path.as_os_str().is_empty() {
+    if path.as_os_str().is_empty() {
         return Err(io::Error::new(io::ErrorKind::InvalidInput, usage()));
     }
-    Ok(Some((path, port)))
+    Ok(Some((path, port.unwrap_or(0), assets)))
 }
 
 fn run() -> Result<(), Box<dyn Error + Send + Sync>> {
-    let Some((path, port)) = parse()? else {
+    let Some((path, port, assets)) = parse()? else {
         println!("{}", usage());
         return Ok(());
     };
     Application::new("TodoHttp")
         .async_handler(
-            move |records: Records<TaskData>, tasks: AsyncTasks| async move {
-                todo::http::serve(records, tasks, port).await
+            move |records: Records<TaskData>, tasks: AsyncTasks| {
+                let directory = assets.clone();
+                async move { todo::http::serve(records, tasks, port, directory).await }
             },
         )?
         .sqlite_storage(path)?

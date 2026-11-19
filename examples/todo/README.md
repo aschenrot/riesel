@@ -15,7 +15,7 @@ The process prints `TODO_HTTP_READY 127.0.0.1:PORT` once the database and listen
 
 This first adapter is **loopback-only**, not a remote service or authenticated multi-user server. Every request must use the numeric loopback `Host` matching the announced port. POST, PATCH and DELETE additionally require `Origin: http://127.0.0.1:PORT` and JSON content type. Requests from foreign web origins, nonlocal Hosts and oversized bodies are rejected; `Access-Control-Allow-Origin` is not enabled. Host/Origin checks protect the stated browser threat boundary, not against arbitrary local OS clients able to forge request headers.
 
-The backend has no visual interface yet. Issue #18 will add same-origin SvelteKit assets after HTTP API #17 acceptance. The API is opt-in via the `http` Cargo feature; normal R0/R1 execution remains unchanged.
+Todo's SvelteKit frontend is built separately. Pass `--assets ./examples/todo/web/build` to the same `todo_http` process to serve generated static assets and the API from one origin, without a production Node process. Asset directories must be trusted and contain `200.html`; invalid paths fail before HTTP readiness. The API is opt-in via the `http` Cargo feature; normal R0/R1 execution remains unchanged.
 
 ## Usable persistent CLI — Todo R1
 

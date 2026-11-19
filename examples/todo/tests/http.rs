@@ -19,11 +19,16 @@ struct Server {
 
 impl Server {
     fn start(path: &Path) -> Self {
-        let mut child = Command::new(env!("CARGO_BIN_EXE_todo_http"))
-            .arg("--db")
-            .arg(path)
-            .arg("--port")
-            .arg("0")
+        Self::start_with_assets(path, None)
+    }
+
+    fn start_with_assets(path: &Path, assets: Option<&Path>) -> Self {
+        let mut command = Command::new(env!("CARGO_BIN_EXE_todo_http"));
+        command.arg("--db").arg(path).arg("--port").arg("0");
+        if let Some(assets) = assets {
+            command.arg("--assets").arg(assets);
+        }
+        let mut child = command
             .stdout(Stdio::piped())
             .stderr(Stdio::piped())
             .spawn()
@@ -436,4 +441,48 @@ fn disconnected_client_does_not_end_http_backend_or_auto_retry_writes() {
     assert_eq!(status, 200, "{payload}");
     let data: Value = serde_json::from_str(&payload).unwrap();
     assert!(data["records"].as_array().unwrap().len() <= 1);
+}
+
+
+#[test]
+fn serves_static_sveltekit_assets_from_the_same_origin_as_api() {
+    let directory = tempfile::tempdir().unwrap();
+    let assets = directory.path().join("build");
+    std::fs::create_dir_all(assets.join("_app")).unwrap();
+    std::fs::write(assets.join("200.html"), "<!doctype html><title>Todo browser</title>").unwrap();
+    std::fs::write(assets.join("_app").join("fixture.js"), "window.__todo_fixture = true;").unwrap();
+    let db = directory.path().join("todo.db");
+    let server = Server::start_with_assets(&db, Some(&assets));
+
+    let (status, html) = server.get("/");
+    assert_eq!(status, 200, "{html}");
+    assert!(html.contains("Todo browser"));
+    let (status, script) = server.get("/_app/fixture.js");
+    assert_eq!(status, 200, "{script}");
+    assert!(script.contains("__todo_fixture"));
+
+    let (status, body) = server.get("/api/v1/tasks");
+    assert_eq!(status, 200, "{body}");
+    assert!(serde_json::from_str::<Value>(&body).unwrap()["records"].is_array());
+    let (status, body) = server.get("/api/v1/does-not-exist");
+    assert_eq!(status, 404, "{body}");
+    assert_eq!(serde_json::from_str::<Value>(&body).unwrap()["error"]["code"], "not_found");
+
+    let denied = server.request("GET", "/", "", Some("evil.test"), None, None, None);
+    assert_eq!(denied.0, 403);
+}
+
+#[test]
+fn invalid_static_directory_is_rejected_before_http_readiness() {
+    let dir = tempfile::tempdir().unwrap();
+    let db = dir.path().join("todo.db");
+    let output = Command::new(env!("CARGO_BIN_EXE_todo_http"))
+        .arg("--db")
+        .arg(&db)
+        .arg("--assets")
+        .arg(dir.path().join("not-built"))
+        .output()
+        .unwrap();
+    assert!(!output.status.success());
+    assert!(!String::from_utf8_lossy(&output.stdout).contains("TODO_HTTP_READY"));
 }

@@ -1,4 +1,5 @@
 //! Todo-only local HTTP adapter. No generic Riesel web capability is added.
+mod assets;
 mod routes;
 mod security;
 
@@ -8,6 +9,7 @@ use routes::ApiError;
 use std::future::IntoFuture;
 use std::io::{self, Write};
 use std::net::Ipv4Addr;
+use std::path::PathBuf;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
 
@@ -47,18 +49,21 @@ impl HttpState {
     }
 }
 
-fn router(state: HttpState) -> axum::Router {
+fn router(state: HttpState, directory: Option<&std::path::Path>) -> axum::Router {
     use axum::{Router, extract::DefaultBodyLimit, middleware, routing::get};
 
-    Router::new()
-        .route("/api/v1/tasks", get(routes::list).post(routes::create))
+    assets::mount(
+        Router::new()
+            .route("/api/v1/tasks", get(routes::list).post(routes::create))
         .route(
             "/api/v1/tasks/{id}",
             get(routes::show)
                 .patch(routes::patch)
                 .delete(routes::delete),
         )
-        .fallback(|| async { ApiError::NotFound })
+        ,
+        directory,
+    )
         .method_not_allowed_fallback(|| async { ApiError::MethodNotAllowed })
         .layer(DefaultBodyLimit::max(16 * 1024))
         .layer(middleware::from_fn_with_state(
@@ -70,7 +75,13 @@ fn router(state: HttpState) -> axum::Router {
 
 /// Serve on numeric loopback only. No authentication or remote deployment is
 /// promised; the same-origin browser defense is implemented in security.
-pub async fn serve(records: Records<TaskData>, tasks: AsyncTasks, port: u16) -> io::Result<()> {
+pub async fn serve(
+    records: Records<TaskData>,
+    tasks: AsyncTasks,
+    port: u16,
+    directory: Option<PathBuf>,
+) -> io::Result<()> {
+    let directory = assets::verify(directory)?;
     let listener = tokio::net::TcpListener::bind((Ipv4Addr::LOCALHOST, port)).await?;
     let addr = listener.local_addr()?;
     let state = HttpState {
@@ -87,7 +98,7 @@ pub async fn serve(records: Records<TaskData>, tasks: AsyncTasks, port: u16) -> 
         let _ = tokio::signal::ctrl_c().await;
         let _ = stopping.send(());
     };
-    let server = axum::serve(listener, router(state))
+    let server = axum::serve(listener, router(state, directory.as_deref()))
         .with_graceful_shutdown(signal)
         .into_future();
     tokio::pin!(server);
@@ -165,7 +176,7 @@ mod tests {
                         tokio::time::sleep(Duration::from_millis(150)).await;
                         Err(std::io::Error::other("fatal session worker").into())
                     })?;
-                    serve(records, tasks, port).await?;
+                    serve(records, tasks, port, None).await?;
                     Ok::<(), Box<dyn std::error::Error + Send + Sync>>(())
                 },
             )
