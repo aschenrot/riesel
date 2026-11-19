@@ -1,6 +1,6 @@
 # Riesel — Async Execution Contract (Stage 5.4)
 
-Status: generated local/managed async parity, structured task ownership, native provider crash/recovery and shared nonblocking startup verified on Linux, 2026-11-19.
+Status: Stage 5.4 complete and verified on Linux, 2026-11-19; Windows remains manual before release.
 This defines the next engineering gates for the accepted
 [high-level application authoring API](api-authoring-v3.md).
 The user-facing mental model stays **app uses capabilities, components
@@ -169,6 +169,37 @@ mandatory ECS, transport object or executor type in the default authoring API.
   Linux evidence:
   https://github.com/aschenrot/riesel/actions/runs/44487397907
 
+## Provider-owned blocking execution and host shutdown now verified
+
+- A native async component with synchronous implementation dependencies can
+  opt into `#[component(factory_with_blocking = factory)]`, where the
+  factory receives one cloneable `ProviderBlocking` scope from Riesel.
+  Existing zero-argument/default component constructors remain unchanged.
+  The same constructor and capability methods work in local and managed
+  modes; native async registration stays the single source of truth.
+- `ProviderBlocking::run(name, |cancellation| work)` invokes blocking code
+  on a dedicated OS thread, not on Tokio. Admission is fail-fast at eight
+  concurrently active workers **per component instance**. Invalid names,
+  expired sessions, full budgets, thread startup errors and worker panics
+  have explicit errors rather than implicit fallbacks.
+- A request future can be dropped or timed out without detaching the worker
+  it started. Each component's owner retains worker JoinHandles, revokes
+  its cancellation token during shutdown and joins those workers before
+  dropping the provider's shared state. Concurrent close callers wait
+  for the first owner's completed joins.
+- A real managed host regression starts a blocking Counter operation
+  over TCP, sends private-stdin shutdown before the RPC result returns,
+  and verifies the worker completion marker before the managed child
+  exits. Linked and managed Counter integration also verifies responsive
+  Tokio execution and shared capability state. Linux evidence:
+  https://github.com/aschenrot/riesel/actions/runs/44493550783
+- **Cooperative cancellation is a contract, not forced thread termination.**
+  Blocking code that ignores cancellation may delay local shutdown
+  indefinitely. A managed service retains the parent's configured
+  external shutdown/kill deadline. Preventing arbitrary untrusted or
+  permanently blocked native code requires stronger process isolation,
+  scheduling and budget policies in Stage 6+, not an unsafe thread kill.
+
 ## Typed async application execution now verified
 
 - The existing supervisor now invalidates the same `SessionToken` carried
@@ -237,11 +268,12 @@ command. Explicit whole-session recovery recreates handles and task
 scopes; no individual command is replayed automatically.
 Keep structured domain/transport/session errors and stale-clone rejection.
 
-**Still required:** a provider-owned, explicitly bounded blocking-work
-boundary with host-owned joins and cancellation, for work triggered by
-native async capability implementations. The application-side boundary
-is implemented. Avoid untracked blocking I/O on the Tokio executor and
-detached `spawn_blocking` calls that survive provider teardown.
+**Implemented and tested:** Provider-owned blocking work is bounded,
+explicit, session-aware, and joined before linked/managed provider teardown.
+It does not silently move arbitrary native async implementation code to
+another executor. The component author must call the injected
+`ProviderBlocking::run` boundary and observe cooperative cancellation.
+Avoid hidden blocking I/O on Tokio and detached workers.
 
 ### 3. Developer-facing injection and error model
 
@@ -284,9 +316,12 @@ not change that security posture.
 6. `cargo validate --check` and `cargo smoke` pass on Linux; Windows stays
    manual and required before release.
 
-The remaining Stage 5.4 gate is a defined, structured blocking-work
-execution policy for native async provider implementations. Nonblocking
-startup inspection and the application-owned blocking boundary are
-implemented and validated. Stage 5.6 remains responsible for the
-`#[riesel::app] async fn` macro; Stage 5.5 provider catalog work can
-proceed independently without weakening these boundaries.
+Stage 5.4 acceptance is complete on Linux: native async local/managed
+component parity, nonblocking startup, structured async and blocking work,
+native provider crash/recovery, and component-owned blocking shutdown
+have been exercised through real processes. This does not make
+unauthenticated loopback RPC a production-ready remote transport, nor
+guarantee safe interruption of arbitrary non-cooperative Rust threads.
+Stage 5.5 provider catalogs and deterministic deployment selection are next;
+Stage 5.6 remains responsible for the `#[riesel::app] async fn` macro.
+Windows verification is still manual before release.
