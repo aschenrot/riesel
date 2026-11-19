@@ -458,9 +458,11 @@ fn transport_mode_collision_is_rejected_during_handler_registration() {
     assert!(matches!(reverse, Err(SdkError::ConnectorModeConflict(_))));
 
     let implicit = Application::new("DefaultAlias")
-        .handler(|_counter: AsyncCapability<CounterContract>| -> Result<(), riesel::ConnectorError> {
-            Ok(())
-        })
+        .handler(
+            |_counter: AsyncCapability<CounterContract>| -> Result<(), riesel::ConnectorError> {
+                Ok(())
+            },
+        )
         .unwrap();
     let expected = Application::new("DefaultAlias")
         .require::<CounterContract>(
