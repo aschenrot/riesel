@@ -23,8 +23,8 @@ body:
   - type: textarea
     id: alternatives
     attributes:
-      label: Alternatives and evidence to evaluate
-      description: State material options, tests, or unknowns to investigate. Do not preselect a design without evidence.
+      label: Research approach and alternatives (when needed)
+      description: For a material choice, outline how to discover candidates, screen them against required guarantees, compare viable options on consistent criteria, and obtain evidence. Include unknowns; do not preselect a winner.
     validations:
       required: false
   - type: textarea

@@ -37,6 +37,10 @@ Small or well-understood changes can record their acceptance criteria directly i
 
 Implementation is ready when the relevant behavior, guarantees, failure/compatibility boundaries, exclusions, dependencies, and verifiable outcomes are clear and an accountable maintainer has recorded acceptance. This does not require deciding every implementation detail.
 
+### Evidence-based investigation (when alternatives matter)
+
+A specification Issue should state the decision, requirements and evidence needed **before** a solution is favored. For a material choice among alternatives, document candidate discovery scope, eligibility criteria, comparable evaluation dimensions and evidence sources; separate mandatory guarantees from preferences. Record dated findings, unknowns and exclusion reasons, and use focused tests only for decision-critical gaps. The outcome may be a recommendation **or a documented deferral**; neither a candidate inventory nor passing CI constitutes acceptance. This is part of the existing specification workflow, not a new mandatory Issue type or research ceremony.
+
 ## GitHub Issue contract
 
 For planned work, use two Issue forms. Bug reports retain their existing separate form:
