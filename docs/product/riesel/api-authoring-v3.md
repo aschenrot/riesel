@@ -1,248 +1,54 @@
-# Riesel — High-level Application Authoring Contract (v3)
+# Riesel — Accepted Application Authoring Contract (v3)
 
-Decision: **accepted as the application authoring contract** on
-2026-11-18. Stages 5.1–5.6 have been implemented and Linux-verified;
-later lifecycle/module features remain targets. For current executable
-examples and limits, see [high-level app authoring](high-level-app.md).
-The mental model is **application uses capabilities; component implements
-capabilities; Riesel composes and runs them**.
+**Status:** Stages 5.1–5.6 implemented and Linux-verified, 2026-11-19. This document defines durable API and composition rules, not a record of each implementation commit. See [executable high-level examples](high-level-app.md) for exact current syntax and supported features.
 
-## Target surface (conceptual syntax)
+## Mental model
 
-```rust
-use riesel::prelude::*;
-use counter::CounterHandle;
+**Application uses capabilities; component implements capabilities; Riesel composes and runs them.** An application is a logical unit of behavior and lifecycle, not inherently one OS process. A component is an implementation, not intrinsically a process or a remotely deployed service.
 
-#[riesel::app(components = [MemoryCounter])]
-async fn main(counter: CounterHandle) -> AppResult<()> {
-    counter.add(3).await?;
-    println!("{}", counter.value().await?);
-    Ok(())
-}
-```
+The high-level `#[riesel::app]` macro is the convenience authoring surface for ordinary asynchronous applications. It must use the same schema, provider resolver, session ownership, error semantics and deployment preflight as the explicit `Application` builder. Use the builder for dynamic or specialized composition.
 
-The `components` list makes an implementation available when statically
-linked. Without it, configured managed/external providers may satisfy the
-same capability. An application signature declares each dependency exactly
-once. A simple one-shot entrypoint is distinct from long-lived lifecycle
-handlers and scheduled systems. Optional module registration is now
-implemented; ordered lifecycle handlers and scheduled systems remain
-Stage 5.7 work.
+## Contract and identity
 
-A capability author should be able to write `#[riesel::capability]` for a
-private contract. For published contracts, one stable externally recognized
-ID must be retained across Rust renames, via explicit `id = "..."` initially
-and potentially package metadata in a later milestone. Contract versions are
-separate from identity; private contracts default to version 1, and published
-contract versions must change intentionally with breaking wire changes.
+- `#[riesel::capability]` describes a typed, versioned contract. A private capability can derive its identity from its fully qualified Rust declaration path; moving or renaming it changes that private identity.
+- Independently published contracts require an intentionally stable external ID and an independently managed version. Do not silently rename Counter or Storage contract IDs.
+- Component definition, concrete provider identity, running instance identity, requirement alias and capability contract identity are distinct. Ports and Rust variable names do not substitute for these identities.
+- A component declares its provided contracts once. `#[riesel::component]` generates linked/local and managed adapters from that declaration. One component instance can provide multiple interfaces backed by shared state.
+- A component constructor can use a factory; `Default` is a convenience, not a mandatory architectural contract.
 
-The component author writes ordinary Rust trait implementations and declares
-provided contracts once. An attribute macro cannot discover arbitrary
-impls across unrelated crates; use an explicit contract list or an equally
-explicit registration annotation. Generate local adapters, managed RPC
-routes and provider metadata from that single registration. Constructors
-must support explicit factories; `Default` is only the convenience case.
+## Requirement and provider selection
 
-## Identity and dependency rules
+- Typed application parameters describe dependencies exactly once; explicit aliases select additional instances of the same contract when needed.
+- Parameter variable names are not stable dependency identities. Missing, duplicate, ambiguous and incompatible bindings fail validation before starting providers.
+- A linked provider must be statically registered. Managed and external placements require explicit trusted configuration or a preapproved provider catalog.
+- Unambiguous linked selection may be automatic; no global hidden constructor, magic linker discovery, or implicit MemoryStore fallback is permitted.
+- Operator selection manifests can choose only preapproved placement names, not arbitrary executables or endpoints. Inspected plans are side-effect-free and preserve pinned provider metadata.
+- Rust-generated application definitions are inspectable metadata; ordinary Rust closures or functions are not serialized as executable schemas.
 
-- A private capability identity is deterministic for its fully qualified
-  Rust declaration path (module + trait name) and does not require a manual
-  ID. It is **not a stable external compatibility guarantee**; moving or
-  renaming the Rust declaration changes it.
-- Independently deployed/published contracts require a deliberately stable
-  external ID. Do not silently change existing Counter or Storage IDs.
-- Component definition identity, running instance identity, requirement alias
-  and capability contract identity are four different concepts. Never
-  combine them or infer them from a process port or variable name.
-- Parameter names are not stable dependency identifiers. Unambiguous
-  capabilities receive one deterministic default binding; multiple instances
-  require explicit binding aliases. Ambiguity and conflicting registrations
-  fail during validation, before starting providers.
-- Local component availability requires static linking/registration; remote
-  and managed providers require explicit trusted configuration. No global
-  hidden constructors, magic linker discovery or silent in-memory fallback.
-- Rust-generated application definitions remain inspectable, validated,
-  portable metadata. Rust functions and closures are not serialized as schema.
+## Execution and ownership
 
-## Calls, execution, failure and security
+- Generated native async capability handles work with linked providers and managed nonblocking TCP without introducing a second runtime or transport-specific application API.
+- Application-session shutdown invalidates cloned typed handles. A new recovery session creates new handles and task scopes; it does not silently reconnect old clones.
+- Call failures must retain distinct domain, transport, cancellation and session-expiry information. `AppResult` may ease error propagation without discarding causes.
+- A dropped RPC future or timeout does not guarantee that a transmitted command was not executed. Riesel must not automatically replay ambiguous commands.
+- Native async work must be genuinely nonblocking. Provider-owned blocking operations use an explicit, bounded worker boundary and cooperative shutdown.
+- Multiple capability interfaces on one component share state and lifecycle except where explicit, validated configuration says otherwise.
 
-- Generated handles should be ergonomically named `CounterHandle`, using a
-  shared type-safe binding implementation, not a second runtime.
-- Native async capabilities, typed generated local/remote handles, nonblocking
-  Tokio transport, local/managed component parity, bounded async/blocking
-  tasks and supervised async startup are implemented and Linux-verified.
-  Do not wrap blocking network I/O in an async function or run untracked
-  blocking work on Tokio; use the explicit provider blocking-work boundary.
-  The high-level `#[riesel::app]` macro remains Stage 5.6.
-- Preserve separate domain versus transport/cancellation/session-expiry
-  failures. `AppResult` may simplify `?` but must retain structured source
-  errors and allow user-defined error types.
-- Cloned handles are invalidated on application-session shutdown/recovery.
-  Recovery is opt-in and can replay the whole application entrypoint;
-  commands must never be implicitly retried after ambiguous transport errors.
-- One component providing multiple contracts must share one state instance
-  and one lifecycle unless explicitly configured otherwise.
-- Production remote execution requires authentication and authorization;
-  current loopback RPC handshake metadata is not identity verification.
-- Native UI hosts remain separate processes. ECS and multiplayer are optional
-  specialized execution integrations, not application-wide requirements.
+## Modules and future lifecycle work
 
-## Low-level implementation rule
+Optional `ApplicationModule` registrations reuse the same builder and dependency DAG. Module registration ordering is **not** a substitute for declared dependency ordering. Repeated or conflicting registration is rejected before startup.
 
-`#[riesel::app]` must generate use of a testable typed-handler/requirement
-registration API; `#[riesel::component]` must build on the existing
-`ComponentDefinition`. The direct builder and explicit `Context` remain
-available to libraries, dynamic compositions and tests. Keep one runtime,
-one schema, one provider resolver and one error model.
+Ordered application lifecycle hooks and scheduling are **not** delivered by Stage 5.6 or the initial Stage 5.7 module slice. Those require a separate accepted session-scoped lifecycle contract. See [application modules](application-modules.md) and the [roadmap](implementation-roadmap.md).
 
-## Acceptance and verification
+## Safety and extensibility boundaries
 
-1. An ID-free private contract derives deterministic distinct IDs across
-   Rust modules/names; explicit published IDs remain unchanged.
-2. Minimal Counter application registers dependencies from its signature
-   exactly once and works with local and managed implementations.
-3. Two aliases for one capability are explicit and fail on ambiguity.
-4. Todo `Records<T>` derives and validates model + Storage bindings without
-   duplicate declarations or a silent memory fallback.
-5. Generated component adapters expose Counter and Observer with shared state.
-6. Async RPC is genuinely nonblocking and preserves structured failure
-   variants, expiry and cooperative cancellation.
-7. Macro and builder create equivalent definitions and startup plans.
-8. Invalid macros, missing providers, collisions, dependency cycles and
-   invalid bindings produce actionable diagnostics before side effects.
-9. Existing lifecycle/recovery executable smoke tests stay green; Windows
-   is run explicitly before releases.
+- Current plaintext RPC is restricted to loopback; contract metadata and a readiness announcement are **not** cryptographic peer authentication.
+- Durable Storage, authenticated remote transport, authorization, observability and safe stateful recovery need separate production acceptance.
+- Independent native window hosts are a product requirement, not an existing runtime feature.
+- ECS, multiplayer, event subscriptions, messaging and UI frameworks are possible specialized extensions, not mandatory core dependencies.
 
-## Delivery approach
+## Acceptance evidence
 
-Implement in small validated changes. First introduce ID-free private
-capability declarations while preserving explicit published IDs. Next build
-typed extraction and generated component adapters without macros. Add real
-async execution and provider-catalog composition before exposing the concise
-high-level async app macro. Track actual status only after CI passes.
+Stage 5.6's Counter, Todo, catalog selection and schema-equivalence integration tests were Linux-verified. Subsequent module registration was also verified. Refer to the [active roadmap](implementation-roadmap.md) for stage gates and to [high-level app authoring](high-level-app.md) for actual runnable syntax.
 
-## Implemented foundation (verified 2026-11-18)
-
-- `#[capability]` can omit `id` and `version` for private contracts.
-  Identity derives deterministically from the declaration module and Rust
-  name; explicit existing IDs and versions are retained.
-- `CapabilityRef::default_requirement_alias` provides an escaped, stable
-  contract-derived alias instead of using a function parameter name.
-- SDK `ApplicationParam` describes a dependency's declaration and owned
-  extraction. `Capability<C>` and `Records<T>` implement the initial
-  binding; the capability wrapper preserves generated session guards.
-- Typed synchronous function-signature handlers are implemented through
-  `Application::handler` and `handler_with_aliases`; Counter and Todo now use
-  these handlers locally and in managed smoke tests. Explicit duplicate aliases
-  and model bindings are checked before startup.
-- `#[riesel::component(provides = [...])]` now generates local/managed
-  binding registration from the explicit contract list, and the SDK offers
-  `.component::<MyComponent>()` for statically linked components. Optional
-  stable IDs and factory paths are supported; no global discovery is added.
-- At this 2026-11-18 checkpoint, async generated handles and the
-  declarative `#[riesel::app]` were future work. Both are now implemented
-  and Linux-verified (see the roadmap's Stage 5.4 and 5.6 evidence).
-- Linux CI validated the changes, including workspace tests and runtime smoke
-  tests: https://github.com/aschenrot/riesel/actions/runs/44411860685
-
-## Stage 5.2 verified (2026-11-18)
-
-`Application::new("Counter").handler_with_aliases(run_demo, ["counter"])?`
-registers a typed `Capability<CounterContract>` parameter without separate
-`.rpc` declarations or `Context::capability` lookups. `Todo` uses
-`Application::handler(run_demo)?` with `Records<TaskData>`; two separate
-model types may intentionally share one Storage requirement. Explicit aliases
-are positional at this low-level stage; the future app macro will bind names
-to parameters at compile time. The synchronous handler implementation is not
-a substitute for genuine async transport or the proposed async entrypoint.
-Linux validation and smoke: https://github.com/aschenrot/riesel/actions/runs/44414421066
-
-## Stage 5.3 verified (2026-11-18)
-
-`#[riesel::component(provides = [CounterContract, CounterObserverContract])]`
-now derives `DeclarativeComponent`, backed by the same `ComponentDefinition`
-used by local and hosted execution. Published components can provide an
-explicit `id`; private ones derive a deterministic Rust declaration-path ID.
-A `factory = function_path` supports non-`Default` state constructors.
-Capability macros generate the local and RPC dispatcher adapters so the
-component author doesn't manually cast `Arc` or instantiate handlers.
-The existing Counter integration checks both capabilities share state locally
-and in a managed process; compile-fail tests reject missing trait implementations.
-Linux validation and smoke: https://github.com/aschenrot/riesel/actions/runs/44416458416
-
-**At the Stage 5.3 checkpoint:** Async generated handles, declarative
-`#[riesel::app]`, and a module scheduler were not yet implemented.
-The first two are now Linux-verified. Application modules and lifecycle
-handlers remain Stage 5.7, and generic implicit provider discovery is not
-planned.
-
-## Stage 5.4 — async transport foundation (verified 2026-11-19)
-
-The protocol now exposes `AsyncRpcTransport`, a generated
-`<Trait>AsyncClient`, and `AsyncRpcClientBinding` for typed construction.
-`AsyncTcpRpcTransport` is gated behind the optional protocol
-`async-tcp` Cargo feature and uses Tokio's genuinely nonblocking sockets.
-It retains the existing wire contract, explicit loopback-only policy,
-bounded frames, domain-versus-RPC errors, timeout handling and session-token
-checks. Outbound calls are limited to 32 per transport, with async permit
-waiting. Pending calls can be cancelled by dropping their futures; they are
-not retried. Contract and provider metadata inspection is available, but
-provider metadata is **not** service authentication.
-
-The current `#[capability]` macro still expects synchronous Rust trait
-methods and the existing local/managed application runtime remains synchronous.
-The new async clients do not mean that application injection, async
-provider dispatch, runtime-owned async tasks or `#[riesel::app] async fn`
-are complete. The detailed design gates and these restrictions are in
-[async execution contract](async-execution-contract.md).
-
-Validated: https://github.com/aschenrot/riesel/actions/runs/44420615980
-
-## Native async capability and host progress (verified 2026-11-19)
-
-The `#[capability]` macro accepts entirely asynchronous Rust traits.
-It generates an object-safe `<Trait>AsyncService`, a session-scoped
-`<Trait>LocalClient` and `<Trait>AsyncRpcDispatcher`. Ordinary Rust
-`impl Trait for Component { async fn ... }` requires no manual future boxing.
-The generated method futures must be `Send`; a single capability contract
-cannot mix sync and async methods. The optional Tokio TCP host can execute
-the native async dispatcher with bounded concurrency and nonblocking I/O.
-
-This does **not** yet give developers the final `#[riesel::app] async fn`
-surface. The existing provider registry and component macro still bind
-synchronous services. The next slice needs async component registration,
-runtime-owned async tasks, manager-owned async service lifecycle and prompt
-session-driven cancellation.
-
-Verified workspace validation, async Counter integration and managed
-synchronous smoke: https://github.com/aschenrot/riesel/actions/runs/44423972358
-
-## Typed async handler progress (verified 2026-11-19)
-
-An application can now write a typed asynchronous Rust function without
-creating a Tokio runtime manually:
-
-```rust
-Application::new("Counter")
-    .async_handler_with_aliases(
-        |counter: AsyncCapability<CounterContract>| async move {
-            counter.add(3).await?;
-            Ok::<_, riesel_protocol::CallError<CounterError>>(())
-        },
-        ["counter"],
-    )?
-    .deployment(explicit_config)
-    .run()?;
-```
-
-The `async-tcp` SDK feature is optional. This is an intermediate API:
-the application session owns the Tokio executor and cancellation, but
-startup contract inspection is still synchronous. Local async components
-must be generated and integrated with the same resolver before the final
-`#[riesel::app]` entrypoint is ready. Colliding sync/async connectors fail
-during registration; an incompatible local-only async selection fails in
-preflight, not after a provider starts. No global provider discovery,
-automatic retries or extra runtime is introduced.
-
-Verified Linux checks and managed smoke:
-https://github.com/aschenrot/riesel/actions/runs/44429849161
+Do not mark an API complete based on an illustrative example alone; executable tests, versioned contracts and CI are authoritative.
