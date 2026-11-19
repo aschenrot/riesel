@@ -4,7 +4,7 @@ title: "[Task] "
 body:
   - type: markdown
     attributes:
-      value: "For implementation work with understood requirements. If the decision or architecture is unresolved, use the Specification / investigation template first. Link an accepted specification when relevant; small, low-risk changes do not need a separate specification Issue."
+      value: "Implement accepted scope. Link an existing specification decision when relevant; unresolved architectural questions belong in the Specification / investigation form."
   - type: textarea
     id: outcome
     attributes:

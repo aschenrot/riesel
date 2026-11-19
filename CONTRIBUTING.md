@@ -12,18 +12,16 @@ Riesel is an experimental Rust application platform. Breaking API changes are pe
 - **Pull Requests and CI**: change review and evidence that a particular revision was verified.
 - **Git history**: implementation chronology. Record lasting, non-obvious architecture decisions separately only when necessary.
 
-See [delivery model](docs/project/delivery.md) for the lightweight PM²/PRINCE2-inspired management rules and risk-based specification gate.
+See the [delivery model](docs/project/delivery.md) for the requirements and delivery rules.
 
 ## Working on a change
 
-1. Determine whether the requested outcome and acceptance boundary are already understood and accepted. For significant unknowns or high-risk architectural changes, use a bounded **Specification / investigation** Issue before implementing; a small, low-risk change can use one implementation Issue.
-2. Resolve the specification decision explicitly. Update the existing product definition or architecture contract when accepted requirements or durable invariants change; link the decision. A specification Issue can close without any implementation being approved.
-3. Use or create an **Implementation** Issue for a meaningful accepted engineering outcome, linking the decision when one exists. A separate Issue is optional for a trivial typo or mechanical cleanup.
-4. Create a short-lived branch from `main`. Prefer `feat/`, `fix/`, `docs/`, or `chore/` followed by a specific topic.
-5. Keep the change coherent: implementation, tests, and relevant documentation can belong in the same PR. Split unrelated outcomes.
-6. Open a PR targeting `main`, link the relevant Issue, and describe results, verification, and limitations. A draft PR is appropriate while the base or work is not ready.
-7. Merge only after required CI checks pass on the intended result and acceptance criteria are satisfied. Prefer squash merges for ordinary feature PRs; keep meaningful full-history merges when justified.
-8. Delete merged short-lived branches. Do not force-push a shared branch or modify another active workstream without coordination.
+1. Confirm the intended outcome and accepted scope. For material unresolved decisions, open a **Specification / investigation** Issue, then record an accept/defer/reject decision and update the authoritative documents as needed. Small or urgent corrective changes may proceed directly with documented scope and tests.
+2. Use an **Engineering task** Issue for meaningful accepted implementation work, linking the decision if one was needed. Trivial mechanical changes need no separate Issue.
+3. Create a short-lived branch from `main`, using `feat/`, `fix/`, `docs/`, or `chore/` as appropriate. Keep each change coherent.
+4. Open a PR targeting `main`; link relevant Issues, explain scope and exclusions, and include tests and documentation. Use a draft while work or review is incomplete.
+5. Merge only after required checks pass on the intended revision and acceptance criteria are met. Prefer squash merges for ordinary features.
+6. Delete merged short-lived branches. Do not force-push shared branches or modify another active workstream without coordination.
 
 **Integration branch:** `main` is the default and authoritative development baseline. Start new work from its latest verified revision; open feature PRs against `main`. Do not develop on the retired `feature/schema_based_app` branch.
 

@@ -4,7 +4,7 @@ title: "[Spec] "
 body:
   - type: markdown
     attributes:
-      value: "This Issue is for a decision, not implementation. Define the questions and evidence needed to accept, defer, or reject an outcome. Keep accepted requirements in the relevant product definition and durable semantics in existing architecture documents."
+      value: "Use for material unresolved questions, not implementation. Before closure, add a comment recording the accept/defer/reject decision, rationale, evidence, and links to any updated product/architecture documents or follow-up Issues."
   - type: textarea
     id: question
     attributes:

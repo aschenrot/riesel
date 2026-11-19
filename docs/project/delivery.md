@@ -11,7 +11,7 @@ Maintain a clear, auditable path from a product outcome to accepted implementati
 | Question | Owner |
 | --- | --- |
 | Why does a feature exist, and what product outcome is accepted? | Product definition |
-| What must be investigated or specified before a decision? | GitHub specification Issue |
+| Where are unresolved requirements or architecture questions tracked? | GitHub specification Issue, when needed |
 | What technical semantics must remain true? | Architecture contract or accepted decision |
 | What are the delivery stages and acceptance gates? | Implementation roadmap and GitHub Milestones, when configured |
 | What accepted work needs implementation? | GitHub implementation Issue |
@@ -24,22 +24,22 @@ Do not duplicate open-issue status or past commit histories in the roadmap. Expl
 ## Requirements-to-delivery workflow
 
 1. **Identify the need.** State the intended user or platform outcome, its owner, and known constraints. Keep uncommitted ideas exploratory; an accepted product requirement belongs in the relevant product definition.
-2. **Investigate and specify when needed.** Open a specification Issue for a bounded question whose answer requires independent analysis, comparison, or validation. Establish functional behavior, material quality attributes (such as durability, security, availability and compatibility), failure cases, alternatives, risks, dependencies, and testable acceptance boundaries. Spikes may produce evidence, but do not establish production guarantees.
-3. **Accept, defer, or reject.** Record an explicit decision by the product owner or maintainer in the specification Issue or a reviewed PR. Update the product definition for accepted outcomes and an existing architecture contract (or concise decision record when warranted) for durable technical invariants. Link the decision and its rationale; a green CI result alone does not accept a requirement. Close the specification Issue with its decision, including when rejected or deferred.
+2. **Investigate and specify when needed.** Track material unresolved questions in a bounded specification Issue. Evaluate relevant behavior, quality attributes, failure cases, alternatives, risks, dependencies, and acceptance criteria. A technical spike may provide evidence but does not establish production guarantees.
+3. **Accept, defer, or reject.** Record the product owner or maintainer's decision, rationale, and evidence in a final Issue comment or reviewed PR. Update the product definition for accepted outcomes and an existing architecture contract (or concise decision record when warranted) for durable invariants. Close the specification Issue with its recorded outcome; acceptance of a specification does not itself approve or deliver implementation. CI alone is not a requirements decision.
 4. **Plan implementation.** Create implementation Issues for independently verifiable outcomes grounded in accepted scope, with dependencies and test evidence. Split work when boundaries, ownership, or verification genuinely differ; not for each checklist item. Implementation can proceed in parallel only where the relevant requirements and interfaces are already accepted.
 5. **Implement and verify.** Use coherent PRs, review against the accepted specification, and close implementation Issues only when their acceptance criteria are supported by the tested revision. If findings invalidate a significant requirement or guarantee, revisit the decision before silently expanding scope.
 
 ### When a separate specification gate is warranted
 
-Use a separate specification Issue and explicit acceptance before implementing a new or materially changed security, authorization, persistent-data/durability, remote-transport, recovery/lifecycle, published-contract, or cross-cutting architectural guarantee. Also use it when alternatives or acceptance conditions are genuinely unresolved.
+Use a separate specification Issue when material decisions remain unresolved, especially about security, durable data, remote transport, recovery, published contracts, or cross-cutting architecture. A previously accepted and linked specification is sufficient; the feature category alone does not mandate another Issue.
 
-For small, low-risk, well-understood changes, record the requirement, decision, and acceptance criteria directly in one implementation Issue and PR. A separate specification Issue, architecture document, meeting, or approval ceremony is **not** mandatory.
+Small or well-understood changes can record their acceptance criteria directly in one implementation Issue and PR. Urgent corrective work may proceed without a separate investigation when delay would increase risk; document the assumptions, verification, and any unresolved follow-up. No separate meeting or document is required by default.
 
-A specification is **ready for implementation** once the intended behavior, key invariants, failure/compatibility boundaries, relevant alternatives and exclusions, dependencies, and observable acceptance criteria are clear enough to review. The gate approves scope and guarantees, not necessarily every implementation detail. Record an accountable approval or documented solo-maintainer decision; do not infer approval from an Issue's existence.
+Implementation is ready when the relevant behavior, guarantees, failure/compatibility boundaries, exclusions, dependencies, and verifiable outcomes are clear and an accountable maintainer has recorded acceptance. This does not require deciding every implementation detail.
 
 ## GitHub Issue contract
 
-Use the existing Issue forms for two work types:
+For planned work, use two Issue forms. Bug reports retain their existing separate form:
 
 | Type | Deliverable | Closure |
 | --- | --- | --- |
@@ -53,7 +53,7 @@ For either type record only:
 4. **Dependencies / exceptions:** only material blockers, risks, or decisions.
 5. **Evidence:** relevant PR, tests, and linked authoritative documents.
 
-A specification Issue is not a parent Issue by default, and implementation Issues do not require native sub-issue relationships or a Projects board. Use ordinary Issue links for dependencies. Do not create a separate project charter, business case, or risk log for each feature.
+Use ordinary Issue links for dependencies; a parent/sub-issue hierarchy or project board is optional. Do not create a separate project charter, business case, or risk log for each feature.
 
 ## Stage management
 
