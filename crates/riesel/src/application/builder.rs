@@ -72,8 +72,7 @@ impl Application {
             .ok_or_else(|| SdkError::MissingCapability(name.into()))?;
         let mut declared = BTreeSet::new();
         for dependency in dependencies.into_iter().map(Into::into) {
-            if requirement.depends_on.contains(&dependency)
-                || !declared.insert(dependency.clone())
+            if requirement.depends_on.contains(&dependency) || !declared.insert(dependency.clone())
             {
                 return Err(SdkError::DuplicateDependency {
                     requirement: name.into(),
