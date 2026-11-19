@@ -526,7 +526,7 @@ fn async_handler_runs_without_user_owned_executor_or_separate_registry() {
     assert_eq!(called.load(Ordering::Acquire), 1);
 }
 
-#[cfg(feature = "async-tcp")]
+#[cfg(all(feature = "async-tcp", feature = "records"))]
 #[test]
 fn async_handler_alias_validation_runs_before_any_provider_start() {
     use super::AsyncCapability;

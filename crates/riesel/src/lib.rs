@@ -34,12 +34,12 @@ mod application;
 mod records;
 mod rpc_connector;
 
-#[cfg(feature = "async-tcp")]
-pub use application::{AsyncApplicationHandler, AsyncCapability, PreparedAsyncApplication};
 pub use application::{
     Application, ApplicationHandler, ApplicationParam, Capability, Context, HandlerParams,
     PreparedApplication, Result, SdkError,
 };
+#[cfg(feature = "async-tcp")]
+pub use application::{AsyncApplicationHandler, AsyncCapability, PreparedAsyncApplication};
 #[cfg(feature = "records")]
 pub use records::{Record, RecordPage, Records};
 #[cfg(feature = "async-tcp")]

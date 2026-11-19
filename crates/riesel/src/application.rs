@@ -19,23 +19,23 @@ use std::collections::BTreeMap;
 use std::path::PathBuf;
 use thiserror::Error;
 
+#[cfg(feature = "async-tcp")]
+mod async_handler;
 mod builder;
 mod cli;
 mod context;
 mod errors;
 mod handler;
-#[cfg(feature = "async-tcp")]
-mod async_handler;
 mod parameter;
 #[cfg(test)]
 mod tests;
 
+#[cfg(feature = "async-tcp")]
+pub use async_handler::{AsyncApplicationHandler, PreparedAsyncApplication};
 pub use builder::Application;
 pub use context::Context;
 pub use errors::{Result, SdkError};
 pub use handler::{ApplicationHandler, HandlerParams, PreparedApplication};
-#[cfg(feature = "async-tcp")]
-pub use async_handler::{AsyncApplicationHandler, PreparedAsyncApplication};
 #[cfg(feature = "async-tcp")]
 pub use parameter::AsyncCapability;
 pub use parameter::{ApplicationParam, Capability};
