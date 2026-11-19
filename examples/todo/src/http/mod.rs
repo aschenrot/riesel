@@ -148,5 +148,33 @@ mod tests {
             .unwrap()
             .run()
             .unwrap();
+
+    /// A runtime task fault revokes the session while the HTTP server is
+    /// pending. The listener is dropped and owned workers are joined.
+    #[test]
+    fn unexpected_session_revocation_releases_listener() {
+        let reserved = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let port = reserved.local_addr().unwrap().port();
+        drop(reserved);
+
+        let result = Application::new("Todo HTTP revoked session")
+            .async_handler(move |records: Records<TaskData>, tasks: AsyncTasks| async move {
+                tasks.spawn("simulate-fatal-provider-work", async {
+                    tokio::time::sleep(Duration::from_millis(150)).await;
+                    Err(std::io::Error::other("fatal session worker").into())
+                })?;
+                serve(records, tasks, port).await?;
+                Ok::<(), Box<dyn std::error::Error + Send + Sync>>(())
+            })
+            .unwrap()
+            .development()
+            .unwrap()
+            .run();
+        assert!(result.is_err(), "fatal scoped task must stop the app");
+        assert!(
+            std::net::TcpListener::bind(("127.0.0.1", port)).is_ok(),
+            "revoked session must release its listener"
+        );
+    }
     }
 }
