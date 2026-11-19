@@ -219,16 +219,19 @@ impl<'a> StartupState<'a> {
             });
         }
         if !self.local_instances.contains_key(provider) {
-            let instance = local
-                .factory
-                .create()
-                .map_err(|source| RuntimeError::Connection {
-                    requirement: requirement.name.clone(),
-                    source,
-                })?;
+            #[cfg(feature = "async-tcp")]
+            let instance = local.factory.create_with_session(self.session.clone());
+            #[cfg(not(feature = "async-tcp"))]
+            let instance = local.factory.create();
+            let instance = instance.map_err(|source| RuntimeError::Connection {
+                requirement: requirement.name.clone(),
+                source,
+            })?;
             if instance.definition != local.definition {
                 return Err(RuntimeError::LocalProviderChanged(provider.into()));
             }
+            #[cfg(feature = "async-tcp")]
+            let blocking = instance.blocking.clone();
             let mut bound = BTreeMap::new();
             for binding in instance.bindings {
                 let binding_key = (
@@ -258,8 +261,14 @@ impl<'a> StartupState<'a> {
             self.registry.register(instance.definition.clone())?;
             self.provider_definitions
                 .insert(provider.into(), instance.definition);
-            self.local_instances
-                .insert(provider.into(), RunningLocalProvider { services: bound });
+            self.local_instances.insert(
+                provider.into(),
+                RunningLocalProvider {
+                    services: bound,
+                    #[cfg(feature = "async-tcp")]
+                    blocking,
+                },
+            );
         }
         let service = Arc::clone(
             self.local_instances
@@ -414,6 +423,12 @@ impl<'a> StartupState<'a> {
         let tasks = TaskGroup::new(supervisor.cancellation_token());
         #[cfg(feature = "async-tcp")]
         let async_tasks = AsyncTasks::new(self.session.clone(), supervisor.cancellation_token());
+        #[cfg(feature = "async-tcp")]
+        let local_blocking: Vec<_> = self
+            .local_instances
+            .into_values()
+            .filter_map(|local| local.blocking)
+            .collect();
         Ok(RunningApp {
             app: self.app,
             resolved,
@@ -423,6 +438,8 @@ impl<'a> StartupState<'a> {
             tasks,
             #[cfg(feature = "async-tcp")]
             async_tasks,
+            #[cfg(feature = "async-tcp")]
+            local_blocking,
             session: self.session,
         })
     }
