@@ -8,10 +8,13 @@ use crate::supervisor::CancellationToken;
 use riesel_protocol::SessionToken;
 use std::future::Future;
 use std::io;
-use std::sync::{Arc, Mutex, PoisonError};
+use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
+use tokio::sync::Semaphore;
 use tokio::task::JoinHandle;
 
 const MAX_ASYNC_TASKS: usize = 64;
+/// Separate, deliberately smaller budget for OS-thread blocking work.
+const MAX_BLOCKING_TASKS: usize = 8;
 
 #[derive(Clone)]
 struct TaskFailure {
@@ -34,6 +37,7 @@ pub(crate) struct AsyncTaskGroup {
     failure: Arc<Mutex<Option<TaskFailure>>>,
     session: SessionToken,
     cancellation: CancellationToken,
+    blocking_slots: Arc<Semaphore>,
 }
 
 /// Cloneable, session-bound task spawner for typed async application handlers.
@@ -51,6 +55,7 @@ impl AsyncTasks {
                 failure: Arc::new(Mutex::new(None)),
                 session,
                 cancellation,
+                blocking_slots: Arc::new(Semaphore::new(MAX_BLOCKING_TASKS)),
             }),
         }
     }
@@ -69,40 +74,7 @@ impl AsyncTasks {
         task: impl Future<Output = Result<(), ConnectorError>> + Send + 'static,
     ) -> Result<(), RuntimeError> {
         let name = name.into();
-        let mut state = self
-            .inner
-            .state
-            .lock()
-            .unwrap_or_else(PoisonError::into_inner);
-        if !state.active
-            || state.closed
-            || !self.inner.session.is_active()
-            || self.inner.cancellation.is_cancelled()
-        {
-            return Err(RuntimeError::TaskGroupClosed);
-        }
-        // Completed watchers have already recorded their result. Recycle
-        // their names and budget slots without detaching live tasks.
-        state.handles.retain(|(_, handle)| !handle.is_finished());
-        if state.handles.len() >= MAX_ASYNC_TASKS {
-            return Err(RuntimeError::TaskLimitExceeded {
-                limit: MAX_ASYNC_TASKS,
-            });
-        }
-        if name.is_empty()
-            || name.len() > 128
-            || name.chars().any(char::is_control)
-            || state.handles.iter().any(|(existing, _)| existing == &name)
-        {
-            return Err(RuntimeError::InvalidTaskName(name));
-        }
-        // Always spawn on the executor owned by this session, not an
-        // unrelated Tokio runtime that happens to call a cloned spawner.
-        let executor = state
-            .executor
-            .as_ref()
-            .ok_or(RuntimeError::TaskGroupClosed)?
-            .clone();
+        let (mut state, executor) = self.reserve(&name)?;
         let session = self.inner.session.clone();
         let worker = executor.spawn(async move {
             let mut work = std::pin::pin!(task);
@@ -119,33 +91,102 @@ impl AsyncTasks {
             })
             .await
         });
+        let watcher = self.watch(&executor, name.clone(), worker);
+        state.handles.push((name, watcher));
+        Ok(())
+    }
 
-        let recorded = Arc::clone(&self.inner.failure);
+    /// Explicit boundary for synchronous work in an async application.
+    /// The closure runs on Tokio's blocking worker pool, not the session
+    /// reactor. At most eight blocking jobs can be admitted concurrently.
+    ///
+    /// Started blocking jobs cannot be forcibly interrupted by Rust.
+    /// Observe the supplied token, use bounded I/O and return promptly
+    /// when cancelled. Riesel joins them before stopping providers.
+    pub fn spawn_blocking(
+        &self,
+        name: impl Into<String>,
+        task: impl FnOnce(CancellationToken) -> Result<(), ConnectorError> + Send + 'static,
+    ) -> Result<(), RuntimeError> {
+        let name = name.into();
+        let (mut state, executor) = self.reserve(&name)?;
+        let permit = Arc::clone(&self.inner.blocking_slots)
+            .try_acquire_owned()
+            .map_err(|_| RuntimeError::TaskLimitExceeded {
+                limit: MAX_BLOCKING_TASKS,
+            })?;
         let cancellation = self.inner.cancellation.clone();
-        let session = self.inner.session.clone();
-        let task_name = name.clone();
-        let watcher = executor.spawn(async move {
-            let source: Option<Arc<dyn std::error::Error + Send + Sync>> = match worker.await {
-                Ok(None | Some(Ok(()))) => None,
-                Ok(Some(Err(error))) => Some(Arc::from(error)),
-                Err(error) if error.is_cancelled() && !session.is_active() => None,
-                Err(error) => Some(Arc::new(error)),
-            };
-            if let Some(source) = source {
-                let mut guard = recorded.lock().unwrap_or_else(PoisonError::into_inner);
-                if guard.is_none() {
-                    *guard = Some(TaskFailure {
-                        name: task_name,
-                        source,
-                    });
-                }
-                drop(guard);
-                session.invalidate();
-                cancellation.cancel();
+        let worker = executor.spawn_blocking(move || {
+            let _permit = permit;
+            if cancellation.is_cancelled() {
+                return Ok(());
             }
+            task(cancellation)
+        });
+        let watcher = self.watch(&executor, name.clone(), async move {
+            worker.await.map(Some)
         });
         state.handles.push((name, watcher));
         Ok(())
+    }
+
+    fn reserve(
+        &self,
+        name: &str,
+    ) -> Result<(MutexGuard<'_, TaskState>, tokio::runtime::Handle), RuntimeError> {
+        let mut state = self
+            .inner
+            .state
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner);
+        if !state.active
+            || state.closed
+            || !self.inner.session.is_active()
+            || self.inner.cancellation.is_cancelled()
+        {
+            return Err(RuntimeError::TaskGroupClosed);
+        }
+        // Finished watchers have recorded their outcome. Recycle active
+        // names and admission slots without detaching live task futures.
+        state.handles.retain(|(_, handle)| !handle.is_finished());
+        if state.handles.len() >= MAX_ASYNC_TASKS {
+            return Err(RuntimeError::TaskLimitExceeded {
+                limit: MAX_ASYNC_TASKS,
+            });
+        }
+        if name.is_empty()
+            || name.len() > 128
+            || name.chars().any(char::is_control)
+            || state.handles.iter().any(|(existing, _)| existing == name)
+        {
+            return Err(RuntimeError::InvalidTaskName(name.into()));
+        }
+        let executor = state
+            .executor
+            .as_ref()
+            .ok_or(RuntimeError::TaskGroupClosed)?
+            .clone();
+        Ok((state, executor))
+    }
+
+    fn watch<F>(&self, executor: &tokio::runtime::Handle, name: String, completed: F) -> JoinHandle<()>
+    where
+        F: Future<Output = Result<Option<Result<(), ConnectorError>>, tokio::task::JoinError>>
+            + Send
+            + 'static,
+    {
+        let inner = Arc::clone(&self.inner);
+        executor.spawn(async move {
+            let source: Option<Arc<dyn std::error::Error + Send + Sync>> = match completed.await {
+                Ok(None | Some(Ok(()))) => None,
+                Ok(Some(Err(error))) => Some(Arc::from(error)),
+                Err(error) if error.is_cancelled() && !inner.session.is_active() => None,
+                Err(error) => Some(Arc::new(error)),
+            };
+            if let Some(source) = source {
+                inner.report(name, source);
+            }
+        })
     }
 
     /// Enter one application-owned async executor. Cannot reopen a closed
