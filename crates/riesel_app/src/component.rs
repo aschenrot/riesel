@@ -2,9 +2,9 @@
 //! An instance is constructed once per session; every capability receives
 //! the same Arc-backed state in either mode.
 
-use crate::{ConnectorError, LocalProviderFactory, LocalProviderInstance};
 #[cfg(feature = "async-tcp")]
 use crate::ProviderBlocking;
+use crate::{ConnectorError, LocalProviderFactory, LocalProviderInstance};
 #[cfg(feature = "async-tcp")]
 use riesel_protocol::SessionToken;
 use riesel_protocol::{
@@ -175,7 +175,10 @@ impl<S: Send + Sync + 'static> ComponentDefinition<S> {
         }
         #[cfg(feature = "async-tcp")]
         if matches!(self.create, ComponentFactory::WithBlocking(_))
-            && self.capabilities.iter().any(|capability| capability.mode != LocalBindingMode::Async)
+            && self
+                .capabilities
+                .iter()
+                .any(|capability| capability.mode != LocalBindingMode::Async)
         {
             return Err(io::Error::new(
                 io::ErrorKind::InvalidInput,
