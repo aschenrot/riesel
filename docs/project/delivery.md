@@ -39,7 +39,7 @@ Implementation is ready when the relevant behavior, guarantees, failure/compatib
 
 ### Evidence-based investigation (when alternatives matter)
 
-For material decisions among alternatives, define a bounded research plan: discovery scope, required outcomes versus preferences, common comparison criteria and evidence sources. Record dated findings, unknowns and exclusion reasons. Investigate decision-critical gaps with focused tests; stop when more research is unlikely to change the choice, or defer when evidence is insufficient. A reviewed research plan permits investigation but does **not** approve the resulting architecture or implementation. Use the existing specification Issue rather than requiring another Issue type.
+For material decisions among alternatives, define a bounded research plan: discovery scope, required outcomes versus preferences, common comparison criteria and evidence sources. Record dated findings, unknowns and exclusion reasons. Investigate decision-critical gaps with focused tests; stop when more research is unlikely to change the choice, or defer when evidence is insufficient. A reviewed research plan establishes scope; preliminary discovery needs no approval, and the plan does **not** approve the resulting architecture or implementation. Use the existing specification Issue rather than requiring another Issue type.
 
 ## GitHub Issue contract
 
