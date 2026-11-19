@@ -1,4 +1,6 @@
 pub mod app;
+#[cfg(feature = "async-tcp")]
+mod async_tasks;
 mod component;
 mod deployment;
 mod plan;
@@ -9,6 +11,8 @@ mod supervisor;
 mod tasks;
 
 pub use app::{App, AppError};
+#[cfg(feature = "async-tcp")]
+pub use async_tasks::AsyncTasks;
 pub use component::{ComponentDefinition, DeclarativeComponent};
 pub use deployment::{DeploymentConfig, DeploymentError, ServiceEndpoint};
 pub use resolver::{InstanceIdentity, ProviderRegistry, ResolutionError, ResolvedCapability};
