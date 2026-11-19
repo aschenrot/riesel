@@ -18,7 +18,7 @@ pub fn sqlite_storage_provider(
     path: PathBuf,
     models: BTreeMap<String, ModelDefinition>,
 ) -> Result<impl LocalProviderFactory, ConnectorError> {
-    Ok(LocalComponentFactory::new(
+    LocalComponentFactory::new(
         "riesel.storage.sqlite",
         move |definition: &riesel_schema::ProviderDefinition| -> Result<_, ConnectorError> {
             let store: Arc<dyn RecordStore + Send + Sync> =
@@ -26,5 +26,5 @@ pub fn sqlite_storage_provider(
             LocalProviderInstance::new(definition.clone()).bind::<RecordStoreContract>(store)
         },
     )
-    .exposes::<RecordStoreContract>()?)
+    .exposes::<RecordStoreContract>()
 }
