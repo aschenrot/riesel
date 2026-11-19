@@ -1,6 +1,6 @@
 # Riesel — Async Execution Contract (Stage 5.4)
 
-Status: generated local/managed async parity, structured task ownership and native provider crash/recovery verified on Linux, 2026-11-19.
+Status: generated local/managed async parity, structured task ownership, native provider crash/recovery and shared nonblocking startup verified on Linux, 2026-11-19.
 This defines the next engineering gates for the accepted
 [high-level application authoring API](api-authoring-v3.md).
 The user-facing mental model stays **app uses capabilities, components
@@ -103,9 +103,9 @@ mandatory ECS, transport object or executor type in the default authoring API.
   Counter/Storage behavior remains validated by workspace regression tests.
   Linux evidence:
   https://github.com/aschenrot/riesel/actions/runs/44439704442
-- Native async provider crash/recovery and structured background tasks need
-  dedicated application-level regression tests. Async startup inspection
-  still uses bounded synchronous I/O; this is an explicit limitation.
+- Native async provider crash/recovery, structured task groups and
+  nonblocking startup inspection now have application-level regressions.
+  Host-owned blocking work remains a separate Stage 5.4 gap.
 
 ## Session-owned async tasks and real managed recovery now verified
 
@@ -135,6 +135,40 @@ mandatory ECS, transport object or executor type in the default authoring API.
   regressions, **not** fully asynchronous startup/inspection or the
   explicit blocking-work execution policy.
 
+## Shared nonblocking async startup and bounded application blocking work now verified
+
+- The native async RPC connector uses `AsyncTcpRpcTransport::describe` and
+  `provider` to inspect the same contract and provider metadata it later
+  uses for business calls. The asynchronous inspection future yields to
+  Tokio while delayed remote responses arrive. It never wraps blocking
+  `TcpRpcTransport` calls.
+- `App::start_async` shares a single decomposed startup state machine
+  with `App::start`: preflight ordering, one local instance per provider,
+  managed process reuse, exact contract checks, failure cleanup and
+  session-scoped monitor construction do not drift between modes.
+  Async startup delegates process creation and the bounded readiness wait
+  to an explicit blocking worker. The high-level async handler and strict
+  CLI route through this asynchronous startup without introducing another
+  provider resolver or user-owned runtime.
+- `CapabilityConnector` must explicitly advertise support for async
+  startup and implement `connect_async`. The default is unsupported,
+  **not** a silent blocking fallback. Async preflight rejects unsupported
+  connectors before any local state or managed process starts. Regression
+  tests verify yielding and early rejection.
+- `AsyncTasks::spawn_blocking` provides a separate eight-worker budget for
+  application-owned synchronous work. Work runs outside the current-thread
+  Tokio reactor, receives a cooperative cancellation token, and is joined
+  before service teardown. Failures and panics preserve their task names.
+  Explicit blocking closures must return when cancelled; Rust cannot
+  forcibly interrupt OS-thread code. Counter tests exercise both local
+  and manager-owned async capabilities through this boundary.
+- The application-owned blocking boundary does **not** by itself cover
+  native async **provider-owned** blocking implementation work. A provider
+  host must own and join such work before releasing its state; untracked
+  `tokio::task::spawn_blocking` would not satisfy that lifetime contract.
+  Linux evidence:
+  https://github.com/aschenrot/riesel/actions/runs/44487397907
+
 ## Typed async application execution now verified
 
 - The existing supervisor now invalidates the same `SessionToken` carried
@@ -151,11 +185,12 @@ mandatory ECS, transport object or executor type in the default authoring API.
   handler. On session invalidation the pending entrypoint future is dropped,
   even when waiting on unrelated async work. Whole-session recovery uses
   new handles, not retries of individual business commands.
-- Remote contract/provider inspection during startup still calls bounded
-  **synchronous** TCP before constructing the nonblocking Tokio client.
-  This is not a fully async startup pipeline. Local sync-only components are
-  rejected for an async-only binding during deployment preflight instead of
-  failing after startup with a Rust downcast error.
+- Remote contract/provider inspection now uses nonblocking Tokio TCP, and
+  high-level async handler startup awaits it through the shared provider
+  startup coordinator. Managed readiness waiting is moved off the reactor
+  to a dedicated blocking worker. Local sync-only components and sync-only
+  remote connectors are rejected during preflight rather than failing after
+  startup with a downcast error or hidden blocking I/O.
 - Real Counter tests exercise the typed async application handler through
   the existing TCP endpoint, session expiry after teardown, ambiguous
   transport-mode registration and invalid local selection. Additional tests
@@ -190,7 +225,9 @@ session and cancels its entrypoint future on session invalidation.
 **Implemented and tested:** `AsyncTasks` provides bounded, named,
 session-owned async task registration, cancellation, joins and failure/panic
 propagation, integrated with the existing service manager and synchronous
-thread task group. All tasks use the executor belonging to the active async
+thread task group. Its `spawn_blocking` method additionally bounds
+application-owned synchronous work to eight workers and joins it before
+teardown. All async tasks use the executor belonging to the active async
 handler scope. Late spawns and stale task spawners are rejected.
 
 A failed managed child promptly cancels dependent pending Tokio TCP
@@ -200,9 +237,11 @@ command. Explicit whole-session recovery recreates handles and task
 scopes; no individual command is replayed automatically.
 Keep structured domain/transport/session errors and stale-clone rejection.
 
-**Still required:** a nonblocking contract/provider startup-inspection
-pipeline and an explicit blocking-work boundary for native async provider
-implementations. Avoid hidden blocking I/O on the Tokio executor.
+**Still required:** a provider-owned, explicitly bounded blocking-work
+boundary with host-owned joins and cancellation, for work triggered by
+native async capability implementations. The application-side boundary
+is implemented. Avoid untracked blocking I/O on the Tokio executor and
+detached `spawn_blocking` calls that survive provider teardown.
 
 ### 3. Developer-facing injection and error model
 
@@ -245,8 +284,9 @@ not change that security posture.
 6. `cargo validate --check` and `cargo smoke` pass on Linux; Windows stays
    manual and required before release.
 
-The remaining 5.4 gate is nonblocking startup inspection and a defined
-blocking-work execution policy for native async implementations. Only after
-that gate should the high-level `#[riesel::app] async fn` milestone claim
-to be ready. Stage 5.5 provider catalog work can proceed independently
-without weakening these boundaries.
+The remaining Stage 5.4 gate is a defined, structured blocking-work
+execution policy for native async provider implementations. Nonblocking
+startup inspection and the application-owned blocking boundary are
+implemented and validated. Stage 5.6 remains responsible for the
+`#[riesel::app] async fn` macro; Stage 5.5 provider catalog work can
+proceed independently without weakening these boundaries.
