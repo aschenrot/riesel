@@ -12,7 +12,7 @@ Status reviewed: 2026-11-19. Stage 5 reference commit: `b862e3f` (Linux [validat
 | 3 — Capability binding | Reference implementation | Generated typed local/managed RPC and shared component instances |
 | 4 — Runtime lifecycle | Implemented within cooperative scope | Dependency ordering, preflight, rollback, supervision, task joins and opt-in whole-session restart |
 | 5 — Developer experience | Implemented within reference scope | 5.1–5.8 verified on Linux; Windows remains a manual release gate |
-| 6 — Production reliability | Not delivered | Persistence, secure remote transport, authorization, observability and operational hardening |
+| 6 — Production reliability | Partially delivered | Linked SQLite persistence and SDK integration; secure remote transport, authorization, observability and operational hardening remain |
 
 **Implemented** here means tested within a stated reference scope, not production maturity. Windows validation remains manual before releases.
 
@@ -56,7 +56,9 @@ and [combined Linux validation and smoke](https://github.com/aschenrot/riesel/ac
 Manual Windows verification remains required before release, not for routine
 Linux milestone integration.
 
-## Production follow-on — Stage 6 (not a release promise)
+## Stage 6 — Production reliability (not a release promise)
+
+The first bounded Storage slice is delivered: [linked SQLite provider](https://github.com/aschenrot/riesel/pull/33) and [opt-in SDK registration](https://github.com/aschenrot/riesel/pull/34). Todo R1's explicit persistent headless commands are tracked in [Issue #32](https://github.com/aschenrot/riesel/issues/32); the reference in-memory demo remains separate. These milestones do **not** establish complete Stage 6 reliability or production release readiness.
 
 Plan and separately accept production features by user value and operational risk. Current candidates:
 

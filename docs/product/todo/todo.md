@@ -6,10 +6,10 @@ Todo is a task-management application built with Riesel and a reference case for
 
 Two outcomes must remain distinct:
 
-- **Reference example (current):** demonstrate that typed task operations work through Riesel's development Storage and application SDK.
-- **Usable task manager (planned):** let users create, inspect, modify, and complete tasks across restarts and supported interfaces.
+- **Reference example (R0):** demonstrate typed task operations through Riesel's ephemeral development Storage and SDK.
+- **Usable headless task manager (R1):** create, inspect, modify and complete tasks across CLI invocations using explicitly configured linked SQLite.
 
-The current example is not a persistent, user-facing task manager. Its execution path is primarily a one-shot demonstration and regression target.
+The in-memory `todo` executable remains a one-shot regression example. The separate `todo_cli` executable is the persistent headless interface; the browser interface remains R2.
 
 ## User problem
 
@@ -28,7 +28,7 @@ A task has a title and completion state. Its record identity and revision are ma
 
 Additional domain fields should be introduced only for concrete user requirements.
 
-## Current reference baseline
+## R0 reference baseline
 
 The `examples/todo` implementation presently demonstrates:
 
@@ -40,11 +40,11 @@ The `examples/todo` implementation presently demonstrates:
 - Headless execution using explicit in-memory development Storage.
 - Tests for validation, missing tasks, paging, and revision conflicts.
 
-**Limitations:** Data is lost when the in-memory provider is replaced or restarted. The example does not currently provide interactive task-management CLI commands, a persistent backend, or a graphical interface. It therefore does not satisfy the planned persistence and multi-interface requirements.
+**Limitations:** This R0 example loses data when its memory provider is restarted. R1 uses a separate linked SQLite executable, not the reference provider. Neither mode currently includes the planned graphical interface.
 
 ## Delivery milestones
 
-### R0 — Platform reference (current scope)
+### R0 — Platform reference (delivered)
 
 **Goal:** validate Riesel's developer-facing authoring and Storage contract.
 
@@ -53,7 +53,7 @@ Acceptance:
 - SDK-based application execution requires no hand-maintained app schema or fixed provider port.
 - Documentation clearly states the ephemeral state and trust boundaries.
 
-### R1 — Usable headless task manager (planned)
+### R1 — Usable headless task manager (delivered in `todo_cli`)
 
 **Goal:** deliver task operations with durable state and usable interfaces.
 
@@ -64,7 +64,7 @@ Acceptance:
 - Supported CLI and programmatic operations exhibit the same task semantics.
 - Common failure cases have defined errors and regression tests.
 
-This milestone depends on a production-appropriate persistent Storage implementation and should not be marked complete using MemoryStore alone.
+R1 uses the explicitly configured linked SQLite provider, not MemoryStore. Cross-process CLI tests cover persistence and revision conflicts; the R0 demo remains independent. This is a **single-host, local-disk delivery** and does not certify host power-loss safety, a managed durable provider or a remotely accessible service.
 
 ### R2 — Independent graphical interface (planned)
 
