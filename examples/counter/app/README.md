@@ -33,6 +33,18 @@ is needed.
 cargo run -p riesel_counter_example --bin riesel_counter_example -- --print-definition
 ```
 
+## Async application lifecycle
+
+The high-level application example exercises module-owned start and stop hooks:
+
+```sh
+cargo run -p riesel_counter_example --bin counter_macro_lifecycle
+```
+
+It executes start, entrypoint and stop phases in order. The same executable can
+use an explicit managed Counter deployment without changing the application code.
+See [application modules](../../../docs/product/riesel/application-modules.md).
+
 ## Test managed Counter
 
 ```sh

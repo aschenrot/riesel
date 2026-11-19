@@ -47,26 +47,50 @@ fn explicit_aliases_use_stable_names_not_parameter_identifiers() {
 fn rejects_invalid_signatures_and_component_declarations() {
     let args: AppArgs = parse_quote! {};
     let sync: ItemFn = parse_quote! { fn main() -> Result<(), ()> { Ok(()) } };
-    assert!(expand_app(args, sync).is_err());
+    assert!(
+        expand_app(args, sync)
+            .unwrap_err()
+            .to_string()
+            .contains("requires an async fn entrypoint")
+    );
 
     let args: AppArgs = parse_quote! {};
     let no_result: ItemFn = parse_quote! { async fn main() {} };
-    assert!(expand_app(args, no_result).is_err());
+    assert!(
+        expand_app(args, no_result)
+            .unwrap_err()
+            .to_string()
+            .contains("must return Result<(), E>")
+    );
 
     let args: AppArgs = parse_quote! {};
     let generic: ItemFn = parse_quote! {
         async fn main<T>() -> Result<(), ()> { Ok(()) }
     };
-    assert!(expand_app(args, generic).is_err());
+    assert!(
+        expand_app(args, generic)
+            .unwrap_err()
+            .to_string()
+            .contains("concrete safe async fn")
+    );
 
     let duplicate: syn::Result<AppArgs> = syn::parse_str("components = [A, A]");
-    assert!(duplicate.is_err());
+    assert!(matches!(
+        duplicate,
+        Err(error) if error.to_string().contains("component was registered more than once")
+    ));
 
     let duplicated_key: syn::Result<AppArgs> = syn::parse_str("components = [A], components = [B]");
-    assert!(duplicated_key.is_err());
+    assert!(matches!(
+        duplicated_key,
+        Err(error) if error.to_string().contains("duplicate components list")
+    ));
 
     let unknown: syn::Result<AppArgs> = syn::parse_str("providers = [A]");
-    assert!(unknown.is_err());
+    assert!(matches!(
+        unknown,
+        Err(error) if error.to_string().contains("expected components =")
+    ));
 }
 
 #[test]
@@ -77,19 +101,34 @@ fn rejects_invalid_binding_aliases_and_more_than_four_parameters() {
             Ok(())
         }
     };
-    assert!(expand_app(args, duplicate_alias).is_err());
+    assert!(
+        expand_app(args, duplicate_alias)
+            .unwrap_err()
+            .to_string()
+            .contains("duplicate riesel alias")
+    );
 
     let args: AppArgs = parse_quote! {};
     let wrong_shape: ItemFn = parse_quote! {
         async fn main((a, b): (A, B)) -> AppResult<()> { Ok(()) }
     };
-    assert!(expand_app(args, wrong_shape).is_err());
+    assert!(
+        expand_app(args, wrong_shape)
+            .unwrap_err()
+            .to_string()
+            .contains("requires a named parameter")
+    );
 
     let args: AppArgs = parse_quote! {};
     let excess: ItemFn = parse_quote! {
         async fn main(a: A, b: B, c: C, d: D, e: E) -> AppResult<()> { Ok(()) }
     };
-    assert!(expand_app(args, excess).is_err());
+    assert!(
+        expand_app(args, excess)
+            .unwrap_err()
+            .to_string()
+            .contains("at most four typed parameters")
+    );
 }
 
 #[test]
@@ -144,6 +183,12 @@ fn explicit_modules_expand_before_individual_component_registration() {
     assert!(expanded.find(". module").unwrap() < expanded.find(". component").unwrap());
     assert!(expanded.contains("RequirementsModule"));
     assert!(expanded.contains("ProviderModule"));
-    assert!(syn::parse_str::<AppArgs>("modules = [A, A]").is_err());
-    assert!(syn::parse_str::<AppArgs>("modules = [A], modules = [B]").is_err());
+    assert!(matches!(
+        syn::parse_str::<AppArgs>("modules = [A, A]"),
+        Err(error) if error.to_string().contains("application module was registered more than once")
+    ));
+    assert!(matches!(
+        syn::parse_str::<AppArgs>("modules = [A], modules = [B]"),
+        Err(error) if error.to_string().contains("duplicate modules list")
+    ));
 }
