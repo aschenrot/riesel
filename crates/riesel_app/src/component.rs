@@ -117,9 +117,20 @@ impl<S: Send + Sync + 'static> ComponentDefinition<S> {
     /// Mixed sync/async components cannot use one blocking service endpoint.
     pub fn serve(&self, address: &str) -> io::Result<()> {
         let provider = self.provider_definition();
-        let state = Arc::new((self.create)());
+        provider.validate().map_err(io::Error::other)?;
+        if self
+            .capabilities
+            .windows(2)
+            .any(|pair| pair[0].mode != pair[1].mode)
+        {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidInput,
+                "mixed sync and async capabilities require separate managed endpoints",
+            ));
+        }
         let mut sync_router = RpcRouter::new(provider.clone()).map_err(io::Error::other)?;
         let mut async_router = AsyncRpcRouter::new(provider).map_err(io::Error::other)?;
+        let state = Arc::new((self.create)());
         let mut sync = false;
         let mut asynchronous = false;
 
