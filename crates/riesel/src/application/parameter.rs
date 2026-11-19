@@ -173,9 +173,11 @@ impl<H: riesel_protocol::NativeAsyncHandle> NativeHandleParam<H> {
 #[cfg(feature = "async-tcp")]
 impl<H: riesel_protocol::NativeAsyncHandle> ApplicationParam for NativeHandleParam<H> {
     fn default_alias() -> Result<String> {
-        Ok(<H::Contract as riesel_schema::CapabilityDescriptor>::definition()?
-            .capability
-            .default_requirement_alias())
+        Ok(
+            <H::Contract as riesel_schema::CapabilityDescriptor>::definition()?
+                .capability
+                .default_requirement_alias(),
+        )
     }
 
     fn declare(application: Application, alias: &str) -> Result<Application> {
@@ -183,7 +185,9 @@ impl<H: riesel_protocol::NativeAsyncHandle> ApplicationParam for NativeHandlePar
     }
 
     fn extract(context: &Context<'_>, alias: &str) -> Result<Self> {
-        Ok(Self(context.async_capability::<H::Contract>(alias)?.clone()))
+        Ok(Self(
+            context.async_capability::<H::Contract>(alias)?.clone(),
+        ))
     }
 }
 

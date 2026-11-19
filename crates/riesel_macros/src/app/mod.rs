@@ -210,12 +210,13 @@ pub(crate) fn expand_app(args: AppArgs, mut item: ItemFn) -> syn::Result<TokenSt
         }
     };
     let builder = if bindings.iter().any(|(_, alias, _)| alias.is_some()) {
-        let expressions = registered_types.iter().zip(&bindings).map(|(ty, (_, alias, _))| {
-            match alias {
+        let expressions = registered_types
+            .iter()
+            .zip(&bindings)
+            .map(|(ty, (_, alias, _))| match alias {
                 Some(alias) => quote!(::std::string::String::from(#alias)),
                 None => quote!(<#ty as ::riesel::ApplicationParam>::default_alias()?),
-            }
-        });
+            });
         quote! {
             ::riesel::Application::new(#app_name)
                 .async_handler_with_aliases(#handler, [#(#expressions),*])?
