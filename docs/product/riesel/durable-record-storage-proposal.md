@@ -6,7 +6,7 @@
 
 Provide a durable `RecordStore` implementation usable by Riesel applications without changing their typed `Records<T>` domain code. The first consumer is Todo R1; the provider must remain reusable by other applications.
 
-This is an **embedded, single-host Storage** proposal, not a distributed database or remote Storage service. The precise multi-process file ownership and durability defaults remain decisions to be accepted below.
+An **embedded, single-host provider is an initial scope hypothesis**, not an accepted technical constraint. The investigation must first justify that deployment boundary against a server-backed alternative. Multi-process ownership and durability defaults remain unresolved decisions.
 
 ## Current baseline
 
@@ -43,19 +43,62 @@ The first durable provider should meet these externally observable conditions, w
 
 The specification must state whether power-loss durability is required by default and which filesystem guarantees are assumed. A process-crash test is **not** evidence of power-loss durability.
 
-## Backend alternatives
+## Research plan and decision evidence
 
-Evaluate with the same contract tests and operational assumptions, without treating Rust-first as a reason to prefer any engine automatically.
+**Status: required investigation, not completed research.** The names below are an initial discovery inventory, not a shortlist, ranking or backend recommendation. A candidate must not be selected or dismissed just because it is familiar, Rust-native, SQL-based or already mentioned here.
 
-| Candidate | Relevant strengths | Costs / uncertainties to evaluate |
+### 1. Discover and screen alternatives
+
+- Define the deployment question first: embedded provider versus separately operated database service; distinguish engine choice from Rust access libraries (such as `rusqlite`, `SQLx`, or `heed`).
+- Identify materially different engine families using primary technical documentation and repository release/maintenance records. Record the search scope and date, evidence links and reasons for inclusion/exclusion; add credible candidates found during research.
+- Screen against **necessary outcomes** rather than vendor popularity: atomic revision-checked mutation, documented durability under chosen failure modes, supported Rust integration, compatible deployment/ownership and a maintenance/licensing posture appropriate to Riesel. A condition not yet evidenced is **unknown**, not automatically a pass.
+- If embedded-only is adopted, record why a server-backed alternative does not fit the initial delivery. Do not evaluate server operation as though it had zero deployment cost.
+
+Initial inventory to screen (illustrative, subject to expansion):
+
+| Engine family | Examples to investigate | Distinct question |
 | --- | --- | --- |
-| SQLite via `rusqlite` | Mature transactional SQL and recovery tools, indexes and schema metadata, conditional revision updates | Bundled/native library policy, busy timeouts, WAL/checkpoint lifecycle, durability configuration, filesystem constraints |
-| `redb` | Pure-Rust embedded transactional ordered key-value engine with crash-safety guarantees | Explicit application-managed metadata/schema design, operational tooling, file sharing, compatibility and error mapping |
-| LMDB via `heed` | Mature single-writer transactional key-value model with memory-mapped reads | Native dependency, environment sizing/mapping policy, process access and operational recovery |
+| Embedded relational SQL | SQLite; Rust-native SQLite-compatible engines such as Turso | Transaction semantics, migration tooling, operational dependence, compatibility/maturity |
+| Pure-Rust transactional KV | redb | Ordered CRUD, MVCC, process ownership and durability |
+| Log-structured KV | Fjall; RocksDB | Write amplification, compaction, atomic transactions and deployment cost |
+| Memory-mapped transactional KV | LMDB; libMDBX | Single-writer/process model, file mapping, error/recovery semantics |
+| Other embedded approaches | SurrealKV/SurrealDB, Persy, sled (where relevant) | Whether their different API or maturity provides a concrete benefit |
+| Server-backed comparison | PostgreSQL (as a deployment-class comparator) | Whether shared server access or operations justify a non-embedded first provider |
 
-Primary documentation: [SQLite WAL](https://www.sqlite.org/wal.html), [SQLite synchronization](https://www.sqlite.org/pragma.html#pragma_synchronous), [SQLite network filesystem guidance](https://www.sqlite.org/useovernet.html), [rusqlite](https://docs.rs/rusqlite/latest/rusqlite/), [redb](https://docs.rs/redb/latest/redb/), [heed](https://docs.rs/heed/latest/heed/).
+A longlist item is **not** a promise to prototype it. Research should first filter clearly unsuitable approaches with traceable reasons, then deep-dive only into viable, materially different contenders.
 
-SQLite WAL with `synchronous=NORMAL` and `FULL` has different power-failure persistence semantics; do not select a mode by performance alone. WAL database files are not suitable for multi-host shared-network-filesystem access.
+### 2. Compare using declared criteria
+
+Apply the same questions and explicit pass/fail/unknown evidence standards to each remaining candidate:
+
+| Dimension | Evidence needed |
+| --- | --- |
+| **Required: atomicity and revision safety** | Documented transactions/locking plus a minimal competing-update proof where documentation is insufficient |
+| **Required: durability and recovery** | Exact commit-acknowledgement/sync behavior, process-crash versus power-loss boundaries, recovery limitations and primary documentation |
+| **Required: integration feasibility** | Rust API, fallible startup/readiness, owned database path/process, local/managed lifecycle and predictable error translation |
+| **Required: compatibility/data safety** | Persisted metadata approach, schema-change detection, migration/backup options and documented corruption behavior |
+| Operations and maintenance | Version/release evidence, licensing, platform/toolchain support, diagnostic tooling and upgrade compatibility |
+| Resource/performance fit | Representative workload expectations, read/write concurrency, file growth, compaction/checkpoint needs and bounded paging |
+
+Declare any hard exclusion thresholds **before** using them to discard candidates. Separate must-pass conditions from preferences; Rust-only implementation, benchmark speed, feature breadth and popularity are not implicit hard requirements. Do not manufacture numerical scores or weights. If benchmarking is needed, compare equal transaction sizes, acknowledgement durability settings, contention and dataset conditions.
+
+### 3. Evaluate evidence and decide
+
+- Record a comparison matrix with candidate, status (**meets / does not meet / unknown**), evidence links and date, assumptions, risks, and explicit rejection reasons. Distinguish engine claims from independently verified behavior.
+- Use a focused prototype or reproducible test when a decision-critical behavior cannot be resolved from reliable documentation. A prototype tests the uncertainty; it is not automatically production implementation.
+- Produce a reasoned recommendation **or defer the choice** when important evidence remains missing. Record why credible alternatives were not selected, remaining trade-offs, and any accepted change to the required contract or deployment boundary.
+- The specification Issue (#24) remains open until a maintainer explicitly records the decision and its supporting evidence. This document may become an accepted architecture contract only after that gate; passing CI or adding this plan is not approval.
+
+### Research acceptance criteria
+
+- [ ] Deployment scope, system-level requirements and candidate eligibility criteria are recorded before ranking or elimination.
+- [ ] The candidate search covers relevant engine families; material exclusions and omissions are justified with dated evidence.
+- [ ] Viable alternatives are compared against the same criteria, with unknowns and differing durability guarantees explicit.
+- [ ] Decision-critical claims are supported by primary sources and, where needed, reproducible focused tests.
+- [ ] The resulting recommendation (or deferral), rationale and outstanding risks are documented and reviewed.
+- [ ] No implementation Issue is authorized solely by completion of this research plan.
+
+Primary documentation starting points: [SQLite WAL](https://www.sqlite.org/wal.html), [SQLite synchronization](https://www.sqlite.org/pragma.html#pragma_synchronous), [SQLite network filesystem guidance](https://www.sqlite.org/useovernet.html), [redb](https://docs.rs/redb/latest/redb/), [Fjall](https://docs.rs/fjall/latest/fjall/), [heed](https://docs.rs/heed/latest/heed/), [RocksDB transactions](https://github.com/facebook/rocksdb/wiki/Transactions), [libMDBX](https://github.com/erthink/libmdbx), [Turso](https://github.com/tursodatabase/turso), [SurrealDB](https://surrealdb.com/docs), and [PostgreSQL](https://www.postgresql.org/docs/).
 
 ## Architecture decisions to resolve before implementation
 
@@ -66,7 +109,7 @@ SQLite WAL with `synchronous=NORMAL` and `FULL` has different power-failure pers
 - **Durability configuration:** explicit sync mode and documented acknowledgement boundary, including limitations of the operating system and storage device.
 - **Operation and recovery:** location ownership, permissions, backup/copy procedures, WAL/temporary files if applicable, lock contention, corruption handling, and observable diagnostics.
 
-Record the decision in #24 with rationale, rejected alternatives and known limitations. Update this document to **accepted** only after explicit owner/maintainer approval.
+Record the decision in #24 with rationale, evidence, rejected alternatives and known limitations. Update this document to **accepted** only after explicit owner/maintainer approval.
 
 ## Verification gate for accepted implementation
 
