@@ -10,6 +10,9 @@ riesel = { workspace = true, features = ["dev-memory-storage", "sqlite-storage",
 thiserror.workspace = true
 uuid.workspace = true
 serde.workspace = true
+serde_json.workspace = true
+tokio = { workspace = true, features = ["macros", "signal"] }
+axum = { version = "0.8.9", default-features = false, features = ["http1", "json", "tokio"] }
 
 [dev-dependencies]
 riesel_storage_component = { path = "../../packages/storage/memory" }
@@ -18,6 +21,10 @@ tempfile = "3.23"
 [[bin]]
 name = "todo_macro"
 path = "src/bin/todo_macro.rs"
+
+[[bin]]
+name = "todo_http"
+path = "src/bin/todo_http.rs"
 
 [[bin]]
 name = "todo_cli"
