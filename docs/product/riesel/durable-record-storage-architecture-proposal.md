@@ -58,9 +58,11 @@ Require an explicit database path/configuration bound to the chosen provider ins
 
 ## Focused engine research evidence
 
-On 2026-11-19, isolated Rust 1.100.0 probes compiled and tested **rusqlite 0.43.0** and **redb 5.0.0** without adding either to the Riesel workspace. [Research PR #29](https://github.com/aschenrot/riesel/pull/29), [5/5 engine tests](https://github.com/aschenrot/riesel/actions/runs/44568798067), and [standard Linux validation](https://github.com/aschenrot/riesel/actions/runs/44568798124) passed.
+On 2026-11-19, isolated Rust 1.100.0 probes compiled and tested **rusqlite 0.43.0** and **redb 5.0.0** without adding either to the Riesel workspace. [Research PR #29](https://github.com/aschenrot/riesel/pull/29) and the [corrected research CI run](https://github.com/aschenrot/riesel/actions/runs/44569551231) passed **5/5** engine tests.
 
-The tests exercised SQLite binary UUID ordering, cursor pagination, full `u64` BLOB revisions, stale CAS and two concurrent writers; redb ordered keys, `u64` revisions and two competing write transactions; and for **both engines** reopen after a commit followed by abrupt child process exit without closing the handle. This is narrow **engine feasibility evidence**, not integrated Riesel provider readiness, model registration, cross-process shared-file policy, corrupt-database recovery, or OS/power-loss verification. Neither candidate was disproven by these tests.
+The tests exercised SQLite binary UUID ordering, cursor pagination, full `u64` BLOB revisions, stale CAS and two concurrent writers; redb ordered keys, `u64` revisions and two competing write transactions; and **both engines** reopening an acknowledged record after child-process exit while the storage handle remains open. An initial probe incorrectly dropped the handle before exit; the corrected code exits **inside** the helper before Rust destructors run. The [Issue #24 evidence comment](https://github.com/aschenrot/riesel/issues/24#issuecomment-7015633350) records the correction.
+
+This is narrow **engine feasibility evidence**, not integrated Riesel provider readiness, model registration, cross-process shared-file policy, corrupt-database recovery, or OS/power-loss verification. Neither candidate was disproven by these tests.
 
 ## Evidence still required before accepting Gate B
 
