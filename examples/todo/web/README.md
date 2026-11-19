@@ -11,7 +11,7 @@ Requires Node.js 22.12 or later and the Rust Todo HTTP backend from Issue #17.
 3. Set TODO_API_ORIGIN in .env to the printed http://127.0.0.1:PORT (see .env.example).
 4. Run npm run dev and open the displayed 127.0.0.1 Vite address.
 
-The local Vite proxy forwards /api and adjusts Host/Origin to the trusted loopback Rust API authority. This exists **only for local development**; the production build must be served from the same authority as the API. No fixed backend port, permissive CORS, remote access, browser authentication, or separate production Node server is assumed.
+The local Vite proxy forwards /api but translates Origin only for requests genuinely originating from that same local Vite page. It preserves Fetch Metadata so cross-site browser requests remain denied. This exists **only for local development**; the production build must be served from the same authority as the API. No fixed backend port, permissive CORS, remote access, browser authentication, or separate production Node server is assumed.
 
 ## Validation and output
 

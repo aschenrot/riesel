@@ -7,7 +7,7 @@
     "build": "vite build",
     "preview": "vite preview --host 127.0.0.1",
     "check": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json",
-    "test": "node --experimental-strip-types --test src/lib/api.test.mjs"
+    "test": "node --experimental-strip-types --test src/lib/api.test.mjs vite-proxy-security.test.mjs"
   },
   "devDependencies": {
     "@sveltejs/adapter-static": "^3.0.6",

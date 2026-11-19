@@ -1,5 +1,6 @@
 import { sveltekit } from '@sveltejs/kit/vite';
 import { defineConfig, loadEnv } from 'vite';
+import { trustedDevOrigin } from './vite-proxy-security';
 
 export default defineConfig(({ mode }) => {
   const env = loadEnv(mode, process.cwd(), 'TODO_');
@@ -22,12 +23,15 @@ export default defineConfig(({ mode }) => {
               target: target.origin,
               changeOrigin: true,
               configure(proxy) {
-                // Dev-only same-origin bridge. Production serves assets and API
-                // on the *same* Rust authority; no cross-origin bypass there.
-                proxy.on('proxyReq', (outgoing) => {
+                // Only rewrite a real same-origin Vite request. Forward
+                // Sec-Fetch-Site unchanged so the Rust security gate can reject
+                // cross-site reads, navigation and mutations.
+                proxy.on('proxyReq', (outgoing, incoming) => {
                   outgoing.setHeader('Host', target.host);
-                  outgoing.setHeader('Origin', target.origin);
-                  outgoing.setHeader('Sec-Fetch-Site', 'same-origin');
+                  outgoing.setHeader(
+                    'Origin',
+                    trustedDevOrigin(incoming.headers) ? target.origin : 'null'
+                  );
                 });
               }
             }
