@@ -86,6 +86,33 @@ fn app_prepares_and_exposes_typed_provider() {
 }
 
 #[test]
+fn pinned_provider_identity_rejects_unexpected_remote_metadata() {
+    let mut connectors = ConnectorRegistry::new();
+    connectors
+        .register(Dummy {
+            local_version: 1,
+            remote_version: 1,
+        })
+        .unwrap();
+    let mut config = deployment();
+    config.expected_providers.insert(
+        "counter".into(),
+        ProviderDefinition {
+            id: "example.counter.expected".into(),
+            capabilities: vec![contract(1).capability],
+        },
+    );
+    assert!(matches!(
+        app().start(&config, &connectors),
+        Err(RuntimeError::ProviderIdentityMismatch {
+            requirement,
+            actual,
+            ..
+        }) if requirement == "counter" && actual.id == "example.counter.local"
+    ));
+}
+
+#[test]
 fn app_rejects_missing_and_mismatched_connectors() {
     let empty = ConnectorRegistry::new();
     assert!(matches!(
@@ -577,6 +604,7 @@ fn preflight_orders_all_dependencies_without_connecting_or_starting() {
                 },
             ),
         ]),
+        expected_providers: BTreeMap::new(),
         recovery: Default::default(),
     };
     let mut connectors = ConnectorRegistry::new();
@@ -657,6 +685,7 @@ fn preflight_rejects_invalid_local_provider_before_remote_io() {
                 },
             ),
         ]),
+        expected_providers: BTreeMap::new(),
         recovery: Default::default(),
     };
     let mut connectors = ConnectorRegistry::new();
@@ -913,6 +942,7 @@ fn local_selection_rejects_missing_and_ambiguous_providers() {
                 provider: "example.counter.other".into(),
             },
         )]),
+        expected_providers: BTreeMap::new(),
         recovery: Default::default(),
     };
     let running = app().start(&explicit, &connectors).unwrap();
