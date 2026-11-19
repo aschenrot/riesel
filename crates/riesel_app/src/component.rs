@@ -102,6 +102,14 @@ impl<S: Send + Sync + 'static> ComponentDefinition<S> {
         C: RpcClientBinding + 'static,
         H: RpcHandler + 'static,
     {
+        #[cfg(feature = "async-tcp")]
+        if matches!(self.create, ComponentFactory::WithBlocking(_)) {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidInput,
+                "factory_with_blocking requires native async capability contracts",
+            )
+            .into());
+        }
         let contract = C::definition()?;
         let expected = contract.clone();
         self.capabilities.push(ComponentCapability {
@@ -127,6 +135,16 @@ impl<S: Send + Sync + 'static> ComponentDefinition<S> {
     where
         C: ComponentAdapter<S> + 'static,
     {
+        #[cfg(feature = "async-tcp")]
+        if matches!(self.create, ComponentFactory::WithBlocking(_))
+            && C::MODE != LocalBindingMode::Async
+        {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidInput,
+                "factory_with_blocking requires native async capability contracts",
+            )
+            .into());
+        }
         let contract = C::definition()?;
         let expected = contract.clone();
         self.capabilities.push(ComponentCapability {
