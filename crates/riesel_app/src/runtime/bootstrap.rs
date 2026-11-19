@@ -70,6 +70,36 @@ impl<'a> StartupState<'a> {
         })
     }
 
+    /// Async preflight must detect incompatible connector implementations
+    /// before creating local state or starting a managed service. The same
+    /// deployment ordering and contract metadata were already validated by
+    /// the synchronous preflight in new().
+    #[cfg(feature = "async-tcp")]
+    pub(super) fn new_async(
+        app: App,
+        deployment: &'a DeploymentConfig,
+        connectors: &'a ConnectorRegistry,
+    ) -> Result<Self, RuntimeError> {
+        let startup = Self::new(app, deployment, connectors)?;
+        for planned in &startup.plan.services {
+            if !matches!(planned.target, PlannedTarget::Local { .. }) {
+                let requirement = startup
+                    .app
+                    .definition()
+                    .requires
+                    .iter()
+                    .find(|requirement| requirement.name == planned.requirement)
+                    .expect("preflight must only plan registered requirements");
+                if !startup.connector(requirement)?.connector.supports_async_startup() {
+                    return Err(RuntimeError::UnsupportedAsyncStartup {
+                        requirement: requirement.name.clone(),
+                    });
+                }
+            }
+        }
+        Ok(startup)
+    }
+
     pub(super) fn len(&self) -> usize {
         self.plan.services.len()
     }
