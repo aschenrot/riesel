@@ -53,6 +53,7 @@ impl Application {
     ) -> Result<Option<(Self, Vec<OsString>)>> {
         let mut custom = Vec::new();
         let mut inspect_catalog = false;
+        let mut inspect_deployment = None;
         let mut index = 0;
         while index < args.len() {
             let option = &args[index];
@@ -95,18 +96,19 @@ impl Application {
                 })?;
                 let config = DeploymentConfig::load(PathBuf::from(path))?;
                 if option == "--inspect-deployment" {
-                    println!(
-                        "{}",
-                        serde_json::to_string_pretty(&self.deployment_plan(&config)?)?
-                    );
-                    return Ok(None);
+                    if inspect_deployment.replace(config).is_some() {
+                        return Err(SdkError::Arguments(
+                            "deployment inspection was configured more than once".into(),
+                        ));
+                    }
+                } else {
+                    if self.deployment.is_some() {
+                        return Err(SdkError::Arguments(
+                            "deployment was configured more than once".into(),
+                        ));
+                    }
+                    self.deployment = Some(config);
                 }
-                if self.deployment.is_some() {
-                    return Err(SdkError::Arguments(
-                        "deployment was configured more than once".into(),
-                    ));
-                }
-                self.deployment = Some(config);
                 index += 2;
                 continue;
             }
@@ -119,10 +121,25 @@ impl Application {
             custom.push(option.clone());
             index += 1;
         }
+        if let Some(config) = inspect_deployment {
+            if inspect_catalog || self.deployment.is_some() || self.selection_manifest_loaded {
+                return Err(SdkError::ConflictingDeploymentSource);
+            }
+            println!(
+                "{}",
+                serde_json::to_string_pretty(&self.deployment_plan(&config)?)?
+            );
+            return Ok(None);
+        }
         if inspect_catalog {
+            if self.deployment.is_some() {
+                return Err(SdkError::ConflictingDeploymentSource);
+            }
             println!("{}", serde_json::to_string_pretty(&self.catalog_plan()?)?);
             return Ok(None);
         }
+        // Validate all selected sources before starting user code or providers.
+        self.selected_deployment()?;
         Ok(Some((self, custom)))
     }
 }

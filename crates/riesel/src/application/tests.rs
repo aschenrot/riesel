@@ -365,6 +365,72 @@ fn catalog_cli_selects_pinned_provider_and_preserves_recovery_without_starting_i
     );
 }
 
+#[cfg(feature = "records")]
+#[test]
+fn deployment_inspection_is_order_independent_and_rejects_conflicting_modes() {
+    use std::ffi::OsString;
+
+    let prefix = std::env::temp_dir().join(format!(
+        "riesel-inspect-modes-{}-{}",
+        std::process::id(),
+        line!()
+    ));
+    let selected_path = prefix.with_extension("select.json");
+    let deploy_path = prefix.with_extension("deployment.json");
+    std::fs::write(&selected_path, r#"{"services":{}}"#).unwrap();
+    std::fs::write(
+        &deploy_path,
+        r#"{"services":{"storage":{"transport":"managed","program":"deliberately-missing-binary"}}}"#,
+    )
+    .unwrap();
+    struct Cleanup(Vec<std::path::PathBuf>);
+    impl Drop for Cleanup {
+        fn drop(&mut self) {
+            for path in &self.0 {
+                let _ = std::fs::remove_file(path);
+            }
+        }
+    }
+    let _cleanup = Cleanup(vec![selected_path.clone(), deploy_path.clone()]);
+    let selection = selected_path.as_os_str().to_os_string();
+    let deployment = deploy_path.as_os_str().to_os_string();
+    let app = || {
+        Application::new("Inspect")
+            .rpc::<RecordStoreContract>("storage")
+            .unwrap()
+    };
+
+    // Preflight inspection must not spawn the deliberately missing executable.
+    assert!(
+        app()
+            .configure_args(
+                &[OsString::from("--inspect-deployment"), deployment.clone()],
+                false,
+            )
+            .unwrap()
+            .is_none()
+    );
+    for args in [
+        vec![
+            OsString::from("--inspect-deployment"),
+            deployment.clone(),
+            OsString::from("--select-providers"),
+            selection.clone(),
+        ],
+        vec![
+            OsString::from("--select-providers"),
+            selection,
+            OsString::from("--inspect-deployment"),
+            deployment,
+        ],
+    ] {
+        assert!(matches!(
+            app().configure_args(&args, false),
+            Err(SdkError::ConflictingDeploymentSource)
+        ));
+    }
+}
+
 #[test]
 fn empty_selection_manifest_is_not_silently_reapplied_or_combined_with_deployment() {
     let empty = ProviderSelectionConfig::new(BTreeMap::new());
