@@ -1,6 +1,6 @@
 use riesel_schema::ModelDefinition;
 use riesel_storage::StoreError;
-use rusqlite::{Connection, TransactionBehavior, params};
+use rusqlite::{Connection, OpenFlags, TransactionBehavior, params};
 use std::{collections::BTreeMap, path::Path, sync::Mutex};
 
 const FORMAT_VERSION: i64 = 1;
@@ -35,13 +35,34 @@ impl SqliteStore {
         path: impl AsRef<Path>,
         models: BTreeMap<String, ModelDefinition>,
     ) -> Result<Self, StoreError> {
-        let mut conn = Connection::open(path).map_err(failed)?;
+        let path = path.as_ref();
+        if path.as_os_str().is_empty() || path == Path::new(":memory:") {
+            return Err(StoreError::Failed(
+                "durable SQLite Storage requires an explicit file path".into(),
+            ));
+        }
+        let mut conn = Connection::open_with_flags(
+            path,
+            OpenFlags::SQLITE_OPEN_READ_WRITE | OpenFlags::SQLITE_OPEN_CREATE,
+        )
+        .map_err(failed)?;
         conn.busy_timeout(std::time::Duration::from_secs(5))
             .map_err(failed)?;
         conn.pragma_update(None, "journal_mode", "WAL")
             .map_err(failed)?;
         conn.pragma_update(None, "synchronous", "FULL")
             .map_err(failed)?;
+        let journal: String = conn
+            .pragma_query_value(None, "journal_mode", |row| row.get(0))
+            .map_err(failed)?;
+        let synchronous: i64 = conn
+            .pragma_query_value(None, "synchronous", |row| row.get(0))
+            .map_err(failed)?;
+        if !journal.eq_ignore_ascii_case("wal") || synchronous != 2 {
+            return Err(StoreError::Failed(
+                "SQLite WAL/FULL durability configuration was not activated".into(),
+            ));
+        }
 
         let tx = conn
             .transaction_with_behavior(TransactionBehavior::Immediate)
