@@ -730,3 +730,103 @@ fn async_handler_alias_validation_runs_before_any_provider_start() {
         })
     ));
 }
+
+#[cfg(feature = "sqlite-storage")]
+#[derive(Debug, Serialize, Deserialize, RieselModel)]
+#[riesel(model = "todo")]
+struct IncompatibleTodoModel {
+    title: String,
+    completed: bool,
+    priority: u64,
+}
+
+#[cfg(feature = "sqlite-storage")]
+#[test]
+fn explicit_sqlite_storage_persists_without_duplicate_model_metadata() {
+    let temporary = tempfile::tempdir().unwrap();
+    let path = temporary.path().join("app.db");
+    let app = Application::new("LinkedTodo")
+        .records::<TodoModel>()
+        .unwrap()
+        .sqlite_storage(path.clone())
+        .unwrap();
+    assert!(!path.exists(), "registration must not open the database");
+    let definition = app.definition_json().unwrap();
+    assert!(definition.contains("model_bindings"));
+    assert!(!path.exists(), "schema inspection must remain side-effect free");
+
+    let mut id = None;
+    app.run(|context| {
+        let records = context.records::<TodoModel>()?;
+        let created = records.create(TodoModel {
+            title: "Persistent".into(),
+            completed: false,
+        })?;
+        id = Some(created.id);
+        Ok(())
+    })
+    .unwrap();
+    assert!(path.exists());
+
+    Application::new("LinkedTodo")
+        .records::<TodoModel>()
+        .unwrap()
+        .sqlite_storage(path.clone())
+        .unwrap()
+        .run(|context| {
+            let loaded = context.records::<TodoModel>()?.get(id.unwrap())?.unwrap();
+            assert_eq!(loaded.value.title, "Persistent");
+            assert_eq!(loaded.revision, 1);
+            Ok(())
+        })
+        .unwrap();
+
+    let failure = Application::new("LinkedTodo")
+        .records::<IncompatibleTodoModel>()
+        .unwrap()
+        .sqlite_storage(path)
+        .unwrap()
+        .run(|_| Ok(()));
+    assert!(failure.is_err(), "incompatible persisted model must reject startup");
+}
+
+#[cfg(feature = "sqlite-storage")]
+#[test]
+fn sqlite_storage_rejects_missing_and_ambiguous_model_bindings() {
+    let db = std::path::PathBuf::from("not-opened.db");
+    assert!(matches!(
+        Application::new("Missing").sqlite_storage(db.clone()),
+        Err(SdkError::MissingStorage)
+    ));
+    assert!(matches!(
+        Application::new("Ambiguous")
+            .records_at::<TodoModel>("first")
+            .unwrap()
+            .records_at::<TodoModel>("second")
+            .unwrap()
+            .sqlite_storage(db),
+        Err(SdkError::AmbiguousStorage)
+    ));
+}
+
+#[cfg(feature = "sqlite-storage")]
+#[test]
+fn prepared_handler_can_use_explicit_sqlite_storage() {
+    let temporary = tempfile::tempdir().unwrap();
+    let path = temporary.path().join("prepared.db");
+    Application::new("PreparedTodo")
+        .handler(|records: Records<TodoModel>| -> std::result::Result<(), SdkError> {
+            let created = records.create(TodoModel {
+                title: "Prepared".into(),
+                completed: false,
+            })?;
+            assert_eq!(created.revision, 1);
+            Ok(())
+        })
+        .unwrap()
+        .sqlite_storage(path.clone())
+        .unwrap()
+        .run()
+        .unwrap();
+    assert!(path.exists());
+}

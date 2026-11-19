@@ -10,6 +10,7 @@ publish = false
 default = []
 records = ["dep:riesel_storage"]
 dev-memory-storage = ["records", "dep:riesel_storage_component"]
+sqlite-storage = ["records", "dep:riesel_storage_sqlite"]
 async-tcp = ["riesel_protocol/async-tcp", "riesel_app/async-tcp", "dep:tokio"]
 
 [dependencies]
@@ -19,8 +20,11 @@ uuid.workspace = true
 thiserror.workspace = true
 tokio = { workspace = true, optional = true }
 riesel_storage_component = { path = "../../packages/storage/memory", optional = true }
+riesel_storage_sqlite = { path = "../../packages/storage/sqlite", optional = true }
 riesel_app.workspace = true
 riesel_macros.workspace = true
 riesel_protocol.workspace = true
 riesel_schema.workspace = true
 riesel_storage = { workspace = true, optional = true }
+[dev-dependencies]
+tempfile = "3.23"

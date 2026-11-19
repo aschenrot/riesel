@@ -199,6 +199,42 @@ impl Application {
         )
     }
 
+    /// Choose the only declared Record Storage requirement as an explicit
+    /// linked, persistent SQLite provider. Models come from Rust registrations.
+    /// Call after records<T>() / handler() has declared the model requirements.
+    #[cfg(feature = "sqlite-storage")]
+    pub fn sqlite_storage(self, path: impl Into<PathBuf>) -> Result<Self> {
+        let expected = RecordStoreContract::definition()?.capability;
+        let matching: Vec<_> = self
+            .definition
+            .requires
+            .iter()
+            .filter(|requirement| requirement.capability == expected)
+            .collect();
+        let alias = match matching.as_slice() {
+            [] => return Err(SdkError::MissingStorage),
+            [only] => &only.name,
+            _ => return Err(SdkError::AmbiguousStorage),
+        };
+        if self.definition.model_bindings.is_empty() {
+            return Err(SdkError::MissingStorage);
+        }
+        if self
+            .definition
+            .model_bindings
+            .values()
+            .any(|bindings| bindings.len() != 1 || bindings[0] != *alias)
+        {
+            return Err(SdkError::AmbiguousStorage);
+        }
+        let factory = riesel_storage_sqlite::sqlite_storage_provider(
+            path.into(),
+            self.definition.models.clone(),
+        )
+        .map_err(|source| RuntimeError::ProviderFactory { source })?;
+        self.provider(factory)
+    }
+
     /// Configure an explicit local provider or external/managed service.
     pub fn deployment(mut self, deployment: DeploymentConfig) -> Self {
         self.deployment = Some(deployment);

@@ -76,6 +76,34 @@ parameter type alias or a custom type already implementing
 `ApplicationParam`, use `#[riesel(parameter)]` to bypass the generated
 native handle adapter.
 
+## Explicit linked SQLite Storage (Stage 6)
+
+For durable local records, enable the SDK's `sqlite-storage` Cargo feature
+and select SQLite explicitly after registering the typed record models:
+
+```rust
+use std::path::PathBuf;
+use riesel::Application;
+use todo::run_demo;
+
+fn main() -> riesel::Result<()> {
+    Application::new("Todo")
+        .handler(run_demo)?
+        .sqlite_storage(PathBuf::from("todo.db"))?
+        .run_from_env()
+}
+```
+
+The database file path is explicit; its parent directory must exist. Riesel
+uses the Rust-derived model definitions already declared by the handler,
+validates them on startup and refuses incompatible persisted metadata.
+Provider registration and deployment inspection do not create the file.
+`sqlite_storage` requires one unambiguous `RecordStore` requirement and
+rejects multiple storage aliases rather than silently assigning a durable
+database to the wrong model. `development` remains an explicitly ephemeral
+alternative, not a fallback. This initial linked provider is not a managed
+Storage service and does not certify host power-loss durability.
+
 ## Approved catalog choices
 
 The macro may register the approved placement catalog from a normal Rust
