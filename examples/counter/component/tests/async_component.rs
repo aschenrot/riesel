@@ -341,3 +341,62 @@ fn blocking_work_can_feed_managed_native_async_component() {
     )]));
     exercise_blocking_boundary(Some(deployment));
 }
+
+fn exercise_provider_owned_blocking(deployment: Option<DeploymentConfig>) {
+    use riesel_counter_component::BlockingAsyncCounter;
+
+    let prepared = Application::new("ProviderOwnedBlocking")
+        .async_handler_with_aliases(
+            |counter: AsyncCapability<AsyncCounterContract>,
+             observer: AsyncCapability<AsyncCounterObserverContract>| async move {
+                assert_eq!(counter.value().await?, 0);
+                // This real provider method waits on its bounded OS worker.
+                // The async entrypoint must remain responsive meanwhile.
+                let operation = counter.add(7);
+                let mut operation = Box::pin(operation);
+                assert!(
+                    tokio::time::timeout(
+                        std::time::Duration::from_millis(15),
+                        &mut operation
+                    )
+                    .await
+                    .is_err(),
+                    "provider-owned blocking work stalled the Tokio reactor"
+                );
+                assert_eq!(operation.await?, 7);
+                assert_eq!(observer.observe().await?, 7);
+                assert_eq!(counter.label("count").await?, "count: 7");
+                Ok::<_, CallError<CounterError>>(())
+            },
+            ["counter", "observer"],
+        )
+        .unwrap()
+        .component::<BlockingAsyncCounter>()
+        .unwrap();
+
+    match deployment {
+        Some(config) => prepared.deployment(config).run().unwrap(),
+        None => prepared.run().unwrap(),
+    }
+}
+
+#[test]
+fn injected_provider_owned_blocking_work_runs_locally_and_joins() {
+    exercise_provider_owned_blocking(None);
+}
+
+#[test]
+fn injected_provider_owned_blocking_work_runs_in_managed_child_and_joins() {
+    let service = ServiceEndpoint::Managed {
+        instance: Some("provider_blocking".into()),
+        program: std::path::PathBuf::from(env!("CARGO_BIN_EXE_async_blocking_counter_service")),
+        args: Vec::new(),
+        startup_timeout_ms: 10_000,
+        shutdown_timeout_ms: 2_000,
+    };
+    let deployment = DeploymentConfig::new(BTreeMap::from([
+        ("counter".into(), service.clone()),
+        ("observer".into(), service),
+    ]));
+    exercise_provider_owned_blocking(Some(deployment));
+}
