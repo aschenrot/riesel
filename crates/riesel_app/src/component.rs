@@ -3,6 +3,10 @@
 //! the same Arc-backed state in either mode.
 
 use crate::{ConnectorError, LocalProviderFactory, LocalProviderInstance};
+#[cfg(feature = "async-tcp")]
+use crate::ProviderBlocking;
+#[cfg(feature = "async-tcp")]
+use riesel_protocol::SessionToken;
 use riesel_protocol::{
     AsyncRpcRouter, ComponentAdapter, ComponentHandler, LocalBindingMode, RpcClientBinding,
     RpcError, RpcHandler, RpcRouter, serve_router,
@@ -30,10 +34,21 @@ pub trait DeclarativeComponent: Sized + Send + Sync + 'static {
     fn component_definition() -> Result<ComponentDefinition<Self>, ConnectorError>;
 }
 
+/// Either an ordinary constructor or a constructor that explicitly requests
+/// lifetime-bound provider blocking work. Existing components are unaffected.
+#[cfg(feature = "async-tcp")]
+enum ComponentFactory<S> {
+    Plain(Box<dyn Fn() -> S + Send + Sync>),
+    WithBlocking(Box<dyn Fn(ProviderBlocking) -> S + Send + Sync>),
+}
+
+#[cfg(not(feature = "async-tcp"))]
+type ComponentFactory<S> = Box<dyn Fn() -> S + Send + Sync>;
+
 /// Component state and capability bindings shared by linked and managed modes.
 pub struct ComponentDefinition<S> {
     id: String,
-    create: Box<dyn Fn() -> S + Send + Sync>,
+    create: ComponentFactory<S>,
     capabilities: Vec<ComponentCapability<S>>,
 }
 
@@ -41,9 +56,39 @@ impl<S: Send + Sync + 'static> ComponentDefinition<S> {
     pub fn new(id: impl Into<String>, create: impl Fn() -> S + Send + Sync + 'static) -> Self {
         Self {
             id: id.into(),
+            #[cfg(feature = "async-tcp")]
+            create: ComponentFactory::Plain(Box::new(create)),
+            #[cfg(not(feature = "async-tcp"))]
             create: Box::new(create),
             capabilities: Vec::new(),
         }
+    }
+
+    /// Opt into explicit blocking work owned by this component in both linked
+    /// and managed modes. Factory injection does not invent a second runtime.
+    #[cfg(feature = "async-tcp")]
+    pub fn with_blocking(
+        id: impl Into<String>,
+        create: impl Fn(ProviderBlocking) -> S + Send + Sync + 'static,
+    ) -> Self {
+        Self {
+            id: id.into(),
+            create: ComponentFactory::WithBlocking(Box::new(create)),
+            capabilities: Vec::new(),
+        }
+    }
+
+    #[cfg(feature = "async-tcp")]
+    fn construct(&self, blocking: ProviderBlocking) -> S {
+        match &self.create {
+            ComponentFactory::Plain(create) => create(),
+            ComponentFactory::WithBlocking(create) => create(blocking),
+        }
+    }
+
+    #[cfg(not(feature = "async-tcp"))]
+    fn construct(&self) -> S {
+        (self.create)()
     }
 
     /// Explicit synchronous adapter for custom service factories. Generated
@@ -128,9 +173,23 @@ impl<S: Send + Sync + 'static> ComponentDefinition<S> {
                 "mixed sync and async capabilities require separate managed endpoints",
             ));
         }
+        #[cfg(feature = "async-tcp")]
+        if matches!(self.create, ComponentFactory::WithBlocking(_))
+            && self.capabilities.iter().any(|capability| capability.mode != LocalBindingMode::Async)
+        {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidInput,
+                "provider blocking work requires native async capability hosting",
+            ));
+        }
         let mut sync_router = RpcRouter::new(provider.clone()).map_err(io::Error::other)?;
         let mut async_router = AsyncRpcRouter::new(provider).map_err(io::Error::other)?;
-        let state = Arc::new((self.create)());
+        #[cfg(feature = "async-tcp")]
+        let blocking = ProviderBlocking::new(SessionToken::new());
+        #[cfg(feature = "async-tcp")]
+        let state = Arc::new(self.construct(blocking.clone()));
+        #[cfg(not(feature = "async-tcp"))]
+        let state = Arc::new(self.construct());
         let mut sync = false;
         let mut asynchronous = false;
 
@@ -156,7 +215,12 @@ impl<S: Send + Sync + 'static> ComponentDefinition<S> {
             async_router.validate_routes().map_err(io::Error::other)?;
             #[cfg(feature = "async-tcp")]
             {
-                return riesel_protocol::run_async_tcp_rpc_host(address, Arc::new(async_router));
+                let served =
+                    riesel_protocol::run_async_tcp_rpc_host(address, Arc::new(async_router));
+                // Aborted RPC futures may have started blocking OS work.
+                // Join it while this scope still owns the provider state.
+                let joined = blocking.close_and_join();
+                return served.and(joined);
             }
             #[cfg(not(feature = "async-tcp"))]
             {
@@ -166,7 +230,13 @@ impl<S: Send + Sync + 'static> ComponentDefinition<S> {
                 ));
             }
         }
-        serve_router(address, sync_router)
+        let served = serve_router(address, sync_router);
+        #[cfg(feature = "async-tcp")]
+        {
+            return served.and(blocking.close_and_join());
+        }
+        #[cfg(not(feature = "async-tcp"))]
+        served
     }
 }
 
@@ -191,8 +261,30 @@ impl<S: Send + Sync + 'static> LocalProviderFactory for ComponentDefinition<S> {
     }
 
     fn create(&self) -> Result<LocalProviderInstance, ConnectorError> {
-        let state = Arc::new((self.create)());
-        let mut instance = LocalProviderInstance::new(self.provider_definition());
+        #[cfg(feature = "async-tcp")]
+        {
+            return self.create_with_session(SessionToken::new());
+        }
+        #[cfg(not(feature = "async-tcp"))]
+        {
+            let state = Arc::new(self.construct());
+            let mut instance = LocalProviderInstance::new(self.provider_definition());
+            for capability in &self.capabilities {
+                instance = (capability.local)(Arc::clone(&state), instance)?;
+            }
+            Ok(instance)
+        }
+    }
+
+    #[cfg(feature = "async-tcp")]
+    fn create_with_session(
+        &self,
+        session: SessionToken,
+    ) -> Result<LocalProviderInstance, ConnectorError> {
+        let blocking = ProviderBlocking::new(session);
+        let state = Arc::new(self.construct(blocking.clone()));
+        let mut instance =
+            LocalProviderInstance::new(self.provider_definition()).with_blocking(blocking);
         for capability in &self.capabilities {
             instance = (capability.local)(Arc::clone(&state), instance)?;
         }
