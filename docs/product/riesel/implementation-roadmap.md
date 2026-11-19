@@ -62,8 +62,8 @@ examples in that document do not imply macros or async handles already exist.
 | 5.2 | Type-driven dependency extraction, aliases, record-model bindings | Complete on Linux | Function handlers register/extract typed dependencies; Counter (local/managed), Todo, alias/error and schema-equivalence tests pass |
 | 5.3 | Generated local/managed component adapters | Complete on Linux | `#[component]` generates registration; Counter/Observer share state locally and managed; custom factories, private IDs and missing-impl compile-fail test validated |
 | 5.4 | Async transport, generated handles, cancellation and error propagation | Complete — Linux validation and managed-host lifecycle verified | Generated native async local/managed bindings, real nonblocking startup, bounded async and blocking tasks, native crash/recovery, provider-owned blocking scope with cooperative shutdown and joins; Windows manual before release |
-| 5.5 | Deterministic provider catalog and deployment configuration | In progress — catalog selection and pinned identity verified on Linux | Linked/local defaults, explicit managed/loopback remote choices, exact provider metadata validation, preflight and end-to-end local/managed/remote tests passed; strict operator selection files, inspection output and final audit remain |
-| 5.6 | `#[riesel::app]` and ergonomic model/Records injection | Not started | Minimal Counter and Todo examples compile with generated requirements; builder equivalent |
+| 5.5 | Deterministic provider catalog and deployment configuration | Complete on Linux — final CI verified | Linked/local defaults, explicit managed and loopback external placements, selection-only manifests, exact provider identity metadata, side-effect-free inspection, lifecycle/recovery and CLI conflict tests; Windows manual before release |
+| 5.6 | `#[riesel::app]` and ergonomic model/Records injection | In progress — macro design and implementation next | Minimal Counter and Todo examples compile with generated requirements; builder equivalent |
 | 5.7 | Optional modules and lifecycle handlers | Not started | Multi-module app with ordering, conflict detection, cancellation and bounded shutdown |
 | 5.8 | DX documentation and regression suite | Not started | Compile-fail diagnostics, inspection, Linux validate and smoke; Windows manual before release |
 
@@ -281,15 +281,31 @@ CI run [44500272772](https://github.com/aschenrot/riesel/actions/runs/4450027277
 passed `cargo validate --check` and `cargo smoke` on Linux at branch
 commit `bb41adfc`.
 
-**Stage 5.5 remaining gates:** Add a strict operator-editable selection-only
-manifest (without arbitrary executable or address overrides), preserve the
-existing opt-in recovery policy, expose selected provider metadata in
-side-effect-free inspection, ensure multi-capability provider identity
-comparison is insensitive to declaration ordering, verify the positive and
-negative configuration/CLI cases, and run final Linux validation/smoke.
-Stage 5.5 must not claim authenticated remote identity: current loopback
-metadata checks detect mismatches, not a malicious endpoint. Windows CI
-remains optional during development and is required before release.
+**Stage 5.5 completed and verified (2026-11-19):** Strict
+`ProviderSelectionConfig` manifests select only placement names authorized by
+the Rust `ProviderCatalog`, never arbitrary executables, addresses or ports.
+`Application::provider_selections` and CLI `--select-providers FILE` retain
+opt-in whole-session recovery. `--inspect-catalog` exposes startup order,
+selected targets and exact pinned provider metadata without starting a process.
+Provider metadata equality ignores capability declaration order but not
+versions or published identity. CLI inspection is order-independent and rejects
+conflicting or repeated configuration even for empty manifests. Real local,
+managed-shared, external loopback, identity mismatch and configuration error
+tests pass alongside existing lifecycle smoke. CI
+[44503685582](https://github.com/aschenrot/riesel/actions/runs/44503685582)
+passed `cargo validate --check` and `cargo smoke` on Linux for HEAD
+`aac5f63`. Windows CI remains optional during development and required
+before release.
+
+**Security boundary:** A provider's advertised definition is metadata
+validation, not cryptographic proof of peer identity. Unauthenticated TCP
+deployment is restricted to loopback. Authenticated remote access,
+authorization and stronger isolation remain Stage 6 work.
+
+**Next:** Stage 5.6 will implement the accepted compact `#[riesel::app]`
+function API by generating calls into the existing typed handler and provider
+registry. See [provider catalog](provider-catalog.md) for the supported
+selection and inspection workflow.
 
 **Sequencing:** 5.1 is a gate for 5.2–5.8. Component adapters can follow
 parallel to dependency extraction after their shared contract is settled;

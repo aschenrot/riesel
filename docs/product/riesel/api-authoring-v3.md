@@ -64,12 +64,12 @@ must support explicit factories; `Default` is only the convenience case.
 
 - Generated handles should be ergonomically named `CounterHandle`, using a
   shared type-safe binding implementation, not a second runtime.
-- Native async capabilities, a nonblocking Tokio transport and typed async
-  application handlers are **partially implemented**. Startup inspection
-  remains synchronous and native async local/managed component parity is
-  still missing. Do not wrap blocking network I/O in an async function
-  and claim nonblocking execution; complete supervision, cancellation and
-  resource budgets before finalizing the high-level app macro.
+- Native async capabilities, typed generated local/remote handles, nonblocking
+  Tokio transport, local/managed component parity, bounded async/blocking
+  tasks and supervised async startup are implemented and Linux-verified.
+  Do not wrap blocking network I/O in an async function or run untracked
+  blocking work on Tokio; use the explicit provider blocking-work boundary.
+  The high-level `#[riesel::app]` macro remains Stage 5.6.
 - Preserve separate domain versus transport/cancellation/session-expiry
   failures. `AppResult` may simplify `?` but must retain structured source
   errors and allow user-defined error types.
