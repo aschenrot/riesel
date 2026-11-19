@@ -61,7 +61,7 @@ examples in that document do not imply macros or async handles already exist.
 | 5.1 | Identity and injection semantics, API contract, compatibility and lifecycle rules | Complete on Linux | Contract recorded; deterministic private ID and stable external Counter/Storage IDs verified |
 | 5.2 | Type-driven dependency extraction, aliases, record-model bindings | Complete on Linux | Function handlers register/extract typed dependencies; Counter (local/managed), Todo, alias/error and schema-equivalence tests pass |
 | 5.3 | Generated local/managed component adapters | Complete on Linux | `#[component]` generates registration; Counter/Observer share state locally and managed; custom factories, private IDs and missing-impl compile-fail test validated |
-| 5.4 | Async transport, generated handles, cancellation and error propagation | In progress — typed async app execution and cancellation verified | Native async contracts; Tokio RPC client/standalone host; manager-linked session invalidation; typed async remote injection and app-owned entrypoint executor; async local component and managed async host integration remain |
+| 5.4 | Async transport, generated handles, cancellation and error propagation | In progress — async routing and managed-host protocol verified | Native async contracts, Tokio client/host, manager-linked session cancellation, typed async handlers, multi-capability routing and managed-host readiness/shutdown fixture; generated async component bindings and runtime-owned background tasks remain |
 | 5.5 | Deterministic provider catalog and deployment configuration | Not started | Linked, managed and remote providers selected explicitly; preflight rejects missing/ambiguous/untrusted choices |
 | 5.6 | `#[riesel::app]` and ergonomic model/Records injection | Not started | Minimal Counter and Todo examples compile with generated requirements; builder equivalent |
 | 5.7 | Optional modules and lifecycle handlers | Not started | Multi-module app with ordering, conflict detection, cancellation and bounded shutdown |
@@ -152,10 +152,24 @@ cover session races, cancellation of pending I/O and application entrypoints.
 CI run [44429849161](https://github.com/aschenrot/riesel/actions/runs/44429849161)
 passed Linux workspace validation and managed-process smoke tests.
 
+**Stage 5.4 async router and managed-host protocol verified (2026-11-19):**
+`AsyncRpcRouter` now multiplexes native async capability dispatchers through
+one provider endpoint with exact contract selection, route preflight and
+duplicate/unadvertised-capability rejection. The async host validates its
+routes before admission. `run_async_tcp_rpc_host` adds the existing
+`RIESEL_READY` readiness frame and private `RIESEL_SHUTDOWN` control signal
+without duplicating the process manager. A bounded subprocess regression
+starts the host with an OS-assigned loopback port, verifies two interfaces
+sharing one provider-owned state instance, and checks cooperative exit.
+CI run [44433596866](https://github.com/aschenrot/riesel/actions/runs/44433596866)
+passed Linux workspace validation and executable smoke tests.
+
 **Stage 5.4 remains open:** Native async `#[component]` registration still
 lacks the local adapter/managed host integration required for one declarative
-component to run identically in both modes; the standalone async server is
-not a manager-owned child. The async entrypoint's startup inspection still
+component to run identically in both modes. The managed-host protocol
+is now supported and independently tested, but native async components are
+not yet registered and launched through the managed application runtime.
+The async entrypoint's startup inspection still
 uses bounded synchronous RPC, and independent runtime-owned async background
 tasks are not implemented. No final `#[riesel::app] async fn` macro exists.
 The next implementation gate is unify generated async component local/hosted

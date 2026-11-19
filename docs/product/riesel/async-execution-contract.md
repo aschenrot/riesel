@@ -1,6 +1,6 @@
 # Riesel — Async Execution Contract (Stage 5.4)
 
-Status: native async contract and standalone host slices verified on Linux, 2026-11-19.
+Status: native async contracts, multiplexed hosting and managed-host protocol verified on Linux, 2026-11-19.
 This defines the next engineering gates for the accepted
 [high-level application authoring API](api-authoring-v3.md).
 The user-facing mental model stays **app uses capabilities, components
@@ -59,6 +59,26 @@ mandatory ECS, transport object or executor type in the default authoring API.
   application manager have not been changed. Evidence:
   https://github.com/aschenrot/riesel/actions/runs/44423972358
 
+## Native async routing and managed-host protocol now verified
+
+- `AsyncRpcRouter` routes several native async capability contracts through
+  one process and provider identity. Each handler must advertise a matching
+  contract and complete the provider's declared interface set; missing,
+  duplicate, unadvertised and unknown capability requests are rejected.
+- The Tokio host validates routes before accepting connections and retains
+  its bounded, nonblocking request-task lifetime and loopback restriction.
+- `run_async_tcp_rpc_host` shares the synchronous managed-host protocol:
+  a bounded `RIESEL_READY` announcement after binding a real loopback
+  listener, and cooperative `RIESEL_SHUTDOWN` via private stdin.
+- An executable subprocess regression checks readiness, real RPC calls to
+  two interfaces backed by one shared state instance, and bounded shutdown.
+  Linux workspace validation and smoke passed at
+  https://github.com/aschenrot/riesel/actions/runs/44433596866
+- This verifies the **protocol bridge**, not generated local/managed
+  component integration: `ComponentDefinition` still binds synchronous
+  adapters, and application-managed native async provider lifecycles require
+  additional work.
+
 ## Typed async application execution now verified
 
 - The existing supervisor now invalidates the same `SessionToken` carried
@@ -95,10 +115,12 @@ The current `#[component]` and `ComponentDefinition` APIs still expect
 synchronous `RpcClientBinding` / `ComponentAdapter` interfaces.
 Generate native async component bindings from the **same** component
 declaration and provider-owned state, with typed local and managed adapters.
-The standalone Tokio async server is not yet connected to the managed
-process lifecycle; it does not advertise supervised readiness or implement
-Riesel's existing provider recovery policy. Do not create a parallel runtime
-or silently call synchronous providers inside async futures.
+The Tokio async host now advertises the managed-service readiness protocol
+and responds to cooperative private-stdin shutdown. However, this protocol
+bridge is not yet connected to generated native async component registrations
+or fully exercised through the manager-owned application lifecycle and
+recovery policy. Do not create a parallel runtime or silently call
+synchronous providers inside async futures.
 
 Tests must call the same native async capability locally and through a
 manager-owned process without application-level transport wiring. Blocking
@@ -151,7 +173,8 @@ not change that security posture.
 3. Session invalidation on managed-child failure and prompt async RPC /
    entrypoint cancellation are **implemented and tested**. Bounded
    runtime-owned asynchronous background tasks and manager-owned native
-   async host lifecycle are **not yet implemented**.
+   async component lifecycle are **not yet implemented**. The async host's
+   readiness/shutdown protocol and shared-state subprocess test are verified.
 4. Domain/transport/cancellation/session errors remain distinguishable;
    no automatic command retry, even after timeout.
 5. Generated async bindings derive the same validated contract and provider
