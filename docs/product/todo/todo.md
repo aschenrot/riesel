@@ -4,18 +4,19 @@
 
 Todo is a task-management application built with Riesel and a reference case for testing the platform's model, Storage, and application-runtime APIs.
 
-Two outcomes must remain distinct:
+Three delivery modes remain distinct:
 
-- **Reference example (R0):** demonstrate typed task operations through Riesel's ephemeral development Storage and SDK.
-- **Usable headless task manager (R1):** create, inspect, modify and complete tasks across CLI invocations using explicitly configured linked SQLite.
+- **R0 reference:** a one-shot in-memory `todo` example for framework regression checks.
+- **R1 headless manager:** persistent `todo_cli` commands using explicitly configured linked SQLite.
+- **R2 local browser application:** long-lived `todo_http` Rust backend, persistent SQLite, and optional SvelteKit static assets served on the same local origin.
 
-The in-memory `todo` executable remains a one-shot regression example. The separate `todo_cli` executable is the persistent headless interface; the browser interface remains R2.
+The R2 interface is a Todo product integration, not a generic Riesel web framework or permission for remote deployment.
 
 ## User problem
 
 Users need a small, dependable way to record and complete tasks. Developers need a realistic example that exercises Riesel without requiring handwritten process or RPC infrastructure for each operation.
 
-Task data must survive restarts **before** Todo can claim the planned usable-product milestone.
+Task data must survive restarts for R1/R2 usable-product acceptance; the reference R0 example intentionally remains ephemeral.
 
 ## Domain model
 
@@ -40,7 +41,7 @@ The `examples/todo` implementation presently demonstrates:
 - Headless execution using explicit in-memory development Storage.
 - Tests for validation, missing tasks, paging, and revision conflicts.
 
-**Limitations:** This R0 example loses data when its memory provider is restarted. R1 uses a separate linked SQLite executable, not the reference provider. Neither mode currently includes the planned graphical interface.
+**Limitations:** R0 loses data on restart. R1 and R2 use opt-in linked SQLite and remain single-host local deployments; neither is a general production-durability certification.
 
 ## Delivery milestones
 
@@ -66,7 +67,7 @@ Acceptance:
 
 R1 uses the explicitly configured linked SQLite provider, not MemoryStore. Cross-process CLI tests cover persistence and revision conflicts; the R0 demo remains independent. This is a **single-host, local-disk delivery** and does not certify host power-loss safety, a managed durable provider or a remotely accessible service.
 
-### R2 — Independent graphical interface (planned)
+### R2 — Independent graphical interface (delivered for single-user local use)
 
 **Goal:** let users manage tasks through a browser-based graphical interface while Todo's Rust application logic remains authoritative.
 
@@ -80,13 +81,11 @@ Acceptance:
 - Essential task workflows are covered by browser/API integration tests.
 - R1's persistent Storage and restart acceptance criteria must pass before R2 can be marked a usable product. A clearly identified ephemeral development prototype may precede R1.
 
-**Initial implementation:** SvelteKit as a browser frontend, a small Todo-specific Rust HTTP adapter, and static frontend assets served from the same origin for the initial local deployment. This is a delivery choice, not a requirement that Riesel adopt SvelteKit or a generic web server abstraction.
+**Implementation:** SvelteKit builds static browser assets. The `todo_http` Rust executable hosts the same-origin UI and JSON API with explicit linked SQLite Storage, using the existing Todo domain and Riesel session-owned blocking work. The host is loopback-only and independent of any browser connection. The frontend uses revision strings to preserve the complete Rust `u64` domain, with no silent conflict retries. This is an application-specific delivery, not a generic Riesel HTTP framework.
 
 **Deferred:** PWA installation, offline editing/synchronization, push notifications, real-time subscriptions, desktop packaging, and remote-user deployment.
 
-Local-only browser API and lifecycle contract: [accepted HTTP integration boundary](http-local-browser-contract.md). Implementation still requires security and lifecycle tests.
-
-Delivery work: [Todo browser API and backend lifecycle](https://github.com/aschenrot/riesel/issues/17) and [Todo SvelteKit browser interface](https://github.com/aschenrot/riesel/issues/18).
+Local-only security, lifecycle and API rules: [accepted HTTP integration boundary](http-local-browser-contract.md). Backend [Issue #17](https://github.com/aschenrot/riesel/issues/17) was delivered in [PR #39](https://github.com/aschenrot/riesel/pull/39). Browser [Issue #18](https://github.com/aschenrot/riesel/issues/18) is delivered through [PR #40](https://github.com/aschenrot/riesel/pull/40), with Chromium end-to-end tests against the real Rust/SQLite host. See the [Todo example](../../../examples/todo/README.md) for execution and limitations. Remote authentication, public deployment and power-loss guarantees are **not** part of R2.
 
 ## Scope boundaries
 

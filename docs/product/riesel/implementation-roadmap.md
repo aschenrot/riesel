@@ -58,7 +58,7 @@ Linux milestone integration.
 
 ## Stage 6 — Production reliability (not a release promise)
 
-The first bounded Storage slice is delivered: [linked SQLite provider](https://github.com/aschenrot/riesel/pull/33) and [opt-in SDK registration](https://github.com/aschenrot/riesel/pull/34). Todo R1's explicit persistent headless commands are tracked in [Issue #32](https://github.com/aschenrot/riesel/issues/32); the reference in-memory demo remains separate. These milestones do **not** establish complete Stage 6 reliability or production release readiness.
+The first bounded Storage slice is delivered through linked SQLite and opt-in SDK registration. The [Todo product](../todo/todo.md) now exercises it through persistent R1 headless commands and a local-only R2 SvelteKit/browser integration with a Riesel-owned HTTP session. The in-memory R0 regression example remains separate. These **product-level acceptance scenarios** do not establish complete Stage 6 reliability or general production release readiness.
 
 Plan and separately accept production features by user value and operational risk. Current candidates:
 

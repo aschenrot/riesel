@@ -4,7 +4,7 @@ Application-specific SvelteKit frontend for [Todo R2](../../../docs/product/todo
 
 ## Development
 
-Requires Node.js 22.12 or later and the Rust Todo HTTP backend from Issue #17.
+Requires Node.js 22.12 or later and the delivered Rust Todo HTTP backend. Builds are static; runtime operation uses Rust, not Node.
 
 1. Start the Rust API with an explicit persistent SQLite path. Its port is assigned by the OS and printed on startup.
 2. In this directory run npm ci.
@@ -19,4 +19,4 @@ Run `npm run check`, `npm test`, and `npm run build`. For full Rust/browser inte
 
 All mutations include the last observed task revision as a decimal string (not a JavaScript number), preserving the entire Rust u64 range. A stale write is surfaced as a conflict, not retried. Lists request at most 32 tasks per page using the backend's opaque cursor. No PWA installation, offline writes, subscriptions, or synchronization is included.
 
-**Delivery status:** This frontend is a separate workstream. The static asset serving integration and browser end-to-end tests depend on the accepted and merged Todo HTTP backend implementation.
+**Delivery boundary:** Same-origin static serving and Chromium integration tests against a real long-lived Rust/SQLite host are included. This is local single-user use only; remote access, user authentication, production power-loss certification and offline synchronization remain excluded.

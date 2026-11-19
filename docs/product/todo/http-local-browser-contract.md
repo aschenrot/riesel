@@ -1,6 +1,6 @@
 # Todo R2 — Local HTTP API and browser boundary
 
-**Status: accepted for local-only implementation, not production security certification.** [Specification Issue #36](https://github.com/aschenrot/riesel/issues/36) records the bounded decision. [HTTP implementation #17](https://github.com/aschenrot/riesel/issues/17) and [SvelteKit UI #18](https://github.com/aschenrot/riesel/issues/18) remain separate. This contract does not authorize exposing an unauthenticated server publicly.
+**Status: accepted and verified in the stated local-only scope; not production security certification.** [Specification Issue #36](https://github.com/aschenrot/riesel/issues/36) records the decision. The Todo HTTP implementation was delivered in [Issue #17](https://github.com/aschenrot/riesel/issues/17) / [PR #39](https://github.com/aschenrot/riesel/pull/39); the separate SvelteKit integration is [Issue #18](https://github.com/aschenrot/riesel/issues/18) / [PR #40](https://github.com/aschenrot/riesel/pull/40). This contract does not authorize exposing an unauthenticated server publicly.
 
 ## Outcome and existing constraints
 
@@ -24,7 +24,7 @@ Evaluate candidates against these criteria: existing Tokio-session compatibility
 
 Evidence: [Axum serve](https://docs.rs/axum/latest/axum/serve/struct.Serve.html), [Axum body limits](https://docs.rs/axum/latest/axum/extract/struct.DefaultBodyLimit.html), [Hyper graceful shutdown](https://hyper.rs/guides/1/server/graceful-shutdown/), [Poem server](https://docs.rs/poem/latest/poem/struct.Server.html), [Actix runtime](https://docs.rs/actix-web/latest/actix_web/rt/).
 
-No engine prototype or integration tests have yet been performed. The decision is conditional on toolchain and lifecycle verification, not a claim of universal superiority.
+At the initial specification decision, no integrated HTTP prototype had been validated. Subsequent pinned-toolchain, local-security, lifecycle and browser integration tests verified the selected Axum implementation. The original comparative assessment does not claim universal superiority.
 
 ## Local security and deployment contract
 
@@ -51,9 +51,9 @@ Prefix: `/api/v1`. JSON field names use snake_case. The HTTP layer calls the exi
 | `PATCH /tasks/{id}` | `{revision:string,title:string}` **or** `{revision:string,completed:bool}`, exactly one change | `200` updated record |
 | `DELETE /tasks/{id}` | `{revision:string}` | `204` no body |
 
-A record is `{id,revision,title,completed}`; `revision` is a **decimal string representing a full Rust `u64`** in both requests and responses, avoiding precision loss in JavaScript beyond `Number.MAX_SAFE_INTEGER`. The API rejects JSON numeric revisions and malformed/out-of-range decimal strings. This changes only the JSON wire representation, not optimistic concurrency semantics.  list pagination uses the existing non-snapshot cursor contract. The HTTP adapter must preserve update/delete optimistic revision checks, **never** prefetch a new revision to silently retry. If pagination needs a new `Todo::list_tasks_page` helper, add it to the Rust domain rather than bypassing `Todo` in HTTP handlers.
+A record is `{id,revision,title,completed}`; `revision` is a **decimal string representing a full Rust `u64`** in both requests and responses, avoiding precision loss in JavaScript beyond `Number.MAX_SAFE_INTEGER`. The API rejects JSON numeric revisions and malformed/out-of-range decimal strings. This changes only the JSON wire representation, not optimistic concurrency semantics. List pagination uses the existing non-snapshot cursor contract. The HTTP adapter must preserve update/delete optimistic revision checks, **never** prefetch a new revision to silently retry. If pagination needs a new `Todo::list_tasks_page` helper, add it to the Rust domain rather than bypassing `Todo` in HTTP handlers.
 
-All errors use `{error:{code,message}}` with stable short codes. Proposed mapping: `400` malformed input, `403` browser origin/Host rejected, `404` not found, `409` stale revision, `413` oversized, `415` wrong media type, `429/503` capacity/service unavailable, `500` unexpected backend failures. Final route and error fixtures should be reviewed before #18 starts; client messages must not expose raw database paths.
+All errors use `{error:{code,message}}` with stable short codes. Proposed mapping: `400` malformed input, `403` browser origin/Host rejected, `404` not found, `409` stale revision, `413` oversized, `415` wrong media type, `429/503` capacity/service unavailable, `500` unexpected backend failures. Route and error fixtures are exercised by the browser integration tests; client messages must not expose raw database paths.
 
 ## Session ownership and synchronous Storage
 
@@ -76,6 +76,6 @@ The `AsyncTasks` scope currently permits at most eight admitted blocking jobs. D
 
 ## Decision gate
 
-Gate B acceptance of this local-only contract is recorded in [Issue #36](https://github.com/aschenrot/riesel/issues/36). Implementation #17 must still verify the Host/Origin policy, response contract, bounded blocking behavior, startup/shutdown and cancellation invariants before merge; passing documentation CI does not establish those guarantees.
+Gate B acceptance is recorded in [Issue #36](https://github.com/aschenrot/riesel/issues/36). HTTP implementation #17 passed its security, response, bounded-blocking and lifecycle tests before merge; R2 frontend integration adds real Chromium workflows. These are bounded tests, not proof of protection against untrusted local processes, arbitrary network exposure or all production failure modes.
 
 No general HTTP capability, browser auth product, real-time subscription, cross-host deployment, SvelteKit runtime dependency or generic Riesel networking abstraction is approved by this proposal.

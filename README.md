@@ -19,7 +19,7 @@ cargo smoke
 
 `cargo validate --check` checks formatting, workspace builds, Clippy, tests and documentation. `cargo smoke` runs executable integration scenarios for Todo, Storage, Counter, managed processes and lifecycle behavior. Linux CI is required during development; Windows validation is manual and required before release.
 
-The Todo command runs a **demonstration using explicitly selected ephemeral MemoryStore**. It does not save tasks across restarts.
+The shown Todo command is an **ephemeral MemoryStore demonstration**. Persistent Todo CLI commands and the local single-origin browser app are documented in the [Todo guide](examples/todo/README.md).
 
 ## Core model
 
@@ -83,10 +83,10 @@ See the [async execution contract](docs/product/riesel/async-execution-contract.
 | Directory | Purpose |
 | --- | --- |
 | `crates/` | Framework runtime, SDK, schema, macros, protocol and process primitives |
-| `packages/storage/` | Reusable Storage contract and ephemeral memory implementation |
+| `packages/storage/` | Reusable Storage contract, in-memory reference and linked SQLite provider |
 | `examples/hello/` | Minimal Rust-first application |
 | `examples/counter/` | Independent capability, shared-state component and local/managed tests |
-| `examples/todo/` | Typed model and task-operations reference application |
+| `examples/todo/` | Typed Todo reference, persistent CLI and local browser application |
 | `tools/xtask/` | Validation and executable smoke-test tasks |
 | `docs/product/` | Product definitions, accepted architecture contracts and active roadmap |
 
