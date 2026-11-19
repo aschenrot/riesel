@@ -12,6 +12,7 @@ pub(crate) struct ComponentArgs {
     id: Option<LitStr>,
     provides: Vec<Path>,
     factory: Option<Path>,
+    factory_with_blocking: Option<Path>,
 }
 
 impl Parse for ComponentArgs {
@@ -19,6 +20,7 @@ impl Parse for ComponentArgs {
         let mut id = None;
         let mut provides = None;
         let mut factory = None;
+        let mut factory_with_blocking = None;
         while !input.is_empty() {
             let key: Ident = input.parse()?;
             input.parse::<Token![=]>()?;
@@ -40,10 +42,18 @@ impl Parse for ComponentArgs {
                     return Err(syn::Error::new(key.span(), "duplicate component factory"));
                 }
                 factory = Some(input.parse::<Path>()?);
+            } else if key == "factory_with_blocking" {
+                if factory_with_blocking.is_some() {
+                    return Err(syn::Error::new(
+                        key.span(),
+                        "duplicate factory_with_blocking",
+                    ));
+                }
+                factory_with_blocking = Some(input.parse::<Path>()?);
             } else {
                 return Err(syn::Error::new(
                     key.span(),
-                    "expected id, provides or factory",
+                    "expected id, provides, factory or factory_with_blocking",
                 ));
             }
 
@@ -55,10 +65,16 @@ impl Parse for ComponentArgs {
         if provides.is_empty() {
             return Err(input.error("a component must provide at least one capability"));
         }
+        if factory.is_some() && factory_with_blocking.is_some() {
+            return Err(input.error(
+                "choose either factory or factory_with_blocking, not both",
+            ));
+        }
         Ok(Self {
             id,
             provides,
             factory,
+            factory_with_blocking,
         })
     }
 }
@@ -86,12 +102,15 @@ pub(crate) fn expand_component(args: ComponentArgs, item: ItemStruct) -> syn::Re
 
     let name = &item.ident;
     let id = crate::identity::declaration_id(args.id.as_ref(), name);
-    let constructor = match args.factory {
-        Some(path) => quote!(#path),
-        None => quote!(<Self as ::std::default::Default>::default),
+    let mut definition = if let Some(factory) = args.factory_with_blocking {
+        quote!(::riesel_app::ComponentDefinition::with_blocking(#id, #factory))
+    } else {
+        let constructor = match args.factory {
+            Some(path) => quote!(#path),
+            None => quote!(<Self as ::std::default::Default>::default),
+        };
+        quote!(::riesel_app::ComponentDefinition::new(#id, #constructor))
     };
-
-    let mut definition = quote!(::riesel_app::ComponentDefinition::new(#id, #constructor));
     let mut contracts = args.provides.into_iter().peekable();
     while let Some(contract) = contracts.next() {
         // The final registration returns Result directly. Do not generate
