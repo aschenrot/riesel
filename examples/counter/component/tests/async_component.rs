@@ -172,3 +172,107 @@ fn failing_background_task_cancels_pending_async_entrypoint_and_is_reported() {
                 && failure.to_string().contains("injected background failure")
     ));
 }
+
+#[test]
+fn native_async_managed_crash_cancels_tasks_and_restarts_fresh_session() {
+    use riesel::{AsyncTasks, ConnectorError};
+    use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
+
+    let marker = std::env::temp_dir().join(format!(
+        "riesel-async-recovery-marker-{}",
+        std::process::id()
+    ));
+    let _ = std::fs::remove_file(&marker);
+    struct Cleanup(std::path::PathBuf);
+    impl Drop for Cleanup {
+        fn drop(&mut self) {
+            let _ = std::fs::remove_file(&self.0);
+        }
+    }
+    let _cleanup = Cleanup(marker.clone());
+
+    let program = std::path::PathBuf::from(env!("CARGO_BIN_EXE_async_counter_crash_fixture"));
+    let endpoint = ServiceEndpoint::Managed {
+        instance: Some("async_shared".into()),
+        program,
+        args: vec![marker.to_string_lossy().into_owned()],
+        startup_timeout_ms: 10_000,
+        shutdown_timeout_ms: 2_000,
+    };
+    let mut deployment = DeploymentConfig::new(BTreeMap::from([
+        ("counter".into(), endpoint.clone()),
+        ("observer".into(), endpoint),
+    ]));
+    deployment.recovery = riesel_app::RecoveryPolicy::RestartApplication {
+        max_restarts: 1,
+        initial_backoff_ms: 25,
+        max_backoff_ms: 100,
+    };
+
+    let attempts = Arc::new(AtomicUsize::new(0));
+    let previous = Arc::new(Mutex::new(None::<AsyncCounterHandle>));
+    let cancelled_task_dropped = Arc::new(AtomicBool::new(false));
+    let for_attempts = Arc::clone(&attempts);
+    let for_previous = Arc::clone(&previous);
+    let for_dropped = Arc::clone(&cancelled_task_dropped);
+
+    Application::new("NativeAsyncRecovery")
+        .async_handler_with_aliases(
+            move |counter: AsyncCapability<AsyncCounterContract>,
+                  observer: AsyncCapability<AsyncCounterObserverContract>,
+                  tasks: AsyncTasks| {
+                let attempt = for_attempts.fetch_add(1, Ordering::SeqCst);
+                let previous = Arc::clone(&for_previous);
+                let dropped = Arc::clone(&for_dropped);
+                async move {
+                    if attempt == 0 {
+                        assert_eq!(counter.value().await?, 0);
+                        assert_eq!(observer.observe().await?, 0);
+                        *previous.lock().unwrap() = Some((*counter).clone());
+                        tasks.spawn("in-flight", async move {
+                            let _guard = DropProbe(dropped);
+                            std::future::pending::<()>().await;
+                            Ok(())
+                        })?;
+                        tokio::task::yield_now().await;
+                        tokio::time::sleep(std::time::Duration::from_secs(8)).await;
+                        return Err(std::io::Error::other(
+                            "the native async child did not cancel its session",
+                        )
+                        .into());
+                    }
+                    assert_eq!(attempt, 1, "whole-session recovery must be bounded");
+                    assert!(dropped.load(Ordering::Acquire));
+                    let stale = previous.lock().unwrap().take().unwrap();
+                    assert!(matches!(
+                        stale.value().await,
+                        Err(CallError::Rpc(RpcError::SessionExpired))
+                    ));
+                    assert_eq!(counter.value().await?, 0);
+                    assert_eq!(counter.add(9).await?, 9);
+                    assert_eq!(observer.observe().await?, 9);
+
+                    // A new session owns a fresh task scope with the same
+                    // task name allowed to be used after recovery.
+                    let (sent, received) = tokio::sync::oneshot::channel();
+                    tasks.spawn("in-flight", async move {
+                        let _ = sent.send(());
+                        Ok(())
+                    })?;
+                    received.await.unwrap();
+                    Ok::<(), ConnectorError>(())
+                }
+            },
+            ["counter", "observer", "tasks"],
+        )
+        .unwrap()
+        .component::<AsyncMemoryCounter>()
+        .unwrap()
+        .deployment(deployment)
+        .run()
+        .unwrap();
+
+    assert_eq!(attempts.load(Ordering::SeqCst), 2);
+    assert!(marker.exists(), "the child must actually have crashed once");
+    assert!(cancelled_task_dropped.load(Ordering::Acquire));
+}
