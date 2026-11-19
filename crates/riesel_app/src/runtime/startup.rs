@@ -232,6 +232,8 @@ impl App {
         let supervisor = ServiceMonitor::start(Arc::clone(&processes), managed, session.clone())
             .map_err(RuntimeError::MonitorStart)?;
         let tasks = TaskGroup::new(supervisor.cancellation_token());
+        #[cfg(feature = "async-tcp")]
+        let async_tasks = AsyncTasks::new(session.clone(), supervisor.cancellation_token());
         Ok(RunningApp {
             app: self,
             resolved,
@@ -239,6 +241,8 @@ impl App {
             processes,
             supervisor,
             tasks,
+            #[cfg(feature = "async-tcp")]
+            async_tasks,
             session,
         })
     }
