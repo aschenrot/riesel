@@ -31,21 +31,26 @@ pub trait CapabilityConnector: Send + Sync {
         session: &SessionToken,
     ) -> Result<ConnectedProvider, ConnectorError>;
 
-    /// Asynchronous startup inspection using the same validated connector
-    /// registry and resulting provider metadata as synchronous startup.
-    /// Existing synchronous connectors retain their established semantics;
-    /// native async connectors override this to avoid blocking Tokio I/O.
+    /// Nonblocking startup inspection with the same validated contract and
+    /// provider registry as sync startup. A connector must opt in explicitly;
+    /// invoking sync connect() inside this future would block a Tokio worker.
     #[cfg(feature = "async-tcp")]
     fn connect_async<'a>(
         &'a self,
-        endpoint: &'a ServiceEndpoint,
-        session: &'a SessionToken,
+        _endpoint: &'a ServiceEndpoint,
+        _session: &'a SessionToken,
     ) -> std::pin::Pin<
         Box<
             dyn std::future::Future<Output = Result<ConnectedProvider, ConnectorError>> + Send + 'a,
         >,
     > {
-        Box::pin(async move { self.connect(endpoint, session) })
+        Box::pin(async {
+            Err(io::Error::new(
+                io::ErrorKind::Unsupported,
+                "connector does not implement nonblocking async startup",
+            )
+            .into())
+        })
     }
 }
 
