@@ -52,12 +52,13 @@ impl Application {
         allow_custom: bool,
     ) -> Result<Option<(Self, Vec<OsString>)>> {
         let mut custom = Vec::new();
+        let mut inspect_catalog = false;
         let mut index = 0;
         while index < args.len() {
             let option = &args[index];
             if option == "--help" || option == "-h" {
                 println!(
-                    "Usage: <application> [--deployment FILE | --inspect-deployment FILE | --inspect-catalog | --print-definition] [-- APP_ARGS...]"
+                    "Usage: <application> [--deployment FILE | --inspect-deployment FILE | --select-providers FILE | --inspect-catalog | --print-definition] [-- APP_ARGS...]"
                 );
                 return Ok(None);
             }
@@ -66,8 +67,18 @@ impl Application {
                 return Ok(None);
             }
             if option == "--inspect-catalog" {
-                println!("{}", serde_json::to_string_pretty(&self.catalog_plan()?)?);
-                return Ok(None);
+                inspect_catalog = true;
+                index += 1;
+                continue;
+            }
+            if option == "--select-providers" {
+                let path = args.get(index + 1).ok_or_else(|| {
+                    SdkError::Arguments("--select-providers requires a file".into())
+                })?;
+                let config = ProviderSelectionConfig::load(PathBuf::from(path))?;
+                self = self.provider_selections(config)?;
+                index += 2;
+                continue;
             }
             if option == "--" {
                 if !allow_custom {
@@ -107,6 +118,10 @@ impl Application {
             }
             custom.push(option.clone());
             index += 1;
+        }
+        if inspect_catalog {
+            println!("{}", serde_json::to_string_pretty(&self.catalog_plan()?)?);
+            return Ok(None);
         }
         Ok(Some((self, custom)))
     }

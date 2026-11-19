@@ -3,7 +3,7 @@
 //! local state, a Riesel-owned child and an operator-owned loopback process.
 use riesel::{
     AppRunError, Application, AsyncCapability, CatalogError, ProviderCatalog, RuntimeError,
-    SdkError, ServiceEndpoint,
+    ProviderSelectionConfig, SdkError, ServiceEndpoint,
 };
 use riesel_app::{LocalProviderFactory, PlannedTarget};
 use riesel_counter::{AsyncCounterContract, AsyncCounterObserverContract, CounterError};
@@ -220,6 +220,44 @@ fn catalog_rejects_remote_provider_metadata_substitution() {
     // belonging to the operator. This is not peer authentication.
     assert!(child.0.try_wait().unwrap().is_none());
     child.stop();
+}
+
+#[test]
+fn operator_selection_manifest_runs_the_shared_managed_provider() {
+    let selections = ProviderSelectionConfig::from_json(
+        r#"{"services":{"counter":"managed","observer":"managed"}}"#,
+    )
+    .unwrap();
+    let mut catalog = ProviderCatalog::new();
+    catalog
+        .register(
+            "managed",
+            published(),
+            managed(env!("CARGO_BIN_EXE_async_counter_service")),
+        )
+        .unwrap();
+    let app = Application::new("CounterManifest")
+        .async_handler_with_aliases(
+            |counter: AsyncCapability<AsyncCounterContract>,
+             observer: AsyncCapability<AsyncCounterObserverContract>| async move {
+                assert_eq!(counter.add(8).await?, 8);
+                assert_eq!(observer.observe().await?, 8);
+                Ok::<_, CallError<CounterError>>(())
+            },
+            ["counter", "observer"],
+        )
+        .unwrap()
+        .catalog(catalog)
+        .provider_selections(selections)
+        .unwrap();
+    let plan = app.catalog_plan().unwrap();
+    assert_eq!(plan.services.len(), 2);
+    assert!(plan.services.iter().all(|service| {
+        service.expected_provider.as_ref().is_some_and(|provider| {
+            provider.id == "riesel.counter.async.memory"
+        })
+    }));
+    app.run().unwrap();
 }
 
 #[test]

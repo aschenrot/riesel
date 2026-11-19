@@ -8,6 +8,7 @@ pub struct Application {
     pub(super) deployment: Option<DeploymentConfig>,
     pub(super) catalog: Option<ProviderCatalog>,
     pub(super) selections: BTreeMap<String, String>,
+    pub(super) catalog_recovery: RecoveryPolicy,
 }
 
 impl Application {
@@ -24,6 +25,7 @@ impl Application {
             deployment: None,
             catalog: None,
             selections: BTreeMap::new(),
+            catalog_recovery: RecoveryPolicy::FailFast,
         }
     }
 
@@ -211,6 +213,19 @@ impl Application {
         Ok(self)
     }
 
+    /// Configure only previously registered provider placement names from
+    /// an operator-controlled selection manifest, including recovery policy.
+    pub fn provider_selections(mut self, config: ProviderSelectionConfig) -> Result<Self> {
+        if !self.selections.is_empty() {
+            return Err(SdkError::ProviderSelectionConflict(
+                "selection configuration".into(),
+            ));
+        }
+        self.selections = config.services;
+        self.catalog_recovery = config.recovery;
+        Ok(self)
+    }
+
     /// Inspect the exact catalog-produced plan without constructing a
     /// provider, opening a socket, or launching a managed executable.
     pub fn catalog_plan(&self) -> Result<DeploymentPlan> {
@@ -224,10 +239,13 @@ impl Application {
         match (&self.deployment, &self.catalog) {
             (Some(_), Some(_)) => Err(SdkError::ConflictingDeploymentSource),
             (Some(config), None) if self.selections.is_empty() => Ok(Some(config.clone())),
-            (None, Some(catalog)) => Ok(Some(catalog.deployment(
+            (None, Some(catalog)) => Ok(Some(catalog.deployment_from_config(
                 &self.definition,
                 &self.providers,
-                &self.selections,
+                &ProviderSelectionConfig {
+                    services: self.selections.clone(),
+                    recovery: self.catalog_recovery.clone(),
+                },
             )?)),
             (None, None) if self.selections.is_empty() => Ok(None),
             _ => Err(SdkError::MissingProviderCatalog),

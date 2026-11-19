@@ -157,6 +157,14 @@ where
         self.application.catalog_plan()
     }
 
+    pub fn provider_selections(
+        mut self,
+        config: riesel_app::ProviderSelectionConfig,
+    ) -> Result<Self> {
+        self.application = self.application.provider_selections(config)?;
+        Ok(self)
+    }
+
     /// Build an executor for each application session, then execute and
     /// dispose of every scoped future before providers are torn down.
     /// Whole-session recovery constructs fresh handles on each invocation.

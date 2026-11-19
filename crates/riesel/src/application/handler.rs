@@ -242,6 +242,14 @@ where
         self.application.catalog_plan()
     }
 
+    pub fn provider_selections(
+        mut self,
+        config: riesel_app::ProviderSelectionConfig,
+    ) -> Result<Self> {
+        self.application = self.application.provider_selections(config)?;
+        Ok(self)
+    }
+
     /// Execute a handler once per started session. Managed recovery can
     /// replay it under the existing opt-in whole-session recovery policy.
     pub fn run(self) -> Result<()> {
