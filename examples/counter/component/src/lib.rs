@@ -125,6 +125,78 @@ pub fn memory_async_counter_provider()
     AsyncMemoryCounter::component_definition()
 }
 
+/// Reference provider exercising the explicit host-owned blocking boundary.
+#[cfg(feature = "async-tcp")]
+#[component(
+    id = "riesel.counter.async.blocking",
+    provides = [riesel_counter::AsyncCounterContract, riesel_counter::AsyncCounterObserverContract],
+    factory_with_blocking = create_blocking_async_counter
+)]
+pub struct BlockingAsyncCounter {
+    value: std::sync::Arc<Mutex<u64>>,
+    blocking: riesel_app::ProviderBlocking,
+}
+
+#[cfg(feature = "async-tcp")]
+fn create_blocking_async_counter(blocking: riesel_app::ProviderBlocking) -> BlockingAsyncCounter {
+    BlockingAsyncCounter {
+        value: std::sync::Arc::new(Mutex::new(0)),
+        blocking,
+    }
+}
+
+#[cfg(feature = "async-tcp")]
+impl riesel_counter::AsyncCounter for BlockingAsyncCounter {
+    async fn value(&self) -> Result<u64, CounterError> {
+        Ok(*self
+            .value
+            .lock()
+            .map_err(|_| CounterError::Internal("counter lock poisoned".into()))?)
+    }
+
+    async fn add(&self, amount: u64) -> Result<u64, CounterError> {
+        if amount == 0 {
+            return Err(CounterError::ZeroIncrement);
+        }
+        let value = std::sync::Arc::clone(&self.value);
+        self.blocking
+            .run("add", move |cancellation| {
+                // Simulate an existing synchronous driver with explicit
+                // cancellation. Neither local nor managed Tokio is blocked.
+                if cancellation.wait_cancelled_timeout(std::time::Duration::from_millis(80)) {
+                    return Err(CounterError::Internal("provider stopping".into()));
+                }
+                let mut current = value
+                    .lock()
+                    .map_err(|_| CounterError::Internal("counter lock poisoned".into()))?;
+                *current = current.checked_add(amount).ok_or(CounterError::Overflow)?;
+                Ok(*current)
+            })
+            .await
+            .map_err(|error| CounterError::Internal(error.to_string()))?
+    }
+
+    async fn label(&self, prefix: &str) -> Result<String, CounterError> {
+        Ok(format!(
+            "{prefix}: {}",
+            riesel_counter::AsyncCounter::value(self).await?
+        ))
+    }
+}
+
+#[cfg(feature = "async-tcp")]
+impl riesel_counter::AsyncCounterObserver for BlockingAsyncCounter {
+    async fn observe(&self) -> Result<u64, CounterError> {
+        riesel_counter::AsyncCounter::value(self).await
+    }
+}
+
+#[cfg(feature = "async-tcp")]
+pub fn blocking_async_counter_provider()
+-> Result<ComponentDefinition<BlockingAsyncCounter>, ConnectorError> {
+    BlockingAsyncCounter::component_definition()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
