@@ -55,6 +55,12 @@ pub enum SdkError {
     DuplicateModule(String),
     #[error("module {0} replaced the application instead of composing registrations")]
     ModuleReplacedApplication(String),
+    #[error("invalid lifecycle hook name: {0}")]
+    InvalidLifecycleHookName(String),
+    #[error("duplicate {phase} lifecycle hook: {name}")]
+    DuplicateLifecycleHook { phase: &'static str, name: String },
+    #[error("application lifecycle hooks require an async application handler")]
+    AsyncLifecycleRequiresAsyncEntrypoint,
     #[error("invalid application arguments: {0}")]
     Arguments(String),
     #[error("a provider catalog is required to resolve selected placements")]

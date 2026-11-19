@@ -176,6 +176,15 @@ impl RunningApp {
                     .map(Box::new),
             });
         }
+        if outcome
+            .as_ref()
+            .is_err_and(|error| error.is::<LifecycleFailure>())
+        {
+            return Err(AppRunError::Lifecycle {
+                failure: outcome.err().expect("lifecycle failure was checked"),
+                shutdown: shutdown.map(Box::new),
+            });
+        }
         match (outcome, shutdown) {
             (Ok(()), None) => Ok(()),
             (Err(entry), None) => Err(AppRunError::Entrypoint(entry)),

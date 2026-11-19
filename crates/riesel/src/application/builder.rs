@@ -11,6 +11,8 @@ pub struct Application {
     pub(super) catalog_recovery: RecoveryPolicy,
     pub(super) selection_manifest_loaded: bool,
     pub(super) modules: BTreeSet<String>,
+    #[cfg(feature = "async-tcp")]
+    pub(super) lifecycle: LifecycleHooks,
 }
 
 impl Application {
@@ -30,6 +32,8 @@ impl Application {
             catalog_recovery: RecoveryPolicy::FailFast,
             selection_manifest_loaded: false,
             modules: BTreeSet::new(),
+            #[cfg(feature = "async-tcp")]
+            lifecycle: LifecycleHooks::default(),
         }
     }
 
@@ -302,11 +306,16 @@ impl Application {
     #[cfg(feature = "async-tcp")]
     pub(super) fn run_async_entrypoint(
         self,
-        mut entrypoint: impl FnMut(&Context<'_>) -> std::result::Result<(), ConnectorError>,
+        mut entrypoint: impl FnMut(
+            &Context<'_>,
+            &mut LifecycleHooks,
+        ) -> std::result::Result<(), ConnectorError>,
     ) -> Result<()> {
         let deployment = self.selected_deployment()?;
+        let mut lifecycle = self.lifecycle;
+        lifecycle.order(&self.definition)?;
         let app = App::from_definition(self.definition)?;
-        let invoke = |running: &RunningApp| entrypoint(&Context { running });
+        let invoke = |running: &RunningApp| entrypoint(&Context { running }, &mut lifecycle);
         if let Some(deployment) = deployment {
             app.run_with_async_startup(&deployment, &self.providers, invoke)?;
         } else {
@@ -319,6 +328,10 @@ impl Application {
         self,
         mut entrypoint: impl FnMut(&Context<'_>) -> std::result::Result<(), ConnectorError>,
     ) -> Result<()> {
+        #[cfg(feature = "async-tcp")]
+        if !self.lifecycle.is_empty() {
+            return Err(SdkError::AsyncLifecycleRequiresAsyncEntrypoint);
+        }
         let deployment = self.selected_deployment()?;
         let app = App::from_definition(self.definition)?;
         let invoke = |running: &RunningApp| entrypoint(&Context { running });

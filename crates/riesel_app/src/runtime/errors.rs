@@ -144,6 +144,65 @@ pub enum RuntimeError {
     ShutdownFailures { errors: Vec<RuntimeError> },
 }
 
+/// Whether a named application lifecycle hook runs before or after the entrypoint.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum HookPhase {
+    Start,
+    Stop,
+}
+
+impl std::fmt::Display for HookPhase {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(match self {
+            Self::Start => "start",
+            Self::Stop => "stop",
+        })
+    }
+}
+
+/// A hook failure preserves its phase, name and original typed error source.
+#[derive(Debug, Error)]
+#[error("{phase} hook {name} failed: {source}")]
+pub struct HookFailure {
+    pub phase: HookPhase,
+    pub name: String,
+    #[source]
+    pub source: ConnectorError,
+}
+
+/// Original entrypoint failure and any hook cleanup failures are kept together.
+#[derive(Debug)]
+pub struct LifecycleFailure {
+    pub entry: Option<ConnectorError>,
+    pub hooks: Vec<HookFailure>,
+}
+
+impl std::fmt::Display for LifecycleFailure {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "application lifecycle failed")?;
+        if let Some(entry) = &self.entry {
+            write!(f, "; entrypoint: {entry}")?;
+        }
+        for hook in &self.hooks {
+            write!(f, "; {hook}")?;
+        }
+        Ok(())
+    }
+}
+
+impl std::error::Error for LifecycleFailure {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        self.entry
+            .as_ref()
+            .map(|source| source.as_ref() as &(dyn std::error::Error + 'static))
+            .or_else(|| {
+                self.hooks
+                    .first()
+                    .map(|failure| failure as &(dyn std::error::Error + 'static))
+            })
+    }
+}
+
 /// Errors from running application business logic and shutting down its services.
 #[derive(Debug, Error)]
 pub enum AppRunError {
@@ -153,6 +212,11 @@ pub enum AppRunError {
     Entrypoint(ConnectorError),
     #[error("application shutdown failed: {0}")]
     Shutdown(RuntimeError),
+    #[error("application lifecycle failed: {failure}; shutdown: {shutdown:?}")]
+    Lifecycle {
+        failure: ConnectorError,
+        shutdown: Option<Box<RuntimeError>>,
+    },
     #[error("application entrypoint failed: {entry}; shutdown also failed: {shutdown}")]
     EntrypointAndShutdown {
         entry: ConnectorError,
