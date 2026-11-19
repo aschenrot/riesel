@@ -377,7 +377,13 @@ fn ctrl_c_shuts_down_independent_backend_without_killing_browser_state() {
         thread::sleep(Duration::from_millis(20));
     };
     assert!(status.success(), "graceful HTTP shutdown failed: {status}");
-    let port = server.authority.rsplit(':').next().unwrap().parse::<u16>().unwrap();
+    let port = server
+        .authority
+        .rsplit(':')
+        .next()
+        .unwrap()
+        .parse::<u16>()
+        .unwrap();
     assert!(
         TcpListener::bind(("127.0.0.1", port)).is_ok(),
         "graceful shutdown must release the listener"

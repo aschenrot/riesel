@@ -159,14 +159,16 @@ mod tests {
         drop(reserved);
 
         let result = Application::new("Todo HTTP revoked session")
-            .async_handler(move |records: Records<TaskData>, tasks: AsyncTasks| async move {
-                tasks.spawn("simulate-fatal-provider-work", async {
-                    tokio::time::sleep(Duration::from_millis(150)).await;
-                    Err(std::io::Error::other("fatal session worker").into())
-                })?;
-                serve(records, tasks, port).await?;
-                Ok::<(), Box<dyn std::error::Error + Send + Sync>>(())
-            })
+            .async_handler(
+                move |records: Records<TaskData>, tasks: AsyncTasks| async move {
+                    tasks.spawn("simulate-fatal-provider-work", async {
+                        tokio::time::sleep(Duration::from_millis(150)).await;
+                        Err(std::io::Error::other("fatal session worker").into())
+                    })?;
+                    serve(records, tasks, port).await?;
+                    Ok::<(), Box<dyn std::error::Error + Send + Sync>>(())
+                },
+            )
             .unwrap()
             .development()
             .unwrap()
