@@ -13,6 +13,13 @@ impl Context<'_> {
         self.running.cancellation_token()
     }
 
+    /// Task spawner scoped to this asynchronous application session.
+    /// It cannot admit tasks outside the active async entrypoint.
+    #[cfg(feature = "async-tcp")]
+    pub fn async_tasks(&self) -> crate::AsyncTasks {
+        self.running.async_tasks()
+    }
+
     #[cfg(feature = "async-tcp")]
     pub(crate) fn session_token(&self) -> riesel_protocol::SessionToken {
         self.running.session_token()
