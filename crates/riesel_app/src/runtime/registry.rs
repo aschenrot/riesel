@@ -101,6 +101,8 @@ impl LocalCapabilityBinding {
 pub struct LocalProviderInstance {
     pub definition: ProviderDefinition,
     pub bindings: Vec<LocalCapabilityBinding>,
+    #[cfg(feature = "async-tcp")]
+    pub(crate) blocking: Option<crate::ProviderBlocking>,
 }
 
 impl LocalProviderInstance {
@@ -108,7 +110,15 @@ impl LocalProviderInstance {
         Self {
             definition,
             bindings: Vec::new(),
+            #[cfg(feature = "async-tcp")]
+            blocking: None,
         }
+    }
+
+    #[cfg(feature = "async-tcp")]
+    pub(crate) fn with_blocking(mut self, blocking: crate::ProviderBlocking) -> Self {
+        self.blocking = Some(blocking);
+        self
     }
 
     pub fn bind<C: riesel_protocol::RpcClientBinding>(
@@ -150,6 +160,16 @@ pub trait LocalProviderFactory: Send + Sync {
     }
 
     fn create(&self) -> Result<LocalProviderInstance, ConnectorError>;
+
+    /// Construct state under the actual session when the factory supports
+    /// provider-owned blocking work. Custom factories retain the old API.
+    #[cfg(feature = "async-tcp")]
+    fn create_with_session(
+        &self,
+        _session: SessionToken,
+    ) -> Result<LocalProviderInstance, ConnectorError> {
+        self.create()
+    }
 }
 
 /// Generic local component factory; avoids repeating three handwritten
@@ -251,6 +271,8 @@ pub(super) struct RegisteredLocalProvider {
 
 pub(super) struct RunningLocalProvider {
     pub(super) services: BTreeMap<(String, u32), Arc<dyn Any + Send + Sync>>,
+    #[cfg(feature = "async-tcp")]
+    pub(super) blocking: Option<crate::ProviderBlocking>,
 }
 
 /// Explicit runtime adapter registry. Capability ID and exact version
