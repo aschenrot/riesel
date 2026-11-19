@@ -69,8 +69,32 @@ impl Application {
     pub fn rpc<C: RpcClientBinding + 'static>(mut self, name: impl Into<String>) -> Result<Self> {
         let capability = C::definition()?.capability;
         self = self.require::<C>(name)?;
-        if !self.providers.has_connector(&capability) {
+        if self.providers.has_connector(&capability) {
+            if !self.providers.connector_is::<RpcConnector<C>>(&capability) {
+                return Err(SdkError::ConnectorModeConflict(capability.id));
+            }
+        } else {
             self.providers.register(RpcConnector::<C>::new())?;
+        }
+        Ok(self)
+    }
+
+    /// Register a typed async RPC requirement. Preflight and remote contract
+    /// verification reuse the existing provider resolver; actual operations
+    /// use nonblocking Tokio transport and the current session token.
+    #[cfg(feature = "async-tcp")]
+    pub fn async_rpc<C: AsyncRpcClientBinding + 'static>(
+        mut self,
+        name: impl Into<String>,
+    ) -> Result<Self> {
+        let capability = C::definition()?.capability;
+        self = self.require::<C>(name)?;
+        if self.providers.has_connector(&capability) {
+            if !self.providers.connector_is::<AsyncRpcConnector<C>>(&capability) {
+                return Err(SdkError::ConnectorModeConflict(capability.id));
+            }
+        } else {
+            self.providers.register(AsyncRpcConnector::<C>::new())?;
         }
         Ok(self)
     }

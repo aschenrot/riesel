@@ -657,6 +657,7 @@ pub(crate) fn expand_capability(
         /// Async client generated from the same capability contract as the
         /// synchronous API. Uses a real AsyncRpcTransport, never blocking
         /// RpcTransport calls inside a Future.
+        #[derive(Clone)]
         #visibility struct #async_client_name<T> {
             transport: T,
         }

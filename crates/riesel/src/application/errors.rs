@@ -42,6 +42,8 @@ pub enum SdkError {
     CapabilityMismatch(String),
     #[error("requirement {0} is already used for a different capability")]
     RequirementConflict(String),
+    #[error("capability {0} already has a different transport adapter")]
+    ConnectorModeConflict(String),
     #[error("invalid application arguments: {0}")]
     Arguments(String),
     #[error("handler requires {expected} parameter aliases, but received {actual}")]

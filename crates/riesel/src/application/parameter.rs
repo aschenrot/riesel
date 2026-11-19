@@ -4,6 +4,8 @@
 
 use super::{Application, Context, Result};
 use riesel_protocol::RpcClientBinding;
+#[cfg(feature = "async-tcp")]
+use riesel_protocol::AsyncRpcClientBinding;
 use std::marker::PhantomData;
 use std::ops::Deref;
 
@@ -99,5 +101,57 @@ where
 
     fn extract(context: &Context<'_>, alias: &str) -> Result<Self> {
         context.records_at::<T>(alias)
+    }
+}
+
+/// A typed, owned async remote capability handle. This is injected through
+/// the existing dependency resolver and does not start its own executor.
+#[cfg(feature = "async-tcp")]
+pub struct AsyncCapability<C: AsyncRpcClientBinding> {
+    service: C::Service,
+    _contract: PhantomData<fn() -> C>,
+}
+
+#[cfg(feature = "async-tcp")]
+impl<C: AsyncRpcClientBinding> std::ops::Deref for AsyncCapability<C> {
+    type Target = C::Service;
+
+    fn deref(&self) -> &Self::Target {
+        &self.service
+    }
+}
+
+#[cfg(feature = "async-tcp")]
+impl<C: AsyncRpcClientBinding> Clone for AsyncCapability<C>
+where
+    C::Service: Clone,
+{
+    fn clone(&self) -> Self {
+        Self {
+            service: self.service.clone(),
+            _contract: PhantomData,
+        }
+    }
+}
+
+#[cfg(feature = "async-tcp")]
+impl<C> ApplicationParam for AsyncCapability<C>
+where
+    C: AsyncRpcClientBinding + 'static,
+    C::Service: Clone,
+{
+    fn default_alias() -> Result<String> {
+        Ok(C::definition()?.capability.default_requirement_alias())
+    }
+
+    fn declare(application: Application, alias: &str) -> Result<Application> {
+        application.async_rpc::<C>(alias)
+    }
+
+    fn extract(context: &Context<'_>, alias: &str) -> Result<Self> {
+        Ok(Self {
+            service: context.async_capability::<C>(alias)?.clone(),
+            _contract: PhantomData,
+        })
     }
 }

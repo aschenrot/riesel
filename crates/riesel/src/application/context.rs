@@ -27,6 +27,18 @@ impl Context<'_> {
     /// Retrieve a typed capability service generated from a Rust contract.
     /// The requirement's declared version is checked before downcasting.
     pub fn capability<C: RpcClientBinding>(&self, name: &str) -> Result<&C::Service> {
+        self.checked_service::<C, C::Service>(name)
+    }
+
+    #[cfg(feature = "async-tcp")]
+    pub fn async_capability<C: AsyncRpcClientBinding>(&self, name: &str) -> Result<&C::Service> {
+        self.checked_service::<C, C::Service>(name)
+    }
+
+    fn checked_service<C: CapabilityDescriptor, T: std::any::Any + Send + Sync>(
+        &self,
+        name: &str,
+    ) -> Result<&T> {
         let definition = self.running.app().definition();
         let expected = C::definition()?.capability;
         let requirement = definition
@@ -37,7 +49,7 @@ impl Context<'_> {
         if requirement.capability != expected {
             return Err(SdkError::CapabilityMismatch(name.into()));
         }
-        Ok(self.running.service::<C::Service>(name)?)
+        Ok(self.running.service::<T>(name)?)
     }
 
     #[cfg(feature = "records")]

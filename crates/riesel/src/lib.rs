@@ -38,9 +38,13 @@ pub use application::{
     Application, ApplicationHandler, ApplicationParam, Capability, Context, HandlerParams,
     PreparedApplication, Result, SdkError,
 };
+#[cfg(feature = "async-tcp")]
+pub use application::AsyncCapability;
 #[cfg(feature = "records")]
 pub use records::{Record, RecordPage, Records};
 pub use rpc_connector::RpcConnector;
+#[cfg(feature = "async-tcp")]
+pub use rpc_connector::AsyncRpcConnector;
 
 pub use riesel_app::{
     App, AppError, AppRunError, CancellationToken, CapabilityConnector, ConnectedProvider,
@@ -57,6 +61,8 @@ pub mod prelude {
     };
     #[cfg(feature = "records")]
     pub use super::{Record, Records};
+    #[cfg(feature = "async-tcp")]
+    pub use super::AsyncCapability;
 }
 pub use riesel_schema as schema;
 #[cfg(feature = "records")]

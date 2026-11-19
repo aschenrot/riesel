@@ -2,6 +2,8 @@
 //! protocol adapter. Capability macros opt into RpcClientBinding once.
 use riesel_app::{CapabilityConnector, ConnectedProvider, ConnectorError, ServiceEndpoint};
 use riesel_protocol::{RpcClientBinding, SessionToken, TcpRpcTransport};
+#[cfg(feature = "async-tcp")]
+use riesel_protocol::{AsyncRpcClientBinding, AsyncRpcTransport, AsyncTcpRpcTransport};
 use riesel_schema::CapabilityContract;
 use std::io;
 use std::marker::PhantomData;
@@ -56,6 +58,55 @@ impl<C: RpcClientBinding> CapabilityConnector for RpcConnector<C> {
             definition: provider,
             contract,
             service: Box::new(C::guard_local(client, session.clone())),
+        })
+    }
+}
+
+#[cfg(feature = "async-tcp")]
+pub struct AsyncRpcConnector<C>(PhantomData<fn() -> C>);
+
+#[cfg(feature = "async-tcp")]
+impl<C> AsyncRpcConnector<C> {
+    pub fn new() -> Self {
+        Self(PhantomData)
+    }
+}
+
+#[cfg(feature = "async-tcp")]
+impl<C: AsyncRpcClientBinding> CapabilityConnector for AsyncRpcConnector<C> {
+    fn contract(&self) -> Result<CapabilityContract, ConnectorError> {
+        Ok(C::definition()?)
+    }
+
+    fn connect(
+        &self,
+        endpoint: &ServiceEndpoint,
+        session: &SessionToken,
+    ) -> Result<ConnectedProvider, ConnectorError> {
+        let address = endpoint.address().ok_or_else(|| {
+            io::Error::new(io::ErrorKind::InvalidInput, "async RPC needs a TCP endpoint")
+        })?;
+        let expected = C::definition()?;
+        // Startup/selection is synchronous today; inspect the remote
+        // contract before returning a nonblocking business-call transport.
+        // Both paths use the same capability ID, provider and session.
+        let inspection = TcpRpcTransport::with_session(address, session.clone());
+        let contract = inspection.describe(&expected.capability)?;
+        if !contract.has_same_api_shape(&expected) {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidData,
+                "remote async capability contract differs from Rust declaration",
+            )
+            .into());
+        }
+        let provider = inspection.provider(&expected.capability)?;
+        let transport: std::sync::Arc<dyn AsyncRpcTransport> = std::sync::Arc::new(
+            AsyncTcpRpcTransport::with_session(address, session.clone()),
+        );
+        Ok(ConnectedProvider {
+            definition: provider,
+            contract,
+            service: Box::new(C::bind_async(transport)),
         })
     }
 }

@@ -1,4 +1,5 @@
 use super::*;
+use std::any::TypeId;
 
 /// An inspected, connected service. Each connector owns its transport-specific
 /// adapter. The boxed Rust value is retrieved by the consumer using its type.
@@ -22,6 +23,7 @@ pub trait CapabilityConnector: Send + Sync {
 pub(super) struct RegisteredConnector {
     pub(super) contract: CapabilityContract,
     pub(super) connector: Box<dyn CapabilityConnector>,
+    type_id: TypeId,
 }
 
 /// One executable binding for a capability advertised by a local component.
@@ -275,9 +277,20 @@ impl ConnectorRegistry {
             .contains_key(&(capability.id.clone(), capability.version))
     }
 
-    pub fn register(
+    /// Avoid accidentally resolving a typed async client through a sync
+    /// connector (or vice versa) when the contract itself is the same.
+    pub fn connector_is<C: CapabilityConnector + 'static>(
+        &self,
+        capability: &riesel_schema::CapabilityRef,
+    ) -> bool {
+        self.adapters
+            .get(&(capability.id.clone(), capability.version))
+            .is_some_and(|registered| registered.type_id == TypeId::of::<C>())
+    }
+
+    pub fn register<C: CapabilityConnector + 'static>(
         &mut self,
-        connector: impl CapabilityConnector + 'static,
+        connector: C,
     ) -> Result<(), RuntimeError> {
         let contract = connector
             .contract()
@@ -297,6 +310,7 @@ impl ConnectorRegistry {
             RegisteredConnector {
                 contract,
                 connector: Box::new(connector),
+                type_id: TypeId::of::<C>(),
             },
         );
         Ok(())
