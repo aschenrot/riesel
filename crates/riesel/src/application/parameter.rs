@@ -155,3 +155,21 @@ where
         })
     }
 }
+
+/// Injection of session-owned async background work without introducing a
+/// capability dependency, provider, or transport into the app schema.
+/// The spawner is valid only inside its owning async handler invocation.
+#[cfg(feature = "async-tcp")]
+impl ApplicationParam for crate::AsyncTasks {
+    fn default_alias() -> Result<String> {
+        Ok("tasks".into())
+    }
+
+    fn declare(application: Application, _alias: &str) -> Result<Application> {
+        Ok(application)
+    }
+
+    fn extract(context: &Context<'_>, _alias: &str) -> Result<Self> {
+        Ok(context.async_tasks())
+    }
+}
