@@ -14,9 +14,9 @@ pub use rpc::{
 pub use tcp::{AsyncTcpRpcTransport, handle_async_tcp_connection, serve_async_tcp_rpc_host};
 pub use tcp::{TcpRpcTransport, handle_tcp_connection, run_tcp_rpc_host};
 
-pub use session::SessionToken;
 #[cfg(feature = "async-tcp")]
 pub use provider_blocking::{ProviderBlocking, ProviderBlockingError, ProviderCancellation};
+pub use session::SessionToken;
 
 #[cfg(feature = "async-tcp")]
 pub use host::run_async_tcp_rpc_host;
