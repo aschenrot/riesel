@@ -124,6 +124,11 @@ where
         self.application.deployment_plan(config)
     }
 
+    pub fn module<M: super::ApplicationModule>(mut self) -> Result<Self> {
+        self.application = self.application.module::<M>()?;
+        Ok(self)
+    }
+
     pub fn component<C: riesel_app::DeclarativeComponent>(mut self) -> Result<Self> {
         self.application = self.application.component::<C>()?;
         Ok(self)
@@ -131,6 +136,14 @@ where
 
     pub fn provider(mut self, provider: impl LocalProviderFactory + 'static) -> Result<Self> {
         self.application = self.application.provider(provider)?;
+        Ok(self)
+    }
+
+    /// Explicit opt-in to the in-memory Storage implementation. This does
+    /// not occur automatically when a Records<T> requirement is present.
+    #[cfg(feature = "dev-memory-storage")]
+    pub fn development(mut self) -> Result<Self> {
+        self.application = self.application.development()?;
         Ok(self)
     }
 

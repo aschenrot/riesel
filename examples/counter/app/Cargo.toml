@@ -27,3 +27,27 @@ path = "tests/fixtures/counter_recovery_client.rs"
 [[bin]]
 name = "counter_dual_client"
 path = "tests/fixtures/counter_dual_client.rs"
+
+[[bin]]
+name = "counter_macro"
+path = "src/bin/counter_macro.rs"
+
+[[bin]]
+name = "counter_macro_managed_service"
+path = "src/bin/counter_macro_managed_service.rs"
+
+[[bin]]
+name = "counter_macro_alias"
+path = "src/bin/counter_macro_alias.rs"
+
+[[bin]]
+name = "counter_macro_remote"
+path = "src/bin/counter_macro_remote.rs"
+
+[[bin]]
+name = "counter_macro_catalog"
+path = "src/bin/counter_macro_catalog.rs"
+
+[[bin]]
+name = "counter_macro_module"
+path = "src/bin/counter_macro_module.rs"

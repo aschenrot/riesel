@@ -685,6 +685,10 @@ pub(crate) fn expand_capability(
 
     let async_client_binding = if is_async.unwrap_or(false) {
         quote! {
+            impl ::riesel_protocol::NativeAsyncHandle for #handle_name {
+                type Contract = #descriptor_name;
+            }
+
             impl ::riesel_protocol::AsyncRpcClientBinding for #descriptor_name {
                 type Service = #handle_name;
 

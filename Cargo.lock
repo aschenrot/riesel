@@ -374,6 +374,7 @@ dependencies = [
  "riesel",
  "riesel_storage_component",
  "serde",
+ "serde_json",
  "thiserror",
  "uuid",
 ]

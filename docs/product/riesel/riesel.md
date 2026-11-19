@@ -1,203 +1,91 @@
-
 # Riesel — Product Definition
 
 ## Purpose
 
-Riesel is a schema-driven application platform for defining,
-building, running, and connecting applications through
-reusable capabilities.
+Riesel is a Rust-first, schema-driven application platform. Applications declare the capabilities they need; components provide implementations; Riesel validates, composes, and runs them.
 
-Developers define application structure, behavior, and
-requirements. Riesel provides common infrastructure through
-well-defined interfaces.
+The product objective is to remove repeated infrastructure wiring without forcing application code into one UI, process, or execution model. Applications can combine generated definitions with ordinary Rust behavior.
 
-Applications may combine declarative definitions with
-custom code.
+This document specifies intended product outcomes, **not** the current implementation status. See the [implementation roadmap](implementation-roadmap.md) for verified delivery.
 
-## Problem
+## Problem and users
 
-Application development repeatedly requires similar
-infrastructure:
+Application developers repeatedly rebuild model validation, capability communication, service lifecycle, state management, and integration with tooling. This complicates reuse and introduces differences in behavior between local and independent execution.
 
-- Data validation and persistence
-- Runtime state management
-- Application lifecycle management
-- Communication between components
-- User interfaces
-- Process management
-- Synchronization
+Riesel primarily serves Rust developers building applications, tools, and headless services. Real-time applications and games are potential specialized uses of the same foundation; they do not dictate the core runtime architecture.
 
-These concerns are often implemented separately for each
-application, increasing complexity and limiting reuse.
+## Product model
 
-Riesel aims to provide shared infrastructure without imposing
-unnecessary requirements on individual applications.
+| Concept | Responsibility |
+| --- | --- |
+| **Application** | Logical software unit with requirements, behavior, and a lifecycle; not necessarily a single process |
+| **Definition** | Inspectable, non-executable description of models, requirements, and configuration |
+| **Capability** | Versioned contract that consumers depend on, independent of implementation |
+| **Component** | Implementation of one or more capabilities, potentially sharing state |
+| **Provider** | A registered implementation selected for a requirement |
+| **Instance** | Actual running provider execution with a distinct identity and lifecycle |
 
-## Product Model
+A component is **not inherently an operating-system process**. Local and independently executed providers can implement the same contract, subject to compatible semantics. Deployment and execution policy determine where components run.
 
-### Application
+The application uses capabilities; components implement capabilities; Riesel resolves and runs them.
 
-A unit of software with defined behavior and lifecycle.
+## Accepted product requirements
 
-Application logic executes independently of graphical
-interfaces.
+### Composition and developer experience
 
-### Definition
+- Developers can define application requirements, models, and capability contracts using supported Rust authoring APIs; portable, inspectable definitions are derived without a second manually synchronized schema.
+- A capability requirement can be resolved to a local, explicitly managed, or configured external implementation.
+- Normal application authoring does not require handwritten transport clients, dispatch loops, or manually assigned ephemeral infrastructure IDs.
+- Ambiguous requirements, invalid definitions, and incompatible provider selection fail with actionable diagnostics rather than implicit fallback.
+- Ordinary custom Rust behavior remains possible without requiring a particular ECS, GUI, or transport implementation.
 
-A declarative description of application structure,
-behavior, and requirements.
+### Execution and lifecycle
 
-Definitions can describe models, constraints, metadata,
-and required capabilities.
+- Application logic can execute headlessly, with no graphical window.
+- Application, component, provider-instance, and process lifecycles are distinguished explicitly.
+- Startup ordering, shutdown, cancellation, and recovery respect declared dependencies and stated ownership boundaries.
+- Recovery never implies that ambiguous external side effects were not executed; individual commands are not silently replayed.
+- Independent native window hosts use separate operating-system processes, with lifecycles independent from application logic. This is an **accepted target requirement**, not a claim of current delivery.
 
-A definition is not an executing application.
+### Contracts, identity, and interfaces
 
-### Capability
+- Applications depend on versioned capability contracts rather than specific providers.
+- Private identifiers can be derived by the framework; independently published contracts retain a deliberate stable external identity.
+- CLI and programmatic interfaces should expose comparable supported platform operations with consistent error semantics.
+- New capabilities and specialized execution integrations can be added without replacing the foundational application model.
 
-Reusable functionality exposed through a defined contract.
+## Product interfaces and delivery boundaries
 
-Capabilities may be provided within an application process
-or by independent services.
+| Interface | Intended role | Current boundary |
+| --- | --- | --- |
+| **Rust SDK** | Primary application and component authoring API | Experimental public `riesel` facade |
+| **Application CLI** | Deployment selection, inspection, and application-specific commands | App-scoped inspection and runtime arguments exist; a full platform CLI is not implied |
+| **Riesel Manager** | Registration, discovery, process supervision, and coordination | Existing `riesel_manager` crate is a process-ownership primitive, not a completed user-facing manager |
+| **Manager UI** | Inspect and manage applications and infrastructure | Planned, not delivered |
+| **Native window hosts** | Independent interfaces attached to application logic | Planned, not delivered |
 
-Applications depend on capability contracts rather than
-specific implementations.
+The current reference Storage provider is ephemeral, and loopback TCP is not authenticated. Passing development tests does **not** establish production persistence, authenticated remote networking, or distributed recovery.
 
-## Product Requirements
+## Planned infrastructure extensions
 
-### Schema-Driven Development
+- Durable Storage, schema evolution, and migration.
+- Authentication, authorization, and protected remote transport.
+- Operational visibility, configurable resource budgets, and reliable deployment management.
+- Standalone manager workflows and independently executed native interfaces.
 
-Applications can be defined declaratively.
+These outcomes require separate designs and acceptance criteria; they must not be treated as already implemented.
 
-Custom behavior remains possible when application requirements
-extend beyond the supported declarative model.
+## Exploratory product directions
 
-### Headless Execution
+Game/ECS integrations, automatic multiplayer, subscription or messaging services, a custom UI framework, and a visual application builder may be developed as specialized packages or products if concrete requirements justify them. They are **not** prerequisites for the core runtime and do not automatically require new crates.
 
-Application logic does not require a graphical interface.
+## Product-level success criteria
 
-Applications can operate without an attached window.
+1. The same declared capability can be consumed through supported local and managed providers with equivalent contract behavior, verified by integration tests.
+2. Applications can run headlessly and expose inspectable definitions with deterministic dependency and provider validation.
+3. Ordinary example applications use typed authoring interfaces without repeating manual RPC or process-wiring code.
+4. Session shutdown and recovery have documented, testable cancellation, identity, and side-effect boundaries.
+5. Platform interfaces provide consistent operations where both interfaces are supported.
+6. Future application types can extend the platform through contracts or specialized integrations without altering its core composition model.
 
-### Independent Interfaces
-
-Native windows execute in separate operating-system processes.
-
-Application and window lifecycles remain independent.
-
-### Reusable Capabilities
-
-Common functionality is provided through reusable contracts.
-
-Applications can use capabilities without implementing their
-underlying infrastructure.
-
-### Consistent Interfaces
-
-CLI and programmatic APIs expose equivalent platform operations
-with consistent semantics and error behavior.
-
-Direct and managed execution are distinct operations.
-
-### Managed Identity
-
-Riesel manages application, instance, and record identifiers.
-
-Developers are not required to manually assign infrastructure
-identifiers for ordinary application operations.
-
-Identifiers remain stable within their defined scope.
-
-### Extensibility
-
-Applications can introduce custom behavior and specialized
-capabilities.
-
-The architecture accommodates different execution, data,
-interface, and performance requirements.
-
-## Product Interfaces
-
-### Riesel CLI
-
-Command-line access to platform functionality.
-
-### Riesel Rust SDK
-
-Programmatic access to platform capabilities through the
-public `riesel` facade.
-
-### Riesel Manager
-
-Application registration, discovery, process supervision,
-and coordination.
-
-### Riesel Manager UI
-
-Graphical interface for inspecting and managing applications
-and infrastructure.
-
-## Product Scope
-
-Riesel is intended to support:
-
-- Schema-defined applications
-- Desktop applications
-- Headless services
-- Development tools
-- Custom interfaces
-- Games and real-time applications
-- Persistent and runtime state
-- Synchronization
-- Reusable infrastructure services
-
-Specialized workloads may require specialized capabilities
-without changing the shared application model.
-
-## Success Criteria
-
-Riesel is successful when:
-
-1. Applications can be defined and executed through consistent
-   declarative and programmatic mechanisms.
-
-2. Common functionality can be reused across independently
-   developed applications.
-
-3. Applications can operate without graphical interfaces.
-
-4. Required capabilities can be resolved and accessed through
-   defined contracts.
-
-5. CLI and Rust clients expose equivalent operations.
-
-6. Application and infrastructure lifecycles are explicit
-   and independently manageable where required.
-
-7. New application types can be supported without replacing
-   the platform's foundational concepts.
-
-
-
-## Composition and Execution
-
-Riesel separates functional composition from process execution.
-
-Components implement bounded functionality and may require
-or provide capabilities.
-
-Capabilities describe functionality through explicit contracts.
-
-Components are not inherently operating-system processes.
-
-Execution environments determine how component behavior runs.
-
-Independent processes have their own lifecycle, resource
-boundaries, communication, and failure behavior.
-
-Applications describe logical software products and may
-compose multiple components and independently running services.
-
-The same capability contract may support different providers,
-provided their declared semantics and guarantees are compatible.
-
-Process isolation is mandatory for native window hosts.
-Other process boundaries follow explicit requirements.
+A requirement is accepted when its specific implementation gate passes; broad product success criteria are not proof that every planned feature ships today.

@@ -128,6 +128,13 @@ pub trait AsyncRpcClientBinding: CapabilityDescriptor {
     fn bind_async(transport: Arc<dyn AsyncRpcTransport>) -> Self::Service;
 }
 
+/// A generated native async capability handle that can be injected directly
+/// into an application, without selecting its transport or repeating the
+/// published contract identifier.
+pub trait NativeAsyncHandle: Clone + Send + Sync + 'static {
+    type Contract: AsyncRpcClientBinding<Service = Self> + 'static;
+}
+
 /// A Send future returned by native async capability dispatch.
 pub type AsyncRpcFuture<'a> = Pin<Box<dyn Future<Output = Result<Value, RpcError>> + Send + 'a>>;
 

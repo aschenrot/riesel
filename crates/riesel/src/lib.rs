@@ -35,11 +35,13 @@ mod records;
 mod rpc_connector;
 
 pub use application::{
-    Application, ApplicationHandler, ApplicationParam, Capability, Context, HandlerParams,
-    PreparedApplication, Result, SdkError,
+    Application, ApplicationHandler, ApplicationModule, ApplicationParam, Capability, Context,
+    HandlerParams, PreparedApplication, Result, SdkError,
 };
 #[cfg(feature = "async-tcp")]
-pub use application::{AsyncApplicationHandler, AsyncCapability, PreparedAsyncApplication};
+pub use application::{
+    AsyncApplicationHandler, AsyncCapability, NativeHandleParam, PreparedAsyncApplication,
+};
 #[cfg(feature = "records")]
 pub use records::{Record, RecordPage, Records};
 #[cfg(feature = "async-tcp")]
@@ -55,12 +57,17 @@ pub use riesel_app::{
     ProviderSelectionConfig, RecoveryPolicy, ResolutionError, ResolvedCapability, RunningApp,
     RuntimeError, ServiceEndpoint, SessionToken,
 };
-pub use riesel_macros::{RieselModel, RieselType, capability, component};
+pub use riesel_macros::{RieselModel, RieselType, app, capability, component};
+
+/// An application entrypoint result that retains typed source errors behind
+/// the existing structured ConnectorError boundary.
+pub type AppResult<T = ()> = std::result::Result<T, riesel_app::ConnectorError>;
 pub use riesel_schema::{CapabilityDescriptor, ModelField, RieselModel};
 
 pub mod prelude {
     pub use super::{
-        App, AppError, Application, Capability, Result, RieselModel, capability, component,
+        App, AppError, AppResult, Application, Capability, Result, RieselModel, app, capability,
+        component,
     };
     #[cfg(feature = "async-tcp")]
     pub use super::{AsyncCapability, AsyncTasks};

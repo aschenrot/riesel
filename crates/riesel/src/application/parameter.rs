@@ -156,6 +156,41 @@ where
     }
 }
 
+/// A typed, zero-cost injection adapter for generated native async handles.
+/// It avoids overlapping blanket ApplicationParam implementations with
+/// existing parameter types (notably the session-scoped AsyncTasks).
+#[cfg(feature = "async-tcp")]
+#[doc(hidden)]
+pub struct NativeHandleParam<H: riesel_protocol::NativeAsyncHandle>(H);
+
+#[cfg(feature = "async-tcp")]
+impl<H: riesel_protocol::NativeAsyncHandle> NativeHandleParam<H> {
+    pub fn into_inner(self) -> H {
+        self.0
+    }
+}
+
+#[cfg(feature = "async-tcp")]
+impl<H: riesel_protocol::NativeAsyncHandle> ApplicationParam for NativeHandleParam<H> {
+    fn default_alias() -> Result<String> {
+        Ok(
+            <H::Contract as riesel_schema::CapabilityDescriptor>::definition()?
+                .capability
+                .default_requirement_alias(),
+        )
+    }
+
+    fn declare(application: Application, alias: &str) -> Result<Application> {
+        application.async_rpc::<H::Contract>(alias)
+    }
+
+    fn extract(context: &Context<'_>, alias: &str) -> Result<Self> {
+        Ok(Self(
+            context.async_capability::<H::Contract>(alias)?.clone(),
+        ))
+    }
+}
+
 /// Injection of session-owned async background work without introducing a
 /// capability dependency, provider, or transport into the app schema.
 /// The spawner is valid only inside its owning async handler invocation.

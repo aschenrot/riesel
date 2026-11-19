@@ -63,8 +63,8 @@ examples in that document do not imply macros or async handles already exist.
 | 5.3 | Generated local/managed component adapters | Complete on Linux | `#[component]` generates registration; Counter/Observer share state locally and managed; custom factories, private IDs and missing-impl compile-fail test validated |
 | 5.4 | Async transport, generated handles, cancellation and error propagation | Complete — Linux validation and managed-host lifecycle verified | Generated native async local/managed bindings, real nonblocking startup, bounded async and blocking tasks, native crash/recovery, provider-owned blocking scope with cooperative shutdown and joins; Windows manual before release |
 | 5.5 | Deterministic provider catalog and deployment configuration | Complete on Linux — final CI verified | Linked/local defaults, explicit managed and loopback external placements, selection-only manifests, exact provider identity metadata, side-effect-free inspection, lifecycle/recovery and CLI conflict tests; Windows manual before release |
-| 5.6 | `#[riesel::app]` and ergonomic model/Records injection | In progress — macro design and implementation next | Minimal Counter and Todo examples compile with generated requirements; builder equivalent |
-| 5.7 | Optional modules and lifecycle handlers | Not started | Multi-module app with ordering, conflict detection, cancellation and bounded shutdown |
+| 5.6 | `#[riesel::app]` and ergonomic model/Records injection | Complete on Linux — macro, Counter, Todo and catalog integration verified | Minimal native-async Counter apps run linked, managed, aliased and catalog-selected; typed Todo Records and builder-equivalent schemas/plans verified; negative startup/CLI and macro validation tests pass |
+| 5.7 | Optional modules and lifecycle handlers | In progress — module registration slice verified on Linux | Typed reusable modules register into one application schema; module and provider conflicts, capability dependency order, and macro composition tested; lifecycle handlers, cancellation and bounded shutdown still required |
 | 5.8 | DX documentation and regression suite | Not started | Compile-fail diagnostics, inspection, Linux validate and smoke; Windows manual before release |
 
 **Verified progress (2026-11-18):** `#[capability]` now permits ID-free
@@ -306,6 +306,61 @@ authorization and stronger isolation remain Stage 6 work.
 function API by generating calls into the existing typed handler and provider
 registry. See [provider catalog](provider-catalog.md) for the supported
 selection and inspection workflow.
+
+**Stage 5.6 completed and Linux-verified (2026-11-19):** The real
+`#[riesel::app]` procedural attribute generates the same typed
+`Application::async_handler`, linked `.component`, approved `.catalog`
+and `.run_from_env` flow as the explicit builder. User entrypoints accept
+generated native async `<Trait>Handle` values directly; a small private
+`NativeHandleParam<T>` adaptation avoids Rust trait-coherence overlap with
+existing `ApplicationParam` implementations. `Records<T>`, `AsyncTasks`,
+`Capability<C>`, and `AsyncCapability<C>` remain available in the same
+handler model, with `#[riesel(parameter)]` for aliased parameter types.
+The macro supports explicit dependency aliases, optional linked components,
+an optional approved catalog factory, application names, and explicit
+`development` storage. It never guesses remote providers or enables
+development storage implicitly.
+
+Counter regression binaries verify linked and manager-owned execution from
+one high-level source, two aliased handles sharing provider state, a
+remote-only entrypoint rejecting missing deployment, exact macro-vs-builder
+schema/plan equality, and selection-only catalog planning and managed
+execution. The Todo binary verifies one `Records<TaskData>` declaration
+derives the same model and Storage requirements as the builder. Syntax tests
+reject duplicate component/alias declarations, unsupported function shapes,
+missing return types and excess parameters.
+
+Linux CI
+[44510693321](https://github.com/aschenrot/riesel/actions/runs/44510693321)
+passed `cargo validate --check` and `cargo smoke`. Windows remains
+manual before release. The accepted minimal API is now implemented for its
+defined one-shot async entrypoint scope; optional lifecycle handlers and
+application modules remain Stage 5.7 work. See
+[high-level app authoring](high-level-app.md).
+
+**Stage 5.7 module composition verified (2026-11-19):**
+`ApplicationModule` groups ordinary registration steps in reusable Rust
+types. `Application::module::<M>()`, the typed prepared-handler
+`.module::<M>()` methods and optional
+`#[riesel::app(modules = [M1, M2])]` route every component and requirement
+through the existing application schema/registries, without inventing a
+module resolver or process. Module identity derives from its Rust type path
+and duplicates are rejected; conflicting component registrations still
+fail in the existing provider registry. A Counter integration registers
+dependency requirements and a linked provider in deliberately different
+module order, verifies one capability dependency DAG, runs the generated
+high-level application and confirms duplicate-module/provider errors
+before startup. CI
+[44512577572](https://github.com/aschenrot/riesel/actions/runs/44512577572)
+passed `cargo validate --check` and `cargo smoke` on Linux.
+
+**Stage 5.7 remaining acceptance gates:** Ordered startup/shutdown hooks,
+cooperative cancellation, preserved error provenance, recovery-session
+re-entry and bounded shutdown must be designed using the existing
+`RunningApp`, `TaskGroup` and `AsyncTasks` owner lifetimes. Module
+registration is not its own lifecycle, scheduler or runtime. Do not
+invent detached hook tasks or run blocking user code on Tokio. See
+[application modules](application-modules.md).
 
 **Sequencing:** 5.1 is a gate for 5.2–5.8. Component adapters can follow
 parallel to dependency extraction after their shared contract is settled;
