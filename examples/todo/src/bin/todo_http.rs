@@ -22,7 +22,8 @@ fn parse() -> Result<Option<(PathBuf, u16)>, io::Error> {
         return Err(io::Error::new(io::ErrorKind::InvalidInput, usage()));
     }
     let path = PathBuf::from(
-        args.next().ok_or_else(|| io::Error::new(io::ErrorKind::InvalidInput, usage()))?,
+        args.next()
+            .ok_or_else(|| io::Error::new(io::ErrorKind::InvalidInput, usage()))?,
     );
     let mut port = 0;
     if let Some(option) = args.next() {
@@ -47,9 +48,11 @@ fn run() -> Result<(), Box<dyn Error + Send + Sync>> {
         return Ok(());
     };
     Application::new("TodoHttp")
-        .async_handler(move |records: Records<TaskData>, tasks: AsyncTasks| async move {
-            todo::http::serve(records, tasks, port).await
-        })?
+        .async_handler(
+            move |records: Records<TaskData>, tasks: AsyncTasks| async move {
+                todo::http::serve(records, tasks, port).await
+            },
+        )?
         .sqlite_storage(path)?
         .run()?;
     Ok(())

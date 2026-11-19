@@ -2,15 +2,15 @@
 use super::HttpState;
 use crate::{Task, TodoError};
 use axum::{
+    Json,
     extract::{
-        rejection::{JsonRejection, QueryRejection},
         Path, Query, State,
+        rejection::{JsonRejection, QueryRejection},
     },
     http::StatusCode,
     response::{IntoResponse, Response},
-    Json,
 };
-use riesel::{storage::StoreError, SdkError};
+use riesel::{SdkError, storage::StoreError};
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
@@ -41,17 +41,55 @@ struct ErrorBody {
 impl IntoResponse for ApiError {
     fn into_response(self) -> Response {
         let (status, code, message) = match self {
-            Self::BadInput => (StatusCode::BAD_REQUEST, "invalid_request", "Invalid request"),
-            Self::Forbidden => (StatusCode::FORBIDDEN, "forbidden", "Request origin is not allowed"),
+            Self::BadInput => (
+                StatusCode::BAD_REQUEST,
+                "invalid_request",
+                "Invalid request",
+            ),
+            Self::Forbidden => (
+                StatusCode::FORBIDDEN,
+                "forbidden",
+                "Request origin is not allowed",
+            ),
             Self::NotFound => (StatusCode::NOT_FOUND, "not_found", "Task not found"),
-            Self::Conflict => (StatusCode::CONFLICT, "revision_conflict", "Task revision is stale"),
-            Self::TooLarge => (StatusCode::PAYLOAD_TOO_LARGE, "too_large", "Request is too large"),
-            Self::UnsupportedMedia => (StatusCode::UNSUPPORTED_MEDIA_TYPE, "unsupported_media", "JSON is required"),
-            Self::MethodNotAllowed => (StatusCode::METHOD_NOT_ALLOWED, "method_not_allowed", "Method not allowed"),
-            Self::Unavailable => (StatusCode::SERVICE_UNAVAILABLE, "unavailable", "Service unavailable"),
-            Self::Internal => (StatusCode::INTERNAL_SERVER_ERROR, "internal_error", "Storage operation failed"),
+            Self::Conflict => (
+                StatusCode::CONFLICT,
+                "revision_conflict",
+                "Task revision is stale",
+            ),
+            Self::TooLarge => (
+                StatusCode::PAYLOAD_TOO_LARGE,
+                "too_large",
+                "Request is too large",
+            ),
+            Self::UnsupportedMedia => (
+                StatusCode::UNSUPPORTED_MEDIA_TYPE,
+                "unsupported_media",
+                "JSON is required",
+            ),
+            Self::MethodNotAllowed => (
+                StatusCode::METHOD_NOT_ALLOWED,
+                "method_not_allowed",
+                "Method not allowed",
+            ),
+            Self::Unavailable => (
+                StatusCode::SERVICE_UNAVAILABLE,
+                "unavailable",
+                "Service unavailable",
+            ),
+            Self::Internal => (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "internal_error",
+                "Storage operation failed",
+            ),
         };
-        (status, Json(ErrorBody { error: ErrorMessage { code, message } })).into_response()
+        (
+            status,
+            Json(ErrorBody {
+                error: ErrorMessage { code, message },
+            }),
+        )
+            .into_response()
     }
 }
 
@@ -70,8 +108,12 @@ impl From<TodoError> for ApiError {
 fn json<T>(result: Result<Json<T>, JsonRejection>) -> Result<T, ApiError> {
     match result {
         Ok(Json(value)) => Ok(value),
-        Err(rejection) if rejection.status() == StatusCode::PAYLOAD_TOO_LARGE => Err(ApiError::TooLarge),
-        Err(rejection) if rejection.status() == StatusCode::UNSUPPORTED_MEDIA_TYPE => Err(ApiError::UnsupportedMedia),
+        Err(rejection) if rejection.status() == StatusCode::PAYLOAD_TOO_LARGE => {
+            Err(ApiError::TooLarge)
+        }
+        Err(rejection) if rejection.status() == StatusCode::UNSUPPORTED_MEDIA_TYPE => {
+            Err(ApiError::UnsupportedMedia)
+        }
         Err(_) => Err(ApiError::BadInput),
     }
 }
@@ -121,7 +163,9 @@ pub(super) async fn list(
     if !(1..=32).contains(&limit) {
         return Err(ApiError::BadInput);
     }
-    let page = state.invoke(move |todo| todo.list_tasks_page(after, limit)).await?;
+    let page = state
+        .invoke(move |todo| todo.list_tasks_page(after, limit))
+        .await?;
     Ok(Json(TaskPage {
         records: page.records.into_iter().map(TaskView::from).collect(),
         next_cursor: page.next_cursor,
@@ -137,7 +181,9 @@ pub(super) async fn show(
     Path(id): Path<String>,
 ) -> Result<Json<TaskView>, ApiError> {
     let id = parse_id(&id)?;
-    let task = state.invoke(move |todo| todo.get_task(id).and_then(|x| x.ok_or(TodoError::NotFound))).await?;
+    let task = state
+        .invoke(move |todo| todo.get_task(id).and_then(|x| x.ok_or(TodoError::NotFound)))
+        .await?;
     Ok(Json(task.into()))
 }
 
@@ -152,7 +198,9 @@ pub(super) async fn create(
     input: Result<Json<CreateTask>, JsonRejection>,
 ) -> Result<(StatusCode, Json<TaskView>), ApiError> {
     let input = json(input)?;
-    let task = state.invoke(move |todo| todo.create_task(input.title)).await?;
+    let task = state
+        .invoke(move |todo| todo.create_task(input.title))
+        .await?;
     Ok((StatusCode::CREATED, Json(task.into())))
 }
 
@@ -173,8 +221,16 @@ pub(super) async fn patch(
     let input = json(input)?;
     let revision = input.revision;
     let task = match (input.title, input.completed) {
-        (Some(title), None) => state.invoke(move |todo| todo.edit_title(id, revision, title)).await?,
-        (None, Some(completed)) => state.invoke(move |todo| todo.set_completed(id, revision, completed)).await?,
+        (Some(title), None) => {
+            state
+                .invoke(move |todo| todo.edit_title(id, revision, title))
+                .await?
+        }
+        (None, Some(completed)) => {
+            state
+                .invoke(move |todo| todo.set_completed(id, revision, completed))
+                .await?
+        }
         _ => return Err(ApiError::BadInput),
     };
     Ok(Json(task.into()))
@@ -193,6 +249,8 @@ pub(super) async fn delete(
 ) -> Result<StatusCode, ApiError> {
     let id = parse_id(&id)?;
     let revision = json(input)?.revision;
-    state.invoke(move |todo| todo.delete_task(id, revision)).await?;
+    state
+        .invoke(move |todo| todo.delete_task(id, revision))
+        .await?;
     Ok(StatusCode::NO_CONTENT)
 }

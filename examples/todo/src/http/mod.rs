@@ -7,8 +7,8 @@ use riesel::{AsyncTasks, Records};
 use routes::ApiError;
 use std::io::{self, Write};
 use std::net::Ipv4Addr;
-use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicU64, Ordering};
 
 #[derive(Clone)]
 struct HttpState {
@@ -47,18 +47,23 @@ impl HttpState {
 }
 
 fn router(state: HttpState) -> axum::Router {
-    use axum::{extract::DefaultBodyLimit, middleware, routing::get, Router};
+    use axum::{Router, extract::DefaultBodyLimit, middleware, routing::get};
 
     Router::new()
         .route("/api/v1/tasks", get(routes::list).post(routes::create))
         .route(
             "/api/v1/tasks/{id}",
-            get(routes::show).patch(routes::patch).delete(routes::delete),
+            get(routes::show)
+                .patch(routes::patch)
+                .delete(routes::delete),
         )
         .fallback(|| async { ApiError::NotFound })
         .method_not_allowed_fallback(|| async { ApiError::MethodNotAllowed })
         .layer(DefaultBodyLimit::max(16 * 1024))
-        .layer(middleware::from_fn_with_state(state.clone(), security::gate))
+        .layer(middleware::from_fn_with_state(
+            state.clone(),
+            security::gate,
+        ))
         .with_state(state)
 }
 

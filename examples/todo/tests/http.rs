@@ -63,8 +63,12 @@ impl Server {
         media_type: Option<&str>,
     ) -> (u16, String) {
         let mut stream = TcpStream::connect(&self.authority).unwrap();
-        stream.set_read_timeout(Some(Duration::from_secs(8))).unwrap();
-        stream.set_write_timeout(Some(Duration::from_secs(8))).unwrap();
+        stream
+            .set_read_timeout(Some(Duration::from_secs(8)))
+            .unwrap();
+        stream
+            .set_write_timeout(Some(Duration::from_secs(8)))
+            .unwrap();
         let mut headers = String::new();
         if let Some(host) = host {
             headers.push_str(&format!("Host: {host}\r\n"));
@@ -88,7 +92,10 @@ impl Server {
         let text = String::from_utf8(response).unwrap();
         let (header, body) = text.split_once("\r\n\r\n").unwrap();
         let status = header.split_whitespace().nth(1).unwrap().parse().unwrap();
-        let payload = if header.to_ascii_lowercase().contains("transfer-encoding: chunked") {
+        let payload = if header
+            .to_ascii_lowercase()
+            .contains("transfer-encoding: chunked")
+        {
             let mut remaining = body;
             let mut chunks = String::new();
             loop {
@@ -139,7 +146,10 @@ fn local_http_crud_conflicts_paging_and_reopen() {
     let server = Server::start(&db);
     let (status, body) = server.get("/api/v1/tasks");
     assert_eq!(status, 200, "{body}");
-    assert_eq!(json!(serde_json::from_str::<Value>(&body).unwrap()["records"]), json!([]));
+    assert_eq!(
+        json!(serde_json::from_str::<Value>(&body).unwrap()["records"]),
+        json!([])
+    );
 
     let (status, body) = server.json("POST", "/api/v1/tasks", r#"{"title":"Alpha"}"#);
     assert_eq!(status, 201, "{body}");
@@ -155,15 +165,24 @@ fn local_http_crud_conflicts_paging_and_reopen() {
 
     let (status, body) = server.json("PATCH", &path, r#"{"revision":1,"completed":true}"#);
     assert_eq!(status, 409, "{body}");
-    assert_eq!(serde_json::from_str::<Value>(&body).unwrap()["error"]["code"], "revision_conflict");
+    assert_eq!(
+        serde_json::from_str::<Value>(&body).unwrap()["error"]["code"],
+        "revision_conflict"
+    );
 
     let (status, body) = server.json("PATCH", &path, r#"{"revision":2,"completed":true}"#);
     assert_eq!(status, 200, "{body}");
-    assert_eq!(serde_json::from_str::<Value>(&body).unwrap()["completed"], true);
+    assert_eq!(
+        serde_json::from_str::<Value>(&body).unwrap()["completed"],
+        true
+    );
 
     let (status, body) = server.get("/api/v1/tasks?limit=1");
     assert_eq!(status, 200, "{body}");
-    assert_eq!(serde_json::from_str::<Value>(&body).unwrap()["records"][0]["revision"], 3);
+    assert_eq!(
+        serde_json::from_str::<Value>(&body).unwrap()["records"][0]["revision"],
+        3
+    );
     assert_eq!(server.get("/api/v1/tasks?limit=0").0, 400);
     assert_eq!(server.get("/api/v1/tasks/not-a-uuid").0, 400);
     assert_eq!(server.get(&format!("/api/v1/tasks/{}", Uuid::nil())).0, 404);
@@ -172,7 +191,10 @@ fn local_http_crud_conflicts_paging_and_reopen() {
     let server = Server::start(&db);
     let (status, body) = server.get(&path);
     assert_eq!(status, 200, "{body}");
-    assert_eq!(serde_json::from_str::<Value>(&body).unwrap()["title"], "Beta");
+    assert_eq!(
+        serde_json::from_str::<Value>(&body).unwrap()["title"],
+        "Beta"
+    );
     assert_eq!(server.json("DELETE", &path, r#"{"revision":1}"#).0, 409);
     assert_eq!(server.json("DELETE", &path, r#"{"revision":3}"#).0, 204);
     assert_eq!(server.get(&path).0, 404);
@@ -206,24 +228,65 @@ fn security_guards_precede_mutations_and_invalid_requests_fail_closed() {
     );
     assert_eq!(foreign_post.0, 403);
     assert_eq!(
-        server.request("POST", "/api/v1/tasks", r#"{"title":"forged"}"#, Some(&server.authority), None, None, Some("application/json")).0,
+        server
+            .request(
+                "POST",
+                "/api/v1/tasks",
+                r#"{"title":"forged"}"#,
+                Some(&server.authority),
+                None,
+                None,
+                Some("application/json")
+            )
+            .0,
         403
     );
     assert_eq!(
-        server.request("POST", "/api/v1/tasks", r#"{"title":"forged"}"#, Some(&server.authority), Some(&valid_origin), Some("cross-site"), Some("application/json")).0,
+        server
+            .request(
+                "POST",
+                "/api/v1/tasks",
+                r#"{"title":"forged"}"#,
+                Some(&server.authority),
+                Some(&valid_origin),
+                Some("cross-site"),
+                Some("application/json")
+            )
+            .0,
         403
     );
     assert_eq!(
-        server.request("POST", "/api/v1/tasks", r#"{"title":"forged"}"#, Some(&server.authority), Some(&valid_origin), None, Some("text/plain")).0,
+        server
+            .request(
+                "POST",
+                "/api/v1/tasks",
+                r#"{"title":"forged"}"#,
+                Some(&server.authority),
+                Some(&valid_origin),
+                None,
+                Some("text/plain")
+            )
+            .0,
         415
     );
     assert_eq!(server.json("POST", "/api/v1/tasks", "invalid json").0, 400);
-    assert_eq!(server.json("POST", "/api/v1/tasks", r#"{"title":" "}"#).0, 400);
-    assert_eq!(server.json("POST", "/api/v1/tasks", r#"{"title":"valid","unknown":1}"#).0, 400);
+    assert_eq!(
+        server.json("POST", "/api/v1/tasks", r#"{"title":" "}"#).0,
+        400
+    );
+    assert_eq!(
+        server
+            .json("POST", "/api/v1/tasks", r#"{"title":"valid","unknown":1}"#)
+            .0,
+        400
+    );
     let large = format!(r#"{{"title":"{}"}}"#, "x".repeat(20 * 1024));
     assert_eq!(server.json("POST", "/api/v1/tasks", &large).0, 413);
     let (_status, body) = server.get("/api/v1/tasks");
-    assert_eq!(serde_json::from_str::<Value>(&body).unwrap()["records"], json!([]));
+    assert_eq!(
+        serde_json::from_str::<Value>(&body).unwrap()["records"],
+        json!([])
+    );
 }
 
 #[cfg(unix)]
@@ -233,12 +296,14 @@ fn ctrl_c_shuts_down_independent_backend_without_killing_browser_state() {
     let db = dir.path().join("tasks.db");
     let mut server = Server::start(&db);
     assert_eq!(server.get("/api/v1/tasks").0, 200);
-    assert!(Command::new("kill")
-        .arg("-INT")
-        .arg(server.child.id().to_string())
-        .status()
-        .unwrap()
-        .success());
+    assert!(
+        Command::new("kill")
+            .arg("-INT")
+            .arg(server.child.id().to_string())
+            .status()
+            .unwrap()
+            .success()
+    );
     let end = Instant::now() + Duration::from_secs(10);
     let status = loop {
         if let Some(status) = server.child.try_wait().unwrap() {

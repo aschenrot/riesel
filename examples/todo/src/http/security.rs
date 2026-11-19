@@ -1,17 +1,13 @@
 //! Reject cross-origin browser access and DNS rebinding before routing.
-use super::{routes::ApiError, HttpState};
+use super::{HttpState, routes::ApiError};
 use axum::{
     extract::{Request, State},
-    http::{header, Method},
+    http::{Method, header},
     middleware::Next,
     response::{IntoResponse, Response},
 };
 
-pub(super) async fn gate(
-    State(state): State<HttpState>,
-    request: Request,
-    next: Next,
-) -> Response {
+pub(super) async fn gate(State(state): State<HttpState>, request: Request, next: Next) -> Response {
     let headers = request.headers();
     let host = headers.get(header::HOST).and_then(|v| v.to_str().ok());
     if host != Some(state.authority.as_ref()) {
