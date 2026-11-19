@@ -1,6 +1,6 @@
 # Riesel — Async Execution Contract (Stage 5.4)
 
-Status: native async contracts, multiplexed hosting and managed-host protocol verified on Linux, 2026-11-19.
+Status: native async contracts, managed-host lifecycle and generated local/managed component parity verified on Linux, 2026-11-19.
 This defines the next engineering gates for the accepted
 [high-level application authoring API](api-authoring-v3.md).
 The user-facing mental model stays **app uses capabilities, components
@@ -79,6 +79,34 @@ mandatory ECS, transport object or executor type in the default authoring API.
   adapters, and application-managed native async provider lifecycles require
   additional work.
 
+## Generated native async component parity now verified
+
+- A single `#[component(provides = [...])]` declaration supports generated
+  synchronous and native asynchronous capability bindings. The generated
+  `ComponentAdapter` metadata includes the local binding mode; runtime
+  preflight rejects incompatible selection before constructing any provider.
+- Native async contracts now generate a typed `<Trait>Handle` façade.
+  `AsyncRpcClientBinding::Service` uses this exact handle in both modes.
+  The local variant delegates directly to the generated revocable async
+  service view without in-memory JSON encoding; the remote variant uses the
+  existing nonblocking `<Trait>AsyncClient` and Tokio transport.
+- `ComponentDefinition` owns and shares one Arc-backed component instance
+  across its declared interfaces. For native async-only components,
+  `serve()` dispatches through the generated `AsyncRpcRouter` and
+  `run_async_tcp_rpc_host`, using the existing managed readiness, shutdown,
+  provider resolver and process monitor. Mixed sync/async single-listener
+  hosting is explicitly rejected before invoking the state factory.
+- Real native async Counter and Observer implementations run unchanged from
+  one typed async application handler in linked and manager-owned modes.
+  Integration tests cover shared state, commands, queries, domain failures,
+  and rejection of cloned handles after shutdown. Existing synchronous
+  Counter/Storage behavior remains validated by workspace regression tests.
+  Linux evidence:
+  https://github.com/aschenrot/riesel/actions/runs/44439704442
+- Native async provider crash/recovery and structured background tasks need
+  dedicated application-level regression tests. Async startup inspection
+  still uses bounded synchronous I/O; this is an explicit limitation.
+
 ## Typed async application execution now verified
 
 - The existing supervisor now invalidates the same `SessionToken` carried
@@ -111,20 +139,17 @@ mandatory ECS, transport object or executor type in the default authoring API.
 
 ### 1. Component registration and supervised runtime parity
 
-The current `#[component]` and `ComponentDefinition` APIs still expect
-synchronous `RpcClientBinding` / `ComponentAdapter` interfaces.
-Generate native async component bindings from the **same** component
-declaration and provider-owned state, with typed local and managed adapters.
-The Tokio async host now advertises the managed-service readiness protocol
-and responds to cooperative private-stdin shutdown. However, this protocol
-bridge is not yet connected to generated native async component registrations
-or fully exercised through the manager-owned application lifecycle and
-recovery policy. Do not create a parallel runtime or silently call
-synchronous providers inside async futures.
+**Implemented and tested on Linux:** `#[component]` now derives local and
+managed native async bindings from the same declaration and state factory.
+Native async-only components use the Tokio host within the existing managed
+service lifecycle, including readiness, private-stdin shutdown and provider
+selection. The same typed application handler runs against both modes.
+Mixed-mode hosting is rejected rather than blocking a Tokio worker.
 
-Tests must call the same native async capability locally and through a
-manager-owned process without application-level transport wiring. Blocking
-implementation code needs an explicit blocking boundary.
+**Remaining:** explicit native async provider crash/recovery tests through the
+application monitor, and an explicit blocking-work boundary for native async
+implementation code. No independent service runtime or transparent replay of
+commands may be introduced.
 
 ### 2. Session ownership, background tasks and execution policy
 
@@ -163,18 +188,18 @@ not change that security posture.
 
 ## Stage 5.4 completion gates
 
-1. Native async capability definitions and standalone local/Tokio adapters
-   compile and run without hand-written dispatch or an async-trait macro
-   (**implemented**); generated component registrations and supervised
-   managed bindings remain.
-2. Genuine nonblocking calls and bounded provider execution work for
-   standalone local and Tokio host scenarios (**implemented**); supervised
-   local/managed parity remains.
+1. Native async capability definitions and generated component registrations
+   are **implemented and tested** locally and in manager-owned child processes,
+   without handwritten dispatchers or an async-trait macro.
+2. Genuine nonblocking remote calls, bounded Tokio request admission and
+   direct native async local invocation are **implemented and tested**.
+   One generated typed handle works in local and managed modes.
 3. Session invalidation on managed-child failure and prompt async RPC /
-   entrypoint cancellation are **implemented and tested**. Bounded
-   runtime-owned asynchronous background tasks and manager-owned native
-   async component lifecycle are **not yet implemented**. The async host's
-   readiness/shutdown protocol and shared-state subprocess test are verified.
+   entrypoint cancellation are **implemented and tested** independently.
+   Native async provider crash/recovery regression coverage and bounded
+   runtime-owned asynchronous background task groups remain. The manager-owned
+   native async host's readiness, shared state and cooperative shutdown
+   are **verified**.
 4. Domain/transport/cancellation/session errors remain distinguishable;
    no automatic command retry, even after timeout.
 5. Generated async bindings derive the same validated contract and provider
