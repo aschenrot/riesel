@@ -386,6 +386,94 @@ mod tests {
     }
 
     #[test]
+    fn blocking_work_is_bounded_and_does_not_stall_the_async_executor() {
+        executor().block_on(async {
+            let group = AsyncTasks::new(SessionToken::new(), CancellationToken::default());
+            group.begin_scope().unwrap();
+            let completed = Arc::new(AtomicBool::new(false));
+            let success = Arc::clone(&completed);
+            group
+                .spawn_blocking("bounded-io", move |cancellation| {
+                    assert!(!cancellation.is_cancelled());
+                    std::thread::sleep(Duration::from_millis(90));
+                    success.store(true, Ordering::Release);
+                    Ok(())
+                })
+                .unwrap();
+            // The current-thread executor must make progress while the OS
+            // worker is sleeping; blocking work must not run inline.
+            tokio::time::timeout(
+                Duration::from_millis(40),
+                tokio::time::sleep(Duration::from_millis(10)),
+            )
+            .await
+            .unwrap();
+            tokio::time::timeout(Duration::from_secs(1), async {
+                while !completed.load(Ordering::Acquire) {
+                    tokio::task::yield_now().await;
+                }
+            })
+            .await
+            .unwrap();
+            group.finish_scope().await.unwrap();
+        });
+    }
+
+    #[test]
+    fn blocking_budget_and_cancellation_join_all_workers() {
+        executor().block_on(async {
+            let group = AsyncTasks::new(SessionToken::new(), CancellationToken::default());
+            group.begin_scope().unwrap();
+            let completed = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+            for index in 0..MAX_BLOCKING_TASKS {
+                let flag = Arc::clone(&completed);
+                group
+                    .spawn_blocking(format!("thread-{index}"), move |cancel| {
+                        assert!(cancel.wait_cancelled_timeout(Duration::from_secs(5)));
+                        flag.fetch_add(1, Ordering::AcqRel);
+                        Ok(())
+                    })
+                    .unwrap();
+            }
+            assert!(matches!(
+                group.spawn_blocking("ninth", |_| Ok(())),
+                Err(RuntimeError::TaskLimitExceeded {
+                    limit: MAX_BLOCKING_TASKS
+                })
+            ));
+            group.finish_scope().await.unwrap();
+            assert_eq!(completed.load(Ordering::Acquire), MAX_BLOCKING_TASKS);
+            assert!(matches!(
+                group.spawn_blocking("late", |_| Ok(())),
+                Err(RuntimeError::TaskGroupClosed)
+            ));
+        });
+    }
+
+    #[test]
+    fn failed_blocking_worker_is_a_named_application_task_failure() {
+        executor().block_on(async {
+            let session = SessionToken::new();
+            let group = AsyncTasks::new(session.clone(), CancellationToken::default());
+            group.begin_scope().unwrap();
+            group
+                .spawn_blocking("blocking-failure", |_| {
+                    Err(io::Error::other("blocking work failed").into())
+                })
+                .unwrap();
+            tokio::time::timeout(Duration::from_secs(1), session.cancelled())
+                .await
+                .unwrap();
+            assert!(matches!(
+                group.finish_scope().await,
+                Err(RuntimeError::TaskFailed { name, source })
+                    if name == "blocking-failure" &&
+                        source.to_string().contains("blocking work failed")
+            ));
+        });
+    }
+
+    #[test]
     fn bounded_admission_and_panic_reporting() {
         executor().block_on(async {
             let session = SessionToken::new();
