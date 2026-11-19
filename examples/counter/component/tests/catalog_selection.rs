@@ -6,9 +6,7 @@ use riesel::{
     SdkError, ServiceEndpoint,
 };
 use riesel_app::{LocalProviderFactory, PlannedTarget};
-use riesel_counter::{
-    AsyncCounterContract, AsyncCounterObserverContract, CounterError,
-};
+use riesel_counter::{AsyncCounterContract, AsyncCounterObserverContract, CounterError};
 use riesel_counter_component::{
     AsyncMemoryCounter, BlockingAsyncCounter, memory_async_counter_provider,
 };
@@ -22,7 +20,10 @@ use std::thread;
 use std::time::{Duration, Instant};
 
 fn published() -> ProviderDefinition {
-    memory_async_counter_provider().unwrap().definition().unwrap()
+    memory_async_counter_provider()
+        .unwrap()
+        .definition()
+        .unwrap()
 }
 
 fn managed(program: impl Into<std::path::PathBuf>) -> ServiceEndpoint {
@@ -40,17 +41,16 @@ fn run_counter_catalog(
     chosen: Option<&str>,
     with_linked: bool,
 ) -> riesel::Result<()> {
-    let app = Application::new("CounterCatalog")
-        .async_handler_with_aliases(
-            |counter: AsyncCapability<AsyncCounterContract>,
-             observer: AsyncCapability<AsyncCounterObserverContract>| async move {
-                assert_eq!(counter.value().await?, 0);
-                assert_eq!(counter.add(5).await?, 5);
-                assert_eq!(observer.observe().await?, 5);
-                Ok::<_, CallError<CounterError>>(())
-            },
-            ["counter", "observer"],
-        )?;
+    let app = Application::new("CounterCatalog").async_handler_with_aliases(
+        |counter: AsyncCapability<AsyncCounterContract>,
+         observer: AsyncCapability<AsyncCounterObserverContract>| async move {
+            assert_eq!(counter.value().await?, 0);
+            assert_eq!(counter.add(5).await?, 5);
+            assert_eq!(observer.observe().await?, 5);
+            Ok::<_, CallError<CounterError>>(())
+        },
+        ["counter", "observer"],
+    )?;
     let app = if with_linked {
         app.component::<AsyncMemoryCounter>()?
     } else {
@@ -76,16 +76,18 @@ fn run_counter_catalog(
             }));
         }
         Some("external") => {
-            assert!(plan
-                .services
-                .iter()
-                .all(|service| matches!(service.target, PlannedTarget::Tcp { .. })));
+            assert!(
+                plan.services
+                    .iter()
+                    .all(|service| matches!(service.target, PlannedTarget::Tcp { .. }))
+            );
         }
         None => {
-            assert!(plan
-                .services
-                .iter()
-                .all(|service| matches!(service.target, PlannedTarget::Local { .. })));
+            assert!(
+                plan.services
+                    .iter()
+                    .all(|service| matches!(service.target, PlannedTarget::Local { .. }))
+            );
         }
         _ => {}
     }

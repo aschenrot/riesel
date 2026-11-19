@@ -287,6 +287,48 @@ mod tests {
     }
 
     #[test]
+    fn rejects_public_unauthenticated_tcp_and_invalid_provider_pins() {
+        let public = DeploymentConfig::from_json(
+            r#"{"services":{"storage":{"transport":"tcp","address":"192.0.2.1:47911"}}}"#,
+        )
+        .unwrap();
+        assert!(matches!(
+            public.validate(&app()),
+            Err(DeploymentError::InvalidEndpoint { .. })
+        ));
+
+        let mut config = DeploymentConfig::new(BTreeMap::from([(
+            "storage".into(),
+            ServiceEndpoint::Tcp {
+                address: "127.0.0.1:47911".parse().unwrap(),
+            },
+        )]));
+        let pin = ProviderDefinition {
+            id: "riesel.storage.memory".into(),
+            capabilities: vec![riesel_schema::CapabilityRef {
+                id: "riesel.storage.records".into(),
+                version: 1,
+            }],
+        };
+        config
+            .expected_providers
+            .insert("storage".into(), pin.clone());
+        config.validate(&app()).unwrap();
+
+        config.expected_providers.get_mut("storage").unwrap().capabilities[0].version = 2;
+        assert!(matches!(
+            config.validate(&app()),
+            Err(DeploymentError::IncompatibleProviderPin(_))
+        ));
+        config.expected_providers.clear();
+        config.expected_providers.insert("unknown".into(), pin);
+        assert!(matches!(
+            config.validate(&app()),
+            Err(DeploymentError::UnknownProviderPin(_))
+        ));
+    }
+
+    #[test]
     fn parses_valid_tcp_binding() {
         let deployment = DeploymentConfig::from_json(
             r#"{"services":{"storage":{"transport":"tcp","address":"127.0.0.1:47911"}}}"#,
