@@ -30,6 +30,12 @@ impl RunningApp {
         self.tasks.failure().map_or(Ok(()), Err)
     }
 
+    /// The revocable session identity shared by every capability handle.
+    /// Managed-child failure and shutdown invalidate all of its clones.
+    pub fn session_token(&self) -> SessionToken {
+        self.session.clone()
+    }
+
     /// Start an application-owned task. The task receives cooperative
     /// cancellation and is always joined before providers are stopped.
     /// Task errors and panics cancel the session and remain observable.

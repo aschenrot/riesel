@@ -9,6 +9,8 @@ use riesel_schema::AppSchema;
 use std::future::Future;
 use std::marker::PhantomData;
 use std::pin::Pin;
+use std::task::Poll;
+use riesel_protocol::{RpcError, SessionToken};
 
 /// Run a typed async Rust function with owned per-session dependencies.
 pub trait AsyncApplicationHandler<Args> {
@@ -148,10 +150,7 @@ where
             ..
         } = self;
         application.run(move |context| {
-            let executor = tokio::runtime::Builder::new_current_thread()
-                .enable_all()
-                .build()?;
-            executor.block_on(handler.invoke(context, &aliases))
+            run_scoped(context.session_token(), handler.invoke(context, &aliases))
         })
     }
 
@@ -163,10 +162,75 @@ where
             ..
         } = self;
         application.run_from_env(move |context| {
-            let executor = tokio::runtime::Builder::new_current_thread()
-                .enable_all()
-                .build()?;
-            executor.block_on(handler.invoke(context, &aliases))
+            run_scoped(context.session_token(), handler.invoke(context, &aliases))
         })
+    }
+}
+
+/// Every async entrypoint runs under the active application session.
+/// A managed crash revokes the token and drops the pending entrypoint
+/// immediately, even when it is waiting on unrelated async work.
+fn run_scoped<F>(
+    session: SessionToken,
+    future: F,
+) -> std::result::Result<(), ConnectorError>
+where
+    F: Future<Output = std::result::Result<(), ConnectorError>>,
+{
+    let executor = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()?;
+    executor.block_on(async {
+        let expiry = session.cancelled();
+        let mut expiry = std::pin::pin!(expiry);
+        let mut future = std::pin::pin!(future);
+        std::future::poll_fn(|cx| {
+            if expiry.as_mut().poll(cx).is_ready() {
+                return Poll::Ready(Err(Box::new(RpcError::SessionExpired) as ConnectorError));
+            }
+            match future.as_mut().poll(cx) {
+                Poll::Ready(result) => {
+                    if let Err(error) = session.check() {
+                        Poll::Ready(Err(Box::new(error) as ConnectorError))
+                    } else {
+                        Poll::Ready(result)
+                    }
+                }
+                Poll::Pending => Poll::Pending,
+            }
+        })
+        .await
+    })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::time::Duration;
+
+    #[test]
+    fn session_crash_interrupts_pending_async_handler() {
+        let session = SessionToken::new();
+        let revoked = session.clone();
+        let worker = std::thread::spawn(move || {
+            std::thread::sleep(Duration::from_millis(25));
+            revoked.invalidate();
+        });
+        let error = run_scoped(
+            session,
+            std::future::pending::<std::result::Result<(), ConnectorError>>(),
+        )
+        .unwrap_err();
+        assert!(
+            matches!(error.downcast_ref::<RpcError>(), Some(RpcError::SessionExpired)),
+            "session expiry should remain a typed RPC failure"
+        );
+        worker.join().unwrap();
+    }
+
+    #[test]
+    fn completed_async_handler_returns_before_session_shutdown() {
+        let session = SessionToken::new();
+        run_scoped(session, async { Ok(()) }).unwrap();
     }
 }

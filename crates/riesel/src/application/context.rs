@@ -13,6 +13,11 @@ impl Context<'_> {
         self.running.cancellation_token()
     }
 
+    #[cfg(feature = "async-tcp")]
+    pub(crate) fn session_token(&self) -> riesel_protocol::SessionToken {
+        self.running.session_token()
+    }
+
     /// Start work owned by this application. On service failure or shutdown
     /// the task's cancellation token is signalled; all tasks must finish
     /// before managed providers can be torn down or restarted.
