@@ -121,7 +121,7 @@ fn json<T>(result: Result<Json<T>, JsonRejection>) -> Result<T, ApiError> {
 #[derive(Serialize)]
 pub(super) struct TaskView {
     id: Uuid,
-    revision: u64,
+    revision: String,
     title: String,
     completed: bool,
 }
@@ -130,7 +130,7 @@ impl From<Task> for TaskView {
     fn from(task: Task) -> Self {
         Self {
             id: task.id,
-            revision: task.revision,
+            revision: task.revision.to_string(),
             title: task.value.title,
             completed: task.value.completed,
         }
@@ -176,6 +176,14 @@ fn parse_id(text: &str) -> Result<Uuid, ApiError> {
     Uuid::parse_str(text).map_err(|_| ApiError::BadInput)
 }
 
+/// Decimal strings preserve the full u64 revision domain in JavaScript.
+fn parse_revision(text: &str) -> Result<u64, ApiError> {
+    if text.is_empty() || !text.bytes().all(|byte| byte.is_ascii_digit()) {
+        return Err(ApiError::BadInput);
+    }
+    text.parse::<u64>().map_err(|_| ApiError::BadInput)
+}
+
 pub(super) async fn show(
     State(state): State<HttpState>,
     Path(id): Path<String>,
@@ -207,7 +215,7 @@ pub(super) async fn create(
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 pub(super) struct PatchTask {
-    revision: u64,
+    revision: String,
     title: Option<String>,
     completed: Option<bool>,
 }
@@ -219,7 +227,7 @@ pub(super) async fn patch(
 ) -> Result<Json<TaskView>, ApiError> {
     let id = parse_id(&id)?;
     let input = json(input)?;
-    let revision = input.revision;
+    let revision = parse_revision(&input.revision)?;
     let task = match (input.title, input.completed) {
         (Some(title), None) => {
             state
@@ -239,7 +247,7 @@ pub(super) async fn patch(
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 pub(super) struct DeleteTask {
-    revision: u64,
+    revision: String,
 }
 
 pub(super) async fn delete(
@@ -248,7 +256,7 @@ pub(super) async fn delete(
     input: Result<Json<DeleteTask>, JsonRejection>,
 ) -> Result<StatusCode, ApiError> {
     let id = parse_id(&id)?;
-    let revision = json(input)?.revision;
+    let revision = parse_revision(&json(input)?.revision)?;
     state
         .invoke(move |todo| todo.delete_task(id, revision))
         .await?;

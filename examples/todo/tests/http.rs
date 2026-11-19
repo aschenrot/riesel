@@ -155,22 +155,22 @@ fn local_http_crud_conflicts_paging_and_reopen() {
     assert_eq!(status, 201, "{body}");
     let created: Value = serde_json::from_str(&body).unwrap();
     let id = Uuid::parse_str(created["id"].as_str().unwrap()).unwrap();
-    assert_eq!(created["revision"], 1);
+    assert_eq!(created["revision"], "1");
     assert_eq!(created["completed"], false);
     let path = format!("/api/v1/tasks/{id}");
 
-    let (status, body) = server.json("PATCH", &path, r#"{"revision":1,"title":"Beta"}"#);
+    let (status, body) = server.json("PATCH", &path, r#"{"revision":"1","title":"Beta"}"#);
     assert_eq!(status, 200, "{body}");
-    assert_eq!(serde_json::from_str::<Value>(&body).unwrap()["revision"], 2);
+    assert_eq!(serde_json::from_str::<Value>(&body).unwrap()["revision"], "2");
 
-    let (status, body) = server.json("PATCH", &path, r#"{"revision":1,"completed":true}"#);
+    let (status, body) = server.json("PATCH", &path, r#"{"revision":"1","completed":true}"#);
     assert_eq!(status, 409, "{body}");
     assert_eq!(
         serde_json::from_str::<Value>(&body).unwrap()["error"]["code"],
         "revision_conflict"
     );
 
-    let (status, body) = server.json("PATCH", &path, r#"{"revision":2,"completed":true}"#);
+    let (status, body) = server.json("PATCH", &path, r#"{"revision":"2","completed":true}"#);
     assert_eq!(status, 200, "{body}");
     assert_eq!(
         serde_json::from_str::<Value>(&body).unwrap()["completed"],
@@ -181,7 +181,7 @@ fn local_http_crud_conflicts_paging_and_reopen() {
     assert_eq!(status, 200, "{body}");
     assert_eq!(
         serde_json::from_str::<Value>(&body).unwrap()["records"][0]["revision"],
-        3
+        "3"
     );
     assert_eq!(server.get("/api/v1/tasks?limit=0").0, 400);
     assert_eq!(server.get("/api/v1/tasks/not-a-uuid").0, 400);
@@ -195,8 +195,8 @@ fn local_http_crud_conflicts_paging_and_reopen() {
         serde_json::from_str::<Value>(&body).unwrap()["title"],
         "Beta"
     );
-    assert_eq!(server.json("DELETE", &path, r#"{"revision":1}"#).0, 409);
-    assert_eq!(server.json("DELETE", &path, r#"{"revision":3}"#).0, 204);
+    assert_eq!(server.json("DELETE", &path, r#"{"revision":"1"}"#).0, 409);
+    assert_eq!(server.json("DELETE", &path, r#"{"revision":"3"}"#).0, 204);
     assert_eq!(server.get(&path).0, 404);
 }
 
@@ -282,6 +282,8 @@ fn security_guards_precede_mutations_and_invalid_requests_fail_closed() {
     );
     let large = format!(r#"{{"title":"{}"}}"#, "x".repeat(20 * 1024));
     assert_eq!(server.json("POST", "/api/v1/tasks", &large).0, 413);
+    assert_eq!(server.json("PATCH", &path, r#"{"revision":1,"completed":true}"#).0, 400);
+    assert_eq!(server.json("PATCH", &path, r#"{"revision":"18446744073709551616","completed":true}"#).0, 400);
     let (_status, body) = server.get("/api/v1/tasks");
     assert_eq!(
         serde_json::from_str::<Value>(&body).unwrap()["records"],

@@ -11,7 +11,7 @@ The optional Rust backend implements the accepted [local browser contract](../..
 cargo run --locked -p todo --features http --bin todo_http -- --db ./tasks.db --port 0
 ```
 
-The process prints `TODO_HTTP_READY 127.0.0.1:PORT` once the database and listener are ready. It serves `/api/v1/tasks` with JSON operations. The backend survives browser disconnects. Ctrl-C requests graceful shutdown; abrupt runtime revocation does not guarantee HTTP responses have completed.
+The process prints `TODO_HTTP_READY 127.0.0.1:PORT` once the database and listener are ready. It serves `/api/v1/tasks` with JSON operations; `revision` fields are decimal strings in requests and responses to preserve all `u64` revisions in browser clients. The backend survives browser disconnects. Ctrl-C requests graceful shutdown; abrupt runtime revocation does not guarantee HTTP responses have completed.
 
 This first adapter is **loopback-only**, not a remote service or authenticated multi-user server. Every request must use the numeric loopback `Host` matching the announced port. POST, PATCH and DELETE additionally require `Origin: http://127.0.0.1:PORT` and JSON content type. Requests from foreign web origins, nonlocal Hosts and oversized bodies are rejected; `Access-Control-Allow-Origin` is not enabled. Host/Origin checks protect the stated browser threat boundary, not against arbitrary local OS clients able to forge request headers.
 
