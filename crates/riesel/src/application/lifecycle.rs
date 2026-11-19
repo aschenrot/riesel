@@ -7,8 +7,7 @@ use std::future::Future;
 use std::marker::PhantomData;
 use std::pin::Pin;
 
-type HookFuture<'a> =
-    Pin<Box<dyn Future<Output = std::result::Result<(), ConnectorError>> + 'a>>;
+type HookFuture<'a> = Pin<Box<dyn Future<Output = std::result::Result<(), ConnectorError>> + 'a>>;
 
 trait HookHandler {
     fn invoke<'a>(&'a mut self, context: &'a Context<'_>) -> HookFuture<'a>;
@@ -61,7 +60,9 @@ impl LifecycleHooks {
     {
         if name.is_empty()
             || name.len() > 128
-            || !name.chars().all(|ch| ch.is_ascii_alphanumeric() || ch == '_' || ch == '-')
+            || !name
+                .chars()
+                .all(|ch| ch.is_ascii_alphanumeric() || ch == '_' || ch == '-')
         {
             return Err(SdkError::InvalidLifecycleHookName(name));
         }
@@ -204,9 +205,12 @@ impl Application {
     {
         let aliases: Vec<String> = aliases.into_iter().map(Into::into).collect();
         let mut application = Args::declare(self, &aliases)?;
-        application
-            .lifecycle
-            .register::<Args, H>(HookPhase::Start, name.into(), aliases, handler)?;
+        application.lifecycle.register::<Args, H>(
+            HookPhase::Start,
+            name.into(),
+            aliases,
+            handler,
+        )?;
         Ok(application)
     }
 
@@ -235,9 +239,12 @@ impl Application {
     {
         let aliases: Vec<String> = aliases.into_iter().map(Into::into).collect();
         let mut application = Args::declare(self, &aliases)?;
-        application
-            .lifecycle
-            .register::<Args, H>(HookPhase::Stop, name.into(), aliases, handler)?;
+        application.lifecycle.register::<Args, H>(
+            HookPhase::Stop,
+            name.into(),
+            aliases,
+            handler,
+        )?;
         Ok(application)
     }
 }

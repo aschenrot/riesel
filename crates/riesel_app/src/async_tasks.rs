@@ -7,8 +7,8 @@ use crate::runtime::{ConnectorError, RuntimeError};
 use crate::supervisor::CancellationToken;
 use riesel_protocol::SessionToken;
 use std::future::Future;
-use std::sync::atomic::{AtomicBool, Ordering};
 use std::io;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 use tokio::sync::{Notify, Semaphore};
 use tokio::task::JoinHandle;
@@ -91,9 +91,7 @@ impl AsyncTasks {
                 if let Poll::Ready(result) = work.as_mut().poll(cx) {
                     return Poll::Ready(Some(result));
                 }
-                if expiry.as_mut().poll(cx).is_ready()
-                    || shutdown.as_mut().poll(cx).is_ready()
-                {
+                if expiry.as_mut().poll(cx).is_ready() || shutdown.as_mut().poll(cx).is_ready() {
                     return Poll::Ready(None);
                 }
                 Poll::Pending

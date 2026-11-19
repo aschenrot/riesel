@@ -23,8 +23,8 @@ pub use riesel_protocol::{ProviderBlocking, ProviderBlockingError, ProviderCance
 
 pub use runtime::{
     AppRunError, CapabilityConnector, ConnectedProvider, ConnectorError, ConnectorRegistry,
-    LocalCapabilityBinding, LocalComponentFactory, LocalProviderFactory, LocalProviderInstance,
-    HookFailure, HookPhase, LifecycleFailure, RunningApp, RuntimeError, SingleLocalProvider,
+    HookFailure, HookPhase, LifecycleFailure, LocalCapabilityBinding, LocalComponentFactory,
+    LocalProviderFactory, LocalProviderInstance, RunningApp, RuntimeError, SingleLocalProvider,
     local_provider,
 };
 
