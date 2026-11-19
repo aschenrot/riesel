@@ -311,6 +311,37 @@ mod tests {
     }
 
     #[test]
+    fn cloned_spawner_uses_its_owner_executor_across_threads() {
+        executor().block_on(async {
+            let group = AsyncTasks::new(SessionToken::new(), CancellationToken::default());
+            group.begin_scope().unwrap();
+            let observed = Arc::new(AtomicBool::new(false));
+            let observed_by_worker = Arc::clone(&observed);
+            let spawner = group.clone();
+            std::thread::spawn(move || {
+                // The calling thread has no Tokio runtime. Work must still
+                // enter the executor captured when the session began.
+                spawner
+                    .spawn("cross-thread", async move {
+                        observed_by_worker.store(true, Ordering::Release);
+                        Ok(())
+                    })
+                    .unwrap();
+            })
+            .join()
+            .unwrap();
+            tokio::time::timeout(Duration::from_secs(1), async {
+                while !observed.load(Ordering::Acquire) {
+                    tokio::task::yield_now().await;
+                }
+            })
+            .await
+            .unwrap();
+            group.finish_scope().await.unwrap();
+        });
+    }
+
+    #[test]
     fn bounded_admission_and_panic_reporting() {
         executor().block_on(async {
             let session = SessionToken::new();
