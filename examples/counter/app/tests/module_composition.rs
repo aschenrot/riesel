@@ -1,7 +1,5 @@
 #![cfg(feature = "async-tcp")]
-use riesel::{
-    Application, ApplicationModule, AsyncCapability, RuntimeError, SdkError,
-};
+use riesel::{Application, ApplicationModule, AsyncCapability, RuntimeError, SdkError};
 use riesel_counter::{AsyncCounterContract, AsyncCounterObserverContract, CounterError};
 use riesel_counter_component::AsyncMemoryCounter;
 use riesel_protocol::CallError;
@@ -50,15 +48,17 @@ fn modules_use_one_dependency_graph_independent_of_registration_order() {
     assert_eq!(ordered, ["counter", "observer"]);
 
     // The one existing resolver preflights the module-provided component.
-    let prepared = app.async_handler_with_aliases(
-        |counter: AsyncCapability<AsyncCounterContract>,
-         observer: AsyncCapability<AsyncCounterObserverContract>| async move {
-            assert_eq!(counter.add(4).await?, 4);
-            assert_eq!(observer.observe().await?, 4);
-            Ok::<(), CallError<CounterError>>(())
-        },
-        ["counter", "observer"],
-    ).unwrap();
+    let prepared = app
+        .async_handler_with_aliases(
+            |counter: AsyncCapability<AsyncCounterContract>,
+             observer: AsyncCapability<AsyncCounterObserverContract>| async move {
+                assert_eq!(counter.add(4).await?, 4);
+                assert_eq!(observer.observe().await?, 4);
+                Ok::<(), CallError<CounterError>>(())
+            },
+            ["counter", "observer"],
+        )
+        .unwrap();
     prepared.run().unwrap();
 }
 
@@ -90,7 +90,10 @@ fn generated_application_can_compose_modules_without_another_runtime() {
         String::from_utf8_lossy(&result.stderr)
     );
     assert!(String::from_utf8_lossy(&result.stdout).contains("Module counter: 5"));
-    let output = Command::new(bin).arg("--print-definition").output().unwrap();
+    let output = Command::new(bin)
+        .arg("--print-definition")
+        .output()
+        .unwrap();
     assert!(output.status.success());
     let schema: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
     assert_eq!(schema["requires"].as_array().unwrap().len(), 2);
