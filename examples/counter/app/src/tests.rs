@@ -398,19 +398,16 @@ fn typed_async_handler_uses_existing_remote_provider_resolver_and_session() {
     ))
     .unwrap();
     Application::new("TypedAsyncCounter")
-        .handler_with_aliases(
-            move |counter: AsyncCapability<CounterContract>| -> Result<(), riesel::ConnectorError> {
-                let runtime = tokio::runtime::Builder::new_current_thread()
-                    .enable_all()
-                    .build()?;
-                runtime.block_on(async {
+        .async_handler_with_aliases(
+            move |counter: AsyncCapability<CounterContract>| {
+                let captured = Arc::clone(&for_handler);
+                async move {
                     assert_eq!(counter.value().await?, 0);
                     assert_eq!(counter.add(5).await?, 5);
                     assert_eq!(counter.label("count").await?, "count: 5");
+                    *captured.lock().unwrap() = Some((*counter).clone());
                     Ok::<_, CallError<CounterError>>(())
-                })?;
-                *for_handler.lock().unwrap() = Some((*counter).clone());
-                Ok(())
+                }
             },
             ["counter"],
         )

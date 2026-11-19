@@ -501,3 +501,46 @@ fn handler_binding_validation_runs_before_provider_startup() {
         expected.definition_json().unwrap()
     );
 }
+
+#[cfg(feature = "async-tcp")]
+#[test]
+fn async_handler_runs_without_user_owned_executor_or_separate_registry() {
+    use std::sync::{
+        Arc,
+        atomic::{AtomicUsize, Ordering},
+    };
+
+    let called = Arc::new(AtomicUsize::new(0));
+    let observed = Arc::clone(&called);
+    let prepared = Application::new("AsyncNoDependencies")
+        .async_handler(move || {
+            let counter = Arc::clone(&observed);
+            async move {
+                counter.fetch_add(1, Ordering::AcqRel);
+                Ok::<_, std::io::Error>(())
+            }
+        })
+        .unwrap();
+    assert!(prepared.definition().requires.is_empty());
+    prepared.run().unwrap();
+    assert_eq!(called.load(Ordering::Acquire), 1);
+}
+
+#[cfg(feature = "async-tcp")]
+#[test]
+fn async_handler_alias_validation_runs_before_any_provider_start() {
+    use super::AsyncCapability;
+    use riesel_storage::RecordStoreContract;
+
+    let wrong_count = Application::new("WrongCount").async_handler_with_aliases(
+        |_store: AsyncCapability<RecordStoreContract>| async { Ok::<_, std::io::Error>(()) },
+        ["first", "second"],
+    );
+    assert!(matches!(
+        wrong_count,
+        Err(SdkError::ParameterCount {
+            expected: 1,
+            actual: 2
+        })
+    ));
+}
