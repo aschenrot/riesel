@@ -1,13 +1,6 @@
 //! Local Todo HTTP host. This is not an authenticated remote service.
 use riesel::{Application, Records};
-use std::{
-    env,
-    error::Error,
-    ffi::OsString,
-    net::Ipv4Addr,
-    path::PathBuf,
-    process::ExitCode,
-};
+use std::{env, error::Error, ffi::OsString, net::Ipv4Addr, path::PathBuf, process::ExitCode};
 use todo::TaskData;
 use tokio::net::TcpListener;
 
