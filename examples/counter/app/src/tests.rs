@@ -366,3 +366,118 @@ fn generated_async_client_operates_over_real_nonblocking_tcp() {
     });
     server.join().unwrap();
 }
+
+#[test]
+fn typed_async_handler_uses_existing_remote_provider_resolver_and_session() {
+    use riesel::{Application, AsyncCapability, DeploymentConfig};
+    use riesel_protocol::{AsyncRpcClientBinding, AsyncRpcTransport, RpcHost};
+    use std::sync::{Arc, Mutex};
+
+    type Service = <CounterContract as AsyncRpcClientBinding>::Service;
+    let captured: Arc<Mutex<Option<Service>>> = Arc::new(Mutex::new(None));
+    let for_handler = Arc::clone(&captured);
+
+    let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+    let address = listener.local_addr().unwrap();
+    let server = thread::spawn(move || {
+        let handler = RpcHost::new(
+            riesel_counter_component::memory_provider_definition().unwrap(),
+            CounterRpcDispatcher::new(MemoryCounter::default()),
+        )
+        .unwrap();
+        // Existing synchronous contract inspection precedes three
+        // independent nonblocking business calls from the injected handle.
+        for _ in 0..5 {
+            let (mut connection, _) = listener.accept().unwrap();
+            handle_tcp_connection(&handler, &mut connection).unwrap();
+        }
+    });
+
+    let deployment = DeploymentConfig::from_json(&format!(
+        r#"{{"services":{{"counter":{{"transport":"tcp","address":"{address}"}}}}}}"#
+    ))
+    .unwrap();
+    Application::new("TypedAsyncCounter")
+        .handler_with_aliases(
+            move |counter: AsyncCapability<CounterContract>| -> Result<(), riesel::ConnectorError> {
+                let runtime = tokio::runtime::Builder::new_current_thread()
+                    .enable_all()
+                    .build()?;
+                runtime.block_on(async {
+                    assert_eq!(counter.value().await?, 0);
+                    assert_eq!(counter.add(5).await?, 5);
+                    assert_eq!(counter.label("count").await?, "count: 5");
+                    Ok::<_, CallError<CounterError>>(())
+                })?;
+                *for_handler.lock().unwrap() = Some((*counter).clone());
+                Ok(())
+            },
+            ["counter"],
+        )
+        .unwrap()
+        .deployment(deployment)
+        .run()
+        .unwrap();
+    server.join().unwrap();
+
+    let service = captured.lock().unwrap().take().unwrap();
+    let runtime = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .unwrap();
+    assert!(matches!(
+        runtime.block_on(service.value()),
+        Err(CallError::Rpc(RpcError::SessionExpired))
+    ));
+}
+
+#[test]
+fn transport_mode_collision_is_rejected_during_handler_registration() {
+    use riesel::{Application, AsyncCapability, Capability, SdkError};
+
+    let async_handler = Application::new("SameAsync")
+        .handler_with_aliases(
+            |_one: AsyncCapability<CounterContract>,
+             _two: AsyncCapability<CounterContract>|
+             -> Result<(), riesel::ConnectorError> { Ok(()) },
+            ["first", "second"],
+        )
+        .unwrap();
+    assert_eq!(async_handler.definition().requires.len(), 2);
+
+    let mismatch = Application::new("Conflict")
+        .rpc::<CounterContract>("sync")
+        .unwrap()
+        .async_rpc::<CounterContract>("async");
+    assert!(matches!(mismatch, Err(SdkError::ConnectorModeConflict(_))));
+
+    let reverse = Application::new("Conflict")
+        .async_rpc::<CounterContract>("async")
+        .unwrap()
+        .rpc::<CounterContract>("sync");
+    assert!(matches!(reverse, Err(SdkError::ConnectorModeConflict(_))));
+
+    let implicit = Application::new("DefaultAlias")
+        .handler(|_counter: AsyncCapability<CounterContract>| -> Result<(), riesel::ConnectorError> {
+            Ok(())
+        })
+        .unwrap();
+    let expected = Application::new("DefaultAlias")
+        .require::<CounterContract>(
+            CounterContract::definition()
+                .unwrap()
+                .capability
+                .default_requirement_alias(),
+        )
+        .unwrap();
+    assert_eq!(
+        implicit.definition_json().unwrap(),
+        expected.definition_json().unwrap()
+    );
+
+    // Synchronous signatures retain the established component binding path.
+    let sync = Application::new("Sync")
+        .handler(|_counter: Capability<CounterContract>| -> Result<(), CounterError> { Ok(()) })
+        .unwrap();
+    assert_eq!(sync.definition().requires.len(), 1);
+}
