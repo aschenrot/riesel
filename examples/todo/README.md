@@ -35,6 +35,14 @@ exit with code 1. Successful operations exit with code 0.
 The original `todo` executable below remains the independent **R0
 in-memory reference and managed-process smoke fixture**.
 
+## Local browser API — Todo R2 integration
+
+The `todo_http` executable hosts the Todo-specific JSON API on an OS-assigned
+loopback port. It uses the same persistent SQLite domain operations as
+`todo_cli`; it does not yet serve a graphical interface. See the
+[HTTP API contract](HTTP-API.md) for endpoints, startup, security restrictions,
+and error responses. The SvelteKit frontend remains separate work.
+
 ## Run locally — no JSON or TCP required
 
 From the workspace root:
