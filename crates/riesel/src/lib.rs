@@ -40,6 +40,8 @@ pub use application::{
 };
 #[cfg(feature = "async-tcp")]
 pub use application::{AsyncApplicationHandler, AsyncCapability, PreparedAsyncApplication};
+#[cfg(feature = "async-tcp")]
+pub use riesel_app::AsyncTasks;
 #[cfg(feature = "records")]
 pub use records::{Record, RecordPage, Records};
 #[cfg(feature = "async-tcp")]
@@ -57,7 +59,7 @@ pub use riesel_schema::{CapabilityDescriptor, ModelField, RieselModel};
 
 pub mod prelude {
     #[cfg(feature = "async-tcp")]
-    pub use super::AsyncCapability;
+    pub use super::{AsyncCapability, AsyncTasks};
     pub use super::{
         App, AppError, Application, Capability, Result, RieselModel, capability, component,
     };
