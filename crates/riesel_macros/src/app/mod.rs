@@ -131,7 +131,7 @@ pub(crate) fn expand_app(args: AppArgs, mut item: ItemFn) -> syn::Result<TokenSt
     let sig = &item.sig;
     if sig.asyncness.is_none() {
         return Err(syn::Error::new_spanned(
-            &sig.fn_token,
+            sig.fn_token,
             "riesel::app requires an async fn entrypoint",
         ));
     }
