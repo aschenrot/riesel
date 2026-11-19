@@ -2,6 +2,7 @@ use riesel::{AppRunError, Application, AsyncCapability, LifecycleFailure, SdkErr
 use riesel_counter::{AsyncCounterContract, AsyncCounterObserverContract, CounterError};
 use riesel_counter_component::AsyncMemoryCounter;
 use riesel_protocol::CallError;
+use std::error::Error;
 use std::sync::{Arc, Mutex};
 
 type Events = Arc<Mutex<Vec<&'static str>>>;
@@ -176,7 +177,14 @@ fn entrypoint_and_stop_failures_remain_separate() {
             Err::<(), std::io::Error>(std::io::Error::other("entry failed"))
         })
         .unwrap();
-    let Err(SdkError::Execution(AppRunError::Lifecycle { failure, .. })) = prepared.run() else {
+    let error = prepared.run().unwrap_err();
+    assert!(
+        error
+            .source()
+            .and_then(Error::source)
+            .is_some_and(|source| source.is::<LifecycleFailure>())
+    );
+    let SdkError::Execution(AppRunError::Lifecycle { failure, .. }) = error else {
         panic!("expected combined lifecycle error");
     };
     let failure = failure.downcast_ref::<LifecycleFailure>().unwrap();

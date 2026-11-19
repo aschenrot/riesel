@@ -10,12 +10,11 @@ use std::pin::Pin;
 type HookFuture<'a> = Pin<Box<dyn Future<Output = std::result::Result<(), ConnectorError>> + 'a>>;
 
 trait HookHandler {
-    fn invoke<'a>(&'a mut self, context: &'a Context<'_>) -> HookFuture<'a>;
+    fn invoke<'a>(&'a mut self, context: &'a Context<'_>, aliases: &'a [String]) -> HookFuture<'a>;
 }
 
 struct TypedHook<H, Args> {
     handler: H,
-    aliases: Vec<String>,
     _params: PhantomData<fn() -> Args>,
 }
 
@@ -24,8 +23,8 @@ where
     Args: HandlerParams,
     H: AsyncApplicationHandler<Args>,
 {
-    fn invoke<'a>(&'a mut self, context: &'a Context<'_>) -> HookFuture<'a> {
-        self.handler.invoke(context, &self.aliases)
+    fn invoke<'a>(&'a mut self, context: &'a Context<'_>, aliases: &'a [String]) -> HookFuture<'a> {
+        self.handler.invoke(context, aliases)
     }
 }
 
@@ -81,10 +80,9 @@ impl LifecycleHooks {
         }
         hooks.push(Hook {
             name,
-            aliases: aliases.clone(),
+            aliases,
             handler: Box::new(TypedHook::<H, Args> {
                 handler,
-                aliases,
                 _params: PhantomData,
             }),
         });
@@ -125,7 +123,7 @@ impl LifecycleHooks {
         let mut initialized = BTreeSet::new();
         let mut failures = Vec::new();
         for hook in &mut self.start {
-            match hook.handler.invoke(context).await {
+            match hook.handler.invoke(context, &hook.aliases).await {
                 Ok(()) => {
                     initialized.insert(hook.name.clone());
                 }
@@ -153,7 +151,7 @@ impl LifecycleHooks {
         if context.session_token().is_active() {
             for hook in self.stop.iter_mut().rev() {
                 if (initialized_all || initialized.contains(&hook.name))
-                    && let Err(source) = hook.handler.invoke(context).await
+                    && let Err(source) = hook.handler.invoke(context, &hook.aliases).await
                 {
                     failures.push(HookFailure {
                         phase: HookPhase::Stop,

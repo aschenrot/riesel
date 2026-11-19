@@ -209,16 +209,18 @@ pub enum AppRunError {
     #[error("application startup failed: {0}")]
     Startup(#[from] RuntimeError),
     #[error("application entrypoint failed: {0}")]
-    Entrypoint(ConnectorError),
+    Entrypoint(#[source] ConnectorError),
     #[error("application shutdown failed: {0}")]
-    Shutdown(RuntimeError),
+    Shutdown(#[source] RuntimeError),
     #[error("application lifecycle failed: {failure}; shutdown: {shutdown:?}")]
     Lifecycle {
+        #[source]
         failure: ConnectorError,
         shutdown: Option<Box<RuntimeError>>,
     },
     #[error("application entrypoint failed: {entry}; shutdown also failed: {shutdown}")]
     EntrypointAndShutdown {
+        #[source]
         entry: ConnectorError,
         shutdown: RuntimeError,
     },
@@ -226,6 +228,7 @@ pub enum AppRunError {
         "required managed service failed: {failure}; entrypoint: {entry:?}; shutdown: {shutdown:?}"
     )]
     Supervision {
+        #[source]
         failure: Box<RuntimeError>,
         entry: Option<ConnectorError>,
         shutdown: Option<Box<RuntimeError>>,
@@ -233,12 +236,14 @@ pub enum AppRunError {
     #[error("application recovery exhausted after {restarts} restarts: {last}")]
     RecoveryExhausted {
         restarts: u32,
+        #[source]
         last: Box<AppRunError>,
     },
     #[error(
         "application background task failed: {failure}; entrypoint: {entry:?}; shutdown: {shutdown:?}"
     )]
     TaskFailure {
+        #[source]
         failure: Box<RuntimeError>,
         entry: Option<ConnectorError>,
         shutdown: Option<Box<RuntimeError>>,
