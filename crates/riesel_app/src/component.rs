@@ -236,7 +236,7 @@ impl<S: Send + Sync + 'static> ComponentDefinition<S> {
         let served = serve_router(address, sync_router);
         #[cfg(feature = "async-tcp")]
         {
-            return served.and(blocking.close_and_join());
+            served.and(blocking.close_and_join())
         }
         #[cfg(not(feature = "async-tcp"))]
         served
@@ -266,7 +266,7 @@ impl<S: Send + Sync + 'static> LocalProviderFactory for ComponentDefinition<S> {
     fn create(&self) -> Result<LocalProviderInstance, ConnectorError> {
         #[cfg(feature = "async-tcp")]
         {
-            return self.create_with_session(SessionToken::new());
+            self.create_with_session(SessionToken::new())
         }
         #[cfg(not(feature = "async-tcp"))]
         {
