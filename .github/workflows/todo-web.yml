@@ -26,16 +26,11 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: "22"
-      - name: Resolve and inspect frontend dependency lock (temporary)
-        run: |
-          npm install --package-lock-only --no-audit --no-fund
-          echo "TODO_WEB_LOCK_START"
-          base64 -w0 package-lock.json
-          echo
-          echo "TODO_WEB_LOCK_END"
-      - name: Verify SvelteKit frontend
-        run: |
-          npm install --no-audit --no-fund
-          npm run check
-          npm test
-          npm run build
+      - name: Install locked dependencies
+        run: npm ci --no-audit --no-fund
+      - name: Check frontend types and components
+        run: npm run check
+      - name: Test HTTP client
+        run: npm test
+      - name: Build static assets
+        run: npm run build

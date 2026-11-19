@@ -14,6 +14,8 @@ export default defineConfig(({ mode }) => {
     plugins: [sveltekit()],
     server: {
       host: '127.0.0.1',
+      allowedHosts: ['127.0.0.1'],
+      cors: false,
       proxy: target
         ? {
             '/api': {
