@@ -215,9 +215,10 @@ where
         // Join every background future on this executor before its local
         // providers and managed services can be released by RunningApp.
         let joined = match tasks {
-            Some(tasks) => tasks.finish_scope().await.map_err(|error| {
-                Box::new(error) as ConnectorError
-            }),
+            Some(tasks) => tasks
+                .finish_scope()
+                .await
+                .map_err(|error| Box::new(error) as ConnectorError),
             None => Ok(()),
         };
         match (outcome, joined) {
