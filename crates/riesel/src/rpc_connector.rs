@@ -157,3 +157,4 @@ impl<C: AsyncRpcClientBinding> CapabilityConnector for AsyncRpcConnector<C> {
     > {
         Box::pin(self.inspect(endpoint, session))
     }
+}
