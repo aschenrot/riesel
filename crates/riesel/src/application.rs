@@ -5,7 +5,7 @@ use crate::{CancellationToken, RpcConnector};
 use crate::{Records, RieselModel};
 use riesel_app::{
     App, AppRunError, ConnectorError, ConnectorRegistry, DeclarativeComponent, DeploymentConfig,
-    DeploymentPlan, LocalProviderFactory, RunningApp, RuntimeError,
+    DeploymentPlan, LocalProviderFactory, ProviderCatalog, RunningApp, RuntimeError,
 };
 #[cfg(feature = "async-tcp")]
 use riesel_protocol::AsyncRpcClientBinding;

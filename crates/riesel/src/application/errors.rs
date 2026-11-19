@@ -20,6 +20,8 @@ pub enum SdkError {
     #[error(transparent)]
     Deployment(#[from] riesel_app::DeploymentError),
     #[error(transparent)]
+    Catalog(#[from] riesel_app::CatalogError),
+    #[error(transparent)]
     Schema(#[from] riesel_schema::SchemaError),
     #[error("model {0} has already been registered with different metadata")]
     #[cfg(feature = "records")]
@@ -46,6 +48,12 @@ pub enum SdkError {
     ConnectorModeConflict(String),
     #[error("invalid application arguments: {0}")]
     Arguments(String),
+    #[error("a provider catalog is required to resolve selected placements")]
+    MissingProviderCatalog,
+    #[error("choose either a provider catalog or an explicit deployment configuration")]
+    ConflictingDeploymentSource,
+    #[error("requirement {0} already has a different provider placement selection")]
+    ProviderSelectionConflict(String),
     #[error("handler requires {expected} parameter aliases, but received {actual}")]
     ParameterCount { expected: usize, actual: usize },
     #[error(

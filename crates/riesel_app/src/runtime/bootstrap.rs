@@ -366,6 +366,15 @@ impl<'a> StartupState<'a> {
             .contract
             .validate()
             .map_err(|source| RuntimeError::InvalidContract { source })?;
+        if let Some(expected) = self.deployment.expected_providers.get(&requirement.name)
+            && &connected.definition != expected
+        {
+            return Err(RuntimeError::ProviderIdentityMismatch {
+                requirement: requirement.name.clone(),
+                expected: expected.clone(),
+                actual: connected.definition,
+            });
+        }
         if !connected
             .definition
             .capabilities

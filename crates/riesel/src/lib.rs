@@ -50,8 +50,10 @@ pub use rpc_connector::RpcConnector;
 
 pub use riesel_app::{
     App, AppError, AppRunError, CancellationToken, CapabilityConnector, ConnectedProvider,
-    ConnectorError, ConnectorRegistry, DeclarativeComponent, DeploymentConfig, DeploymentError,
-    LocalProviderFactory, ProviderRegistry, ResolutionError, ResolvedCapability, RunningApp,
+    CatalogError, ConnectorError, ConnectorRegistry, DeclarativeComponent, DeploymentConfig,
+    DeploymentError,
+    LocalProviderFactory, ProviderCatalog, ProviderRegistry, ResolutionError, ResolvedCapability,
+    RunningApp,
     RuntimeError, ServiceEndpoint, SessionToken,
 };
 pub use riesel_macros::{RieselModel, RieselType, capability, component};

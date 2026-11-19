@@ -6,6 +6,8 @@ pub struct Application {
     pub(super) definition: AppSchema,
     pub(super) providers: ConnectorRegistry,
     pub(super) deployment: Option<DeploymentConfig>,
+    pub(super) catalog: Option<ProviderCatalog>,
+    pub(super) selections: BTreeMap<String, String>,
 }
 
 impl Application {
@@ -20,6 +22,8 @@ impl Application {
             },
             providers: ConnectorRegistry::new(),
             deployment: None,
+            catalog: None,
+            selections: BTreeMap::new(),
         }
     }
 
@@ -181,6 +185,55 @@ impl Application {
         self
     }
 
+    /// Declare operator-approved remote/managed placements. Linked
+    /// components remain part of the same connector registry.
+    pub fn catalog(mut self, catalog: ProviderCatalog) -> Self {
+        self.catalog = Some(catalog);
+        self
+    }
+
+    /// Select a deployment placement by requirement alias. A selection is
+    /// mandatory for managed/external catalog choices; linked components
+    /// retain the unambiguous local default.
+    pub fn select_provider(
+        mut self,
+        requirement: impl Into<String>,
+        choice: impl Into<String>,
+    ) -> Result<Self> {
+        let requirement = requirement.into();
+        let choice = choice.into();
+        if let Some(previous) = self.selections.get(&requirement)
+            && previous != &choice
+        {
+            return Err(SdkError::ProviderSelectionConflict(requirement));
+        }
+        self.selections.insert(requirement, choice);
+        Ok(self)
+    }
+
+    /// Inspect the exact catalog-produced plan without constructing a
+    /// provider, opening a socket, or launching a managed executable.
+    pub fn catalog_plan(&self) -> Result<DeploymentPlan> {
+        let config = self
+            .selected_deployment()?
+            .ok_or(SdkError::MissingProviderCatalog)?;
+        self.deployment_plan(&config)
+    }
+
+    pub(super) fn selected_deployment(&self) -> Result<Option<DeploymentConfig>> {
+        match (&self.deployment, &self.catalog) {
+            (Some(_), Some(_)) => Err(SdkError::ConflictingDeploymentSource),
+            (Some(config), None) if self.selections.is_empty() => Ok(Some(config.clone())),
+            (None, Some(catalog)) => Ok(Some(catalog.deployment(
+                &self.definition,
+                &self.providers,
+                &self.selections,
+            )?)),
+            (None, None) if self.selections.is_empty() => Ok(None),
+            _ => Err(SdkError::MissingProviderCatalog),
+        }
+    }
+
     pub fn definition(&self) -> &AppSchema {
         &self.definition
     }
@@ -207,9 +260,10 @@ impl Application {
         self,
         mut entrypoint: impl FnMut(&Context<'_>) -> std::result::Result<(), ConnectorError>,
     ) -> Result<()> {
+        let deployment = self.selected_deployment()?;
         let app = App::from_definition(self.definition)?;
         let invoke = |running: &RunningApp| entrypoint(&Context { running });
-        if let Some(deployment) = self.deployment {
+        if let Some(deployment) = deployment {
             app.run_with_async_startup(&deployment, &self.providers, invoke)?;
         } else {
             app.run_local(&self.providers, invoke)?;
@@ -221,9 +275,10 @@ impl Application {
         self,
         mut entrypoint: impl FnMut(&Context<'_>) -> std::result::Result<(), ConnectorError>,
     ) -> Result<()> {
+        let deployment = self.selected_deployment()?;
         let app = App::from_definition(self.definition)?;
         let invoke = |running: &RunningApp| entrypoint(&Context { running });
-        if let Some(deployment) = self.deployment {
+        if let Some(deployment) = deployment {
             app.run(&deployment, &self.providers, invoke)?;
         } else {
             app.run_local(&self.providers, invoke)?;

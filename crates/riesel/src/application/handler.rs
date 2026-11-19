@@ -224,6 +224,24 @@ where
         self
     }
 
+    pub fn catalog(mut self, catalog: riesel_app::ProviderCatalog) -> Self {
+        self.application = self.application.catalog(catalog);
+        self
+    }
+
+    pub fn select_provider(
+        mut self,
+        requirement: impl Into<String>,
+        choice: impl Into<String>,
+    ) -> Result<Self> {
+        self.application = self.application.select_provider(requirement, choice)?;
+        Ok(self)
+    }
+
+    pub fn catalog_plan(&self) -> Result<DeploymentPlan> {
+        self.application.catalog_plan()
+    }
+
     /// Execute a handler once per started session. Managed recovery can
     /// replay it under the existing opt-in whole-session recovery policy.
     pub fn run(self) -> Result<()> {

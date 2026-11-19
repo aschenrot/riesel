@@ -48,6 +48,12 @@ pub enum RuntimeError {
     RemoteContractMismatch { requirement: String },
     #[error("provider ID {provider} advertises inconsistent definitions")]
     ConflictingProvider { provider: String },
+    #[error("provider identity mismatch for requirement {requirement}: expected {expected:?}, received {actual:?}")]
+    ProviderIdentityMismatch {
+        requirement: String,
+        expected: ProviderDefinition,
+        actual: ProviderDefinition,
+    },
     #[error("unknown running requirement: {0}")]
     MissingService(String),
     #[error("wrong service type for requirement: {0}")]

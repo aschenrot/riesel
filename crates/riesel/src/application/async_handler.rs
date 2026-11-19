@@ -139,6 +139,24 @@ where
         self
     }
 
+    pub fn catalog(mut self, catalog: riesel_app::ProviderCatalog) -> Self {
+        self.application = self.application.catalog(catalog);
+        self
+    }
+
+    pub fn select_provider(
+        mut self,
+        requirement: impl Into<String>,
+        choice: impl Into<String>,
+    ) -> Result<Self> {
+        self.application = self.application.select_provider(requirement, choice)?;
+        Ok(self)
+    }
+
+    pub fn catalog_plan(&self) -> Result<DeploymentPlan> {
+        self.application.catalog_plan()
+    }
+
     /// Build an executor for each application session, then execute and
     /// dispose of every scoped future before providers are torn down.
     /// Whole-session recovery constructs fresh handles on each invocation.

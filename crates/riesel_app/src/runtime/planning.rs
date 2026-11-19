@@ -22,6 +22,16 @@ impl App {
                         .local
                         .get(provider)
                         .ok_or_else(|| RuntimeError::UnknownLocalProvider(provider.clone()))?;
+                    if let Some(expected) =
+                        deployment.expected_providers.get(&requirement.name)
+                        && expected != &local.definition
+                    {
+                        return Err(RuntimeError::ProviderIdentityMismatch {
+                            requirement: requirement.name.clone(),
+                            expected: expected.clone(),
+                            actual: local.definition.clone(),
+                        });
+                    }
                     if !local
                         .definition
                         .capabilities

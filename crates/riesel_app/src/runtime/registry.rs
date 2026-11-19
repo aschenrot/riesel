@@ -288,6 +288,10 @@ impl ConnectorRegistry {
         Self::default()
     }
 
+    pub(crate) fn local_definitions(&self) -> impl Iterator<Item = &ProviderDefinition> {
+        self.local.values().map(|local| &local.definition)
+    }
+
     /// Register a provider without constructing the implementation. More than
     /// one provider may implement a capability; ambiguous selection is rejected.
     pub fn register_local(

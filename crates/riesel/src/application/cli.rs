@@ -57,12 +57,16 @@ impl Application {
             let option = &args[index];
             if option == "--help" || option == "-h" {
                 println!(
-                    "Usage: <application> [--deployment FILE | --inspect-deployment FILE | --print-definition] [-- APP_ARGS...]"
+                    "Usage: <application> [--deployment FILE | --inspect-deployment FILE | --inspect-catalog | --print-definition] [-- APP_ARGS...]"
                 );
                 return Ok(None);
             }
             if option == "--print-definition" {
                 println!("{}", self.definition_json()?);
+                return Ok(None);
+            }
+            if option == "--inspect-catalog" {
+                println!("{}", serde_json::to_string_pretty(&self.catalog_plan()?)?);
                 return Ok(None);
             }
             if option == "--" {

@@ -1,5 +1,5 @@
 use crate::recovery::RecoveryPolicy;
-use riesel_schema::{AppSchema, SchemaError};
+use riesel_schema::{AppSchema, ProviderDefinition, ProviderError, SchemaError};
 use serde::Deserialize;
 use std::collections::BTreeMap;
 use std::net::SocketAddr;
@@ -7,10 +7,14 @@ use std::path::{Path, PathBuf};
 use thiserror::Error;
 
 /// Connection settings are deployment-specific, not part of a capability contract.
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Clone, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct DeploymentConfig {
     pub services: BTreeMap<String, ServiceEndpoint>,
+    /// Optional exact provider definitions pinned by catalog choices. This
+    /// checks declared metadata, NOT cryptographic peer authentication.
+    #[serde(default)]
+    pub expected_providers: BTreeMap<String, ProviderDefinition>,
     /// Recovery is explicit and applies to the whole application session.
     #[serde(default)]
     pub recovery: RecoveryPolicy,
@@ -78,6 +82,18 @@ pub enum DeploymentError {
     InvalidRecovery(&'static str),
     #[error("managed instance {instance} has conflicting launch settings")]
     ConflictingInstance { instance: String },
+    #[error("provider identity pin references unknown requirement {0}")]
+    UnknownProviderPin(String),
+    #[error("invalid provider identity pin for requirement {requirement}: {source}")]
+    InvalidProviderPin {
+        requirement: String,
+        #[source]
+        source: ProviderError,
+    },
+    #[error("pinned provider for requirement {0} does not implement its required capability")]
+    IncompatibleProviderPin(String),
+    #[error("managed instance {0} is pinned to conflicting provider definitions")]
+    ConflictingInstanceProvider(String),
 }
 
 impl DeploymentConfig {
@@ -85,6 +101,7 @@ impl DeploymentConfig {
     pub fn new(services: BTreeMap<String, ServiceEndpoint>) -> Self {
         Self {
             services,
+            expected_providers: BTreeMap::new(),
             recovery: RecoveryPolicy::FailFast,
         }
     }
@@ -104,6 +121,22 @@ impl DeploymentConfig {
         self.recovery
             .validate()
             .map_err(DeploymentError::InvalidRecovery)?;
+        for (name, definition) in &self.expected_providers {
+            let requirement = app
+                .requires
+                .iter()
+                .find(|requirement| requirement.name == *name)
+                .ok_or_else(|| DeploymentError::UnknownProviderPin(name.clone()))?;
+            definition
+                .validate()
+                .map_err(|source| DeploymentError::InvalidProviderPin {
+                    requirement: name.clone(),
+                    source,
+                })?;
+            if !definition.capabilities.contains(&requirement.capability) {
+                return Err(DeploymentError::IncompatibleProviderPin(name.clone()));
+            }
+        }
         for name in self.services.keys() {
             if !app
                 .requires
@@ -119,6 +152,7 @@ impl DeploymentConfig {
             }
         }
         let mut instance_configs: BTreeMap<&str, &ServiceEndpoint> = BTreeMap::new();
+        let mut instance_providers: BTreeMap<&str, &ProviderDefinition> = BTreeMap::new();
         for (name, endpoint) in &self.services {
             if let ServiceEndpoint::Managed {
                 instance: Some(instance),
@@ -143,6 +177,20 @@ impl DeploymentConfig {
                         instance: instance.clone(),
                     });
                 }
+                if let Some(pinned) = self.expected_providers.get(name)
+                    && let Some(previous) = instance_providers.insert(instance, pinned)
+                    && previous != pinned
+                {
+                    return Err(DeploymentError::ConflictingInstanceProvider(
+                        instance.clone(),
+                    ));
+                }
+            }
+            if matches!(endpoint, ServiceEndpoint::Tcp { address } if !address.ip().is_loopback()) {
+                return Err(DeploymentError::InvalidEndpoint {
+                    name: name.clone(),
+                    reason: "unauthenticated TCP endpoints must use loopback",
+                });
             }
             if endpoint
                 .address()
