@@ -178,6 +178,7 @@ dependencies = [
  "riesel_macros",
  "riesel_protocol",
  "riesel_schema",
+ "serde_json",
  "tokio",
 ]
 
