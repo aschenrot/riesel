@@ -30,6 +30,21 @@ pub trait CapabilityConnector: Send + Sync {
         endpoint: &ServiceEndpoint,
         session: &SessionToken,
     ) -> Result<ConnectedProvider, ConnectorError>;
+
+    /// Asynchronous startup inspection using the same validated connector
+    /// registry and resulting provider metadata as synchronous startup.
+    /// Existing synchronous connectors retain their established semantics;
+    /// native async connectors override this to avoid blocking Tokio I/O.
+    #[cfg(feature = "async-tcp")]
+    fn connect_async<'a>(
+        &'a self,
+        endpoint: &'a ServiceEndpoint,
+        session: &'a SessionToken,
+    ) -> std::pin::Pin<
+        Box<dyn std::future::Future<Output = Result<ConnectedProvider, ConnectorError>> + Send + 'a>,
+    > {
+        Box::pin(async move { self.connect(endpoint, session) })
+    }
 }
 
 pub(super) struct RegisteredConnector {
