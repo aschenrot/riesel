@@ -93,28 +93,30 @@ async fn request(
     (status, decode_body(&response))
 }
 
+async fn same_origin(port: u16, method: &str, path: &str, body: Option<&str>) -> (u16, String) {
+    let origin = format!("http://127.0.0.1:{port}");
+    request(port, method, path, Some(&origin), None, None, body).await
+}
+
 #[tokio::test]
 async fn task_crud_enforces_caller_revisions() {
     let (port, shutdown, worker) = start().await;
-    let origin = format!("http://127.0.0.1:{port}");
-    let call = |method, path, body| {
-        request(port, method, path, Some(&origin), None, None, body)
-    };
 
-    let (status, body) = call("POST", "/api/tasks", Some(r#"{"title":"First"}"#)).await;
+    let (status, body) = same_origin(port, "POST", "/api/tasks", Some(r#"{"title":"First"}"#)).await;
     assert_eq!(status, 201);
     let task: Value = serde_json::from_str(&body).unwrap();
     assert_eq!(task["revision"], 1);
     assert_eq!(task["title"], "First");
     let id = task["id"].as_str().unwrap();
 
-    let (status, body) = call("GET", "/api/tasks", None).await;
+    let (status, body) = same_origin(port, "GET", "/api/tasks", None).await;
     assert_eq!(status, 200);
     let list: Value = serde_json::from_str(&body).unwrap();
     assert_eq!(list.as_array().unwrap().len(), 1);
 
     let path = format!("/api/tasks/{id}");
-    let (status, body) = call(
+    let (status, body) = same_origin(
+        port,
         "PATCH",
         &path,
         Some(r#"{"expected_revision":1,"title":"Edited"}"#),
@@ -123,7 +125,8 @@ async fn task_crud_enforces_caller_revisions() {
     assert_eq!(status, 200);
     assert_eq!(serde_json::from_str::<Value>(&body).unwrap()["revision"], 2);
 
-    let (status, body) = call(
+    let (status, body) = same_origin(
+        port,
         "PATCH",
         &path,
         Some(r#"{"expected_revision":1,"completed":true}"#),
@@ -132,7 +135,8 @@ async fn task_crud_enforces_caller_revisions() {
     assert_eq!(status, 409);
     assert_eq!(serde_json::from_str::<Value>(&body).unwrap()["error"], "revision_conflict");
 
-    let (status, body) = call(
+    let (status, body) = same_origin(
+        port,
         "PATCH",
         &path,
         Some(r#"{"expected_revision":2,"completed":true}"#),
@@ -143,11 +147,11 @@ async fn task_crud_enforces_caller_revisions() {
     assert_eq!(changed["revision"], 3);
     assert_eq!(changed["completed"], true);
 
-    let (status, _) = call("DELETE", &path, Some(r#"{"expected_revision":2}"#)).await;
+    let (status, _) = same_origin(port, "DELETE", &path, Some(r#"{"expected_revision":2}"#)).await;
     assert_eq!(status, 409);
-    let (status, _) = call("DELETE", &path, Some(r#"{"expected_revision":3}"#)).await;
+    let (status, _) = same_origin(port, "DELETE", &path, Some(r#"{"expected_revision":3}"#)).await;
     assert_eq!(status, 204);
-    let (status, _) = call("GET", &path, None).await;
+    let (status, _) = same_origin(port, "GET", &path, None).await;
     assert_eq!(status, 404);
 
     shutdown.send(()).unwrap();
