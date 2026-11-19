@@ -38,5 +38,5 @@ pub use context::Context;
 pub use errors::{Result, SdkError};
 pub use handler::{ApplicationHandler, HandlerParams, PreparedApplication};
 #[cfg(feature = "async-tcp")]
-pub use parameter::AsyncCapability;
+pub use parameter::{AsyncCapability, NativeHandleParam};
 pub use parameter::{ApplicationParam, Capability};
