@@ -167,10 +167,10 @@ impl AsyncTasks {
     pub async fn finish_scope(&self) -> Result<(), RuntimeError> {
         let handles = {
             let mut state = self
-            .inner
-            .state
-            .lock()
-            .unwrap_or_else(PoisonError::into_inner);
+                .inner
+                .state
+                .lock()
+                .unwrap_or_else(PoisonError::into_inner);
             state.active = false;
             state.closed = true;
             self.inner.session.invalidate();
