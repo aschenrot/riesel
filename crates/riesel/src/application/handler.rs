@@ -224,6 +224,13 @@ where
         Ok(self)
     }
 
+    /// Explicit linked SQLite persistence using registered Rust models.
+    #[cfg(feature = "sqlite-storage")]
+    pub fn sqlite_storage(mut self, path: impl Into<std::path::PathBuf>) -> Result<Self> {
+        self.application = self.application.sqlite_storage(path)?;
+        Ok(self)
+    }
+
     pub fn deployment(mut self, deployment: DeploymentConfig) -> Self {
         self.application = self.application.deployment(deployment);
         self
