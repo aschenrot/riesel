@@ -598,7 +598,7 @@ fn async_application_startup_uses_nonblocking_connector_and_shared_resolver() {
         ConnectorRegistry, DeploymentConfig, ServiceEndpoint,
     };
     use riesel_protocol::SessionToken;
-    use riesel_schema::CapabilityContract;
+    use riesel::schema::CapabilityContract;
     use std::collections::BTreeMap;
 
     struct DelayedConnector;
