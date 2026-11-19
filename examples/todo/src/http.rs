@@ -165,7 +165,11 @@ async fn read(
 ) -> Result<Json<TaskView>, ApiError> {
     let id = parse_id(&id)?;
     let task = blocking(state, move |todo| todo.get_task(id)).await?;
-    Ok(Json(task.ok_or(TodoError::NotFound).map_err(ApiError::from)?.into()))
+    Ok(Json(
+        task.ok_or(TodoError::NotFound)
+            .map_err(ApiError::from)?
+            .into(),
+    ))
 }
 
 async fn create(
@@ -186,7 +190,10 @@ async fn update(
     let Json(input) = payload.map_err(ApiError::invalid_json)?;
     let task = match (input.title, input.completed) {
         (Some(title), None) => {
-            blocking(state, move |todo| todo.edit_title(id, input.expected_revision, title)).await?
+            blocking(state, move |todo| {
+                todo.edit_title(id, input.expected_revision, title)
+            })
+            .await?
         }
         (None, Some(completed)) => {
             blocking(state, move |todo| {
