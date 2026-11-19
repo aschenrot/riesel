@@ -104,3 +104,60 @@ test('connection errors are visible and allow retry without losing tasks', async
   await page.getByRole('button', { name: 'Try again' }).click();
   await expect(page.getByText('Reconnect task', { exact: true })).toBeVisible();
 });
+
+
+test('loading and domain validation are visible before accepting corrected input', async ({ page }) => {
+  await page.route('**/api/v1/tasks*', async (route) => {
+    if (route.request().method() === 'GET') {
+      await new Promise((resolve) => setTimeout(resolve, 900));
+    }
+    await route.continue();
+  });
+  await page.goto('/');
+  await expect(page.getByText('Loading tasks…')).toBeVisible();
+  await expect(page.getByText('No tasks yet')).toBeVisible();
+  await page.unroute('**/api/v1/tasks*');
+
+  await page.getByRole('textbox', { name: 'Add a task' }).fill('   ');
+  await page.getByRole('button', { name: 'Add task' }).click();
+  await expect(page.getByRole('alert')).toContainText('Invalid request');
+  await expect(page.getByText('No tasks yet')).toBeVisible();
+
+  await page.getByRole('textbox', { name: 'Add a task' }).fill('Valid after error');
+  await page.getByRole('button', { name: 'Add task' }).click();
+  await expect(page.getByText('Valid after error', { exact: true })).toBeVisible();
+});
+
+test('cursor pagination loads the complete collection without duplicating rows', async ({ page, request }) => {
+  for (let index = 0; index < 33; index++) {
+    const result = await request.post(api, {
+      headers: { Origin: origin() },
+      data: { title: 'Paged ' + index }
+    });
+    expect(result.status()).toBe(201);
+  }
+  await page.goto('/');
+  await expect(page.getByText('32 loaded', { exact: false })).toBeVisible();
+  await page.getByRole('button', { name: 'Load more tasks' }).click();
+  await expect(page.getByText('33 loaded', { exact: false })).toBeVisible();
+  await expect(page.getByText('All available pages loaded')).toBeVisible();
+  await expect(page.locator('li.task')).toHaveCount(33);
+});
+
+test('completed and open filters do not modify persisted state', async ({ page }) => {
+  await page.goto('/');
+  for (const title of ['Leave open', 'Mark done']) {
+    await page.getByRole('textbox', { name: 'Add a task' }).fill(title);
+    await page.getByRole('button', { name: 'Add task' }).click();
+    await expect(page.getByText(title, { exact: true })).toBeVisible();
+  }
+  await page.getByRole('checkbox', { name: 'Mark Mark done complete' }).check();
+  await page.getByRole('button', { name: 'Done', exact: true }).click();
+  await expect(page.getByText('Mark done', { exact: true })).toBeVisible();
+  await expect(page.getByText('Leave open', { exact: true })).toHaveCount(0);
+  await page.getByRole('button', { name: 'Open', exact: true }).click();
+  await expect(page.getByText('Leave open', { exact: true })).toBeVisible();
+  await expect(page.getByText('Mark done', { exact: true })).toHaveCount(0);
+  await page.getByRole('button', { name: 'All', exact: true }).click();
+  await expect(page.locator('li.task')).toHaveCount(2);
+});
