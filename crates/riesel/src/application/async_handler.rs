@@ -150,7 +150,11 @@ where
             ..
         } = self;
         application.run(move |context| {
-            run_scoped(context.session_token(), handler.invoke(context, &aliases))
+            run_scoped(
+                context.session_token(),
+                Some(context.async_tasks()),
+                handler.invoke(context, &aliases),
+            )
         })
     }
 
@@ -162,7 +166,11 @@ where
             ..
         } = self;
         application.run_from_env(move |context| {
-            run_scoped(context.session_token(), handler.invoke(context, &aliases))
+            run_scoped(
+                context.session_token(),
+                Some(context.async_tasks()),
+                handler.invoke(context, &aliases),
+            )
         })
     }
 }
@@ -170,18 +178,25 @@ where
 /// Every async entrypoint runs under the active application session.
 /// A managed crash revokes the token and drops the pending entrypoint
 /// immediately, even when it is waiting on unrelated async work.
-fn run_scoped<F>(session: SessionToken, future: F) -> std::result::Result<(), ConnectorError>
+fn run_scoped<F>(
+    session: SessionToken,
+    tasks: Option<crate::AsyncTasks>,
+    future: F,
+) -> std::result::Result<(), ConnectorError>
 where
     F: Future<Output = std::result::Result<(), ConnectorError>>,
 {
     let executor = tokio::runtime::Builder::new_current_thread()
         .enable_all()
         .build()?;
+    if let Some(tasks) = &tasks {
+        tasks.begin_scope()?;
+    }
     executor.block_on(async {
         let expiry = session.cancelled();
         let mut expiry = std::pin::pin!(expiry);
         let mut future = std::pin::pin!(future);
-        std::future::poll_fn(|cx| {
+        let outcome = std::future::poll_fn(|cx| {
             if expiry.as_mut().poll(cx).is_ready() {
                 return Poll::Ready(Err(Box::new(RpcError::SessionExpired) as ConnectorError));
             }
@@ -196,7 +211,20 @@ where
                 Poll::Pending => Poll::Pending,
             }
         })
-        .await
+        .await;
+        // Join every background future on this executor before its local
+        // providers and managed services can be released by RunningApp.
+        let joined = match tasks {
+            Some(tasks) => tasks.finish_scope().await.map_err(|error| {
+                Box::new(error) as ConnectorError
+            }),
+            None => Ok(()),
+        };
+        match (outcome, joined) {
+            (Err(error), _) => Err(error),
+            (Ok(()), Err(error)) => Err(error),
+            (Ok(()), Ok(())) => Ok(()),
+        }
     })
 }
 
@@ -215,6 +243,7 @@ mod tests {
         });
         let error = run_scoped(
             session,
+            None,
             std::future::pending::<std::result::Result<(), ConnectorError>>(),
         )
         .unwrap_err();
@@ -231,6 +260,6 @@ mod tests {
     #[test]
     fn completed_async_handler_returns_before_session_shutdown() {
         let session = SessionToken::new();
-        run_scoped(session, async { Ok(()) }).unwrap();
+        run_scoped(session, None, async { Ok(()) }).unwrap();
     }
 }
