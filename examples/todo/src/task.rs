@@ -1,5 +1,5 @@
-use riesel::{Record, Records, RieselModel, SdkError};
 use riesel::storage::StoreError;
+use riesel::{Record, Records, RieselModel, SdkError};
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 use uuid::Uuid;
@@ -197,7 +197,6 @@ mod tests {
         assert!(todo.get_task(created.id).unwrap().is_none());
     }
 
-
     #[test]
     fn title_edit_is_validated_and_increments_revision() {
         let todo = todo();
@@ -252,9 +251,7 @@ mod tests {
         assert_eq!(saved.value.title, "Reviewed");
         assert!(!saved.value.completed);
 
-        let completed = todo
-            .set_completed(saved.id, saved.revision, true)
-            .unwrap();
+        let completed = todo.set_completed(saved.id, saved.revision, true).unwrap();
         assert_eq!(completed.revision, 3);
         assert!(completed.value.completed);
         assert_eq!(completed.value.title, "Reviewed");
@@ -268,10 +265,7 @@ mod tests {
             todo.edit_title(id, 1, "Missing"),
             Err(TodoError::NotFound)
         ));
-        assert!(matches!(
-            todo.delete_task(id, 1),
-            Err(TodoError::NotFound)
-        ));
+        assert!(matches!(todo.delete_task(id, 1), Err(TodoError::NotFound)));
     }
 
     #[test]
