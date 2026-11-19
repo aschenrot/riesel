@@ -3,7 +3,7 @@
 //! A private Tokio executor belongs to a runtime session, never to user code.
 
 use super::{
-    Application, ApplicationParam, Context, DeploymentConfig, DeploymentPlan, Result, SdkError,
+    Application, ApplicationParam, Context, DeploymentConfig, DeploymentPlan, Result,
 };
 use crate::application::HandlerParams;
 use riesel_app::{ConnectorError, LocalProviderFactory};
