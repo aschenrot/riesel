@@ -4,7 +4,7 @@ use std::{env, path::Path, process};
 
 const RECORDS: TableDefinition<&str, u64> = TableDefinition::new("records");
 
-fn commit_sqlite(path: &Path) {
+fn commit_sqlite(path: &Path) -> ! {
     let conn = Connection::open(path).unwrap();
     conn.pragma_update(None, "journal_mode", "WAL").unwrap();
     conn.pragma_update(None, "synchronous", "FULL").unwrap();
@@ -20,9 +20,11 @@ fn commit_sqlite(path: &Path) {
         params!["task", &id[..], &revision[..], &b"committed"[..]],
     )
     .unwrap();
+    // Terminate while the connection remains alive; Drop never closes it.
+    process::exit(137);
 }
 
-fn commit_redb(path: &Path) {
+fn commit_redb(path: &Path) -> ! {
     let db = Database::create(path).unwrap();
     let mut write = db.begin_write().unwrap();
     write.set_durability(Durability::Immediate).unwrap();
@@ -31,6 +33,8 @@ fn commit_redb(path: &Path) {
         table.insert("task/after_ack", 1).unwrap();
     }
     write.commit().unwrap();
+    // Terminate while the database handle remains alive.
+    process::exit(137);
 }
 
 fn main() {
@@ -42,6 +46,4 @@ fn main() {
         "redb" => commit_redb(path),
         other => panic!("invalid engine {other}"),
     }
-    // Exit without dropping DB handles; 137 is distinct from a panic or ordinary exit.
-    process::exit(137);
 }
