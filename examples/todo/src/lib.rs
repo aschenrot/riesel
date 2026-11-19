@@ -1,3 +1,4 @@
+pub mod http;
 mod task;
 
 pub use task::{Task, TaskData, Todo, TodoError};
