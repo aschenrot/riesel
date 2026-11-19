@@ -425,16 +425,26 @@ mod tests {
             let group = AsyncTasks::new(SessionToken::new(), CancellationToken::default());
             group.begin_scope().unwrap();
             let completed = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+            let started = Arc::new(std::sync::atomic::AtomicUsize::new(0));
             for index in 0..MAX_BLOCKING_TASKS {
                 let flag = Arc::clone(&completed);
+                let started_by_worker = Arc::clone(&started);
                 group
                     .spawn_blocking(format!("thread-{index}"), move |cancel| {
+                        started_by_worker.fetch_add(1, Ordering::AcqRel);
                         assert!(cancel.wait_cancelled_timeout(Duration::from_secs(5)));
                         flag.fetch_add(1, Ordering::AcqRel);
                         Ok(())
                     })
                     .unwrap();
             }
+            tokio::time::timeout(Duration::from_secs(2), async {
+                while started.load(Ordering::Acquire) != MAX_BLOCKING_TASKS {
+                    tokio::task::yield_now().await;
+                }
+            })
+            .await
+            .unwrap();
             assert!(matches!(
                 group.spawn_blocking("ninth", |_| Ok(())),
                 Err(RuntimeError::TaskLimitExceeded {
