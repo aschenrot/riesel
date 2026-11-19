@@ -3,7 +3,7 @@
 use serde_json::{Value, json};
 use std::{
     io::{BufRead, BufReader, Read, Write},
-    net::TcpStream,
+    net::{TcpListener, TcpStream},
     path::Path,
     process::{Child, Command, Stdio},
     sync::mpsc,
@@ -356,4 +356,47 @@ fn ctrl_c_shuts_down_independent_backend_without_killing_browser_state() {
         thread::sleep(Duration::from_millis(20));
     };
     assert!(status.success(), "graceful HTTP shutdown failed: {status}");
+}
+
+
+#[test]
+fn failed_listener_bind_reports_error_without_ready_announcement() {
+    let occupied = TcpListener::bind("127.0.0.1:0").unwrap();
+    let port = occupied.local_addr().unwrap().port();
+    let dir = tempfile::tempdir().unwrap();
+    let database = dir.path().join("failure.db");
+    let output = Command::new(env!("CARGO_BIN_EXE_todo_http"))
+        .arg("--db")
+        .arg(&database)
+        .arg("--port")
+        .arg(port.to_string())
+        .output()
+        .unwrap();
+    assert!(!output.status.success(), "occupied port must fail startup");
+    assert!(
+        !String::from_utf8_lossy(&output.stdout).contains("TODO_HTTP_READY"),
+        "failed bind must never announce readiness"
+    );
+    let error = String::from_utf8_lossy(&output.stderr);
+    assert!(error.contains("bind") || error.contains("use") || error.contains("address"), "{error}");
+}
+
+#[test]
+fn disconnected_client_does_not_end_http_backend_or_auto_retry_writes() {
+    let dir = tempfile::tempdir().unwrap();
+    let server = Server::start(&dir.path().join("disconnect.db"));
+    let mut stream = TcpStream::connect(&server.authority).unwrap();
+    let body = r#"{"title":"Disconnected caller"}"#;
+    let wire = format!(
+        "POST /api/v1/tasks HTTP/1.1\r\nHost: {}\r\nOrigin: http://{}\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
+        server.authority, server.authority, body.len(), body
+    );
+    stream.write_all(wire.as_bytes()).unwrap();
+    drop(stream);
+    // Request cancellation is not transaction rollback. Either no record
+    // or one record may have committed, but the server remains responsive.
+    let (status, payload) = server.get("/api/v1/tasks");
+    assert_eq!(status, 200, "{payload}");
+    let data: Value = serde_json::from_str(&payload).unwrap();
+    assert!(data["records"].as_array().unwrap().len() <= 1);
 }

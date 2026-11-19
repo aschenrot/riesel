@@ -103,3 +103,51 @@ pub async fn serve(records: Records<TaskData>, tasks: AsyncTasks, port: u16) -> 
     }
     Ok(())
 }
+
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use riesel::Application;
+    use std::sync::atomic::AtomicBool;
+    use std::time::Duration;
+
+    /// HTTP requests cannot bypass the runtime's eight owned blocking slots.
+    /// In particular, denied operations must not execute after returning 503.
+    #[test]
+    fn exhausted_blocking_budget_rejects_request_without_executing_domain() {
+        Application::new("Todo HTTP blocking admission")
+            .async_handler(|records: Records<TaskData>, tasks: AsyncTasks| async move {
+                for number in 0..8 {
+                    tasks
+                        .spawn_blocking(format!("occupied-{number}"), |cancel| {
+                            let _ = cancel.wait_cancelled_timeout(Duration::from_secs(5));
+                            Ok(())
+                        })
+                        .unwrap();
+                }
+                let state = HttpState {
+                    records,
+                    tasks,
+                    authority: Arc::from("127.0.0.1:0"),
+                    next_request: Arc::new(AtomicU64::new(1)),
+                };
+                let executed = Arc::new(AtomicBool::new(false));
+                let observed = Arc::clone(&executed);
+                let result = state
+                    .invoke(move |todo| {
+                        observed.store(true, Ordering::SeqCst);
+                        todo.list_tasks()
+                    })
+                    .await;
+                assert!(matches!(result, Err(ApiError::Unavailable)));
+                assert!(!executed.load(Ordering::SeqCst));
+                Ok::<(), std::io::Error>(())
+            })
+            .unwrap()
+            .development()
+            .unwrap()
+            .run()
+            .unwrap();
+    }
+}
