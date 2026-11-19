@@ -9,6 +9,8 @@ pub struct RunningApp {
     pub(super) processes: Arc<Mutex<ProcessRegistry>>,
     pub(super) supervisor: ServiceMonitor,
     pub(super) tasks: TaskGroup,
+    #[cfg(feature = "async-tcp")]
+    pub(super) async_tasks: AsyncTasks,
     pub(super) session: SessionToken,
 }
 
@@ -27,7 +29,14 @@ impl RunningApp {
         if let Some(failure) = self.supervisor.check_now() {
             return Err(failure);
         }
-        self.tasks.failure().map_or(Ok(()), Err)
+        if let Some(failure) = self.tasks.failure() {
+            return Err(failure);
+        }
+        #[cfg(feature = "async-tcp")]
+        if let Some(failure) = self.async_tasks.failure() {
+            return Err(failure);
+        }
+        Ok(())
     }
 
     /// The revocable session identity shared by every capability handle.
@@ -47,6 +56,13 @@ impl RunningApp {
         self.tasks.spawn(name.into(), task)
     }
 
+    /// Obtain the session-owned async task spawner. Task admission is
+    /// possible only inside the application's active async handler scope.
+    #[cfg(feature = "async-tcp")]
+    pub fn async_tasks(&self) -> AsyncTasks {
+        self.async_tasks.clone()
+    }
+
     /// Share a cooperative cancellation token with long-running application
     /// work. When a required managed service exits, the token becomes set.
     pub fn cancellation_token(&self) -> CancellationToken {
@@ -62,6 +78,8 @@ impl RunningApp {
         // Revoke capability handles before joining application tasks.
         // Pending async I/O must be cancelled promptly during shutdown.
         self.session.invalidate();
+        #[cfg(feature = "async-tcp")]
+        self.async_tasks.close_for_shutdown();
         let tasks = self.tasks.join();
         // The monitor takes its final snapshot only after every task joined,
         // but before intentional managed-process teardown.
@@ -78,6 +96,10 @@ impl RunningApp {
             if let Err(failure) = result {
                 failures.push(failure);
             }
+        }
+        #[cfg(feature = "async-tcp")]
+        if let Some(failure) = self.async_tasks.failure() {
+            failures.push(failure);
         }
         match failures.len() {
             0 => Ok(()),
@@ -116,6 +138,8 @@ impl RunningApp {
         let shutdown = running.shutdown().err();
         let failure = running.supervisor.observed_failure();
         let task_failure = running.tasks.failure();
+        #[cfg(feature = "async-tcp")]
+        let task_failure = task_failure.or_else(|| running.async_tasks.failure());
 
         if let Some(failure) = failure {
             return Err(AppRunError::Supervision {
