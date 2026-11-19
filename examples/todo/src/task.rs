@@ -54,6 +54,16 @@ impl Todo {
         Ok(self.records.list()?)
     }
 
+    /// One bounded page for transport adapters; domain model and storage
+    /// semantics remain authoritative here, not in the HTTP layer.
+    pub fn list_tasks_page(
+        &self,
+        after: Option<Uuid>,
+        limit: u64,
+    ) -> Result<riesel::RecordPage<TaskData>, TodoError> {
+        Ok(self.records.list_page(after, limit)?)
+    }
+
     /// Update completion only if the caller's observed revision is current.
     /// An obsolete browser or CLI client must not silently overwrite newer data.
     pub fn set_completed(

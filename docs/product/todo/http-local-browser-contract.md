@@ -48,10 +48,10 @@ Prefix: `/api/v1`. JSON field names use snake_case. The HTTP layer calls the exi
 | `GET /tasks` | `after` optional UUID, `limit` bounded 1–32 | `200` `{records:[...],next_cursor:...}` |
 | `GET /tasks/{id}` | UUID path | `200` record |
 | `POST /tasks` | `{title:string}` | `201` record |
-| `PATCH /tasks/{id}` | `{revision:u64,title:string}` **or** `{revision:u64,completed:bool}`, exactly one change | `200` updated record |
-| `DELETE /tasks/{id}` | `{revision:u64}` | `204` no body |
+| `PATCH /tasks/{id}` | `{revision:string,title:string}` **or** `{revision:string,completed:bool}`, exactly one change | `200` updated record |
+| `DELETE /tasks/{id}` | `{revision:string}` | `204` no body |
 
-A record is `{id,revision,title,completed}`; list pagination uses the existing non-snapshot cursor contract. The HTTP adapter must preserve update/delete optimistic revision checks, **never** prefetch a new revision to silently retry. If pagination needs a new `Todo::list_tasks_page` helper, add it to the Rust domain rather than bypassing `Todo` in HTTP handlers.
+A record is `{id,revision,title,completed}`; `revision` is a **decimal string representing a full Rust `u64`** in both requests and responses, avoiding precision loss in JavaScript beyond `Number.MAX_SAFE_INTEGER`. The API rejects JSON numeric revisions and malformed/out-of-range decimal strings. This changes only the JSON wire representation, not optimistic concurrency semantics.  list pagination uses the existing non-snapshot cursor contract. The HTTP adapter must preserve update/delete optimistic revision checks, **never** prefetch a new revision to silently retry. If pagination needs a new `Todo::list_tasks_page` helper, add it to the Rust domain rather than bypassing `Todo` in HTTP handlers.
 
 All errors use `{error:{code,message}}` with stable short codes. Proposed mapping: `400` malformed input, `403` browser origin/Host rejected, `404` not found, `409` stale revision, `413` oversized, `415` wrong media type, `429/503` capacity/service unavailable, `500` unexpected backend failures. Final route and error fixtures should be reviewed before #18 starts; client messages must not expose raw database paths.
 
