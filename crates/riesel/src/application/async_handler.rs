@@ -5,12 +5,12 @@
 use super::{Application, ApplicationParam, Context, DeploymentConfig, DeploymentPlan, Result};
 use crate::application::HandlerParams;
 use riesel_app::{ConnectorError, LocalProviderFactory};
+use riesel_protocol::{RpcError, SessionToken};
 use riesel_schema::AppSchema;
 use std::future::Future;
 use std::marker::PhantomData;
 use std::pin::Pin;
 use std::task::Poll;
-use riesel_protocol::{RpcError, SessionToken};
 
 /// Run a typed async Rust function with owned per-session dependencies.
 pub trait AsyncApplicationHandler<Args> {
@@ -170,10 +170,7 @@ where
 /// Every async entrypoint runs under the active application session.
 /// A managed crash revokes the token and drops the pending entrypoint
 /// immediately, even when it is waiting on unrelated async work.
-fn run_scoped<F>(
-    session: SessionToken,
-    future: F,
-) -> std::result::Result<(), ConnectorError>
+fn run_scoped<F>(session: SessionToken, future: F) -> std::result::Result<(), ConnectorError>
 where
     F: Future<Output = std::result::Result<(), ConnectorError>>,
 {
@@ -222,7 +219,10 @@ mod tests {
         )
         .unwrap_err();
         assert!(
-            matches!(error.downcast_ref::<RpcError>(), Some(RpcError::SessionExpired)),
+            matches!(
+                error.downcast_ref::<RpcError>(),
+                Some(RpcError::SessionExpired)
+            ),
             "session expiry should remain a typed RPC failure"
         );
         worker.join().unwrap();
