@@ -68,12 +68,23 @@ This milestone depends on a production-appropriate persistent Storage implementa
 
 ### R2 — Independent graphical interface (planned)
 
-**Goal:** attach a GUI to running headless Todo application logic.
+**Goal:** let users manage tasks through a browser-based graphical interface while Todo's Rust application logic remains authoritative.
 
 Acceptance:
-- The UI is independently executable and does not own the task data model.
-- GUI and programmatic/CLI clients observe consistent task changes.
-- Closing a window does not implicitly terminate the application unless the user requests it.
+- Users can view, create, edit, complete/uncomplete, and delete tasks through the interface using the same domain rules as supported headless clients.
+- The UI does not own authoritative task state or reimplement Rust business validation. Other supported clients observe consistent task state on refresh; real-time subscriptions are not required.
+- Mutations based on stale record revisions are rejected and presented as conflicts, not silently applied to newer task state.
+- The browser client can open, close, and reconnect without implicitly terminating the long-lived headless backend.
+- Validation, revision conflicts, and connectivity failures are understandable; the interface supports responsive layouts and keyboard interaction.
+- Browser access has a defined, tested security boundary; a development-only local interface does not imply permission to expose an unauthenticated public server.
+- Essential task workflows are covered by browser/API integration tests.
+- R1's persistent Storage and restart acceptance criteria must pass before R2 can be marked a usable product. A clearly identified ephemeral development prototype may precede R1.
+
+**Initial implementation:** SvelteKit as a browser frontend, a small Todo-specific Rust HTTP adapter, and static frontend assets served from the same origin for the initial local deployment. This is a delivery choice, not a requirement that Riesel adopt SvelteKit or a generic web server abstraction.
+
+**Deferred:** PWA installation, offline editing/synchronization, push notifications, real-time subscriptions, desktop packaging, and remote-user deployment.
+
+Delivery work: [Todo browser API and backend lifecycle](https://github.com/aschenrot/riesel/issues/17) and [Todo SvelteKit browser interface](https://github.com/aschenrot/riesel/issues/18).
 
 ## Scope boundaries
 
