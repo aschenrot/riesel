@@ -14,7 +14,7 @@ riesel = { workspace = true, features = ["dev-memory-storage", "sqlite-storage",
 thiserror.workspace = true
 uuid.workspace = true
 serde.workspace = true
-axum = { version = "=0.8.9", default-features = false, features = ["http1", "json", "tokio"], optional = true }
+axum = { version = "=0.8.9", default-features = false, features = ["http1", "json", "query", "tokio"], optional = true }
 tokio = { workspace = true, features = ["signal", "macros"], optional = true }
 
 [dev-dependencies]

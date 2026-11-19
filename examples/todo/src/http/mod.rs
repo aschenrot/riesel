@@ -5,6 +5,7 @@ mod security;
 use crate::{TaskData, Todo, TodoError};
 use riesel::{AsyncTasks, Records};
 use routes::ApiError;
+use std::future::IntoFuture;
 use std::io::{self, Write};
 use std::net::Ipv4Addr;
 use std::sync::Arc;
@@ -86,7 +87,9 @@ pub async fn serve(records: Records<TaskData>, tasks: AsyncTasks, port: u16) -> 
         let _ = tokio::signal::ctrl_c().await;
         let _ = stopping.send(());
     };
-    let server = axum::serve(listener, router(state)).with_graceful_shutdown(signal);
+    let server = axum::serve(listener, router(state))
+        .with_graceful_shutdown(signal)
+        .into_future();
     tokio::pin!(server);
     tokio::select! {
         result = &mut server => result?,
