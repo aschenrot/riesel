@@ -64,10 +64,12 @@ must support explicit factories; `Default` is only the convenience case.
 
 - Generated handles should be ergonomically named `CounterHandle`, using a
   shared type-safe binding implementation, not a second runtime.
-- Async-first capability calls are a **future target**. Existing RPC code is
-  synchronous; do not wrap blocking network I/O in an async function and
-  claim nonblocking execution. Support actual async scheduling, transport,
-  cancellation and resource budgets before enabling async entrypoints.
+- Native async capabilities, a nonblocking Tokio transport and typed async
+  application handlers are **partially implemented**. Startup inspection
+  remains synchronous and native async local/managed component parity is
+  still missing. Do not wrap blocking network I/O in an async function
+  and claim nonblocking execution; complete supervision, cancellation and
+  resource budgets before finalizing the high-level app macro.
 - Preserve separate domain versus transport/cancellation/session-expiry
   failures. `AppResult` may simplify `?` but must retain structured source
   errors and allow user-defined error types.
@@ -207,3 +209,33 @@ session-driven cancellation.
 
 Verified workspace validation, async Counter integration and managed
 synchronous smoke: https://github.com/aschenrot/riesel/actions/runs/44423972358
+
+## Typed async handler progress (verified 2026-11-19)
+
+An application can now write a typed asynchronous Rust function without
+creating a Tokio runtime manually:
+
+```rust
+Application::new("Counter")
+    .async_handler_with_aliases(
+        |counter: AsyncCapability<CounterContract>| async move {
+            counter.add(3).await?;
+            Ok::<_, riesel_protocol::CallError<CounterError>>(())
+        },
+        ["counter"],
+    )?
+    .deployment(explicit_config)
+    .run()?;
+```
+
+The `async-tcp` SDK feature is optional. This is an intermediate API:
+the application session owns the Tokio executor and cancellation, but
+startup contract inspection is still synchronous. Local async components
+must be generated and integrated with the same resolver before the final
+`#[riesel::app]` entrypoint is ready. Colliding sync/async connectors fail
+during registration; an incompatible local-only async selection fails in
+preflight, not after a provider starts. No global provider discovery,
+automatic retries or extra runtime is introduced.
+
+Verified Linux checks and managed smoke:
+https://github.com/aschenrot/riesel/actions/runs/44429849161

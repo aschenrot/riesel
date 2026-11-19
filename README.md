@@ -35,11 +35,14 @@ The framework's development Storage feature is disabled by default.
 expose typed async RPC clients using `AsyncRpcTransport`. The optional
 `riesel_protocol/async-tcp` feature supplies a real nonblocking Tokio TCP
 client with bounded requests, session checking and explicit cancellation by
-dropping futures. The native async capability macro also generates local clients and async
-dispatchers, and an optional bounded Tokio host can run them. However the
-application provider registry and supervised managed-service lifecycle are
-still synchronous; the accepted `#[riesel::app] async fn` syntax is not yet
-implemented. See
+dropping futures. The native async capability macro generates local clients and async
+dispatchers; an optional bounded Tokio host can run them. The SDK's optional
+`async-tcp` feature now includes typed `AsyncCapability<C>` injection and
+`Application::async_handler`, which owns the Tokio executor for each
+application session. Managed-child failure revokes pending Tokio RPC and
+entrypoint futures. Native async component registration and supervised
+async server hosting are **not yet integrated**, and the accepted
+`#[riesel::app] async fn` syntax is still a target. See
 [async execution contract](docs/product/riesel/async-execution-contract.md).
 The Todo example explicitly opts into `dev-memory-storage`, and validation
 also tests `riesel` independently with `--no-default-features`.

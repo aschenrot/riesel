@@ -26,9 +26,10 @@ mandatory ECS, transport object or executor type in the default authoring API.
   A timed-out command may have executed on the provider.
 - `SessionToken` is checked before and after calls, including after waiting
   for a semaphore. Escaped async handles reject calls after session expiry.
-  A session invalidated during I/O is detected once the current operation
-  completes or times out; **in-flight calls are not yet cancelled promptly
-  by session invalidation itself**.
+  The optional Tokio TCP client now races pending I/O and semaphore waits
+  against invalidation; revoking a session immediately drops those futures.
+  The cancellation does **not** prove that a previously transmitted command
+  was not executed. Synchronous transports remain cooperatively bounded.
 - `CallError<E>` still separates declared domain errors from RPC failures.
   Async contract shape checks and advertised provider metadata are
   inspection, not authentication or authorization.
@@ -58,6 +59,34 @@ mandatory ECS, transport object or executor type in the default authoring API.
   application manager have not been changed. Evidence:
   https://github.com/aschenrot/riesel/actions/runs/44423972358
 
+## Typed async application execution now verified
+
+- The existing supervisor now invalidates the same `SessionToken` carried
+  by typed service handles on managed-child failure; shutdown also revokes
+  the token before task joins. Tests cover child failure, racing async
+  cancellation subscribers, pending TCP read and semaphore admission.
+- The Rust SDK's optional `async-tcp` feature exposes
+  `AsyncCapability<C>`, `Application::async_rpc::<C>`, and
+  `Application::async_handler` /
+  `Application::async_handler_with_aliases`. These use the *same*
+  application schema and provider resolver as synchronous handlers, reject
+  conflicting connector modes and preserve contract-derived aliases.
+- A runtime-session-owned current-thread Tokio executor runs each async
+  handler. On session invalidation the pending entrypoint future is dropped,
+  even when waiting on unrelated async work. Whole-session recovery uses
+  new handles, not retries of individual business commands.
+- Remote contract/provider inspection during startup still calls bounded
+  **synchronous** TCP before constructing the nonblocking Tokio client.
+  This is not a fully async startup pipeline. Local sync-only components are
+  rejected for an async-only binding during deployment preflight instead of
+  failing after startup with a Rust downcast error.
+- Real Counter tests exercise the typed async application handler through
+  the existing TCP endpoint, session expiry after teardown, ambiguous
+  transport-mode registration and invalid local selection. Additional tests
+  cover zero-argument async handlers, alias-count errors and cancellation
+  of an otherwise indefinitely pending handler future. Evidence:
+  https://github.com/aschenrot/riesel/actions/runs/44429849161
+
 ## Remaining engineering decisions and required behavior
 
 ### 1. Component registration and supervised runtime parity
@@ -75,21 +104,20 @@ Tests must call the same native async capability locally and through a
 manager-owned process without application-level transport wiring. Blocking
 implementation code needs an explicit blocking boundary.
 
-### 2. Session ownership, cancellation and execution policy
+### 2. Session ownership, background tasks and execution policy
 
-Introduce runtime-owned async tasks with bounded concurrency, join/cancel
-semantics and observable failures, rather than detached `tokio::spawn`
-work. Define which runtime owns the Tokio executor and how it is configured
-for CLI, service and future game workloads.
+The SDK now owns a current-thread Tokio executor per async application
+session and cancels its entrypoint future on session invalidation.
+**Still required:** session-owned async background task groups, bounded
+concurrency, joining and structured task error propagation, integrated with
+the existing Rust-thread task group and service manager. Do not introduce
+detached `tokio::spawn` work or hide blocking operations in the executor.
 
-A failed managed child must promptly cancel dependent pending async calls.
-Dropping a future is cancellation of waiting and socket ownership, **not**
-proof that the provider did not execute the command. Keep opt-in whole-session
-recovery and no implicit business-command replay.
-
-Every async client must be tied to the active session before application
-code receives it. Stale clones and results from a stopped session must not
-escape. Cancellation, timers and error sources must remain structured.
+A failed managed child now promptly cancels dependent pending Tokio TCP
+calls and the pending async entrypoint. Dropping a future cancels waiting
+and socket ownership, **not** proof that the provider did not execute the
+command. Preserve opt-in whole-session recovery and no command replay.
+Keep structured domain/transport/session errors and stale-clone rejection.
 
 ### 3. Developer-facing injection and error model
 
@@ -120,9 +148,10 @@ not change that security posture.
 2. Genuine nonblocking calls and bounded provider execution work for
    standalone local and Tokio host scenarios (**implemented**); supervised
    local/managed parity remains.
-3. Runtime-owned task lifecycle, session invalidation and prompt cooperative
-   cancellation pass deterministic tests, including live managed-child crash
-   (**not yet implemented**).
+3. Session invalidation on managed-child failure and prompt async RPC /
+   entrypoint cancellation are **implemented and tested**. Bounded
+   runtime-owned asynchronous background tasks and manager-owned native
+   async host lifecycle are **not yet implemented**.
 4. Domain/transport/cancellation/session errors remain distinguishable;
    no automatic command retry, even after timeout.
 5. Generated async bindings derive the same validated contract and provider

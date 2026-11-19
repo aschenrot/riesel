@@ -61,7 +61,7 @@ examples in that document do not imply macros or async handles already exist.
 | 5.1 | Identity and injection semantics, API contract, compatibility and lifecycle rules | Complete on Linux | Contract recorded; deterministic private ID and stable external Counter/Storage IDs verified |
 | 5.2 | Type-driven dependency extraction, aliases, record-model bindings | Complete on Linux | Function handlers register/extract typed dependencies; Counter (local/managed), Todo, alias/error and schema-equivalence tests pass |
 | 5.3 | Generated local/managed component adapters | Complete on Linux | `#[component]` generates registration; Counter/Observer share state locally and managed; custom factories, private IDs and missing-impl compile-fail test validated |
-| 5.4 | Async transport, generated handles, cancellation and error propagation | In progress — native async contract and standalone host verified | Native async Rust declarations, generated local handles/dispatchers, bounded nonblocking Tokio client and host; component/runtime lifecycle integration remains |
+| 5.4 | Async transport, generated handles, cancellation and error propagation | In progress — typed async app execution and cancellation verified | Native async contracts; Tokio RPC client/standalone host; manager-linked session invalidation; typed async remote injection and app-owned entrypoint executor; async local component and managed async host integration remain |
 | 5.5 | Deterministic provider catalog and deployment configuration | Not started | Linked, managed and remote providers selected explicitly; preflight rejects missing/ambiguous/untrusted choices |
 | 5.6 | `#[riesel::app]` and ergonomic model/Records injection | Not started | Minimal Counter and Todo examples compile with generated requirements; builder equivalent |
 | 5.7 | Optional modules and lifecycle handlers | Not started | Multi-module app with ordering, conflict detection, cancellation and bounded shutdown |
@@ -133,16 +133,35 @@ CI run [44423972358](https://github.com/aschenrot/riesel/actions/runs/4442397235
 passed Linux validation and managed-process smoke. Existing Counter/Storage
 wire IDs and synchronous APIs remain unchanged.
 
-**Stage 5.4 remains open:** The `#[component]` macro and `ComponentDefinition`
-still register synchronous bindings; native async components cannot yet be
-selected or supervised through the application runtime. The standalone async
-TCP host is not a managed-process host. Runtime-owned async handlers/tasks,
-prompt cancellation of in-flight calls when a session is invalidated,
-provider lifecycle/shutdown integration and the final `#[riesel::app]`
-async entrypoint remain missing. The next implementation slice must connect
-generated async component bindings to **the existing** provider resolver and
-session ownership, rather than create a parallel application runtime.
-See [async execution contract](async-execution-contract.md).
+**Stage 5.4 typed async application slice verified (2026-11-19):**
+`SessionToken::cancelled()` now wakes pending Tokio RPC calls immediately,
+including requests stalled on the outbound concurrency limiter. The existing
+managed-service monitor revokes that token on child failure, while normal
+shutdown revokes it before joining tasks. Rust SDK `AsyncCapability<C>` and
+`Application::async_rpc::<C>()` reuse the existing requirement, provider,
+deployment and session resolver, with explicit transport-mode collision
+checks and rejection of incompatible local bindings in preflight.
+`Application::async_handler(...)` and
+`async_handler_with_aliases(...)` now run typed `async move` Rust functions
+in a Tokio executor **owned per application session**, without caller-supplied
+`block_on`. Pending handler futures are cancelled upon session expiry and
+freshly invoked after opt-in whole-session recovery.
+Counter tests verify typed remote async calls through real TCP, structured
+errors, provider metadata and stale-handle rejection. Deterministic tests
+cover session races, cancellation of pending I/O and application entrypoints.
+CI run [44429849161](https://github.com/aschenrot/riesel/actions/runs/44429849161)
+passed Linux workspace validation and managed-process smoke tests.
+
+**Stage 5.4 remains open:** Native async `#[component]` registration still
+lacks the local adapter/managed host integration required for one declarative
+component to run identically in both modes; the standalone async server is
+not a manager-owned child. The async entrypoint's startup inspection still
+uses bounded synchronous RPC, and independent runtime-owned async background
+tasks are not implemented. No final `#[riesel::app] async fn` macro exists.
+The next implementation gate is unify generated async component local/hosted
+bindings with the **existing** provider resolver and supervised lifecycle,
+not introduce an unrelated service runtime. See
+[async execution contract](async-execution-contract.md).
 
 **Sequencing:** 5.1 is a gate for 5.2–5.8. Component adapters can follow
 parallel to dependency extraction after their shared contract is settled;
