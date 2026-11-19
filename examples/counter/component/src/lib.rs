@@ -120,7 +120,8 @@ impl riesel_counter::AsyncCounterObserver for AsyncMemoryCounter {
 
 /// Both async contracts derive their local and managed adapters from the same
 /// generated component declaration.
-pub fn memory_async_counter_provider() -> Result<ComponentDefinition<AsyncMemoryCounter>, ConnectorError> {
+pub fn memory_async_counter_provider()
+-> Result<ComponentDefinition<AsyncMemoryCounter>, ConnectorError> {
     AsyncMemoryCounter::component_definition()
 }
 
