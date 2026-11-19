@@ -2,6 +2,8 @@
 //! Connectors implement transport-specific discovery and typed service creation;
 //! this module owns validation, resolution, and the resulting service lifetimes.
 
+#[cfg(feature = "async-tcp")]
+use crate::AsyncTasks;
 use crate::plan::{DeploymentPlan, PlannedService, PlannedTarget};
 use crate::recovery::run_with_recovery;
 use crate::supervisor::{CancellationToken, ServiceMonitor};
