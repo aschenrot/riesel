@@ -10,7 +10,7 @@ publish = false
 default = []
 records = ["dep:riesel_storage"]
 dev-memory-storage = ["records", "dep:riesel_storage_component"]
-async-tcp = ["riesel_protocol/async-tcp", "dep:tokio"]
+async-tcp = ["riesel_protocol/async-tcp", "riesel_app/async-tcp", "dep:tokio"]
 
 [dependencies]
 serde.workspace = true
