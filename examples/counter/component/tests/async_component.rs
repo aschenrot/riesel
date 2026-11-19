@@ -290,3 +290,54 @@ fn native_async_managed_crash_cancels_tasks_and_restarts_fresh_session() {
     assert!(marker.exists(), "the child must actually have crashed once");
     assert!(cancelled_task_dropped.load(Ordering::Acquire));
 }
+
+fn exercise_blocking_boundary(deployment: Option<DeploymentConfig>) {
+    use riesel::{AsyncTasks, ConnectorError};
+
+    let prepared = Application::new("BlockingTaskBoundary")
+        .async_handler_with_aliases(
+            |counter: AsyncCapability<AsyncCounterContract>, tasks: AsyncTasks| async move {
+                let (sender, receiver) = tokio::sync::oneshot::channel::<u64>();
+                tasks.spawn_blocking("blocking-computation", move |cancel| {
+                    if cancel.is_cancelled() {
+                        return Err(std::io::Error::other("cancelled before execution").into());
+                    }
+                    let _ = sender.send(6);
+                    Ok(())
+                })?;
+                // This await continues on the application's Tokio executor
+                // while the blocking worker runs in its bounded thread pool.
+                let increment = receiver.await?;
+                assert_eq!(counter.add(increment).await?, 6);
+                Ok::<(), ConnectorError>(())
+            },
+            ["counter", "tasks"],
+        )
+        .unwrap()
+        .component::<AsyncMemoryCounter>()
+        .unwrap();
+    match deployment {
+        Some(config) => prepared.deployment(config).run().unwrap(),
+        None => prepared.run().unwrap(),
+    }
+}
+
+#[test]
+fn blocking_work_can_feed_linked_native_async_component() {
+    exercise_blocking_boundary(None);
+}
+
+#[test]
+fn blocking_work_can_feed_managed_native_async_component() {
+    let deployment = DeploymentConfig::new(BTreeMap::from([(
+        "counter".into(),
+        ServiceEndpoint::Managed {
+            instance: None,
+            program: std::path::PathBuf::from(env!("CARGO_BIN_EXE_async_counter_service")),
+            args: Vec::new(),
+            startup_timeout_ms: 10_000,
+            shutdown_timeout_ms: 2_000,
+        },
+    )]));
+    exercise_blocking_boundary(Some(deployment));
+}
