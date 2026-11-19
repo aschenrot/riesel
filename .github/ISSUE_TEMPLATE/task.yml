@@ -1,0 +1,46 @@
+name: Engineering task
+description: Propose an actionable change with explicit acceptance criteria.
+title: "[Task] "
+body:
+  - type: markdown
+    attributes:
+      value: "Describe a verifiable outcome, not a list of unrelated code edits. Reference the product requirement or delivery stage where appropriate."
+  - type: textarea
+    id: outcome
+    attributes:
+      label: Outcome
+      description: What result is needed and why?
+      placeholder: "The user or developer can..."
+    validations:
+      required: true
+  - type: textarea
+    id: scope
+    attributes:
+      label: Scope and exclusions
+      description: Define the intended boundary; call out material exclusions.
+    validations:
+      required: true
+  - type: textarea
+    id: acceptance
+    attributes:
+      label: Acceptance criteria
+      description: Observable results and how they will be verified.
+      placeholder: |
+        - [ ] Behavior is covered by relevant tests.
+        - [ ] Documentation reflects the implemented contract.
+    validations:
+      required: true
+  - type: textarea
+    id: dependencies
+    attributes:
+      label: Dependencies, risks, or decisions
+      description: Include only material blockers, dependencies, or design choices.
+    validations:
+      required: false
+  - type: textarea
+    id: evidence
+    attributes:
+      label: Evidence and related work
+      description: Link relevant tests, documents, issues, or PRs when known.
+    validations:
+      required: false
