@@ -270,6 +270,8 @@ fn with_exiting_managed_child() -> RunningApp {
         processes,
         supervisor,
         tasks,
+        #[cfg(feature = "async-tcp")]
+        async_tasks: AsyncTasks::new(SessionToken::new(), CancellationToken::default()),
         session: SessionToken::new(),
     }
 }
@@ -353,6 +355,8 @@ fn managed_failure_during_task_join_is_not_missed() {
         processes,
         supervisor,
         tasks,
+        #[cfg(feature = "async-tcp")]
+        async_tasks: AsyncTasks::new(SessionToken::new(), CancellationToken::default()),
         session: SessionToken::new(),
     };
     let result = RunningApp::execute(running, |running| {
