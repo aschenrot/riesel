@@ -14,7 +14,7 @@ Provider-catalog choices and direct deployment configuration compile into the sa
 
 - Start requirements in validated dependency order. Local factories build shared component state as declared; managed binaries start with an OS-assigned loopback endpoint.
 - Managed providers advertise a bounded readiness frame with their declared contract/provider metadata. The runtime validates it, but this channel is not cryptographic proof of identity.
-- Failed startup rolls back already started components/services, including healthy siblings, without leaking a partially started application session.
+- Failed startup revokes the partial session, closes/joins provider-owned blocking work, and stops already started managed children, including healthy siblings. If rollback fails, `RuntimeError::StartupRollback` retains the original startup error as its source and exposes cleanup failures separately; `ProcessRegistry::Drop` remains the last-resort cleanup fallback.
 - The runtime monitors unexpected exits of required managed children. A required child's exit invalidates that application session and signals its cancellation token.
 - External TCP providers are not supervised as owned children; current lifecycle guarantees must not be described as external-service health monitoring.
 

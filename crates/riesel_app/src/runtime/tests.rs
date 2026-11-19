@@ -1021,3 +1021,161 @@ fn startup_message_is_length_bounded() {
     payload.push(b'\n');
     assert!(await_ready(std::io::Cursor::new(payload), Duration::from_secs(1),).is_err());
 }
+
+#[cfg(feature = "async-tcp")]
+struct PanickingBlockingLocal;
+
+#[cfg(feature = "async-tcp")]
+impl LocalProviderFactory for PanickingBlockingLocal {
+    fn definition(&self) -> Result<ProviderDefinition, ConnectorError> {
+        LocalCounter("example.counter.panicking").definition()
+    }
+
+    fn contracts(&self) -> Result<Vec<CapabilityContract>, ConnectorError> {
+        Ok(vec![contract(1)])
+    }
+
+    fn create(&self) -> Result<LocalProviderInstance, ConnectorError> {
+        LocalCounter("example.counter.panicking").create()
+    }
+
+    fn create_with_session(
+        &self,
+        session: SessionToken,
+    ) -> Result<LocalProviderInstance, ConnectorError> {
+        let blocking = ProviderBlocking::new(session);
+        // Keep the fixture valid for synchronous and asynchronous startup:
+        // an async start already has an active Tokio runtime on this thread.
+        let worker = blocking.clone();
+        let error = std::thread::spawn(move || {
+            let executor = tokio::runtime::Builder::new_current_thread()
+                .enable_all()
+                .build()
+                .unwrap();
+            executor.block_on(worker.run("fixture-failure", |_| -> () {
+                panic!("injected provider worker panic")
+            }))
+        })
+        .join()
+        .unwrap();
+        assert!(error.is_err());
+        Ok(self.create()?.with_blocking(blocking))
+    }
+}
+
+#[cfg(feature = "async-tcp")]
+struct InvalidAsyncRemote;
+
+#[cfg(feature = "async-tcp")]
+impl CapabilityConnector for InvalidAsyncRemote {
+    fn contract(&self) -> Result<CapabilityContract, ConnectorError> {
+        Ok(contract(1))
+    }
+
+    fn connect(
+        &self,
+        _endpoint: &ServiceEndpoint,
+        _session: &SessionToken,
+    ) -> Result<ConnectedProvider, ConnectorError> {
+        Ok(ConnectedProvider {
+            definition: ProviderDefinition {
+                id: "example.invalid.remote".into(),
+                capabilities: vec![contract(2).capability],
+            },
+            contract: contract(2),
+            service: Box::new(Arc::new(23_u64)),
+        })
+    }
+
+    fn supports_async_startup(&self) -> bool {
+        true
+    }
+
+    fn connect_async<'a>(
+        &'a self,
+        endpoint: &'a ServiceEndpoint,
+        session: &'a SessionToken,
+    ) -> std::pin::Pin<
+        Box<
+            dyn std::future::Future<Output = Result<ConnectedProvider, ConnectorError>> + Send + 'a,
+        >,
+    > {
+        // This fixture produces a value in memory; there is no blocking I/O.
+        Box::pin(async move { self.connect(endpoint, session) })
+    }
+}
+
+#[cfg(feature = "async-tcp")]
+fn rollback_fixture() -> (App, DeploymentConfig, ConnectorRegistry) {
+    let app = App::from_schema(
+        r#"{"version":1,"app":{"name":"Rollback"},"models":{},
+            "requires":[
+                {"name":"first","capability":{"id":"example.counter","version":1}},
+                {"name":"later","capability":{"id":"example.counter","version":1},
+                 "depends_on":["first"]}
+            ]}"#,
+    )
+    .unwrap();
+    let config = DeploymentConfig::new(BTreeMap::from([
+        (
+            "first".into(),
+            ServiceEndpoint::Local {
+                provider: "example.counter.panicking".into(),
+            },
+        ),
+        (
+            "later".into(),
+            ServiceEndpoint::Tcp {
+                address: "127.0.0.1:47911".parse().unwrap(),
+            },
+        ),
+    ]));
+    let mut registry = ConnectorRegistry::new();
+    registry.register_local(PanickingBlockingLocal).unwrap();
+    registry.register(InvalidAsyncRemote).unwrap();
+    (app, config, registry)
+}
+
+#[cfg(feature = "async-tcp")]
+fn assert_startup_and_rollback_errors(error: RuntimeError) {
+    use std::error::Error;
+
+    let RuntimeError::StartupRollback { startup, cleanup } = &error else {
+        panic!("the primary startup and provider cleanup errors must both survive: {error}");
+    };
+    assert!(matches!(
+        startup.as_ref(),
+        RuntimeError::RemoteContractMismatch { requirement }
+            if requirement == "later"
+    ));
+    assert!(matches!(
+        cleanup.as_ref(),
+        RuntimeError::ProviderBlockingShutdown { source }
+            if source.to_string().contains("fixture-failure")
+    ));
+    assert!(Error::source(&error).is_some_and(|source| source.to_string().contains("later")));
+}
+
+#[cfg(feature = "async-tcp")]
+#[test]
+fn synchronous_startup_preserves_original_and_provider_cleanup_failures() {
+    let (app, config, registry) = rollback_fixture();
+    let Err(error) = app.start(&config, &registry) else {
+        panic!("late contract mismatch must fail after local provider construction");
+    };
+    assert_startup_and_rollback_errors(error);
+}
+
+#[cfg(feature = "async-tcp")]
+#[test]
+fn asynchronous_startup_preserves_original_and_provider_cleanup_failures() {
+    let (app, config, registry) = rollback_fixture();
+    let executor = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .unwrap();
+    let Err(error) = executor.block_on(app.start_async(&config, &registry)) else {
+        panic!("late async contract mismatch must report provider cleanup failures");
+    };
+    assert_startup_and_rollback_errors(error);
+}

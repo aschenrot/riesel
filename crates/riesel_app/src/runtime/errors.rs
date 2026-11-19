@@ -108,6 +108,12 @@ pub enum RuntimeError {
     },
     #[error("failed to shut down managed processes: {0}")]
     Shutdown(io::Error),
+    #[error("startup failed: {startup}; rollback also failed: {cleanup}")]
+    StartupRollback {
+        #[source]
+        startup: Box<RuntimeError>,
+        cleanup: Box<RuntimeError>,
+    },
     #[cfg(feature = "async-tcp")]
     #[error("provider-owned blocking work failed to join cleanly: {source}")]
     ProviderBlockingShutdown {
