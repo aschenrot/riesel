@@ -511,3 +511,74 @@ fn async_only_remote_binding_rejects_incompatible_local_provider_during_prefligh
         })) if requirement == alias
     ));
 }
+
+#[test]
+fn async_connector_inspection_yields_to_tokio_and_preserves_provider_identity() {
+    use riesel::{AsyncRpcConnector, CapabilityConnector, ServiceEndpoint};
+    use riesel_protocol::{AsyncRpcClientBinding, RpcHost, SessionToken};
+
+    let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+    let address = listener.local_addr().unwrap();
+    let server = thread::spawn(move || {
+        let host = RpcHost::new(
+            riesel_counter_component::memory_provider_definition().unwrap(),
+            CounterRpcDispatcher::new(MemoryCounter::default()),
+        )
+        .unwrap();
+        for _ in 0..2 {
+            let (mut socket, _) = listener.accept().unwrap();
+            // Both metadata responses are deliberately delayed. The async
+            // connector must yield its Tokio executor while the server waits.
+            thread::sleep(Duration::from_millis(80));
+            handle_tcp_connection(&host, &mut socket).unwrap();
+        }
+    });
+
+    let connector = AsyncRpcConnector::<CounterContract>::new();
+    let endpoint = ServiceEndpoint::Tcp { address };
+    let session = SessionToken::new();
+    let executor = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .unwrap();
+    let result = executor.block_on(async {
+        let future = connector.connect_async(&endpoint, &session);
+        let mut future = std::pin::pin!(future);
+        assert!(
+            tokio::time::timeout(Duration::from_millis(20), &mut future)
+                .await
+                .is_err(),
+            "remote inspection must not block the Tokio executor"
+        );
+        future.await.unwrap()
+    });
+    server.join().unwrap();
+    assert_eq!(result.definition.id, "riesel.counter.memory");
+    assert!(result.contract.has_same_api_shape(&CounterContract::definition().unwrap()));
+    assert!(result.service.is::<<CounterContract as AsyncRpcClientBinding>::Service>());
+}
+
+#[test]
+fn async_connector_rejects_expired_session_before_network_inspection() {
+    use riesel::{AsyncRpcConnector, CapabilityConnector, ServiceEndpoint};
+    use riesel_protocol::{RpcError, SessionToken};
+
+    let session = SessionToken::new();
+    session.invalidate();
+    let connector = AsyncRpcConnector::<CounterContract>::new();
+    let endpoint = ServiceEndpoint::Tcp {
+        address: "127.0.0.1:1".parse().unwrap(),
+    };
+    let executor = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .unwrap();
+    let error = match executor.block_on(connector.connect_async(&endpoint, &session)) {
+        Ok(_) => panic!("expired session was allowed to connect"),
+        Err(error) => error,
+    };
+    assert!(matches!(
+        error.downcast_ref::<RpcError>(),
+        Some(RpcError::SessionExpired)
+    ));
+}
