@@ -100,6 +100,8 @@ pub enum RuntimeError {
     Shutdown(io::Error),
     #[error("could not launch managed service monitor: {0}")]
     MonitorStart(io::Error),
+    #[error("could not construct asynchronous startup executor: {0}")]
+    StartupExecutor(io::Error),
     #[error("managed service monitor thread panicked")]
     MonitorPanicked,
     #[error("managed service registry was poisoned during monitoring")]
