@@ -41,7 +41,7 @@ impl App {
         deployment: &DeploymentConfig,
         connectors: &ConnectorRegistry,
     ) -> Result<RunningApp, RuntimeError> {
-        let mut startup = StartupState::new(self, deployment, connectors)?;
+        let mut startup = StartupState::new_async(self, deployment, connectors)?;
         for index in 0..startup.len() {
             let remote = match startup.prepare(index)? {
                 StartupStep::Local => continue,
