@@ -365,7 +365,10 @@ mod tests {
             });
             receiver.recv_timeout(Duration::from_secs(1)).unwrap();
             thread::sleep(Duration::from_millis(20));
-            assert!(!second.is_finished(), "second closer returned before the join");
+            assert!(
+                !second.is_finished(),
+                "second closer returned before the join"
+            );
             first.join().unwrap();
             second.join().unwrap();
             assert!(finished.load(Ordering::Acquire));
