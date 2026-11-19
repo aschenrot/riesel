@@ -2,9 +2,7 @@
 //! declaration and extraction mechanism as synchronous handler functions.
 //! A private Tokio executor belongs to a runtime session, never to user code.
 
-use super::{
-    Application, ApplicationParam, Context, DeploymentConfig, DeploymentPlan, Result,
-};
+use super::{Application, ApplicationParam, Context, DeploymentConfig, DeploymentPlan, Result};
 use crate::application::HandlerParams;
 use riesel_app::{ConnectorError, LocalProviderFactory};
 use riesel_schema::AppSchema;
