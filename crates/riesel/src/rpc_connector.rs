@@ -104,7 +104,10 @@ impl<C: AsyncRpcClientBinding> CapabilityConnector for AsyncRpcConnector<C> {
         // Startup/selection is synchronous today; inspect the remote
         // contract before returning a nonblocking business-call transport.
         // Both paths use the same capability ID, provider and session.
-        let inspection = TcpRpcTransport::with_session(address, session.clone());
+        // Startup inspection is one-shot, so do not pool temporary TCP
+        // sockets; single-request hosts and managed multiplexers both work.
+        session.check()?;
+        let inspection = TcpRpcTransport::new(address);
         let contract = inspection.describe(&expected.capability)?;
         if !contract.has_same_api_shape(&expected) {
             return Err(io::Error::new(
@@ -114,6 +117,7 @@ impl<C: AsyncRpcClientBinding> CapabilityConnector for AsyncRpcConnector<C> {
             .into());
         }
         let provider = inspection.provider(&expected.capability)?;
+        session.check()?;
         let transport: std::sync::Arc<dyn AsyncRpcTransport> =
             std::sync::Arc::new(AsyncTcpRpcTransport::with_session(address, session.clone()));
         Ok(ConnectedProvider {

@@ -385,9 +385,9 @@ fn typed_async_handler_uses_existing_remote_provider_resolver_and_session() {
             CounterRpcDispatcher::new(MemoryCounter::default()),
         )
         .unwrap();
-        // Pooled synchronous inspection (contract + provider) uses one
-        // connection; three nonblocking business calls use three more.
-        for _ in 0..4 {
+        // Startup inspection makes two one-shot calls; three nonblocking
+        // business calls each own a separate connection.
+        for _ in 0..5 {
             let (mut connection, _) = listener.accept().unwrap();
             handle_tcp_connection(&handler, &mut connection).unwrap();
         }
