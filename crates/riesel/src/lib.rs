@@ -27,6 +27,14 @@
 //!     fn add(&self, amount: u64) -> Result<u64, String>;
 //! }
 //! ```
+//! Invalid high-level application signatures fail during macro expansion:
+//!
+//! ```compile_fail
+//! use riesel::app;
+//! #[app]
+//! fn incorrect() -> riesel::AppResult<()> { Ok(()) }
+//! ```
+//!
 //! Riesel - a general purpose application engine
 extern crate self as riesel;
 mod application;

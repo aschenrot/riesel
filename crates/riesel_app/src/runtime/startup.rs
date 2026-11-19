@@ -12,21 +12,27 @@ impl App {
         connectors: &ConnectorRegistry,
     ) -> Result<RunningApp, RuntimeError> {
         let mut startup = StartupState::new(self, deployment, connectors)?;
-        for index in 0..startup.len() {
-            let remote = match startup.prepare(index)? {
-                StartupStep::Local => continue,
-                StartupStep::Remote(remote) => remote,
-                StartupStep::Managed(pending) => startup.spawn_managed_sync(pending)?,
-            };
-            let connected = startup
-                .connector(&remote.requirement)?
-                .connector
-                .connect(&remote.endpoint, &startup.session)
-                .map_err(|source| RuntimeError::Connection {
-                    requirement: remote.requirement.name.clone(),
-                    source,
-                })?;
-            startup.accept_remote(remote, connected)?;
+        let result: Result<(), RuntimeError> = (|| {
+            for index in 0..startup.len() {
+                let remote = match startup.prepare(index)? {
+                    StartupStep::Local => continue,
+                    StartupStep::Remote(remote) => remote,
+                    StartupStep::Managed(pending) => startup.spawn_managed_sync(pending)?,
+                };
+                let connected = startup
+                    .connector(&remote.requirement)?
+                    .connector
+                    .connect(&remote.endpoint, &startup.session)
+                    .map_err(|source| RuntimeError::Connection {
+                        requirement: remote.requirement.name.clone(),
+                        source,
+                    })?;
+                startup.accept_remote(remote, connected)?;
+            }
+            Ok(())
+        })();
+        if let Err(error) = result {
+            return Err(startup.rollback(error));
         }
         startup.finish()
     }
@@ -42,22 +48,29 @@ impl App {
         connectors: &ConnectorRegistry,
     ) -> Result<RunningApp, RuntimeError> {
         let mut startup = StartupState::new_async(self, deployment, connectors)?;
-        for index in 0..startup.len() {
-            let remote = match startup.prepare(index)? {
-                StartupStep::Local => continue,
-                StartupStep::Remote(remote) => remote,
-                StartupStep::Managed(pending) => startup.spawn_managed_async(pending).await?,
-            };
-            let connected = startup
-                .connector(&remote.requirement)?
-                .connector
-                .connect_async(&remote.endpoint, &startup.session)
-                .await
-                .map_err(|source| RuntimeError::Connection {
-                    requirement: remote.requirement.name.clone(),
-                    source,
-                })?;
-            startup.accept_remote(remote, connected)?;
+        let result: Result<(), RuntimeError> = async {
+            for index in 0..startup.len() {
+                let remote = match startup.prepare(index)? {
+                    StartupStep::Local => continue,
+                    StartupStep::Remote(remote) => remote,
+                    StartupStep::Managed(pending) => startup.spawn_managed_async(pending).await?,
+                };
+                let connected = startup
+                    .connector(&remote.requirement)?
+                    .connector
+                    .connect_async(&remote.endpoint, &startup.session)
+                    .await
+                    .map_err(|source| RuntimeError::Connection {
+                        requirement: remote.requirement.name.clone(),
+                        source,
+                    })?;
+                startup.accept_remote(remote, connected)?;
+            }
+            Ok(())
+        }
+        .await;
+        if let Err(error) = result {
+            return Err(startup.rollback(error));
         }
         startup.finish()
     }

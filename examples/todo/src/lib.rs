@@ -11,7 +11,7 @@ pub fn run_demo(records: riesel::Records<TaskData>) -> Result<(), TodoError> {
     let retrieved = todo.get_task(created.id)?.expect("created task must exist");
     assert_eq!(retrieved, created);
 
-    let completed = todo.set_completed(created.id, true)?;
+    let completed = todo.set_completed(created.id, created.revision, true)?;
     assert!(completed.value.completed);
     assert_eq!(completed.revision, 2);
 
