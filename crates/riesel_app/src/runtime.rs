@@ -2,8 +2,6 @@
 //! Connectors implement transport-specific discovery and typed service creation;
 //! this module owns validation, resolution, and the resulting service lifetimes.
 
-#[cfg(feature = "async-tcp")]
-use crate::{AsyncTasks, ProviderBlocking};
 use crate::plan::{DeploymentPlan, PlannedService, PlannedTarget};
 use crate::recovery::run_with_recovery;
 use crate::supervisor::{CancellationToken, ServiceMonitor};
@@ -12,6 +10,8 @@ use crate::{
     App, DeploymentConfig, DeploymentError, ProviderRegistry, ResolutionError, ResolvedCapability,
     ServiceEndpoint,
 };
+#[cfg(feature = "async-tcp")]
+use crate::{AsyncTasks, ProviderBlocking};
 use riesel_manager::{ProcessKey, ProcessRegistry};
 use riesel_protocol::SessionToken;
 use riesel_schema::{CapabilityContract, ProviderDefinition};
