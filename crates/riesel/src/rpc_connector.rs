@@ -66,9 +66,16 @@ impl<C: RpcClientBinding> CapabilityConnector for RpcConnector<C> {
 pub struct AsyncRpcConnector<C>(PhantomData<fn() -> C>);
 
 #[cfg(feature = "async-tcp")]
+impl<C> Default for AsyncRpcConnector<C> {
+    fn default() -> Self {
+        Self(PhantomData)
+    }
+}
+
+#[cfg(feature = "async-tcp")]
 impl<C> AsyncRpcConnector<C> {
     pub fn new() -> Self {
-        Self(PhantomData)
+        Self::default()
     }
 }
 
