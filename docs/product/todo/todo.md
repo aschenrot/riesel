@@ -1,136 +1,82 @@
-
 # Todo — Product Definition
 
-## Purpose
+## Purpose and role
 
-Todo is a task management application built using Riesel.
+Todo is a task-management application built with Riesel and a reference case for testing the platform's model, Storage, and application-runtime APIs.
 
-It enables users to create, organize, track, and complete tasks
-through a consistent interface.
+Two outcomes must remain distinct:
 
-Todo also serves as a reference application for evaluating
-Riesel's platform capabilities.
+- **Reference example (current):** demonstrate that typed task operations work through Riesel's development Storage and application SDK.
+- **Usable task manager (planned):** let users create, inspect, modify, and complete tasks across restarts and supported interfaces.
 
-## Problem
+The current example is not a persistent, user-facing task manager. Its execution path is primarily a one-shot demonstration and regression target.
 
-Users need a straightforward way to manage tasks without
-unnecessary complexity.
+## User problem
 
-Tasks should remain available across application restarts
-and be accessible through supported interfaces.
+Users need a small, dependable way to record and complete tasks. Developers need a realistic example that exercises Riesel without requiring handwritten process or RPC infrastructure for each operation.
 
-## Product Model
+Task data must survive restarts **before** Todo can claim the planned usable-product milestone.
 
-### Task
+## Domain model
 
-A unit of work that can be created, modified, completed,
-and removed.
+A task has a title and completion state. Its record identity and revision are managed by Riesel's record abstraction; callers should not maintain duplicate infrastructure fields.
 
-Initial properties:
+- **Title:** required, non-empty text.
+- **Completed:** boolean, initially false.
+- **Record identity:** framework-generated and stable within the configured storage lifecycle.
+- **Revision:** used to detect conflicting updates or deletes.
 
-- Title
-- Completion status
+Additional domain fields should be introduced only for concrete user requirements.
 
-Additional properties may be introduced when required by
-actual product functionality.
+## Current reference baseline
 
-### Task Collection
+The `examples/todo` implementation presently demonstrates:
 
-A set of tasks belonging to the application.
+- Rust-derived `TaskData` schema and typed `Records<TaskData>` access.
+- Creating, retrieving, and listing tasks.
+- Marking tasks complete or incomplete.
+- Deleting tasks using revision-aware Storage operations.
+- Automatic record identifiers and revision-controlled updates.
+- Headless execution using explicit in-memory development Storage.
+- Tests for validation, missing tasks, paging, and revision conflicts.
 
-Users can retrieve and interact with their tasks without
-manually managing record identifiers.
+**Limitations:** Data is lost when the in-memory provider is replaced or restarted. The example does not currently provide interactive task-management CLI commands, a persistent backend, or a graphical interface. It therefore does not satisfy the planned persistence and multi-interface requirements.
 
-## Product Requirements
+## Delivery milestones
 
-### Task Creation
+### R0 — Platform reference (current scope)
 
-Users can create tasks by providing a title.
+**Goal:** validate Riesel's developer-facing authoring and Storage contract.
 
-New tasks are incomplete by default.
+Acceptance:
+- Typed task operations and model validation pass relevant unit/integration tests.
+- SDK-based application execution requires no hand-maintained app schema or fixed provider port.
+- Documentation clearly states the ephemeral state and trust boundaries.
 
-### Task Retrieval
+### R1 — Usable headless task manager (planned)
 
-Users can retrieve and view their existing tasks.
+**Goal:** deliver task operations with durable state and usable interfaces.
 
-### Task Completion
+Acceptance:
+- Users can create, retrieve, list, complete/uncomplete, edit, and delete tasks through supported commands.
+- Task identity is automatic and stable; conflicting modifications are detected rather than silently overwritten.
+- Tasks persist across application and provider restarts, verified through restart tests.
+- Supported CLI and programmatic operations exhibit the same task semantics.
+- Common failure cases have defined errors and regression tests.
 
-Users can mark tasks as completed or incomplete.
+This milestone depends on a production-appropriate persistent Storage implementation and should not be marked complete using MemoryStore alone.
 
-### Task Editing
+### R2 — Independent graphical interface (planned)
 
-Users can modify existing task information.
+**Goal:** attach a GUI to running headless Todo application logic.
 
-### Task Deletion
+Acceptance:
+- The UI is independently executable and does not own the task data model.
+- GUI and programmatic/CLI clients observe consistent task changes.
+- Closing a window does not implicitly terminate the application unless the user requests it.
 
-Users can remove tasks they no longer need.
+## Scope boundaries
 
-### Persistence
+Todo is a product-level acceptance example for reusable Riesel infrastructure. Implement generic functionality in Riesel or a reusable capability package when multiple applications need it; keep task-specific behavior within Todo.
 
-Tasks remain available after the application is closed
-and restarted.
-
-### Consistent Access
-
-Todo operations are accessible through supported application
-interfaces.
-
-Different interfaces must operate on the same underlying
-task data.
-
-### Identity Management
-
-Tasks receive stable identifiers automatically.
-
-Users are not required to provide or manage identifiers.
-
-### Independent Execution
-
-Todo application logic can execute without a graphical window.
-
-The interface can connect to a running application.
-
-## Application Interfaces
-
-### Command Line
-
-Users can manage tasks through commands.
-
-### Graphical Interface
-
-Users can view and manage tasks through a graphical interface.
-
-The graphical interface operates independently of the
-headless Todo application.
-
-### Programmatic Interface
-
-Other applications and tools can interact with Todo through
-supported operations.
-
-All interfaces share the same task semantics.
-
-## Initial Deliverable
-
-The first functional version supports:
-
-1. Creating tasks
-2. Retrieving tasks
-3. Marking tasks as completed or incomplete
-4. Automatic task identity
-5. Persistent task storage
-6. Access through CLI and programmatic interfaces
-
-Editing, deletion, graphical interaction, and additional
-functionality can follow incrementally.
-
-## Success Criteria
-
-Todo is successful when:
-
-1. Users can create and retrieve tasks reliably.
-2. Task changes produce predictable results.
-3. Task data survives application restarts.
-4. Different interfaces observe consistent task data.
-5. Users do not need to manage infrastructure details.
-6. The application remains usable without an attached window.
+Do not add synchronization, collaborative editing, reminders, or advanced task organization to the committed scope without a concrete requirement and separate acceptance criteria.
