@@ -1,8 +1,7 @@
 # Riesel — Optional Application Modules
 
-Status: Stage 5.7 **partially implemented**, module registration verified
-on Linux, 2026-11-19. CI:
-[44512577572](https://github.com/aschenrot/riesel/actions/runs/44512577572).
+Status: Stage 5.7 reference implementation Linux-verified, 2026-11-19.
+[Validation and smoke](https://github.com/aschenrot/riesel/actions/runs/44530550169).
 
 ## Purpose and boundary
 

@@ -53,7 +53,7 @@ Use the `riesel` SDK to derive application definitions from Rust models, capabil
 - The `records` feature provides typed Storage records; `dev-memory-storage` explicitly opts into an in-memory reference provider.
 - `async-tcp` adds true nonblocking Tokio transport and async execution support without making Tokio mandatory for the minimal SDK.
 
-The higher-level `#[riesel::app]` entrypoint and related ergonomic APIs are tracked in the [authoring contract](docs/product/riesel/api-authoring-v3.md). Verify their latest delivery status in the roadmap rather than assuming every target syntax example is released.
+The high-level `#[riesel::app]` entrypoint and optional application-module lifecycle hooks are implemented within the reference scope. See [current authoring syntax](docs/product/riesel/high-level-app.md), [application modules](docs/product/riesel/application-modules.md) and the [roadmap](docs/product/riesel/implementation-roadmap.md) for exact support and limitations.
 
 ### Inspection and configuration
 

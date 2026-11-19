@@ -1,6 +1,6 @@
 # Riesel — Implementation Roadmap
 
-Status reviewed: 2026-11-19. Reference integration commit: `91195cc0` (Linux [validation and smoke passed](https://github.com/aschenrot/riesel/actions/runs/44513077581)). This document tracks **accepted delivery scope and tested progress**. Git commits, Pull Requests and CI retain implementation history; this roadmap is not a running change log.
+Status reviewed: 2026-11-19. Stage 5.7 reference commit: `b778658d` (Linux [validation and smoke passed](https://github.com/aschenrot/riesel/actions/runs/44530550169)). This document tracks **accepted delivery scope and tested progress**. Git commits, Pull Requests and CI retain implementation history; this roadmap is not a running change log.
 
 ## Current delivery position
 
@@ -11,7 +11,7 @@ Status reviewed: 2026-11-19. Reference integration commit: `91195cc0` (Linux [va
 | 2 — Provider resolution | Implemented for exact versions | Validated registration, selection and ambiguity/missing-provider errors |
 | 3 — Capability binding | Reference implementation | Generated typed local/managed RPC and shared component instances |
 | 4 — Runtime lifecycle | Implemented within cooperative scope | Dependency ordering, preflight, rollback, supervision, task joins and opt-in whole-session restart |
-| 5 — Developer experience | In progress | 5.1–5.6 completed on Linux; 5.7 lifecycle hooks and 5.8 DX review remain |
+| 5 — Developer experience | In progress | 5.1–5.7 completed on Linux; 5.8 DX review remains |
 | 6 — Production reliability | Not delivered | Persistence, secure remote transport, authorization, observability and operational hardening |
 
 **Implemented** here means tested within a stated reference scope, not production maturity. Windows validation remains manual before releases.
@@ -26,26 +26,16 @@ Status reviewed: 2026-11-19. Reference integration commit: `91195cc0` (Linux [va
 | 5.4 — Native async | Complete | True nonblocking RPC, async component parity, bounded owned work, cancellation, crash/recovery tests |
 | 5.5 — Provider catalog | Complete | Explicit named placement, strict selection-only manifest, pinned metadata, side-effect-free inspection |
 | 5.6 — High-level app API | Complete | `#[riesel::app]`, native async Counter, Records Todo, aliases, catalog choices and builder-equivalence tests |
-| 5.7 — Modules and lifecycle | **Partial** | Reusable module registration and composition verified; session lifecycle hooks and shutdown contract outstanding |
+| 5.7 — Modules and lifecycle | **Complete** | Optional typed start/stop hooks, DAG ordering, scoped shutdown and local/managed recovery regressions |
 | 5.8 — DX and regression review | **Not started** | Review diagnostics, examples, documentation, inspection and full validation against the accepted API |
 
 Detailed delivered authoring APIs: [High-level application](high-level-app.md), [accepted authoring contract](api-authoring-v3.md), [application modules](application-modules.md), and [provider catalog](provider-catalog.md). Async execution invariants: [execution contract](async-execution-contract.md). Runtime lifecycle and recovery invariants: [runtime lifecycle](runtime-lifecycle.md).
 
-## Immediate priority — Stage 5.7 lifecycle completion
+## Stage 5.7 — verified lifecycle delivery
 
-The optional `ApplicationModule` grouping is implemented. Module registration reuses the existing application builder, component/connector registry and dependency DAG; it is **not** another runtime, process supervisor or dependency-injection container.
+Optional `ApplicationModule` registrations now include named, typed async start/stop hooks using the existing `Application` builder, capability DAG, `RunningApp` session and `AsyncTasks` owner. The runtime creates no additional scheduler or provider resolver. Invalid registrations fail before startup; normal shutdown drains owned work before eligible stop hooks and provider teardown. Capability-dependent cleanup is skipped after session revocation.
 
-Remaining work must be designed and accepted before treating Stage 5.7 as complete:
-
-1. Define minimal optional startup/shutdown hooks and their deterministic order relative to the application entrypoint and requirement dependency DAG.
-2. Validate declarations and dependency cycles before constructing providers; reject duplicate or conflicting hooks.
-3. Tie hook futures and their spawned work to the active session's cancellation token and typed capability handles.
-4. Preserve original errors together with cleanup failures; never hide business errors, detached tasks or ambiguous side effects.
-5. Run eligible shutdown hooks while their provider dependencies are still alive, before owned tasks and managed processes are torn down. Specify what a cooperative timeout actually guarantees; Rust threads are not forcibly interruptible.
-6. Verify opt-in whole-session recovery creates entirely new scopes; no escaped handles or hook state remain usable across sessions.
-7. Test local and managed execution, failure injection, recovery, hook ordering, duplicate registrations, and no side effects on invalid preflight.
-
-**Exit gate:** Rust SDK and macro composition have equivalent observable lifecycle behavior, focused regression tests pass, and Linux `cargo validate --check` plus `cargo smoke` are green. Do not add a generic scheduler merely to complete lifecycle hooks. See [module contract](application-modules.md).
+Counter integration tests verify order, partial startup cleanup, combined error sources, local/managed parity and fresh hooks after a real managed crash. Stage 5.7 acceptance evidence: [Issue #10](https://github.com/aschenrot/riesel/issues/10), [implementation PR #14](https://github.com/aschenrot/riesel/pull/14), and [Linux validation and smoke](https://github.com/aschenrot/riesel/actions/runs/44530550169). Precise semantics and limitations: [application modules](application-modules.md) and [runtime lifecycle](runtime-lifecycle.md).
 
 ## Next priority — Stage 5.8 developer experience
 
