@@ -61,8 +61,7 @@ pub fn run_async_tcp_rpc_host(
             let stopping = Arc::clone(&stopping);
             std::thread::spawn(move || {
                 let mut line = String::new();
-                if io::stdin().read_line(&mut line).is_ok()
-                    && line.trim_end() == "RIESEL_SHUTDOWN"
+                if io::stdin().read_line(&mut line).is_ok() && line.trim_end() == "RIESEL_SHUTDOWN"
                 {
                     stopping.store(true, Ordering::Release);
                 }

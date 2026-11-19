@@ -15,3 +15,10 @@ serde.workspace = true
 serde_json.workspace = true
 thiserror.workspace = true
 tokio = { workspace = true, optional = true }
+
+[[bin]]
+name = "riesel_async_host_fixture"
+path = "tests/fixtures/async_host.rs"
+required-features = ["async-tcp"]
+test = false
+bench = false

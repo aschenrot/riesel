@@ -235,8 +235,8 @@ mod tests {
     }
     #[test]
     fn managed_async_host_refuses_plaintext_public_bindings() {
-        let error = crate::run_async_tcp_rpc_host("0.0.0.0:0", Arc::new(ExampleHandler))
-            .unwrap_err();
+        let error =
+            crate::run_async_tcp_rpc_host("0.0.0.0:0", Arc::new(ExampleHandler)).unwrap_err();
         assert_eq!(error.kind(), io::ErrorKind::InvalidInput);
     }
 
