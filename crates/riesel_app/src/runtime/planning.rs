@@ -18,18 +18,6 @@ impl App {
             let endpoint = &deployment.services[&requirement.name];
             let target = match endpoint {
                 ServiceEndpoint::Local { provider } => {
-                    if connectors
-                        .adapters
-                        .get(&(
-                            requirement.capability.id.clone(),
-                            requirement.capability.version,
-                        ))
-                        .is_some_and(|adapter| !adapter.connector.accepts_local_service())
-                    {
-                        return Err(RuntimeError::UnsupportedLocalBinding {
-                            requirement: requirement.name.clone(),
-                        });
-                    }
                     let local = connectors
                         .local
                         .get(provider)
@@ -44,6 +32,22 @@ impl App {
                         ))
                     {
                         return Err(RuntimeError::LocalContractMismatch {
+                            requirement: requirement.name.clone(),
+                        });
+                    }
+                    if connectors
+                        .adapters
+                        .get(&(
+                            requirement.capability.id.clone(),
+                            requirement.capability.version,
+                        ))
+                        .is_some_and(|adapter| {
+                            !adapter.connector.accepts_local_service()
+                                || adapter.connector.local_binding_mode()
+                                    != local.factory.binding_mode(&requirement.capability)
+                        })
+                    {
+                        return Err(RuntimeError::UnsupportedLocalBinding {
                             requirement: requirement.name.clone(),
                         });
                     }
