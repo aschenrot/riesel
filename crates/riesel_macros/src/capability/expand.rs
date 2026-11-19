@@ -38,6 +38,8 @@ pub(crate) fn expand_capability(
     let async_dispatcher_name = format_ident!("{}AsyncRpcDispatcher", trait_name);
     let async_service_name = format_ident!("{}AsyncService", trait_name);
     let local_async_name = format_ident!("{}LocalClient", trait_name);
+    let handle_name = format_ident!("{}Handle", trait_name);
+    let handle_backend_name = format_ident!("{}HandleBackend", trait_name);
     let guarded_name = format_ident!("{}ScopedClient", trait_name);
     let visibility = item.vis.clone();
     let mut generated_operations = Vec::new();
@@ -51,6 +53,8 @@ pub(crate) fn expand_capability(
     let mut async_service_methods = Vec::new();
     let mut async_service_impls = Vec::new();
     let mut local_async_methods = Vec::new();
+    let mut async_handle_methods = Vec::new();
+    let mut async_arc_methods = Vec::new();
     let mut is_async: Option<bool> = None;
 
     for entry in &mut item.items {
@@ -273,6 +277,28 @@ pub(crate) fn expand_capability(
                     ))
                 }
             });
+            async_handle_methods.push(quote! {
+                #[doc = #docs]
+                pub async fn #method_name(
+                    &self,
+                    #(#client_arguments),*
+                ) -> Result<#result_type, ::riesel_protocol::CallError<#error_type>> {
+                    match &self.backend {
+                        #handle_backend_name::Local(local) =>
+                            local.#method_name(#(#arg_names),*).await,
+                        #handle_backend_name::Remote(remote) =>
+                            remote.#method_name(#(#arg_names),*).await,
+                    }
+                }
+            });
+            async_arc_methods.push(quote! {
+                fn #method_name(
+                    &self,
+                    #(#client_arguments),*
+                ) -> impl ::std::future::Future<Output = Result<#result_type, #error_type>> + Send {
+                    #trait_name::#method_name(self.as_ref(), #(#arg_names),*)
+                }
+            });
             local_async_methods.push(quote! {
                 #[doc = #docs]
                 pub async fn #method_name(
@@ -431,14 +457,22 @@ pub(crate) fn expand_capability(
             where
                 T: #trait_name + Send + Sync + 'static,
             {
-                type Handler = #dispatcher_name<::std::sync::Arc<T>>;
+                type Service = <Self as ::riesel_protocol::RpcClientBinding>::Service;
+                const MODE: ::riesel_protocol::LocalBindingMode =
+                    ::riesel_protocol::LocalBindingMode::Sync;
 
-                fn local(state: ::std::sync::Arc<T>) -> <Self as ::riesel_protocol::RpcClientBinding>::Service {
-                    state
+                fn local(
+                    state: ::std::sync::Arc<T>,
+                    session: ::riesel_protocol::SessionToken,
+                ) -> Self::Service {
+                    let service: Self::Service = state;
+                    <Self as ::riesel_protocol::RpcClientBinding>::guard_local(service, session)
                 }
 
-                fn hosted(state: ::std::sync::Arc<T>) -> Self::Handler {
-                    #dispatcher_name::new(state)
+                fn hosted(state: ::std::sync::Arc<T>) -> ::riesel_protocol::ComponentHandler {
+                    ::riesel_protocol::ComponentHandler::Sync(
+                        ::std::boxed::Box::new(#dispatcher_name::new(state))
+                    )
                 }
             }
 
@@ -468,6 +502,57 @@ pub(crate) fn expand_capability(
 
     let async_provider_impl = if is_async.unwrap_or(false) {
         quote! {
+            /// The same Arc-backed component state can serve several
+            /// async contracts without duplicated state or thread blocking.
+            impl<T: #trait_name + Send + Sync + ?Sized> #trait_name for ::std::sync::Arc<T> {
+                #(#async_arc_methods)*
+            }
+
+            /// Transport-independent async handle: direct local invocation,
+            /// or generated nonblocking RPC when hosted remotely.
+            #[derive(Clone)]
+            #visibility struct #handle_name {
+                backend: #handle_backend_name,
+            }
+
+            #[derive(Clone)]
+            enum #handle_backend_name {
+                Local(#local_async_name),
+                Remote(#async_client_name<
+                    ::std::sync::Arc<dyn ::riesel_protocol::AsyncRpcTransport>
+                >),
+            }
+
+            impl #handle_name {
+                #(#async_handle_methods)*
+            }
+
+            impl<T> ::riesel_protocol::ComponentAdapter<T> for #descriptor_name
+            where
+                T: #trait_name + Send + Sync + 'static,
+            {
+                type Service = #handle_name;
+                const MODE: ::riesel_protocol::LocalBindingMode =
+                    ::riesel_protocol::LocalBindingMode::Async;
+
+                fn local(
+                    state: ::std::sync::Arc<T>,
+                    session: ::riesel_protocol::SessionToken,
+                ) -> Self::Service {
+                    #handle_name {
+                        backend: #handle_backend_name::Local(
+                            #local_async_name::new(state, session)
+                        ),
+                    }
+                }
+
+                fn hosted(state: ::std::sync::Arc<T>) -> ::riesel_protocol::ComponentHandler {
+                    ::riesel_protocol::ComponentHandler::Async(
+                        ::std::boxed::Box::new(#async_dispatcher_name::new(state))
+                    )
+                }
+            }
+
             /// Object-safe adapter generated from the native async trait.
             /// Component implementations only need ordinary Rust async fn.
             #visibility trait #async_service_name: Send + Sync {
@@ -479,6 +564,7 @@ pub(crate) fn expand_capability(
             }
 
             /// In-process, typed, revocable async handle.
+            #[derive(Clone)]
             #visibility struct #local_async_name {
                 provider: ::std::sync::Arc<dyn #async_service_name>,
                 session: ::riesel_protocol::SessionToken,
@@ -597,6 +683,36 @@ pub(crate) fn expand_capability(
         quote!()
     };
 
+    let async_client_binding = if is_async.unwrap_or(false) {
+        quote! {
+            impl ::riesel_protocol::AsyncRpcClientBinding for #descriptor_name {
+                type Service = #handle_name;
+
+                fn bind_async(
+                    transport: ::std::sync::Arc<dyn ::riesel_protocol::AsyncRpcTransport>,
+                ) -> Self::Service {
+                    #handle_name {
+                        backend: #handle_backend_name::Remote(#async_client_name::new(transport)),
+                    }
+                }
+            }
+        }
+    } else {
+        quote! {
+            impl ::riesel_protocol::AsyncRpcClientBinding for #descriptor_name {
+                type Service = #async_client_name<
+                    ::std::sync::Arc<dyn ::riesel_protocol::AsyncRpcTransport>
+                >;
+
+                fn bind_async(
+                    transport: ::std::sync::Arc<dyn ::riesel_protocol::AsyncRpcTransport>,
+                ) -> Self::Service {
+                    #async_client_name::new(transport)
+                }
+            }
+        }
+    };
+
     Ok(quote! {
         #item
         #sync_provider_impl
@@ -676,17 +792,7 @@ pub(crate) fn expand_capability(
 
         #trait_impl
 
-        impl ::riesel_protocol::AsyncRpcClientBinding for #descriptor_name {
-            type Service = #async_client_name<
-                ::std::sync::Arc<dyn ::riesel_protocol::AsyncRpcTransport>
-            >;
-
-            fn bind_async(
-                transport: ::std::sync::Arc<dyn ::riesel_protocol::AsyncRpcTransport>,
-            ) -> Self::Service {
-                #async_client_name::new(transport)
-            }
-        }
+        #async_client_binding
 
     })
 }
