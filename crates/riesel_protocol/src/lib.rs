@@ -1,4 +1,6 @@
 pub mod host;
+#[cfg(feature = "async-tcp")]
+pub mod provider_blocking;
 pub mod rpc;
 pub mod session;
 pub mod tcp;
