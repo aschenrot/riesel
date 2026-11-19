@@ -94,10 +94,8 @@ impl<C: AsyncRpcClientBinding> AsyncRpcConnector<C> {
         })?;
         let expected = C::definition()?;
         session.check()?;
-        let transport = std::sync::Arc::new(AsyncTcpRpcTransport::with_session(
-            address,
-            session.clone(),
-        ));
+        let transport =
+            std::sync::Arc::new(AsyncTcpRpcTransport::with_session(address, session.clone()));
         let contract = transport.describe(&expected.capability).await?;
         if !contract.has_same_api_shape(&expected) {
             return Err(io::Error::new(
@@ -153,7 +151,9 @@ impl<C: AsyncRpcClientBinding> CapabilityConnector for AsyncRpcConnector<C> {
         endpoint: &'a ServiceEndpoint,
         session: &'a SessionToken,
     ) -> std::pin::Pin<
-        Box<dyn std::future::Future<Output = Result<ConnectedProvider, ConnectorError>> + Send + 'a>,
+        Box<
+            dyn std::future::Future<Output = Result<ConnectedProvider, ConnectorError>> + Send + 'a,
+        >,
     > {
         Box::pin(self.inspect(endpoint, session))
     }
