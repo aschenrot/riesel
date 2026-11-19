@@ -18,6 +18,8 @@ const MAX_PROVIDER_BLOCKING: usize = 8;
 pub enum ProviderBlockingError {
     #[error("provider blocking-work scope is closed or its session expired")]
     Closed,
+    #[error("invalid provider blocking-work name: {0}")]
+    InvalidName(String),
     #[error("provider blocking-work limit exceeded (maximum {limit} active workers)")]
     LimitExceeded { limit: usize },
     #[error("provider blocking worker {name} could not start: {source}")]
@@ -46,12 +48,12 @@ impl ProviderCancellation {
     /// Cooperatively wait for provider shutdown, waking at least every 10ms.
     /// The host cannot forcibly terminate arbitrary synchronous Rust code.
     pub fn wait_cancelled_timeout(&self, duration: Duration) -> bool {
-        let until = Instant::now() + duration;
+        let start = Instant::now();
         loop {
             if self.is_cancelled() {
                 return true;
             }
-            let Some(remaining) = until.checked_duration_since(Instant::now()) else {
+            let Some(remaining) = duration.checked_sub(start.elapsed()) else {
                 return self.is_cancelled();
             };
             thread::sleep(remaining.min(Duration::from_millis(10)));
@@ -113,14 +115,8 @@ impl ProviderBlocking {
     {
         let name = name.into();
         if name.is_empty() || name.len() > 128 || name.chars().any(char::is_control) {
-            return Err(ProviderBlockingError::Closed);
+            return Err(ProviderBlockingError::InvalidName(name));
         }
-        // Fail-fast admission avoids unbounded pending requests and threads.
-        let permit = Arc::clone(&self.group.slots)
-            .try_acquire_owned()
-            .map_err(|_| ProviderBlockingError::LimitExceeded {
-                limit: MAX_PROVIDER_BLOCKING,
-            })?;
         let (sender, receiver) = oneshot::channel();
         {
             let mut workers = self
@@ -131,6 +127,13 @@ impl ProviderBlocking {
             if workers.closed || !self.group.session.is_active() {
                 return Err(ProviderBlockingError::Closed);
             }
+            // Fail-fast admission while owning the state lock guarantees that
+            // closed scopes always reject before reporting capacity.
+            let permit = Arc::clone(&self.group.slots)
+                .try_acquire_owned()
+                .map_err(|_| ProviderBlockingError::LimitExceeded {
+                    limit: MAX_PROVIDER_BLOCKING,
+                })?;
             // Reap completed workers by joining, never by detaching their
             // JoinHandles. All still-running workers remain owned by this scope.
             let mut active = Vec::new();
