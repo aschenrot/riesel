@@ -233,3 +233,60 @@ fn rejects_ephemeral_sqlite_paths() {
         ));
     }
 }
+
+#[test]
+fn failing_local_provider_startup_preserves_pure_preflight() {
+    let dir = tempfile::tempdir().unwrap();
+    let inaccessible = dir.path().join("nonexistent").join("tasks.db");
+    let provider = sqlite_storage_provider(inaccessible.clone(), models()).unwrap();
+    let mut registry = ConnectorRegistry::new();
+    registry.register_local(provider).unwrap();
+    let app = App::from_schema(
+        r#"{"version":1,"app":{"name":"MissingDbPath"},"models":{},
+            "requires":[{"name":"storage","capability":{"id":"riesel.storage.records","version":2}}]}"#,
+    )
+    .unwrap();
+    let deployment = DeploymentConfig::new(BTreeMap::from([(
+        "storage".into(),
+        ServiceEndpoint::Local {
+            provider: "riesel.storage.sqlite".into(),
+        },
+    )]));
+    app.preflight(&deployment, &registry).unwrap();
+    assert!(!inaccessible.exists());
+    let error = app.start(&deployment, &registry).err().unwrap();
+    assert!(matches!(error, riesel_app::RuntimeError::Connection { .. }));
+    assert!(!inaccessible.exists());
+}
+
+#[test]
+fn committed_write_survives_live_process_exit() {
+    // Re-execute only this test as a child to terminate without running Drop
+    // on the SqliteStore/Connection. Not an OS or power-loss simulation.
+    if let Some(path) = std::env::var_os("RIESEL_SQLITE_TEST_CHILD_PATH") {
+        let store = SqliteStore::open(std::path::PathBuf::from(path), models()).unwrap();
+        store.create("task", task("committed-before-exit")).unwrap();
+        std::process::exit(137);
+    }
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("abrupt.db");
+    let output = std::process::Command::new(std::env::current_exe().unwrap())
+        .args([
+            "--exact",
+            "committed_write_survives_live_process_exit",
+            "--nocapture",
+        ])
+        .env("RIESEL_SQLITE_TEST_CHILD_PATH", &path)
+        .output()
+        .unwrap();
+    assert_eq!(
+        output.status.code(),
+        Some(137),
+        "child did not commit and terminate: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let store = SqliteStore::open(&path, models()).unwrap();
+    let page = store.list_page("task", None, 32).unwrap();
+    assert_eq!(page.records.len(), 1);
+    assert_eq!(page.records[0].data, task("committed-before-exit"));
+}
