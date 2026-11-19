@@ -2,13 +2,13 @@ use riesel::{Records, storage::RecordStore};
 use riesel_storage_component::MemoryStore;
 use serde_json::{Value, json};
 use std::{io, sync::Arc, time::Duration};
+use todo::TaskData;
 use tokio::{
     io::{AsyncReadExt, AsyncWriteExt},
     net::{TcpListener, TcpStream},
     sync::oneshot,
     task::JoinHandle,
 };
-use todo::TaskData;
 
 async fn start() -> (u16, oneshot::Sender<()>, JoinHandle<io::Result<()>>) {
     let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
@@ -27,7 +27,10 @@ async fn start() -> (u16, oneshot::Sender<()>, JoinHandle<io::Result<()>>) {
 
 fn decode_body(response: &str) -> String {
     let (headers, body) = response.split_once("\r\n\r\n").unwrap();
-    if !headers.to_ascii_lowercase().contains("transfer-encoding: chunked") {
+    if !headers
+        .to_ascii_lowercase()
+        .contains("transfer-encoding: chunked")
+    {
         return body.to_string();
     }
     let mut remaining = body;
@@ -54,10 +57,10 @@ async fn request(
     body: Option<&str>,
 ) -> (u16, String) {
     let mut stream = TcpStream::connect(("127.0.0.1", port)).await.unwrap();
-    let host = host.map(str::to_owned).unwrap_or_else(|| format!("127.0.0.1:{port}"));
-    let mut wire = format!(
-        "{method} {path} HTTP/1.1\r\nHost: {host}\r\nConnection: close\r\n"
-    );
+    let host = host
+        .map(str::to_owned)
+        .unwrap_or_else(|| format!("127.0.0.1:{port}"));
+    let mut wire = format!("{method} {path} HTTP/1.1\r\nHost: {host}\r\nConnection: close\r\n");
     if let Some(origin) = origin {
         wire.push_str(&format!("Origin: {origin}\r\n"));
     }
@@ -102,7 +105,8 @@ async fn same_origin(port: u16, method: &str, path: &str, body: Option<&str>) ->
 async fn task_crud_enforces_caller_revisions() {
     let (port, shutdown, worker) = start().await;
 
-    let (status, body) = same_origin(port, "POST", "/api/tasks", Some(r#"{"title":"First"}"#)).await;
+    let (status, body) =
+        same_origin(port, "POST", "/api/tasks", Some(r#"{"title":"First"}"#)).await;
     assert_eq!(status, 201);
     let task: Value = serde_json::from_str(&body).unwrap();
     assert_eq!(task["revision"], 1);
@@ -133,7 +137,10 @@ async fn task_crud_enforces_caller_revisions() {
     )
     .await;
     assert_eq!(status, 409);
-    assert_eq!(serde_json::from_str::<Value>(&body).unwrap()["error"], "revision_conflict");
+    assert_eq!(
+        serde_json::from_str::<Value>(&body).unwrap()["error"],
+        "revision_conflict"
+    );
 
     let (status, body) = same_origin(
         port,
@@ -165,45 +172,83 @@ async fn rejects_cross_site_writes_and_invalid_requests() {
     let good_origin = format!("http://127.0.0.1:{port}");
     let body = r#"{"title":"Validated"}"#;
 
-    let (status, problem) =
-        request(port, "POST", "/api/tasks", None, None, None, Some(body)).await;
+    let (status, problem) = request(port, "POST", "/api/tasks", None, None, None, Some(body)).await;
     assert_eq!(status, 403);
-    assert_eq!(json!("invalid_origin"), serde_json::from_str::<Value>(&problem).unwrap()["error"]);
+    assert_eq!(
+        json!("invalid_origin"),
+        serde_json::from_str::<Value>(&problem).unwrap()["error"]
+    );
 
     let (status, _) = request(
-        port, "POST", "/api/tasks", Some("https://other.example"), None, None, Some(body),
-    ).await;
+        port,
+        "POST",
+        "/api/tasks",
+        Some("https://other.example"),
+        None,
+        None,
+        Some(body),
+    )
+    .await;
     assert_eq!(status, 403);
 
     let (status, _) = request(
-        port, "POST", "/api/tasks", Some(&good_origin), Some("rebind.example"), None, Some(body),
-    ).await;
+        port,
+        "POST",
+        "/api/tasks",
+        Some(&good_origin),
+        Some("rebind.example"),
+        None,
+        Some(body),
+    )
+    .await;
     assert_eq!(status, 403);
 
     let (status, _) = request(
-        port, "GET", "/api/tasks", None, None, Some("cross-site"), None,
-    ).await;
+        port,
+        "GET",
+        "/api/tasks",
+        None,
+        None,
+        Some("cross-site"),
+        None,
+    )
+    .await;
     assert_eq!(status, 403);
 
     let (status, _) = request(
-        port, "POST", "/api/tasks", Some(&good_origin), None, None, Some(r#"{"title":"   "}"#),
-    ).await;
+        port,
+        "POST",
+        "/api/tasks",
+        Some(&good_origin),
+        None,
+        None,
+        Some(r#"{"title":"   "}"#),
+    )
+    .await;
     assert_eq!(status, 422);
 
     let (status, _) = request(
-        port, "POST", "/api/tasks", Some(&good_origin), None, None, Some(r#"{"title": "#),
-    ).await;
+        port,
+        "POST",
+        "/api/tasks",
+        Some(&good_origin),
+        None,
+        None,
+        Some(r#"{"title": "#),
+    )
+    .await;
     assert_eq!(status, 400);
 
-    let (status, _) = request(
-        port, "GET", "/api/tasks/not-a-uuid", None, None, None, None,
-    ).await;
+    let (status, _) = request(port, "GET", "/api/tasks/not-a-uuid", None, None, None, None).await;
     assert_eq!(status, 400);
 
-    let (status, body) =
-        request(port, "GET", "/api/tasks", None, None, None, None).await;
+    let (status, body) = request(port, "GET", "/api/tasks", None, None, None, None).await;
     assert_eq!(status, 200);
-    assert!(serde_json::from_str::<Vec<Value>>(&body).unwrap().is_empty());
+    assert!(
+        serde_json::from_str::<Vec<Value>>(&body)
+            .unwrap()
+            .is_empty()
+    );
 
     shutdown.send(()).unwrap();
     worker.await.unwrap().unwrap();
