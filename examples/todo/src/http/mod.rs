@@ -148,6 +148,7 @@ mod tests {
             .unwrap()
             .run()
             .unwrap();
+    }
 
     /// A runtime task fault revokes the session while the HTTP server is
     /// pending. The listener is dropped and owned workers are joined.
@@ -175,6 +176,5 @@ mod tests {
             std::net::TcpListener::bind(("127.0.0.1", port)).is_ok(),
             "revoked session must release its listener"
         );
-    }
     }
 }
