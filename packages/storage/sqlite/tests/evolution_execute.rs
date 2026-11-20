@@ -887,3 +887,178 @@ fn target_schema_validation_rejects_an_inconsistent_typed_serializer_after_backu
     drop(SqliteStore::open(&db, source_models()).unwrap());
     assert!(SqliteStore::open(&db, target_models::<CurrentTask>()).is_err());
 }
+
+#[test]
+fn corrupted_persisted_schema_or_record_refuses_maintenance_before_backup() {
+    enum Corruption {
+        ModelDefinition,
+        MalformedJson,
+        ShortRevision,
+        InvalidUuid,
+    }
+    for corruption in [
+        Corruption::ModelDefinition,
+        Corruption::MalformedJson,
+        Corruption::ShortRevision,
+        Corruption::InvalidUuid,
+    ] {
+        let dir = tempfile::tempdir().unwrap();
+        let db = dir.path().join("source.db");
+        fixture(&db);
+        let raw = Connection::open(&db).unwrap();
+        // A corrupt historical file can bypass SQLite CHECK enforcement.
+        // Do so only in this isolated fixture to exercise offline validation.
+        raw.execute_batch("PRAGMA ignore_check_constraints=ON;")
+            .unwrap();
+        match corruption {
+            Corruption::ModelDefinition => {
+                raw.execute(
+                    "UPDATE models SET definition=?1 WHERE name='task'",
+                    rusqlite::params![b"not a valid model definition"],
+                )
+                .unwrap();
+            }
+            Corruption::MalformedJson => {
+                raw.execute(
+                    "UPDATE records SET data=?1 WHERE model='task'",
+                    rusqlite::params![b"not JSON"],
+                )
+                .unwrap();
+            }
+            Corruption::ShortRevision => {
+                raw.execute(
+                    "UPDATE records SET revision=?1 WHERE model='task'",
+                    rusqlite::params![&[0u8; 1][..]],
+                )
+                .unwrap();
+            }
+            Corruption::InvalidUuid => {
+                raw.execute(
+                    "UPDATE records SET id=?1 WHERE model='task'",
+                    rusqlite::params![&[0u8; 1][..]],
+                )
+                .unwrap();
+            }
+        }
+        drop(raw);
+        let before = rows(&db);
+        let backup = dir.path().join("refused-backup.db");
+        assert!(
+            SqliteMaintenance::open_existing(&db, source_models(), budget()).is_err(),
+            "corrupt input unexpectedly passed offline preflight"
+        );
+        assert_eq!(rows(&db), before);
+        assert!(!backup.exists());
+        // Normal provider startup may not scan every historical JSON row;
+        // the stricter offline maintenance audit must always reject it.
+    }
+}
+
+#[test]
+fn failed_second_typed_transform_preserves_earlier_rows_and_retained_backup() {
+    use std::sync::{
+        Arc,
+        atomic::{AtomicUsize, Ordering},
+    };
+
+    let dir = tempfile::tempdir().unwrap();
+    let db = dir.path().join("source.db");
+    fixture(&db);
+    let store = SqliteStore::open(&db, source_models()).unwrap();
+    store
+        .create("task", json!({"title":"second","completed":true}))
+        .unwrap();
+    drop(store);
+    let before = rows(&db);
+    let calls = Arc::new(AtomicUsize::new(0));
+    let observed = calls.clone();
+    let plan = ModelEvolution::new(source_models(), target_models::<CurrentTask>())
+        .unwrap()
+        .transform::<HistoricalTask, CurrentTask, _>(move |old| {
+            if observed.fetch_add(1, Ordering::SeqCst) > 0 {
+                return Err(StoreError::Failed("second transform rejected".into()));
+            }
+            Ok(CurrentTask {
+                title: old.title,
+                completed: old.completed,
+                priority: 0,
+            })
+        })
+        .unwrap();
+    let retained = dir.path().join("retained.db");
+    let maintenance = SqliteMaintenance::open_existing(&db, source_models(), budget()).unwrap();
+    let failure = maintenance
+        .execute_evolution(
+            &plan,
+            &retained,
+            limits(),
+            EvolutionAuthorization::ExecuteWithVerifiedBackup,
+        )
+        .unwrap_err();
+    assert!(format!("{failure}").contains("second transform rejected"));
+    assert_eq!(calls.load(Ordering::SeqCst), 2);
+    assert_eq!(rows(&db), before);
+    assert_eq!(rows(&retained), before);
+    drop(SqliteStore::open(&db, source_models()).unwrap());
+}
+
+#[test]
+fn target_json_ceiling_refuses_after_verified_backup_without_migration() {
+    let dir = tempfile::tempdir().unwrap();
+    let db = dir.path().join("source.db");
+    fixture(&db);
+    let before = rows(&db);
+    let existing_bytes = before.iter().map(|row| row.3.len() as u64).sum();
+    let strict = SnapshotBudget {
+        max_json_bytes: existing_bytes,
+        ..budget()
+    };
+    let limits = EvolutionLimits {
+        snapshot: strict,
+        ..limits()
+    };
+    let retained = dir.path().join("retained.db");
+    let maintenance = SqliteMaintenance::open_existing(&db, source_models(), strict).unwrap();
+    let err = maintenance
+        .execute_evolution(
+            &plan(),
+            &retained,
+            limits,
+            EvolutionAuthorization::ExecuteWithVerifiedBackup,
+        )
+        .unwrap_err();
+    assert!(
+        format!("{err}").contains("byte budget"),
+        "unexpected failure: {err}"
+    );
+    assert_eq!(rows(&db), before);
+    assert_eq!(rows(&retained), before);
+    drop(SqliteStore::open(&db, source_models()).unwrap());
+}
+
+#[test]
+fn expired_execution_deadline_does_not_publish_backup_or_touch_source() {
+    let dir = tempfile::tempdir().unwrap();
+    let db = dir.path().join("source.db");
+    fixture(&db);
+    let before = rows(&db);
+    let destination = dir.path().join("unpublished.db");
+    let maintenance = SqliteMaintenance::open_existing(&db, source_models(), budget()).unwrap();
+    let expired = EvolutionLimits {
+        max_elapsed: Duration::from_nanos(1),
+        ..limits()
+    };
+    assert!(
+        maintenance
+            .execute_evolution(
+                &plan(),
+                &destination,
+                expired,
+                EvolutionAuthorization::ExecuteWithVerifiedBackup,
+            )
+            .is_err()
+    );
+    assert!(!destination.exists());
+    assert_eq!(rows(&db), before);
+    drop(SqliteStore::open(&db, source_models()).unwrap());
+}
