@@ -54,7 +54,11 @@ fn available_bytes(directory: &Path) -> Result<u64, StoreError> {
     use std::{iter, os::windows::ffi::OsStrExt};
     use windows_sys::Win32::Storage::FileSystem::GetDiskFreeSpaceExW;
 
-    let path: Vec<u16> = directory.as_os_str().encode_wide().chain(iter::once(0)).collect();
+    let path: Vec<u16> = directory
+        .as_os_str()
+        .encode_wide()
+        .chain(iter::once(0))
+        .collect();
     let mut available = 0_u64;
     // SAFETY: path is NUL-terminated and available is a valid writable u64.
     let success = unsafe {
@@ -73,7 +77,9 @@ fn available_bytes(directory: &Path) -> Result<u64, StoreError> {
 
 #[cfg(not(any(unix, windows)))]
 fn available_bytes(_directory: &Path) -> Result<u64, StoreError> {
-    Err(denied("filesystem capacity checks are unsupported on this platform"))
+    Err(denied(
+        "filesystem capacity checks are unsupported on this platform",
+    ))
 }
 
 #[cfg(test)]
