@@ -435,3 +435,109 @@ fn expired_restore_deadline_preserves_original_without_retention() {
     assert_eq!(rows(&db), before);
     drop(SqliteStore::open(&db, models_v1()).unwrap());
 }
+
+#[cfg(target_os = "linux")]
+#[test]
+fn kernel_file_limit_during_restore_copy_retains_preimage_and_reopens_target() {
+    // RLIMIT_FSIZE is process-global. Isolate kernel write failure and signal
+    // disposition from all other tests in a separate instance of this binary.
+    const CHILD: &str = "RIESEL_SQLITE_RESTORE_FSIZE_CHILD";
+    if std::env::var_os(CHILD).is_none() {
+        let output = std::process::Command::new(std::env::current_exe().unwrap())
+            .args([
+                "--exact",
+                "kernel_file_limit_during_restore_copy_retains_preimage_and_reopens_target",
+                "--nocapture",
+            ])
+            .env(CHILD, "1")
+            .output()
+            .unwrap();
+        assert!(
+            output.status.success(),
+            "OS restore fault child failed: stdout={} stderr={}",
+            String::from_utf8_lossy(&output.stdout),
+            String::from_utf8_lossy(&output.stderr)
+        );
+        assert!(String::from_utf8_lossy(&output.stdout).contains("1 passed"));
+        return;
+    }
+
+    let dir = tempfile::tempdir().unwrap();
+    let large_db = dir.path().join("historical-source.db");
+    let archive = dir.path().join("historical-snapshot.db");
+    let target = dir.path().join("current.db");
+    let retained = dir.path().join("retained-before-failed-restore.db");
+    let generous = SnapshotBudget {
+        max_records: 80,
+        max_json_bytes: 1_000_000,
+        max_snapshot_bytes: 2_000_000,
+        max_sidecar_bytes: 2_000_000,
+        max_elapsed: Duration::from_secs(30),
+    };
+
+    // Create a real independent VACUUM INTO archive larger than the later
+    // per-file limit; it must be read-only throughout attempted restoration.
+    let store = SqliteStore::open(&large_db, models_v1()).unwrap();
+    for _ in 0..48 {
+        store
+            .create("task", json!({"title":"x".repeat(8_000)}))
+            .unwrap();
+    }
+    drop(store);
+    let source_rows = rows(&large_db);
+    let archival = SqliteMaintenance::open_existing(&large_db, models_v1(), generous).unwrap();
+    archival.backup_to(&archive, generous).unwrap();
+    drop(archival);
+    assert_eq!(rows(&archive), source_rows);
+    assert!(std::fs::metadata(&archive).unwrap().len() > 128 * 1024);
+
+    let kept_id = fixture(&target);
+    let current_rows = rows(&target);
+    let maintenance = SqliteMaintenance::open_existing(&target, models_v1(), generous).unwrap();
+
+    let mut limit = std::mem::MaybeUninit::<libc::rlimit>::uninit();
+    // SAFETY: getrlimit writes a complete rlimit on successful return.
+    assert_eq!(
+        unsafe { libc::getrlimit(libc::RLIMIT_FSIZE, limit.as_mut_ptr()) },
+        0
+    );
+    // SAFETY: the successful call above initialized the rlimit.
+    let mut limit = unsafe { limit.assume_init() };
+    let original_soft = limit.rlim_cur;
+    limit.rlim_cur = 128 * 1024;
+    // SAFETY: these calls run only in this isolated subprocess. SIG_IGN is
+    // valid for SIGXFSZ; setrlimit receives initialized data.
+    unsafe {
+        assert_ne!(libc::signal(libc::SIGXFSZ, libc::SIG_IGN), libc::SIG_ERR);
+        assert_eq!(libc::setrlimit(libc::RLIMIT_FSIZE, &limit), 0);
+    }
+
+    let outcome = maintenance.restore_from_backup(
+        &archive,
+        models_v1(),
+        &retained,
+        generous,
+        RestoreAuthorization::DiscardPostSnapshotWrites,
+    );
+
+    // A WAL read/reopen can itself write a shared-memory sidecar. Restore the
+    // original process limit before checking the target and retained images.
+    limit.rlim_cur = original_soft;
+    // SAFETY: restores only the saved soft limit in this isolated process.
+    assert_eq!(unsafe { libc::setrlimit(libc::RLIMIT_FSIZE, &limit) }, 0);
+
+    assert!(
+        matches!(outcome, Err(StoreError::Failed(_))),
+        "kernel-refused restore must never return a successful receipt"
+    );
+    assert!(
+        retained.exists(),
+        "failure must occur after verified preimage retention"
+    );
+    assert_eq!(rows(&retained), current_rows);
+    assert_eq!(rows(&target), current_rows);
+    assert_eq!(rows(&archive), source_rows);
+    let reopened = SqliteStore::open(&target, models_v1()).unwrap();
+    assert_eq!(reopened.get("task", kept_id).unwrap().unwrap().revision, 1);
+    drop(reopened);
+}
