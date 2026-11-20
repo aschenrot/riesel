@@ -22,6 +22,22 @@ Authoritative baseline: [SQLite provider](../../../packages/storage/sqlite/src/d
 5. Any accepted deployment mechanism must define behavior for overflow at \`u64::MAX\`, validation failure, concurrent file access, interruption, disk-full/permissions, partial or inaccessible backups, downgrade, and stale clients.
 6. A migration is not a guarantee that older binaries understand the newer database. Old model definitions must continue to fail closed unless a separate, explicit backward migration is approved and tested.
 
+## Concrete model-change cases for Gate B
+
+The following are **proposed boundaries**; no transition is approved merely because the record validator accepts the resulting JSON.
+
+| Change | Existing v1 behavior | Proposed authorized behavior |
+| --- | --- | --- |
+| Add an \`Option<T>\` field | Existing records may already validate against the new shape, but changed persisted model definition still blocks startup | Explicitly named metadata-only transition **after full-record validation**; require a decision on revision fencing even if bytes are unchanged |
+| Add a required field | Existing records fail target validation | Require an explicitly authored default/transform and revalidate every record; no inferred default |
+| Rename a field | Old field becomes unknown and new field missing | Require a named transform retaining intended information; an inferred rename is not reliable |
+| Change a field type | Some existing values fail target validation or have ambiguous semantics | Require deliberate checked conversion; fail all rows atomically if any value cannot convert |
+| Remove a field or model | Old data/model metadata conflicts with the new shape/set | No silent deletion; explicit retention/export or destructive-transition authorization and verifiable backup |
+| Change business meaning without changing shape | Metadata checks may see no difference | **Not detectable from structural schema alone**; require an explicit domain/compatibility decision if stored values need rewriting |
+| Alter physical SQLite tables / format | \`PRAGMA user_version\` differs, or required tables no longer match | Separate, explicitly versioned physical-format migration; JSON model transitions do not automatically approve this |
+
+For every authorized case, specify source model identity, target model identity, whether record bytes change, revision behavior, cross-model invariants, downgrade path and a failing fixture. A candidate that cannot explain a case must reject it, not silently approximate.
+
 ## Evidence and candidate comparison
 
 The candidate dimensions are **authoring/authorization**, **execution/atomicity**, and **backup/recovery**. They need not be selected as one indivisible package. These are qualitative design comparisons, not benchmark results.
