@@ -1,3 +1,4 @@
+use crate::owner::OwnerGuard;
 use riesel_schema::ModelDefinition;
 use riesel_storage::StoreError;
 use rusqlite::{Connection, OpenFlags, TransactionBehavior, params};
@@ -25,6 +26,8 @@ pub struct SqliteStore {
     pub(super) models: BTreeMap<String, ModelDefinition>,
     /// Exact serialized definitions cached at provider startup for write fencing.
     expected_models: BTreeMap<String, Vec<u8>>,
+    // Dropped after the SQLite connection because fields drop in declaration order.
+    owner: OwnerGuard,
 }
 
 pub(super) fn failed(error: impl std::fmt::Display) -> StoreError {
@@ -77,6 +80,12 @@ impl SqliteStore {
         verify_models(conn, &self.expected_models)
     }
 
+    /// Check the lifetime owner before every provider operation; the SQLite
+    /// transaction-local schema check remains a separate write fence.
+    pub(super) fn verify_owner(&self) -> Result<(), StoreError> {
+        self.owner.verify()
+    }
+
     /// Open or initialize explicit local storage; call only during provider startup.
     pub fn open(
         path: impl AsRef<Path>,
@@ -96,8 +105,9 @@ impl SqliteStore {
                     .map_err(failed)
             })
             .collect::<Result<_, _>>()?;
+        let mut owner = OwnerGuard::acquire(path)?;
         let mut conn = Connection::open_with_flags(
-            path,
+            owner.database_path(),
             OpenFlags::SQLITE_OPEN_READ_WRITE | OpenFlags::SQLITE_OPEN_CREATE,
         )
         .map_err(failed)?;
@@ -161,10 +171,12 @@ impl SqliteStore {
         }
 
         tx.commit().map_err(failed)?;
+        owner.opened()?;
         Ok(Self {
             connection: Mutex::new(conn),
             models,
             expected_models,
+            owner,
         })
     }
 }

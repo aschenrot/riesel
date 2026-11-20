@@ -61,9 +61,12 @@ impl SqliteStore {
     }
 
     fn lock(&self) -> Result<std::sync::MutexGuard<'_, Connection>, StoreError> {
-        self.connection
+        let conn = self
+            .connection
             .lock()
-            .map_err(|_| StoreError::Failed("SQLite connection lock poisoned".into()))
+            .map_err(|_| StoreError::Failed("SQLite connection lock poisoned".into()))?;
+        self.verify_owner()?;
+        Ok(conn)
     }
 }
 

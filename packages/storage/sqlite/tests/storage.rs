@@ -184,8 +184,10 @@ fn preserves_u64_revision_domain_and_checks_overflow() {
 fn registration_and_preflight_do_not_open_database() {
     let dir = tempfile::tempdir().unwrap();
     let path = dir.path().join("tasks.db");
+    let lockfile = dir.path().join("tasks.db.riesel-owner.lock");
     let provider = sqlite_storage_provider(path.clone(), models()).unwrap();
     assert!(!path.exists());
+    assert!(!lockfile.exists());
     let def = provider.definition().unwrap();
     assert_eq!(def.id, "riesel.storage.sqlite");
     assert!(!path.exists());
@@ -208,8 +210,10 @@ fn registration_and_preflight_do_not_open_database() {
     )]));
     app.preflight(&deployment, &connectors).unwrap();
     assert!(!path.exists());
+    assert!(!lockfile.exists());
     let mut running = app.start(&deployment, &connectors).unwrap();
     assert!(path.exists());
+    assert!(lockfile.exists());
     running.shutdown().unwrap();
 }
 
