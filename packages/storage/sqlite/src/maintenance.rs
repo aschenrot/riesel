@@ -204,7 +204,9 @@ impl SqliteMaintenance {
     ) -> Result<Self, StoreError> {
         let mut owner = OwnerGuard::acquire(path.as_ref())?;
         if fs::metadata(owner.database_path()).map_err(failed)?.len() > budget.max_snapshot_bytes {
-            return Err(denied("source database exceeds the declared snapshot byte ceiling"));
+            return Err(denied(
+                "source database exceeds the declared snapshot byte ceiling",
+            ));
         }
         let conn =
             Connection::open_with_flags(owner.database_path(), OpenFlags::SQLITE_OPEN_READ_ONLY)
