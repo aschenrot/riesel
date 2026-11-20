@@ -118,11 +118,13 @@ fn resource_ceiling_rejects_without_publishing_incomplete_backup() {
         Err(StoreError::Failed(_))
     ));
     assert!(!output.exists());
-    assert!(
-        std::fs::read_dir(dir.path())
+    assert!(std::fs::read_dir(dir.path()).unwrap().all(|entry| {
+        !entry
             .unwrap()
-            .all(|entry| !entry.unwrap().file_name().to_string_lossy().contains("riesel-pending"))
-    );
+            .file_name()
+            .to_string_lossy()
+            .contains("riesel-pending")
+    }));
 }
 
 #[test]
