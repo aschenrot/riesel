@@ -3,7 +3,7 @@ use riesel_storage::{RecordStore, StoreError};
 use riesel_storage_sqlite::{RestoreAuthorization, SnapshotBudget, SqliteMaintenance, SqliteStore};
 use rusqlite::{Connection, OpenFlags};
 use serde_json::json;
-use std::{collections::BTreeMap, path::Path};
+use std::{collections::BTreeMap, path::Path, time::Duration};
 
 fn models_v1() -> BTreeMap<String, ModelDefinition> {
     BTreeMap::from([(
@@ -31,6 +31,7 @@ fn budget() -> SnapshotBudget {
         max_records: 10,
         max_json_bytes: 65_536,
         max_snapshot_bytes: 1_048_576,
+    max_elapsed: Duration::from_secs(30),
     }
 }
 
@@ -359,6 +360,7 @@ fn restore_rejects_invalid_budget_before_copying_any_pages() {
         max_records: 1,
         max_json_bytes: 65_536,
         max_snapshot_bytes: 1_048_576,
+    max_elapsed: Duration::from_secs(30),
     };
     assert!(matches!(
         maintenance.restore_from_backup(
@@ -400,4 +402,30 @@ fn impossible_restore_capacity_refuses_before_retention_or_mutation() {
     ));
     assert_eq!(rows(&db), before);
     assert!(!retained.exists());
+}
+
+#[test]
+fn expired_restore_deadline_preserves_original_without_retention() {
+    let dir = tempfile::tempdir().unwrap();
+    let db = dir.path().join("records.db");
+    fixture(&db);
+    let archived = dir.path().join("snapshot.db");
+    snapshot(&db, &archived);
+    let before = rows(&db);
+    let retained = dir.path().join("retained.db");
+    let maintenance = SqliteMaintenance::open_existing(&db, models_v1(), budget()).unwrap();
+    let expired = SnapshotBudget {
+        max_elapsed: Duration::from_nanos(1),
+        ..budget()
+    };
+    assert!(maintenance.restore_from_backup(
+        &archived,
+        models_v1(),
+        &retained,
+        expired,
+        RestoreAuthorization::DiscardPostSnapshotWrites,
+    ).is_err());
+    assert!(!retained.exists());
+    assert_eq!(rows(&db), before);
+    drop(SqliteStore::open(&db, models_v1()).unwrap());
 }

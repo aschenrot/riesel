@@ -5,6 +5,7 @@
 use crate::{
     capacity::require_headroom,
     database::{FORMAT_VERSION, failed, verify_models},
+    deadline::Deadline,
     owner::OwnerGuard,
     records::MAX_RECORD_BYTES,
 };
@@ -32,6 +33,8 @@ pub struct SnapshotBudget {
     pub max_records: u64,
     pub max_json_bytes: u64,
     pub max_snapshot_bytes: u64,
+    /// Per-operation cooperative elapsed-time budget.
+    pub max_elapsed: std::time::Duration,
 }
 
 /// A verified, independently materialized SQLite backup artifact.
@@ -53,10 +56,9 @@ pub(crate) fn audit(
     conn: &Connection,
     models: &BTreeMap<String, ModelDefinition>,
     budget: SnapshotBudget,
+    deadline: Deadline,
 ) -> Result<Audit, StoreError> {
-    if budget.max_records == 0 || budget.max_json_bytes == 0 || budget.max_snapshot_bytes == 0 {
-        return Err(denied("all snapshot budgets must be positive"));
-    }
+    deadline.check()?;
     let version: i64 = conn
         .pragma_query_value(None, "user_version", |row| row.get(0))
         .map_err(failed)?;
@@ -69,6 +71,7 @@ pub(crate) fn audit(
     if integrity != "ok" {
         return Err(denied("SQLite integrity check did not pass"));
     }
+    deadline.check()?;
 
     let expected = models
         .iter()
@@ -87,6 +90,7 @@ pub(crate) fn audit(
     let mut records = 0_u64;
     let mut json_bytes = 0_u64;
     while let Some(row) = query.next().map_err(failed)? {
+        deadline.check()?;
         let model: String = row.get(0).map_err(failed)?;
         let id: Vec<u8> = row.get(1).map_err(failed)?;
         let revision: Vec<u8> = row.get(2).map_err(failed)?;
@@ -119,6 +123,7 @@ pub(crate) fn audit(
             return Err(denied("record exceeds the Storage payload bound"));
         }
     }
+    deadline.check()?;
     Ok(Audit {
         records,
         json_bytes,
@@ -126,13 +131,18 @@ pub(crate) fn audit(
 }
 
 /// Read both databases in stable order without materializing all rows.
-pub(crate) fn compare_records(left: &Connection, right: &Connection) -> Result<(), StoreError> {
+pub(crate) fn compare_records(
+    left: &Connection,
+    right: &Connection,
+    deadline: Deadline,
+) -> Result<(), StoreError> {
     const QUERY: &str = "SELECT model,id,revision,data FROM records ORDER BY model,id";
     let mut lstmt = left.prepare(QUERY).map_err(failed)?;
     let mut rstmt = right.prepare(QUERY).map_err(failed)?;
     let mut lrows = lstmt.query([]).map_err(failed)?;
     let mut rrows = rstmt.query([]).map_err(failed)?;
     loop {
+        deadline.check()?;
         match (lrows.next().map_err(failed)?, rrows.next().map_err(failed)?) {
             (None, None) => return Ok(()),
             (Some(l), Some(r)) => {
@@ -228,17 +238,20 @@ impl SqliteMaintenance {
         models: BTreeMap<String, ModelDefinition>,
         budget: SnapshotBudget,
     ) -> Result<Self, StoreError> {
+        let deadline = Deadline::start(budget)?;
         let mut owner = OwnerGuard::acquire(path.as_ref())?;
         if fs::metadata(owner.database_path()).map_err(failed)?.len() > budget.max_snapshot_bytes {
             return Err(denied(
                 "source database exceeds the declared snapshot byte ceiling",
             ));
         }
-        let conn =
+        let mut conn =
             Connection::open_with_flags(owner.database_path(), OpenFlags::SQLITE_OPEN_READ_ONLY)
                 .map_err(failed)?;
-        audit(&conn, &models, budget)?;
+        deadline.install(&mut conn)?;
+        audit(&conn, &models, budget, deadline)?;
         drop(conn);
+        deadline.check()?;
         owner.opened()?;
         Ok(Self { owner, models })
     }
@@ -251,6 +264,17 @@ impl SqliteMaintenance {
         destination: impl AsRef<Path>,
         budget: SnapshotBudget,
     ) -> Result<VerifiedSnapshot, StoreError> {
+        self.backup_to_with_deadline(destination, budget, Deadline::start(budget)?)
+    }
+
+    /// Reuse the restore deadline while retaining its pre-restore snapshot.
+    pub(crate) fn backup_to_with_deadline(
+        &self,
+        destination: impl AsRef<Path>,
+        budget: SnapshotBudget,
+        deadline: Deadline,
+    ) -> Result<VerifiedSnapshot, StoreError> {
+        deadline.check()?;
         self.owner.verify()?;
         let output = output_path(destination.as_ref(), self.owner.database_path())?;
         require_headroom(
@@ -259,12 +283,14 @@ impl SqliteMaintenance {
                 .ok_or_else(|| denied("missing backup parent"))?,
             budget.max_snapshot_bytes,
         )?;
-        let source = Connection::open_with_flags(
+        deadline.check()?;
+        let mut source = Connection::open_with_flags(
             self.owner.database_path(),
             OpenFlags::SQLITE_OPEN_READ_ONLY,
         )
         .map_err(failed)?;
-        let before = audit(&source, &self.models, budget)?;
+        deadline.install(&mut source)?;
+        let before = audit(&source, &self.models, budget, deadline)?;
         let mut pending_name: OsString = output.as_os_str().to_owned();
         pending_name.push(format!(".riesel-pending-{}", Uuid::new_v4()));
         let pending = PathBuf::from(pending_name);
@@ -275,16 +301,19 @@ impl SqliteMaintenance {
         let pending_sql_path = pending
             .to_str()
             .ok_or_else(|| denied("backup output path is not valid UTF-8"))?;
+        deadline.check()?;
         source
             .execute("VACUUM INTO ?1", params![pending_sql_path])
             .map_err(failed)?;
-        let copied = Connection::open_with_flags(&pending, OpenFlags::SQLITE_OPEN_READ_ONLY)
+        deadline.check()?;
+        let mut copied = Connection::open_with_flags(&pending, OpenFlags::SQLITE_OPEN_READ_ONLY)
             .map_err(failed)?;
-        let after = audit(&copied, &self.models, budget)?;
+        deadline.install(&mut copied)?;
+        let after = audit(&copied, &self.models, budget, deadline)?;
         if before != after {
             return Err(denied("snapshot audit differs from source"));
         }
-        compare_records(&source, &copied)?;
+        compare_records(&source, &copied, deadline)?;
         let file_bytes = fs::metadata(&pending).map_err(failed)?.len();
         if file_bytes > budget.max_snapshot_bytes {
             return Err(denied("snapshot file byte budget exceeded"));
@@ -292,10 +321,12 @@ impl SqliteMaintenance {
         drop(copied);
         drop(source);
         self.owner.verify()?;
+        deadline.check()?;
         File::open(&pending)
             .map_err(failed)?
             .sync_all()
             .map_err(failed)?;
+        deadline.check()?;
         // Unlike rename, hard_link fails atomically if destination exists.
         // Both names are in the same directory/filesystem.
         fs::hard_link(&pending, &output).map_err(failed)?;
@@ -311,6 +342,7 @@ impl SqliteMaintenance {
                 .sync_all()
                 .map_err(failed)?;
         }
+        deadline.check()?;
         publication.0 = None;
         drop(cleanup);
         Ok(VerifiedSnapshot {

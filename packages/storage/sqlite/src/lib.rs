@@ -2,6 +2,7 @@
 //! Construction is side-effect-free; the database opens in the local factory.
 mod capacity;
 mod database;
+mod deadline;
 mod evolution;
 mod maintenance;
 mod owner;

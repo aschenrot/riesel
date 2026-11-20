@@ -5,6 +5,7 @@
 use crate::{
     capacity::require_headroom,
     database::failed,
+    deadline::Deadline,
     maintenance::{
         SnapshotBudget, SqliteMaintenance, VerifiedSnapshot, audit, compare_records, denied,
     },
@@ -51,7 +52,9 @@ impl SqliteMaintenance {
         budget: SnapshotBudget,
         _authorization: RestoreAuthorization,
     ) -> Result<RestoreReceipt, StoreError> {
+        let deadline = Deadline::start(budget)?;
         self.owner.verify()?;
+        deadline.check()?;
 
         // The backup has its own cooperating lifetime guard; this protects
         // against a second supported provider modifying the verified snapshot.
@@ -69,12 +72,13 @@ impl SqliteMaintenance {
             return Err(denied("restoration snapshot exceeds the byte ceiling"));
         }
         source_owner.opened()?;
-        let source = Connection::open_with_flags(
+        let mut source = Connection::open_with_flags(
             source_owner.database_path(),
             OpenFlags::SQLITE_OPEN_READ_ONLY,
         )
         .map_err(failed)?;
-        let verified = audit(&source, &snapshot_models, budget)?;
+        deadline.install(&mut source)?;
+        let verified = audit(&source, &snapshot_models, budget, deadline)?;
 
         // Check the currently opened target without permitting an implicit
         // schema upgrade or attempting to overwrite a corrupted destination.
@@ -83,7 +87,8 @@ impl SqliteMaintenance {
             OpenFlags::SQLITE_OPEN_READ_WRITE,
         )
         .map_err(failed)?;
-        audit(&target, &self.models, budget)?;
+        deadline.install(&mut target)?;
+        audit(&target, &self.models, budget, deadline)?;
         let journal: String = target
             .pragma_query_value(None, "journal_mode", |row| row.get(0))
             .map_err(failed)?;
@@ -104,37 +109,46 @@ impl SqliteMaintenance {
         // An explicit retained copy of the *current* state precedes mutation.
         // This uses VACUUM INTO and refuses an occupied destination.
         drop(target);
-        let retained_pre_restore = self.backup_to(retain_current_at, budget)?;
+        let retained_pre_restore =
+            self.backup_to_with_deadline(retain_current_at, budget, deadline)?;
 
         self.owner.verify()?;
         source_owner.verify()?;
+        deadline.check()?;
         target = Connection::open_with_flags(
             self.owner.database_path(),
             OpenFlags::SQLITE_OPEN_READ_WRITE,
         )
         .map_err(failed)?;
-        audit(&target, &self.models, budget)?;
+        deadline.install(&mut target)?;
+        audit(&target, &self.models, budget, deadline)?;
         target
             .pragma_update(None, "synchronous", "FULL")
             .map_err(failed)?;
 
         // SQLite's backup API uses a destination write transaction rather than
         // raw main-file replacement that could diverge from a live WAL.
-        target
-            .restore(
-                rusqlite::MAIN_DB,
-                source_owner.database_path(),
-                rusqlite::backup::NO_PROGRESS,
-            )
-            .map_err(failed)?;
+        let backup = rusqlite::backup::Backup::new(&source, &mut target).map_err(failed)?;
+        loop {
+            deadline.check()?;
+            match backup.step(64).map_err(failed)? {
+                rusqlite::backup::StepResult::Done => break,
+                rusqlite::backup::StepResult::More => {}
+                _ => {
+                    return Err(denied("restoration copy blocked; new authorization required"));
+                }
+            }
+        }
+        drop(backup);
+        deadline.check()?;
 
-        let after = audit(&target, &snapshot_models, budget)?;
+        let after = audit(&target, &snapshot_models, budget, deadline)?;
         if after != verified {
             return Err(denied(
                 "restored content does not match the verified snapshot",
             ));
         }
-        compare_records(&source, &target)?;
+        compare_records(&source, &target, deadline)?;
         self.owner.verify()?;
         source_owner.verify()?;
 
@@ -144,6 +158,7 @@ impl SqliteMaintenance {
         if restored_size > budget.max_snapshot_bytes {
             return Err(denied("restored database exceeds the byte ceiling"));
         }
+        deadline.check()?;
         Ok(RestoreReceipt {
             retained_pre_restore,
             restored_records: after.records,
