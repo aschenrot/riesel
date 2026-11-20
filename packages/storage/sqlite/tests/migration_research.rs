@@ -700,3 +700,69 @@ fn offline_snapshot_restores_legacy_data_without_downgrading_in_place() {
     assert_eq!(snapshot(&recovered), original);
     assert!(SqliteStore::open(&recovered, models_v2()).is_err());
 }
+
+/// A completed snapshot is useful only if its subsequent verification passes.
+/// An existing nonempty backup destination must not be overwritten as an
+/// unexamined side effect of a maintenance attempt.
+#[test]
+fn backup_preflight_rejects_existing_target_without_touching_live_data() {
+    let (dir, first, _, _) = fixture();
+    let db = dir.path().join("records.db");
+    let backup = dir.path().join("existing-backup.db");
+    let previous = snapshot(&db);
+    std::fs::write(&backup, b"previous-backup-must-be-preserved").unwrap();
+
+    let conn = Connection::open(&db).unwrap();
+    assert!(
+        conn.execute("VACUUM INTO ?1", params![backup.to_string_lossy().as_ref()])
+            .is_err(),
+        "SQLite must not overwrite an occupied backup destination"
+    );
+    drop(conn);
+    assert_eq!(
+        std::fs::read(&backup).unwrap(),
+        b"previous-backup-must-be-preserved"
+    );
+    assert_eq!(snapshot(&db), previous);
+    assert_eq!(
+        SqliteStore::open(&db, models_v1())
+            .unwrap()
+            .get("task", first)
+            .unwrap()
+            .unwrap()
+            .revision,
+        2
+    );
+}
+
+/// This simulates an invalid backup *after* creation, not a real disk failure.
+/// Verification must refuse the corrupted artifact rather than treating the
+/// existence of a file as proof of a usable restore point.
+#[test]
+fn invalid_backup_is_detected_without_altering_the_source_database() {
+    let (dir, _, _, _) = fixture();
+    let db = dir.path().join("records.db");
+    let backup = dir.path().join("candidate-backup.db");
+    let original = snapshot(&db);
+
+    let conn = Connection::open(&db).unwrap();
+    conn.execute("VACUUM INTO ?1", params![backup.to_string_lossy().as_ref()])
+        .unwrap();
+    drop(conn);
+    let integrity: String = Connection::open(&backup)
+        .unwrap()
+        .pragma_query_value(None, "integrity_check", |row| row.get(0))
+        .unwrap();
+    assert_eq!(integrity, "ok");
+
+    std::fs::write(&backup, b"deliberately invalid SQLite snapshot").unwrap();
+    let verification = Connection::open(&backup).and_then(|candidate| {
+        candidate.pragma_query_value(None, "integrity_check", |row| row.get::<_, String>(0))
+    });
+    assert!(
+        !matches!(verification, Ok(ref message) if message == "ok"),
+        "an invalid backup must not be accepted"
+    );
+    assert_eq!(snapshot(&db), original);
+    assert!(SqliteStore::open(&db, models_v1()).is_ok());
+}
