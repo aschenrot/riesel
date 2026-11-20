@@ -309,3 +309,42 @@ fn consistent_sqlite_vacuum_into_snapshot_reopens_while_original_store_is_live()
     // This demonstrates a consistent snapshot, not a restore/swap procedure
     // or a power-loss/directory-sync guarantee.
 }
+
+
+#[test]
+fn competing_sqlite_writer_blocks_migration_transaction() {
+    let (dir, _, _, _) = fixture();
+    let db = dir.path().join("records.db");
+    let before = snapshot(&db);
+
+    let mut holder = Connection::open(&db).unwrap();
+    let write = holder.transaction_with_behavior(TransactionBehavior::Immediate).unwrap();
+    let mut contender = Connection::open(&db).unwrap();
+    contender.busy_timeout(std::time::Duration::from_millis(25)).unwrap();
+    assert!(
+        contender.transaction_with_behavior(TransactionBehavior::Immediate).is_err(),
+        "SQLite must not grant a second simultaneous write transaction"
+    );
+    drop(write);
+    assert_eq!(snapshot(&db), before);
+    trial_transactional_upgrade(&db, TestTransformation::AddPriority).unwrap();
+    assert!(SqliteStore::open(&db, models_v2()).is_ok());
+    // This verifies writer serialization only, NOT a comprehensive ownership
+    // protocol against another process opening the file at another time.
+}
+
+#[test]
+fn corrupt_stored_model_metadata_fails_closed_without_repair() {
+    let (dir, _, _, _) = fixture();
+    let db = dir.path().join("records.db");
+    let conn = Connection::open(&db).unwrap();
+    conn.execute(
+        "UPDATE models SET definition=?1 WHERE name='task'",
+        params![b"invalid serialized model definition"],
+    ).unwrap();
+    drop(conn);
+    let corrupted = snapshot(&db);
+    assert!(SqliteStore::open(&db, models_v1()).is_err());
+    assert!(SqliteStore::open(&db, models_v2()).is_err());
+    assert_eq!(snapshot(&db), corrupted, "mismatched metadata is not silently rewritten");
+}
