@@ -519,7 +519,7 @@ fn successful_cross_model_invariant_sees_transformed_target_records() {
     let (task_id, note_id) = fixture(&db);
     let original = rows(&db);
     let saved = dir.path().join("before.db");
-    let checked = plan().invariant(|records| {
+    let checked = plan().invariant(move |records| {
         validate_note_links(records)?;
         let task = records
             .get("task", task_id)?
