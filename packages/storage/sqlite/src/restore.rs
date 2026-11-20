@@ -3,14 +3,16 @@
 //! The caller must explicitly acknowledge loss of writes made after the source
 //! snapshot. Corrupt destination repair and power-loss durability are excluded.
 use crate::{
-    maintenance::{SnapshotBudget, SqliteMaintenance, VerifiedSnapshot, audit, compare_records, denied},
-    owner::OwnerGuard,
     database::failed,
+    maintenance::{
+        SnapshotBudget, SqliteMaintenance, VerifiedSnapshot, audit, compare_records, denied,
+    },
+    owner::OwnerGuard,
 };
 use riesel_schema::ModelDefinition;
 use riesel_storage::StoreError;
 use rusqlite::{Connection, OpenFlags};
-use std::{collections::BTreeMap, fs, path::{Path, PathBuf}};
+use std::{collections::BTreeMap, fs, path::Path};
 
 /// Explicit, non-default acknowledgement of irreversible writes newer than
 /// the retained source snapshot. A later CLI must still obtain operator consent.
