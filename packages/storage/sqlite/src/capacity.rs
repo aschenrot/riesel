@@ -1,9 +1,50 @@
 //! Conservative filesystem-space preflight for explicit SQLite maintenance.
 //! This is not a reservation: another writer, filesystem metadata, SQLite
 //! temporary files, and sudden I/O failure can exhaust space after the check.
-use crate::maintenance::denied;
+use crate::maintenance::{SnapshotBudget, denied};
 use riesel_storage::StoreError;
-use std::path::Path;
+use std::{
+    fs,
+    io::ErrorKind,
+    path::{Path, PathBuf},
+};
+
+/// Refuse unexpectedly large or nonregular SQLite WAL/shared-memory sidecars
+/// before undertaking an offline backup or restore. This bounds observed
+/// physical input size, not future WAL growth or arbitrary hostile writers.
+pub(crate) fn check_sidecars(
+    database_path: &Path,
+    budget: SnapshotBudget,
+) -> Result<(), StoreError> {
+    let mut bytes = 0_u64;
+    for suffix in ["-wal", "-shm"] {
+        let mut name = database_path.as_os_str().to_owned();
+        name.push(suffix);
+        let path = PathBuf::from(name);
+        let metadata = match fs::symlink_metadata(&path) {
+            Ok(metadata) => metadata,
+            Err(error) if error.kind() == ErrorKind::NotFound => continue,
+            Err(error) => return Err(failed(error)),
+        };
+        if !metadata.file_type().is_file() {
+            return Err(denied("SQLite sidecar must be a regular file"));
+        }
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::MetadataExt;
+            if metadata.nlink() != 1 {
+                return Err(denied("hard-linked SQLite sidecars are unsupported"));
+            }
+        }
+        bytes = bytes
+            .checked_add(metadata.len())
+            .ok_or_else(|| denied("SQLite sidecar byte count overflow"))?;
+        if bytes > budget.max_sidecar_bytes {
+            return Err(denied("SQLite WAL/SHM sidecar byte budget exceeded"));
+        }
+    }
+    Ok(())
+}
 
 /// Reserve two declared maximum database images as a conservative floor for
 /// snapshot materialization or restoration WAL growth. The bound intentionally

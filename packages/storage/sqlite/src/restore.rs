@@ -3,12 +3,11 @@
 //! The caller must explicitly acknowledge loss of writes made after the source
 //! snapshot. Corrupt destination repair and power-loss durability are excluded.
 use crate::{
-    capacity::require_headroom,
+    capacity::{check_sidecars, require_headroom},
     database::failed,
     deadline::Deadline,
     maintenance::{
-        SnapshotBudget, SqliteMaintenance, VerifiedSnapshot, audit, check_sidecars,
-        compare_records, denied,
+        SnapshotBudget, SqliteMaintenance, VerifiedSnapshot, audit, compare_records, denied,
     },
     owner::OwnerGuard,
 };
