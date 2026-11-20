@@ -522,7 +522,6 @@ fn frozen_format_v1_file_from_fixed_bytes_reopens_and_upgrades() {
     );
 }
 
-
 #[test]
 fn unexpected_other_model_schema_aborts_candidate_before_writes() {
     let (dir, _, _, _) = fixture();

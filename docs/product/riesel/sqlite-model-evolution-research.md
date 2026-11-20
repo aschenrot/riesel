@@ -69,7 +69,7 @@ The research-only tests use the **actual production \`SqliteStore::open\` to cre
 | Forced child process exit before commit | Incomplete model/data writes are rolled back when SQLite reopens | Host/power loss or volatile filesystem corruption recovery |
 | \`VACUUM INTO\` with live source open | Consistent snapshot reopens and preserves an acknowledged record | Crash-safe destination replacement, backup retention or directory sync guarantees |
 
-**Verified research probe:** Rust 1.100.0 with the pinned `rusqlite = 0.43.0` succeeded on all **10/10** migration research tests at commit `5a0ab9c4` ([run 44656949504](https://github.com/aschenrot/riesel/actions/runs/44656949504)). These are test-only SQLite semantics, not a production migration engine. Normal workspace validation and smoke remain an independent final-commit gate.
+**Verified research probe:** Rust 1.100.0 with the pinned `rusqlite = 0.43.0` succeeded on all **11/11** migration research tests at commit `33d9f5cf` ([run 44657435701](https://github.com/aschenrot/riesel/actions/runs/44657435701)). These are test-only SQLite semantics, not a production migration engine. Normal workspace validation and smoke remain an independent final-commit gate.
 
 ## Provisional specification to review at Gate B
 
@@ -83,6 +83,12 @@ This is a **proposal**, not an accepted requirement.
 - For a bounded first delivery, test **one file-wide \`BEGIN IMMEDIATE\` transaction** for transformed record payloads, their revisions, and model metadata. Validate source and output records. Abort the complete transaction on any failure. Define size/duration/disk quotas and reject databases outside the guaranteed envelope instead of silently making many independently committed batches.
 - A schema-only transition with unchanged payloads may be technically possible; authorization and future stale-client behavior still need explicit review. No inference solely from an added \`Option<T>\`.
 - A change to the physical table layout is a **separate** versioned transition from JSON model evolution.
+
+### Critical unverified risk: stale open providers
+
+Current \`SqliteStore\` caches registered \`ModelDefinition\` values when opened; ordinary \`create\` and \`update\` validate against that cached map and do **not** re-read persisted model metadata on every command. SQLite's \`BEGIN IMMEDIATE\` provides **transactional writer serialization**, not lifetime-long provider ownership. By inspection of these code paths, a *second provider already opened with old Rust model definitions* could potentially write legacy JSON **after** another connection commits new model metadata. Such a write could make later reads under the target schema fail.
+
+This is a **code-path risk inference, not a successfully executed stale-owner fault-injection test**. Before accepting a migration implementation, demonstrate the failure mode with a controlled two-owner fixture and select a real exclusive-offline ownership/fencing policy; alternatively design a runtime check that rejects stale providers. Do not claim an \`IMMEDIATE\` transaction alone prevents these writes. Until then, the safe migration contract cannot allow another active provider or untrusted direct database writer.
 
 ### Revisions, identity, compatibility
 
