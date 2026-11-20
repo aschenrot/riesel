@@ -291,7 +291,6 @@ fn committed_write_survives_live_process_exit() {
     assert_eq!(page.records[0].data, task("committed-before-exit"));
 }
 
-
 fn two_model_registrations() -> BTreeMap<String, ModelDefinition> {
     let mut definitions = models();
     definitions.insert(
@@ -301,6 +300,15 @@ fn two_model_registrations() -> BTreeMap<String, ModelDefinition> {
         },
     );
     definitions
+}
+
+fn raw_revision_and_data(conn: &rusqlite::Connection, model: &str, id: uuid::Uuid) -> (Vec<u8>, Vec<u8>) {
+    conn.query_row(
+        "SELECT revision,data FROM records WHERE model=?1 AND id=?2",
+        rusqlite::params![model, id.as_bytes()],
+        |row| Ok((row.get(0)?, row.get(1)?)),
+    )
+    .unwrap()
 }
 
 #[test]
@@ -329,22 +337,26 @@ fn cached_models_fail_closed_on_all_writes_after_external_schema_change() {
                 conn.execute(
                     "UPDATE models SET definition=?1 WHERE name='note'",
                     rusqlite::params![serde_json::to_vec(&changed).unwrap()],
-                ).unwrap();
+                )
+                .unwrap();
             }
             "removed_model" => {
-                conn.execute("DELETE FROM models WHERE name='note'", []).unwrap();
+                conn.execute("DELETE FROM models WHERE name='note'", [])
+                    .unwrap();
             }
             "new_model" => {
                 conn.execute(
                     "INSERT INTO models(name,definition) VALUES('other',?1)",
                     rusqlite::params![serde_json::to_vec(&models()["task"]).unwrap()],
-                ).unwrap();
+                )
+                .unwrap();
             }
             "corrupt_definition" => {
                 conn.execute(
                     "UPDATE models SET definition=?1 WHERE name='note'",
                     rusqlite::params![b"not serialized model metadata"],
-                ).unwrap();
+                )
+                .unwrap();
             }
             "format_version" => {
                 conn.pragma_update(None, "user_version", 2).unwrap();
@@ -352,22 +364,18 @@ fn cached_models_fail_closed_on_all_writes_after_external_schema_change() {
             _ => unreachable!(),
         }
         // Preserve exact persisted data bytes/revisions as well as record count.
-        let record_before: (Vec<u8>, Vec<u8>) = conn.query_row(
-            "SELECT revision,data FROM records WHERE model='task' AND id=?1",
-            rusqlite::params![saved.id.as_bytes()],
-            |row| Ok((row.get(0)?, row.get(1)?)),
-        ).unwrap();
-        let note_before: (Vec<u8>, Vec<u8>) = conn.query_row(
-            "SELECT revision,data FROM records WHERE model='note' AND id=?1",
-            rusqlite::params![note.id.as_bytes()],
-            |row| Ok((row.get(0)?, row.get(1)?)),
-        ).unwrap();
-        let count: i64 = conn.query_row("SELECT count(*) FROM records", [], |row| row.get(0)).unwrap();
+        let record_before = raw_revision_and_data(&conn, "task", saved.id);
+        let note_before = raw_revision_and_data(&conn, "note", note.id);
+        let count: i64 = conn
+            .query_row("SELECT count(*) FROM records", [], |row| row.get(0))
+            .unwrap();
 
         for mutation in [
             store.create("task", task("rejected")).map(|_| ()),
             store.create("note", json!({"text":"rejected"})).map(|_| ()),
-            store.update("task", saved.id, saved.revision, task("rejected")).map(|_| ()),
+            store
+                .update("task", saved.id, saved.revision, task("rejected"))
+                .map(|_| ()),
             store.delete("task", saved.id, saved.revision),
         ] {
             assert!(
@@ -375,17 +383,11 @@ fn cached_models_fail_closed_on_all_writes_after_external_schema_change() {
                 "stale provider accepted a write after {drift}"
             );
         }
-        let record_after: (Vec<u8>, Vec<u8>) = conn.query_row(
-            "SELECT revision,data FROM records WHERE model='task' AND id=?1",
-            rusqlite::params![saved.id.as_bytes()],
-            |row| Ok((row.get(0)?, row.get(1)?)),
-        ).unwrap();
-        let note_after: (Vec<u8>, Vec<u8>) = conn.query_row(
-            "SELECT revision,data FROM records WHERE model='note' AND id=?1",
-            rusqlite::params![note.id.as_bytes()],
-            |row| Ok((row.get(0)?, row.get(1)?)),
-        ).unwrap();
-        let actual_count: i64 = conn.query_row("SELECT count(*) FROM records", [], |row| row.get(0)).unwrap();
+        let record_after = raw_revision_and_data(&conn, "task", saved.id);
+        let note_after = raw_revision_and_data(&conn, "note", note.id);
+        let actual_count: i64 = conn
+            .query_row("SELECT count(*) FROM records", [], |row| row.get(0))
+            .unwrap();
         assert_eq!(record_before, record_after, "task mutated after {drift}");
         assert_eq!(note_before, note_after, "note mutated after {drift}");
         assert_eq!(count, actual_count, "unexpected new records after {drift}");

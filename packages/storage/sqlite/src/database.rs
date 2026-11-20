@@ -65,10 +65,7 @@ fn verify_models(
 impl SqliteStore {
     /// Reject writes from providers whose cached schema is no longer on disk.
     /// This does not prevent legacy versions or direct SQLite writers.
-    pub(super) fn verify_write_registration(
-        &self,
-        conn: &Connection,
-    ) -> Result<(), StoreError> {
+    pub(super) fn verify_write_registration(&self, conn: &Connection) -> Result<(), StoreError> {
         let version: i64 = conn
             .pragma_query_value(None, "user_version", |row| row.get(0))
             .map_err(failed)?;

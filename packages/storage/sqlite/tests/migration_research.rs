@@ -625,7 +625,10 @@ fn stale_cross_process_provider_rejects_legacy_write_after_upgrade() {
         current.get("task", first).unwrap().unwrap().data["priority"],
         0
     );
-    assert_eq!(current.list_page("task", None, 32).unwrap().records.len(), 2);
+    assert_eq!(
+        current.list_page("task", None, 32).unwrap().records.len(),
+        2
+    );
 }
 
 /// A transaction-local source-model equality check is an alternative *write
