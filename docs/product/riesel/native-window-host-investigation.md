@@ -127,6 +127,22 @@ Toolkit evaluation is separate from choosing a Riesel connection protocol. The a
 3. Fault inject GUI disconnect and backend crash with a revisioned mutation; prove no silent replay and distinct session identity, including under current reference recovery.
 4. Test chosen local IPC trust on Linux and explicit Windows equivalents before claiming cross-platform authorization or an authorized remote host.
 
+### Concrete minimum contract proposal (explicit decision requested)
+
+The following is a bounded **proposed** integration contract, not a currently supported SDK API:
+
+- **Export is opt-in and app-owned:** application author declares an *application-facing* versioned capability contract and deliberately exports that specific interface. Internal requirement aliases and provider instances are never automatically exposed. Exports reuse the existing Rust-derived contract and typed adapter machinery; an illustrative name such as `Application::expose::<UiContract>(...)` is **not** a promised API signature.
+- **Listener lifecycle:** exporter starts only after successful application/provider startup, belongs to the current application session and stops with it. No socket, directory, process or GUI is created by schema generation, inspection or preflight. App start must remain headless by default.
+- **Local bootstrap:** for a first trusted Linux user deployment, evaluate a runtime-generated Unix-domain socket within a private operator-owned runtime directory (for example a verified `XDG_RUNTIME_DIR` location) and an explicitly selected application identity. The independent GUI obtains a fresh bounded descriptor via a trusted launch/attach operation; **never** hardcodes a port or relies on ambient network scanning. Check permissions, aliases and peer credentials, not just a socket pathname ([Linux `unix(7)`](https://man7.org/linux/man-pages/man7/unix.7.html)).
+- **Handshake and binding:** verify expected application identity, declared capability/version and current session generation; the local OS credential/access policy must authorize the peer independently of advertised metadata. Wrong identity, stale descriptor or unsupported version must reject before dispatch. Same-user malicious clients and remote access are not covered unless a stronger explicit policy is later adopted.
+- **GUI responsibilities:** one separate native OS process owns its toolkit, main-thread event loop, windows, rendering and transient view state. It performs transport on a worker/async scope, hands bounded messages to the UI loop, and keeps domain state authoritative in the application.
+- **Failure semantics:** backend restart requires a new descriptor/session handshake; GUI-only close does not stop the app. Requests have a distinct `outcome unknown` case on lost reply, no automatic replay. First slice uses snapshot-on-connect and explicit refresh; subscriptions are deferred unless an example demonstrates a measurable requirement.
+- **Platforms:** Linux acceptance first; Windows pipe ACL, process/event-loop and GUI toolkit behavior remain separate manual **pre-release** requirements if Windows support is claimed. A CI-green Linux experiment does not establish OS-local authentication parity.
+
+**Proposed developer outcome:** a small headless domain application plus one independent GUI binary that reads and writes through one typed exported capability, without handwritten duplicate schemas, fixed ports, or shared business state. This is neither a generic window renderer nor a universal Riesel UI framework.
+
+This design still needs a focused **two-process feasibility probe** to confirm the export path can reuse generated adapters without breaking session ownership; and one selected toolkit must pass a real window/event-loop/accessibility test before delivery. If either fails, return to #60's decision gate rather than quietly broadening the core runtime.
+
 ## 8. Dependencies, uncertainties and proposed slicing
 
 **Decision-critical unknowns requiring specification acceptance:**
