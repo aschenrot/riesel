@@ -260,6 +260,63 @@ fn incomplete_native_backup_copy_does_not_publish_a_partial_restore() {
     drop(destination);
     drop(source);
     assert_eq!(rows(&db), before);
+    drop(SqliteStore::open(&db, models_v1()).unwrap());
+}
+
+#[test]
+fn native_restore_with_exhausted_sqlite_page_budget_rolls_back_completely() {
+    let dir = tempfile::tempdir().unwrap();
+    let archived = dir.path().join("large-archive.db");
+    let source_store = SqliteStore::open(&archived, models_v1()).unwrap();
+    for _ in 0..48 {
+        source_store
+            .create("task", json!({"title":"x".repeat(8_000)}))
+            .unwrap();
+    }
+    drop(source_store);
+    let original_archive = rows(&archived);
+
+    let db = dir.path().join("records.db");
+    let kept_id = fixture(&db);
+    let before = rows(&db);
+    let mut destination = Connection::open(&db).unwrap();
+    let existing_pages: i64 = destination
+        .pragma_query_value(None, "page_count", |row| row.get(0))
+        .unwrap();
+    let cap = existing_pages + 4;
+    let applied: i64 = destination
+        .query_row(&format!("PRAGMA max_page_count={cap}"), [], |row| row.get(0))
+        .unwrap();
+    assert_eq!(applied, cap);
+    let source = Connection::open(&archived).unwrap();
+    let source_pages: i64 = source
+        .pragma_query_value(None, "page_count", |row| row.get(0))
+        .unwrap();
+    assert!(source_pages > cap);
+    drop(source);
+
+    // SQLite's own page limit injects SQLITE_FULL during the same native
+    // backup/restore API used by maintenance. This is not physical ENOSPC.
+    let error = destination
+        .restore(
+            rusqlite::MAIN_DB,
+            &archived,
+            rusqlite::backup::NO_PROGRESS,
+        )
+        .unwrap_err();
+    assert!(
+        matches!(
+            &error,
+            rusqlite::Error::SqliteFailure(details, _)
+                if details.code == rusqlite::ErrorCode::DiskFull
+        ),
+        "{error:?}"
+    );
+    drop(destination);
+    assert_eq!(rows(&db), before);
+    assert_eq!(rows(&archived), original_archive);
+    let reopened = SqliteStore::open(&db, models_v1()).unwrap();
+    assert_eq!(reopened.get("task", kept_id).unwrap().unwrap().revision, 1);
 }
 
 #[test]
