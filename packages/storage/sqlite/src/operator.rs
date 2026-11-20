@@ -192,7 +192,12 @@ pub fn run_operator_maintenance_cli(
                 limits,
                 reviewed.preview(),
             )?;
-            let phrase = format!("MIGRATE {}", reviewed.database_path().display());
+            let backup_path = output_path(backup, reviewed.database_path())?;
+            let phrase = format!(
+                "MIGRATE {} BACKUP {}",
+                reviewed.database_path().display(),
+                backup_path.display()
+            );
             require_confirmation(input, output, &phrase)?;
             let receipt = reviewed.execute(
                 backup,
@@ -215,6 +220,7 @@ pub fn run_operator_maintenance_cli(
             // schema, before prompting the operator to discard later writes.
             let verified_source =
                 SqliteMaintenance::open_existing(archive, plan.source.clone(), limits.snapshot)?;
+            let archive_path = verified_source.owner.database_path().to_owned();
             drop(verified_source);
             let maintenance =
                 SqliteMaintenance::open_existing(database, plan.target.clone(), limits.snapshot)?;
@@ -234,7 +240,8 @@ pub fn run_operator_maintenance_cli(
             )
             .map_err(failed)?;
             writeln!(output, "Database: {}", database.display()).map_err(failed)?;
-            writeln!(output, "Verified source snapshot: {}", archive.display()).map_err(failed)?;
+            writeln!(output, "Verified source snapshot: {}", archive_path.display())
+                .map_err(failed)?;
             writeln!(
                 output,
                 "Retain current database at: {}",
@@ -252,12 +259,14 @@ pub fn run_operator_maintenance_cli(
             )
             .map_err(failed)?;
             let phrase = format!(
-                "RESTORE {} DISCARD POST-SNAPSHOT WRITES",
-                database.display()
+                "RESTORE {} FROM {} RETAIN {} DISCARD POST-SNAPSHOT WRITES",
+                database.display(),
+                archive_path.display(),
+                retention.display()
             );
             require_confirmation(input, output, &phrase)?;
             let receipt = maintenance.restore_from_backup(
-                archive,
+                &archive_path,
                 plan.source.clone(),
                 retain,
                 limits.snapshot,

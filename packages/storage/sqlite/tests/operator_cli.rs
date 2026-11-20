@@ -140,7 +140,11 @@ fn consented_evolution_and_separate_restore_keep_both_recovery_images() {
     let retained = dir.path().join("pre-restore.db");
     let id = fixture(&db);
 
-    let consent = format!("MIGRATE {}\n", db.canonicalize().unwrap().display());
+    let consent = format!(
+        "MIGRATE {} BACKUP {}\n",
+        db.canonicalize().unwrap().display(),
+        archive.display()
+    );
     let mut output = Vec::new();
     let outcome = run_operator_maintenance_cli(
         &command("execute", &[&db, &archive]),
@@ -176,8 +180,10 @@ fn consented_evolution_and_separate_restore_keep_both_recovery_images() {
     drop(SqliteStore::open(&db, models::<New>()).unwrap());
 
     let confirmation = format!(
-        "RESTORE {} DISCARD POST-SNAPSHOT WRITES\n",
-        db.canonicalize().unwrap().display()
+        "RESTORE {} FROM {} RETAIN {} DISCARD POST-SNAPSHOT WRITES\n",
+        db.canonicalize().unwrap().display(),
+        archive.display(),
+        retained.display()
     );
     let mut output = Vec::new();
     let result = run_operator_maintenance_cli(
@@ -295,7 +301,11 @@ fn correct_operator_consent_does_not_override_direct_source_drift_during_prompt(
     let db = dir.path().join("active.db");
     let archive = dir.path().join("newly-verified-source.db");
     let id = fixture(&db);
-    let consent = format!("MIGRATE {}\n", db.canonicalize().unwrap().display());
+    let consent = format!(
+        "MIGRATE {} BACKUP {}\n",
+        db.canonicalize().unwrap().display(),
+        archive.display()
+    );
     let mut input = EditSourceWhenConsentIsRead {
         database: db.clone(),
         input: Cursor::new(consent.into_bytes()),
