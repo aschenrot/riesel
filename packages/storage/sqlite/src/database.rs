@@ -23,13 +23,63 @@ const TABLES: &str = "
 pub struct SqliteStore {
     pub(super) connection: Mutex<Connection>,
     pub(super) models: BTreeMap<String, ModelDefinition>,
+    /// Exact serialized definitions cached at provider startup for write fencing.
+    expected_models: BTreeMap<String, Vec<u8>>,
 }
 
 pub(super) fn failed(error: impl std::fmt::Display) -> StoreError {
     StoreError::Failed(format!("SQLite storage failed: {error}"))
 }
 
+/// Compare the whole persisted model set, including names and exact bytes.
+/// Call with the SQLite write transaction held so a competing connection cannot
+/// change the registration between this check and a record mutation.
+fn verify_models(
+    conn: &Connection,
+    expected: &BTreeMap<String, Vec<u8>>,
+) -> Result<(), StoreError> {
+    let mut statement = conn
+        .prepare("SELECT name,definition FROM models ORDER BY name")
+        .map_err(failed)?;
+    let mut rows = statement.query([]).map_err(failed)?;
+    for (name, definition) in expected {
+        let row = rows.next().map_err(failed)?.ok_or_else(|| {
+            StoreError::Failed("stored model registration changed; reopen required".into())
+        })?;
+        let stored_name: String = row.get(0).map_err(failed)?;
+        let stored_definition: Vec<u8> = row.get(1).map_err(failed)?;
+        if stored_name != *name || stored_definition != *definition {
+            return Err(StoreError::Failed(
+                "stored model registration changed; reopen required".into(),
+            ));
+        }
+    }
+    if rows.next().map_err(failed)?.is_some() {
+        return Err(StoreError::Failed(
+            "stored model registration changed; reopen required".into(),
+        ));
+    }
+    Ok(())
+}
+
 impl SqliteStore {
+    /// Reject writes from providers whose cached schema is no longer on disk.
+    /// This does not prevent legacy versions or direct SQLite writers.
+    pub(super) fn verify_write_registration(
+        &self,
+        conn: &Connection,
+    ) -> Result<(), StoreError> {
+        let version: i64 = conn
+            .pragma_query_value(None, "user_version", |row| row.get(0))
+            .map_err(failed)?;
+        if version != FORMAT_VERSION {
+            return Err(StoreError::Failed(
+                "SQLite Storage format changed; reopen required".into(),
+            ));
+        }
+        verify_models(conn, &self.expected_models)
+    }
+
     /// Open or initialize explicit local storage; call only during provider startup.
     pub fn open(
         path: impl AsRef<Path>,
@@ -41,6 +91,14 @@ impl SqliteStore {
                 "durable SQLite Storage requires an explicit file path".into(),
             ));
         }
+        let expected_models: BTreeMap<String, Vec<u8>> = models
+            .iter()
+            .map(|(name, definition)| {
+                serde_json::to_vec(definition)
+                    .map(|bytes| (name.clone(), bytes))
+                    .map_err(failed)
+            })
+            .collect::<Result<_, _>>()?;
         let mut conn = Connection::open_with_flags(
             path,
             OpenFlags::SQLITE_OPEN_READ_WRITE | OpenFlags::SQLITE_OPEN_CREATE,
@@ -87,8 +145,7 @@ impl SqliteStore {
                     ));
                 }
                 tx.execute_batch(TABLES).map_err(failed)?;
-                for (name, definition) in &models {
-                    let bytes = serde_json::to_vec(definition).map_err(failed)?;
+                for (name, bytes) in &expected_models {
                     tx.execute(
                         "INSERT INTO models(name,definition) VALUES(?1,?2)",
                         params![name, bytes],
@@ -98,38 +155,7 @@ impl SqliteStore {
                 tx.pragma_update(None, "user_version", FORMAT_VERSION)
                     .map_err(failed)?;
             }
-            FORMAT_VERSION => {
-                let mut statement = tx
-                    .prepare("SELECT name,definition FROM models ORDER BY name")
-                    .map_err(failed)?;
-                let mut rows = statement.query([]).map_err(failed)?;
-                let mut persisted = BTreeMap::new();
-                while let Some(row) = rows.next().map_err(failed)? {
-                    let name: String = row.get(0).map_err(failed)?;
-                    let bytes: Vec<u8> = row.get(1).map_err(failed)?;
-                    if persisted.insert(name.clone(), bytes).is_some() {
-                        return Err(StoreError::Failed(format!(
-                            "duplicate stored model definition: {name}"
-                        )));
-                    }
-                }
-                for (name, definition) in &models {
-                    let wanted = serde_json::to_vec(definition).map_err(failed)?;
-                    match persisted.remove(name) {
-                        Some(existing) if existing == wanted => {}
-                        _ => {
-                            return Err(StoreError::Failed(format!(
-                                "stored model definition differs: {name}; migration required"
-                            )));
-                        }
-                    }
-                }
-                if let Some((unknown, _)) = persisted.into_iter().next() {
-                    return Err(StoreError::Failed(format!(
-                        "stored model not registered: {unknown}; migration required"
-                    )));
-                }
-            }
+            FORMAT_VERSION => verify_models(&tx, &expected_models)?,
             other => {
                 return Err(StoreError::Failed(format!(
                     "unsupported SQLite Storage format version {other}"
@@ -141,6 +167,7 @@ impl SqliteStore {
         Ok(Self {
             connection: Mutex::new(conn),
             models,
+            expected_models,
         })
     }
 }

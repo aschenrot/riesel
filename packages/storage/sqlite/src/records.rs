@@ -88,6 +88,7 @@ impl RecordStore for SqliteStore {
             let tx = conn
                 .transaction_with_behavior(TransactionBehavior::Immediate)
                 .map_err(failed)?;
+            self.verify_write_registration(&tx)?;
             let affected = tx
                 .execute(
                     "INSERT OR IGNORE INTO records(model,id,revision,data)
@@ -178,6 +179,7 @@ impl RecordStore for SqliteStore {
         let tx = conn
             .transaction_with_behavior(TransactionBehavior::Immediate)
             .map_err(failed)?;
+        self.verify_write_registration(&tx)?;
         let revision = current_revision(&tx, model, id)?;
         if revision != expected_revision {
             return Err(StoreError::RevisionConflict);
@@ -215,6 +217,7 @@ impl RecordStore for SqliteStore {
         let tx = conn
             .transaction_with_behavior(TransactionBehavior::Immediate)
             .map_err(failed)?;
+        self.verify_write_registration(&tx)?;
         if current_revision(&tx, model, id)? != expected_revision {
             return Err(StoreError::RevisionConflict);
         }
