@@ -17,7 +17,9 @@ struct Previous {
 impl RieselModel for Previous {
     const MODEL_NAME: &'static str = "task";
     fn model_definition() -> ModelDefinition {
-        ModelDefinition { fields: BTreeMap::from([("title".into(), TypeRef::String)]) }
+        ModelDefinition {
+            fields: BTreeMap::from([("title".into(), TypeRef::String)]),
+        }
     }
 }
 
@@ -47,7 +49,12 @@ fn target() -> BTreeMap<String, ModelDefinition> {
 fn plan() -> ModelEvolution {
     ModelEvolution::new(source(), target())
         .unwrap()
-        .transform::<Previous, Next, _>(|old| Ok(Next { title: old.title, priority: 0 }))
+        .transform::<Previous, Next, _>(|old| {
+            Ok(Next {
+                title: old.title,
+                priority: 0,
+            })
+        })
         .unwrap()
 }
 fn limits() -> EvolutionLimits {
@@ -64,7 +71,10 @@ fn limits() -> EvolutionLimits {
 }
 fn setup(path: &Path) -> uuid::Uuid {
     let provider = SqliteStore::open(path, source()).unwrap();
-    let id = provider.create("task", json!({"title":"original"})).unwrap().id;
+    let id = provider
+        .create("task", json!({"title":"original"}))
+        .unwrap()
+        .id;
     drop(provider);
     id
 }
@@ -88,7 +98,10 @@ fn reviewed_execute_fences_revision_and_retains_the_exact_preimage() {
     // cannot be launched while the operator considers the decision.
     assert!(SqliteStore::open(&database, source()).is_err());
     let receipt = reviewed
-        .execute(&archive, ReviewedEvolutionAuthorization::ApproveInspectedPreview)
+        .execute(
+            &archive,
+            ReviewedEvolutionAuthorization::ApproveInspectedPreview,
+        )
         .unwrap();
     assert_eq!(receipt.retained_backup.path, archive);
     assert_eq!(receipt.affected_records, 1);
@@ -119,7 +132,9 @@ fn byte_neutral_uncooperative_edit_after_preview_fails_closed_before_update() {
     // owner. Same persisted byte length and revision, different JSON.
     let direct = Connection::open(&database).unwrap();
     let initial: Vec<u8> = direct
-        .query_row("SELECT data FROM records WHERE model='task'", [], |r| r.get(0))
+        .query_row("SELECT data FROM records WHERE model='task'", [], |r| {
+            r.get(0)
+        })
         .unwrap();
     let modified = serde_json::to_vec(&json!({"title":"modified"})).unwrap();
     assert_eq!(initial.len(), modified.len());
@@ -131,7 +146,10 @@ fn byte_neutral_uncooperative_edit_after_preview_fails_closed_before_update() {
         .unwrap();
     drop(direct);
     let error = reviewed
-        .execute(&archive, ReviewedEvolutionAuthorization::ApproveInspectedPreview)
+        .execute(
+            &archive,
+            ReviewedEvolutionAuthorization::ApproveInspectedPreview,
+        )
         .unwrap_err();
     assert!(format!("{error}").contains("source drift"), "{error}");
     let current = SqliteStore::open(&database, source()).unwrap();
@@ -142,7 +160,10 @@ fn byte_neutral_uncooperative_edit_after_preview_fails_closed_before_update() {
     // The archived pre-mutation image was validly retained; the rejected
     // migration never ran. The archive reflects the most recent raw source.
     let saved = SqliteStore::open(&archive, source()).unwrap();
-    assert_eq!(saved.get("task", id).unwrap().unwrap().data["title"], "modified");
+    assert_eq!(
+        saved.get("task", id).unwrap().unwrap().data["title"],
+        "modified"
+    );
     drop(saved);
     assert!(SqliteStore::open(&database, target()).is_err());
 }
@@ -190,7 +211,10 @@ fn added_row_between_preview_and_execute_is_rejected_without_schema_change() {
         .unwrap();
     drop(direct);
     let error = reviewed
-        .execute(&archive, ReviewedEvolutionAuthorization::ApproveInspectedPreview)
+        .execute(
+            &archive,
+            ReviewedEvolutionAuthorization::ApproveInspectedPreview,
+        )
         .unwrap_err();
     assert!(format!("{error}").contains("source drift"), "{error}");
     assert!(archive.exists());

@@ -217,7 +217,9 @@ fn verify_reviewed_source(
             data: current.get(3).map_err(failed)?,
         };
         if actual != *original {
-            return Err(denied("source drift since approved preview: record changed"));
+            return Err(denied(
+                "source drift since approved preview: record changed",
+            ));
         }
     }
     if rows.next().map_err(failed)?.is_some() {
