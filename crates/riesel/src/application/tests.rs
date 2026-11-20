@@ -954,6 +954,14 @@ fn typed_offline_model_evolution_preview_is_read_only_and_explicit() {
     };
     let maintenance =
         SqliteMaintenance::open_existing(&path, source.clone(), limits.snapshot).unwrap();
+    let expired = EvolutionLimits {
+        max_elapsed: Duration::from_nanos(1),
+        ..limits
+    };
+    assert!(
+        matches!(maintenance.preview_evolution(&plan, expired), Err(error) if
+            format!("{error}").contains("elapsed-time budget exceeded"))
+    );
     let preview = maintenance.preview_evolution(&plan, limits).unwrap();
     assert_eq!(preview.records, 1);
     assert_eq!(preview.affected_records, 1);
