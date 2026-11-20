@@ -7,13 +7,7 @@ use riesel_storage_sqlite::{
 };
 use serde::{Deserialize, Serialize};
 use serde_json::json;
-use std::{
-    collections::BTreeMap,
-    ffi::OsString,
-    io::Cursor,
-    path::Path,
-    time::Duration,
-};
+use std::{collections::BTreeMap, ffi::OsString, io::Cursor, path::Path, time::Duration};
 
 #[derive(Serialize, Deserialize)]
 struct Old {
@@ -49,7 +43,12 @@ fn models<T: RieselModel>() -> BTreeMap<String, ModelDefinition> {
 fn plan() -> ModelEvolution {
     ModelEvolution::new(models::<Old>(), models::<New>())
         .unwrap()
-        .transform::<Old, New, _>(|old| Ok(New { title: old.title, priority: 0 }))
+        .transform::<Old, New, _>(|old| {
+            Ok(New {
+                title: old.title,
+                priority: 0,
+            })
+        })
         .unwrap()
 }
 fn limits() -> EvolutionLimits {
@@ -66,7 +65,10 @@ fn limits() -> EvolutionLimits {
 }
 fn fixture(path: &Path) -> uuid::Uuid {
     let store = SqliteStore::open(path, models::<Old>()).unwrap();
-    let id = store.create("task", json!({"title":"original"})).unwrap().id;
+    let id = store
+        .create("task", json!({"title":"original"}))
+        .unwrap()
+        .id;
     drop(store);
     id
 }
@@ -192,7 +194,10 @@ fn consented_evolution_and_separate_restore_keep_both_recovery_images() {
     assert_eq!(restored.restored_records, 1);
     assert_eq!(restored.retained_pre_restore.path, retained);
     let old = SqliteStore::open(&db, models::<Old>()).unwrap();
-    assert_eq!(old.get("task", id).unwrap().unwrap().data["title"], "original");
+    assert_eq!(
+        old.get("task", id).unwrap().unwrap().data["title"],
+        "original"
+    );
     drop(old);
     assert!(SqliteStore::open(&db, models::<New>()).is_err());
     let newer = SqliteStore::open(&retained, models::<New>()).unwrap();

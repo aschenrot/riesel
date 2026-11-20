@@ -2,13 +2,13 @@
 //! An application's own Rust binary supplies historical/current model types,
 //! the complete ModelEvolution, limits, and this strict command surface.
 use crate::{
+    EvolutionReceipt,
     capacity::{available_bytes, observed_sidecar_bytes, require_headroom},
     database::failed,
     evolution::{EvolutionLimits, EvolutionPreview, ModelEvolution},
     maintenance::{SqliteMaintenance, denied, output_path},
     restore::{RestoreAuthorization, RestoreReceipt},
     review::ReviewedEvolutionAuthorization,
-    EvolutionReceipt,
 };
 use riesel_storage::StoreError;
 use std::{
@@ -110,8 +110,11 @@ fn write_summary(
         "Only a trusted local Linux filesystem is verified; no online/remote/Windows/power-loss guarantee."
     )
     .map_err(failed)?;
-    writeln!(output, "Preview does not validate post-transform cross-model invariants.")
-        .map_err(failed)?;
+    writeln!(
+        output,
+        "Preview does not validate post-transform cross-model invariants."
+    )
+    .map_err(failed)?;
     output.flush().map_err(failed)
 }
 
@@ -120,8 +123,11 @@ fn require_confirmation(
     output: &mut impl Write,
     phrase: &str,
 ) -> Result<(), StoreError> {
-    writeln!(output, "To authorize this destructive operation, enter exactly:")
-        .map_err(failed)?;
+    writeln!(
+        output,
+        "To authorize this destructive operation, enter exactly:"
+    )
+    .map_err(failed)?;
     writeln!(output, "{phrase}").map_err(failed)?;
     output.flush().map_err(failed)?;
     let mut reply = String::new();
@@ -129,7 +135,9 @@ fn require_confirmation(
         return Err(denied("operator approval missing; nothing was changed"));
     }
     if reply.trim_end_matches(['\r', '\n']) != phrase {
-        return Err(denied("operator approval did not match; nothing was changed"));
+        return Err(denied(
+            "operator approval did not match; nothing was changed",
+        ));
     }
     Ok(())
 }
@@ -220,12 +228,19 @@ pub fn run_operator_maintenance_cli(
                 .ok_or_else(|| denied("retention has no trusted parent directory"))?;
             require_headroom(database_parent, limits.snapshot.max_snapshot_bytes)?;
             require_headroom(retention_parent, limits.snapshot.max_snapshot_bytes)?;
-            writeln!(output, "RESTORE (will discard all writes after archived snapshot)")
-                .map_err(failed)?;
+            writeln!(
+                output,
+                "RESTORE (will discard all writes after archived snapshot)"
+            )
+            .map_err(failed)?;
             writeln!(output, "Database: {}", database.display()).map_err(failed)?;
             writeln!(output, "Verified source snapshot: {}", archive.display()).map_err(failed)?;
-            writeln!(output, "Retain current database at: {}", retention.display())
-                .map_err(failed)?;
+            writeln!(
+                output,
+                "Retain current database at: {}",
+                retention.display()
+            )
+            .map_err(failed)?;
             writeln!(
                 output,
                 "Restoration requires existing healthy format-v1 current storage, not corrupt-file repair."
@@ -236,7 +251,10 @@ pub fn run_operator_maintenance_cli(
                 "Stop all legacy/uncooperative writers and prevent restart; data loss is irreversible without the retained pre-restore copy."
             )
             .map_err(failed)?;
-            let phrase = format!("RESTORE {} DISCARD POST-SNAPSHOT WRITES", database.display());
+            let phrase = format!(
+                "RESTORE {} DISCARD POST-SNAPSHOT WRITES",
+                database.display()
+            );
             require_confirmation(input, output, &phrase)?;
             let receipt = maintenance.restore_from_backup(
                 archive,

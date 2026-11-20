@@ -50,13 +50,14 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         CurrentTask::MODEL_NAME.into(),
         CurrentTask::model_definition(),
     )]);
-    let plan = ModelEvolution::new(source, target)?
-        .transform::<HistoricalTask, CurrentTask, _>(|historical| {
+    let plan = ModelEvolution::new(source, target)?.transform::<HistoricalTask, CurrentTask, _>(
+        |historical| {
             Ok(CurrentTask {
                 title: historical.title,
                 priority: 0,
             })
-        })?;
+        },
+    )?;
 
     // Example bounds only: the operator must choose sizes for the actual
     // database and recovery filesystem before using a real migration plan.
