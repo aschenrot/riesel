@@ -49,7 +49,9 @@ impl ModelEvolution {
         target: BTreeMap<String, ModelDefinition>,
     ) -> Result<Self, StoreError> {
         if source.is_empty() || !source.keys().eq(target.keys()) {
-            return Err(denied("source and target must have the same nonempty model set"));
+            return Err(denied(
+                "source and target must have the same nonempty model set",
+            ));
         }
         if source == target {
             return Err(denied("source and target have no model changes"));
@@ -76,7 +78,9 @@ impl ModelEvolution {
         if self.source.get(name) != Some(&Old::model_definition())
             || self.target.get(name) != Some(&New::model_definition())
         {
-            return Err(denied("historical/target Rust model definitions do not match plan"));
+            return Err(denied(
+                "historical/target Rust model definitions do not match plan",
+            ));
         }
         if self.source.get(name) == self.target.get(name) {
             return Err(denied("unchanged models must not register transformations"));
@@ -96,12 +100,11 @@ impl ModelEvolution {
         Ok(self)
     }
 
-    fn validate_for(
-        &self,
-        actual: &BTreeMap<String, ModelDefinition>,
-    ) -> Result<(), StoreError> {
+    fn validate_for(&self, actual: &BTreeMap<String, ModelDefinition>) -> Result<(), StoreError> {
         if actual != &self.source {
-            return Err(denied("plan source models differ from the owned database models"));
+            return Err(denied(
+                "plan source models differ from the owned database models",
+            ));
         }
         for (name, old) in &self.source {
             let new = self
@@ -109,7 +112,9 @@ impl ModelEvolution {
                 .get(name)
                 .ok_or_else(|| denied("plan target model is missing"))?;
             if (old != new) != self.transformations.contains_key(name) {
-                return Err(denied("every changed model needs exactly one typed transformation"));
+                return Err(denied(
+                    "every changed model needs exactly one typed transformation",
+                ));
             }
         }
         Ok(())
@@ -128,7 +133,9 @@ impl SqliteMaintenance {
         self.owner.verify()?;
         plan.validate_for(&self.models)?;
         if limits.max_elapsed.is_zero() {
-            return Err(denied("evolution preview requires a positive elapsed-time limit"));
+            return Err(denied(
+                "evolution preview requires a positive elapsed-time limit",
+            ));
         }
         let started = Instant::now();
         let conn = Connection::open_with_flags(
@@ -192,6 +199,9 @@ impl SqliteMaintenance {
             if started.elapsed() > limits.max_elapsed {
                 return Err(denied("evolution preview elapsed-time budget exceeded"));
             }
+        }
+        if started.elapsed() > limits.max_elapsed {
+            return Err(denied("evolution preview elapsed-time budget exceeded"));
         }
         self.owner.verify()?;
         Ok(EvolutionPreview {

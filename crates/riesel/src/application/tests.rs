@@ -933,7 +933,9 @@ fn typed_offline_model_evolution_preview_is_read_only_and_explicit() {
     )]);
     let original = serde_json::json!({"title":"historical","completed":false});
     let store = SqliteStore::open(&path, source.clone()).unwrap();
-    let record = store.create(HistoricalTask::MODEL_NAME, original.clone()).unwrap();
+    let record = store
+        .create(HistoricalTask::MODEL_NAME, original.clone())
+        .unwrap();
     drop(store);
 
     let plan = ModelEvolution::new(source.clone(), target.clone())
@@ -948,8 +950,8 @@ fn typed_offline_model_evolution_preview_is_read_only_and_explicit() {
         },
         max_elapsed: Duration::from_secs(5),
     };
-    let maintenance = SqliteMaintenance::open_existing(&path, source.clone(), limits.snapshot)
-        .unwrap();
+    let maintenance =
+        SqliteMaintenance::open_existing(&path, source.clone(), limits.snapshot).unwrap();
     let preview = maintenance.preview_evolution(&plan, limits).unwrap();
     assert_eq!(preview.records, 1);
     assert_eq!(preview.affected_records, 1);
@@ -958,7 +960,10 @@ fn typed_offline_model_evolution_preview_is_read_only_and_explicit() {
     drop(maintenance);
 
     let source_store = SqliteStore::open(&path, source.clone()).unwrap();
-    let persisted = source_store.get(HistoricalTask::MODEL_NAME, record.id).unwrap().unwrap();
+    let persisted = source_store
+        .get(HistoricalTask::MODEL_NAME, record.id)
+        .unwrap()
+        .unwrap();
     assert_eq!(persisted.data, original);
     assert_eq!(persisted.revision, 1);
     drop(source_store);
@@ -1000,8 +1005,8 @@ fn typed_evolution_preview_rejects_missing_or_failed_transform_without_mutation(
         },
         max_elapsed: Duration::from_secs(5),
     };
-    let maintenance = SqliteMaintenance::open_existing(&db, source.clone(), limits.snapshot)
-        .unwrap();
+    let maintenance =
+        SqliteMaintenance::open_existing(&db, source.clone(), limits.snapshot).unwrap();
     let missing = ModelEvolution::new(source.clone(), target.clone()).unwrap();
     assert!(maintenance.preview_evolution(&missing, limits).is_err());
 
