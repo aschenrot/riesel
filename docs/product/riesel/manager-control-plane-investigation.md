@@ -113,7 +113,7 @@ Source evidence for browser-origin risk: [Todo local boundary](../todo/http-loca
 
 ### Bounded first-release policy proposal (explicit decision requested)
 
-To avoid leaving every implementation detail open, the following is a **specific candidate** for first acceptance; none of these are facts about current Riesel:
+To avoid leaving every implementation detail open, the following is **one candidate based on direct Manager-owned children (B)**; none of these are facts about current Riesel. It is **not** a decision against OS-owned app units or a hybrid process-owner adapter (E/F), which must be compared under the same operator lifecycle, portability, security and restart/reconciliation criteria:
 
 - **Deployment and trust:** Linux, one trusted interactive OS user on a machine without adversarial local processes; no remote/browser-origin trust. Run a separate Manager foreground/service process only while needed. No multi-user host or internet-exposed HTTP claim.
 - **Source of applications:** an operator-edited, validated allowlist of executable paths and immutable per-application arguments; define trusted file ownership and resist pathname replacement at launch (a path string is not an executable integrity guarantee). No executable uploads, shell interpolation, arbitrary command entry, network discovery or mutable registration API in the browser.
