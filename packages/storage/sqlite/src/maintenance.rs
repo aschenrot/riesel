@@ -79,7 +79,7 @@ fn audit(
     verify_models(conn, &expected)?;
 
     let mut stmt = conn
-        .prepare("SELECT model,id,revision,data FROM records ORDER BY model,id")
+        .prepare("SELECT model,id,revision,length(data),data FROM records ORDER BY model,id")
         .map_err(failed)?;
     let mut query = stmt.query([]).map_err(failed)?;
     let mut records = 0_u64;
@@ -88,26 +88,33 @@ fn audit(
         let model: String = row.get(0).map_err(failed)?;
         let id: Vec<u8> = row.get(1).map_err(failed)?;
         let revision: Vec<u8> = row.get(2).map_err(failed)?;
-        let bytes: Vec<u8> = row.get(3).map_err(failed)?;
         if Uuid::from_slice(&id).is_err() || revision.len() != 8 {
             return Err(denied("corrupt UUID or revision"));
         }
         let definition = models
             .get(&model)
             .ok_or_else(|| denied("record belongs to an unknown model"))?;
-        let data: Value = serde_json::from_slice(&bytes).map_err(failed)?;
-        definition.validate_record(&data).map_err(failed)?;
-        if serde_json::to_vec(&data).map_err(failed)?.len() > MAX_RECORD_BYTES {
+        // Inspect SQLite's BLOB length before materializing or parsing a
+        // potentially huge record inserted by an uncooperative SQL writer.
+        let length: i64 = row.get(3).map_err(failed)?;
+        let length = u64::try_from(length).map_err(failed)?;
+        if length > MAX_RECORD_BYTES as u64 {
             return Err(denied("record exceeds the Storage payload bound"));
         }
         records = records
             .checked_add(1)
             .ok_or_else(|| denied("record count overflow"))?;
         json_bytes = json_bytes
-            .checked_add(u64::try_from(bytes.len()).map_err(failed)?)
+            .checked_add(length)
             .ok_or_else(|| denied("record byte count overflow"))?;
         if records > budget.max_records || json_bytes > budget.max_json_bytes {
             return Err(denied("snapshot record or JSON byte budget exceeded"));
+        }
+        let bytes: Vec<u8> = row.get(4).map_err(failed)?;
+        let data: Value = serde_json::from_slice(&bytes).map_err(failed)?;
+        definition.validate_record(&data).map_err(failed)?;
+        if serde_json::to_vec(&data).map_err(failed)?.len() > MAX_RECORD_BYTES {
+            return Err(denied("record exceeds the Storage payload bound"));
         }
     }
     Ok(Audit {
