@@ -1040,3 +1040,83 @@ fn typed_evolution_preview_rejects_missing_or_failed_transform_without_mutation(
     assert_eq!(loaded.data, row.data);
     assert_eq!(loaded.revision, row.revision);
 }
+
+#[cfg(all(feature = "records", feature = "sqlite-storage"))]
+#[test]
+fn derived_historical_and_target_models_execute_offline_with_retained_backup() {
+    use crate::storage::{RecordStore, StoreError};
+    use riesel_storage_sqlite::{
+        EvolutionAuthorization, EvolutionLimits, ModelEvolution, SnapshotBudget,
+        SqliteMaintenance, SqliteStore,
+    };
+    use std::{collections::BTreeMap, time::Duration};
+
+    let temp = tempfile::tempdir().unwrap();
+    let db = temp.path().join("historical.db");
+    let backup = temp.path().join("retained-source.db");
+    let source = BTreeMap::from([(
+        HistoricalTask::MODEL_NAME.into(),
+        HistoricalTask::model_definition(),
+    )]);
+    let target = BTreeMap::from([(
+        EvolvedTask::MODEL_NAME.into(),
+        EvolvedTask::model_definition(),
+    )]);
+    let historical = SqliteStore::open(&db, source.clone()).unwrap();
+    let record = historical
+        .create(
+            HistoricalTask::MODEL_NAME,
+            serde_json::json!({"title":"old","completed":false}),
+        )
+        .unwrap();
+    drop(historical);
+    let plan = ModelEvolution::new(source.clone(), target.clone())
+        .unwrap()
+        .transform::<HistoricalTask, EvolvedTask, _>(|old| Ok(old.into()))
+        .unwrap();
+    let limits = EvolutionLimits {
+        snapshot: SnapshotBudget {
+            max_records: 5,
+            max_json_bytes: 65_536,
+            max_snapshot_bytes: 1_048_576,
+            max_sidecar_bytes: 1_048_576,
+            max_elapsed: Duration::from_secs(30),
+        },
+        max_elapsed: Duration::from_secs(30),
+    };
+    let maintenance =
+        SqliteMaintenance::open_existing(&db, source.clone(), limits.snapshot).unwrap();
+    let receipt = maintenance
+        .execute_evolution(
+            &plan,
+            &backup,
+            limits,
+            EvolutionAuthorization::ExecuteWithVerifiedBackup,
+        )
+        .unwrap();
+    assert_eq!(receipt.affected_records, 1);
+    assert_eq!(receipt.retained_backup.path, backup);
+    assert!(SqliteStore::open(&db, source.clone()).is_err());
+
+    let current = SqliteStore::open(&db, target).unwrap();
+    let updated = current.get(EvolvedTask::MODEL_NAME, record.id).unwrap().unwrap();
+    assert_eq!(updated.revision, record.revision + 1);
+    assert_eq!(updated.data["priority"], 0);
+    assert!(matches!(
+        current.update(
+            EvolvedTask::MODEL_NAME,
+            record.id,
+            record.revision,
+            updated.data.clone(),
+        ),
+        Err(StoreError::RevisionConflict)
+    ));
+    drop(current);
+    let archive = SqliteStore::open(&backup, source).unwrap();
+    let previous = archive
+        .get(HistoricalTask::MODEL_NAME, record.id)
+        .unwrap()
+        .unwrap();
+    assert_eq!(previous.revision, record.revision);
+    assert!(previous.data.get("priority").is_none());
+}
