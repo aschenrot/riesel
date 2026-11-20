@@ -192,7 +192,7 @@ impl Drop for PublishedSnapshot {
     }
 }
 
-fn output_path(destination: &Path, source: &Path) -> Result<PathBuf, StoreError> {
+pub(crate) fn output_path(destination: &Path, source: &Path) -> Result<PathBuf, StoreError> {
     let name = destination
         .file_name()
         .ok_or_else(|| denied("backup needs a named destination file"))?;

@@ -25,6 +25,8 @@ The existing `RecordStore` capability v2, `Records<T>` user-facing CRUD API, SQL
 
 No remote/managed provider migration, concurrent online upgrade, distributed ownership, malicious same-user file tampering protection, arbitrary legacy processes that ignore the lock, network filesystem, generic SQLite DDL framework, automatic downgrade, transparent retry or unlimited-size migration. Windows support remains a **manual pre-release validation gate** until tested and separately accepted. Production reliability still requires independent security, observability and release gates.
 
+Operational procedures and remaining excluded guarantees: [SQLite offline operator runbook](sqlite-offline-operator-runbook.md). This guidance does not expand the accepted architecture or assert production durability.
+
 ## Implementation order and gates
 
 The architecture is **accepted** but each phase must meet its own verification before it is considered delivered:
