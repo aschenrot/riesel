@@ -541,12 +541,11 @@ fn unexpected_other_model_schema_aborts_candidate_before_writes() {
     assert_eq!(snapshot(&db), before);
 }
 
-/// Real separate-process regression: a provider opened before a metadata
-/// upgrade can still create a record using its cached old model schema.
-/// This is a deliberately *passing demonstration of an unsafe condition*,
-/// not a migration facility or a test of an accepted owner-fencing protocol.
+/// A provider opened before a metadata change must refuse subsequent writes.
+/// Original unsafe behavior was reproduced on the prior provider revision in
+/// research PR #43; this asserts the corrective guard against that regression.
 #[test]
-fn stale_cross_process_provider_can_insert_incompatible_json_after_upgrade() {
+fn stale_cross_process_provider_rejects_legacy_write_after_upgrade() {
     const DB: &str = "RIESEL_MIGRATION_STALE_PROVIDER_DB";
     const READY: &str = "RIESEL_MIGRATION_STALE_PROVIDER_READY";
     const GO: &str = "RIESEL_MIGRATION_STALE_PROVIDER_GO";
@@ -571,13 +570,14 @@ fn stale_cross_process_provider_can_insert_incompatible_json_after_upgrade() {
         let result = std::env::var_os(RESULT).unwrap();
         std::fs::write(ready, b"provider opened under source schema").unwrap();
         wait_for(Path::new(&go));
-        let stale = provider
-            .create(
+        assert!(matches!(
+            provider.create(
                 "task",
                 json!({"title":"stale owner wrote after migration","completed":false}),
-            )
-            .unwrap();
-        std::fs::write(result, stale.id.to_string()).unwrap();
+            ),
+            Err(StoreError::Failed(_))
+        ));
+        std::fs::write(result, b"rejected").unwrap();
         return;
     }
 
@@ -589,7 +589,7 @@ fn stale_cross_process_provider_can_insert_incompatible_json_after_upgrade() {
     let mut child = Command::new(std::env::current_exe().unwrap())
         .args([
             "--exact",
-            "stale_cross_process_provider_can_insert_incompatible_json_after_upgrade",
+            "stale_cross_process_provider_rejects_legacy_write_after_upgrade",
             "--nocapture",
         ])
         .env(DB, &db)
@@ -610,6 +610,7 @@ fn stale_cross_process_provider_can_insert_incompatible_json_after_upgrade() {
         std::thread::sleep(std::time::Duration::from_millis(10));
     }
     trial_transactional_upgrade(&db, TestTransformation::AddPriority).unwrap();
+    let before_rejected_write = snapshot(&db);
     std::fs::write(&go, b"upgrade committed").unwrap();
     let outcome = child.wait_with_output().unwrap();
     assert!(
@@ -617,15 +618,16 @@ fn stale_cross_process_provider_can_insert_incompatible_json_after_upgrade() {
         "stale provider child failed: {}",
         String::from_utf8_lossy(&outcome.stderr)
     );
-    let stale_id = Uuid::parse_str(std::fs::read_to_string(&result).unwrap().trim()).unwrap();
+    assert_eq!(std::fs::read_to_string(&result).unwrap(), "rejected");
+    assert_eq!(snapshot(&db), before_rejected_write);
     let current = SqliteStore::open(&db, models_v2()).unwrap();
     assert_eq!(
         current.get("task", first).unwrap().unwrap().data["priority"],
         0
     );
-    assert!(
-        matches!(current.get("task", stale_id), Err(StoreError::Failed(_))),
-        "stale cached schema inserted a record that the new model cannot decode"
+    assert_eq!(
+        current.list_page("task", None, 32).unwrap().records.len(),
+        2
     );
 }
 

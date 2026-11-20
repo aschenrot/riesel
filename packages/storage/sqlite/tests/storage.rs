@@ -290,3 +290,110 @@ fn committed_write_survives_live_process_exit() {
     assert_eq!(page.records.len(), 1);
     assert_eq!(page.records[0].data, task("committed-before-exit"));
 }
+
+fn two_model_registrations() -> BTreeMap<String, ModelDefinition> {
+    let mut definitions = models();
+    definitions.insert(
+        "note".into(),
+        ModelDefinition {
+            fields: BTreeMap::from([("text".into(), TypeRef::String)]),
+        },
+    );
+    definitions
+}
+
+fn raw_revision_and_data(
+    conn: &rusqlite::Connection,
+    model: &str,
+    id: uuid::Uuid,
+) -> (Vec<u8>, Vec<u8>) {
+    conn.query_row(
+        "SELECT revision,data FROM records WHERE model=?1 AND id=?2",
+        rusqlite::params![model, id.as_bytes()],
+        |row| Ok((row.get(0)?, row.get(1)?)),
+    )
+    .unwrap()
+}
+
+#[test]
+fn cached_models_fail_closed_on_all_writes_after_external_schema_change() {
+    // Every case starts with a valid, opened provider and mutates only SQLite
+    // metadata through an independent connection, not an approved migration.
+    for drift in [
+        "changed_other_model",
+        "removed_model",
+        "new_model",
+        "corrupt_definition",
+        "format_version",
+    ] {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("records.db");
+        let store = SqliteStore::open(&path, two_model_registrations()).unwrap();
+        let saved = store.create("task", task("preserve")).unwrap();
+        let note = store.create("note", json!({"text":"unchanged"})).unwrap();
+
+        let conn = rusqlite::Connection::open(&path).unwrap();
+        match drift {
+            "changed_other_model" => {
+                let changed = ModelDefinition {
+                    fields: BTreeMap::from([("text".into(), TypeRef::Bool)]),
+                };
+                conn.execute(
+                    "UPDATE models SET definition=?1 WHERE name='note'",
+                    rusqlite::params![serde_json::to_vec(&changed).unwrap()],
+                )
+                .unwrap();
+            }
+            "removed_model" => {
+                conn.execute("DELETE FROM models WHERE name='note'", [])
+                    .unwrap();
+            }
+            "new_model" => {
+                conn.execute(
+                    "INSERT INTO models(name,definition) VALUES('other',?1)",
+                    rusqlite::params![serde_json::to_vec(&models()["task"]).unwrap()],
+                )
+                .unwrap();
+            }
+            "corrupt_definition" => {
+                conn.execute(
+                    "UPDATE models SET definition=?1 WHERE name='note'",
+                    rusqlite::params![b"not serialized model metadata"],
+                )
+                .unwrap();
+            }
+            "format_version" => {
+                conn.pragma_update(None, "user_version", 2).unwrap();
+            }
+            _ => unreachable!(),
+        }
+        // Preserve exact persisted data bytes/revisions as well as record count.
+        let record_before = raw_revision_and_data(&conn, "task", saved.id);
+        let note_before = raw_revision_and_data(&conn, "note", note.id);
+        let count: i64 = conn
+            .query_row("SELECT count(*) FROM records", [], |row| row.get(0))
+            .unwrap();
+
+        for mutation in [
+            store.create("task", task("rejected")).map(|_| ()),
+            store.create("note", json!({"text":"rejected"})).map(|_| ()),
+            store
+                .update("task", saved.id, saved.revision, task("rejected"))
+                .map(|_| ()),
+            store.delete("task", saved.id, saved.revision),
+        ] {
+            assert!(
+                matches!(mutation, Err(StoreError::Failed(_))),
+                "stale provider accepted a write after {drift}"
+            );
+        }
+        let record_after = raw_revision_and_data(&conn, "task", saved.id);
+        let note_after = raw_revision_and_data(&conn, "note", note.id);
+        let actual_count: i64 = conn
+            .query_row("SELECT count(*) FROM records", [], |row| row.get(0))
+            .unwrap();
+        assert_eq!(record_before, record_after, "task mutated after {drift}");
+        assert_eq!(note_before, note_after, "note mutated after {drift}");
+        assert_eq!(count, actual_count, "unexpected new records after {drift}");
+    }
+}
