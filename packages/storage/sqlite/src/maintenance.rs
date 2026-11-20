@@ -1,7 +1,11 @@
 //! Explicit offline SQLite maintenance; no migration is run on provider open.
 //! Snapshot creation is independently validated and does not overwrite files.
 //! Restore/migration execution are separate Stage 6 delivery gates.
-use crate::{database::{FORMAT_VERSION, failed, verify_models}, owner::OwnerGuard, records::MAX_RECORD_BYTES};
+use crate::{
+    database::{FORMAT_VERSION, failed, verify_models},
+    owner::OwnerGuard,
+    records::MAX_RECORD_BYTES,
+};
 use riesel_schema::ModelDefinition;
 use riesel_storage::StoreError;
 use rusqlite::{Connection, OpenFlags, params};
@@ -120,10 +124,7 @@ fn compare_records(left: &Connection, right: &Connection) -> Result<(), StoreErr
     let mut lrows = lstmt.query([]).map_err(failed)?;
     let mut rrows = rstmt.query([]).map_err(failed)?;
     loop {
-        match (
-            lrows.next().map_err(failed)?,
-            rrows.next().map_err(failed)?,
-        ) {
+        match (lrows.next().map_err(failed)?, rrows.next().map_err(failed)?) {
             (None, None) => return Ok(()),
             (Some(l), Some(r)) => {
                 let old: (String, Vec<u8>, Vec<u8>, Vec<u8>) = (
@@ -169,13 +170,7 @@ fn output_path(destination: &Path, source: &Path) -> Result<PathBuf, StoreError>
     #[cfg(unix)]
     {
         use std::os::unix::fs::PermissionsExt;
-        if fs::metadata(&parent)
-            .map_err(failed)?
-            .permissions()
-            .mode()
-            & 0o022
-            != 0
-        {
+        if fs::metadata(&parent).map_err(failed)?.permissions().mode() & 0o022 != 0 {
             return Err(denied("backup directory must not be group/other-writable"));
         }
     }
@@ -208,11 +203,12 @@ impl SqliteMaintenance {
         budget: SnapshotBudget,
     ) -> Result<Self, StoreError> {
         let mut owner = OwnerGuard::acquire(path.as_ref())?;
-        let conn = Connection::open_with_flags(
-            owner.database_path(),
-            OpenFlags::SQLITE_OPEN_READ_ONLY,
-        )
-        .map_err(failed)?;
+        if fs::metadata(owner.database_path()).map_err(failed)?.len() > budget.max_snapshot_bytes {
+            return Err(denied("source database exceeds the declared snapshot byte ceiling"));
+        }
+        let conn =
+            Connection::open_with_flags(owner.database_path(), OpenFlags::SQLITE_OPEN_READ_ONLY)
+                .map_err(failed)?;
         audit(&conn, &models, budget)?;
         drop(conn);
         owner.opened()?;
@@ -262,15 +258,23 @@ impl SqliteMaintenance {
         drop(copied);
         drop(source);
         self.owner.verify()?;
-        File::open(&pending).map_err(failed)?.sync_all().map_err(failed)?;
+        File::open(&pending)
+            .map_err(failed)?
+            .sync_all()
+            .map_err(failed)?;
         // Unlike rename, hard_link fails atomically if destination exists.
         // Both names are in the same directory/filesystem.
         fs::hard_link(&pending, &output).map_err(failed)?;
         fs::remove_file(&pending).map_err(failed)?;
         #[cfg(unix)]
         {
-            let parent = output.parent().ok_or_else(|| denied("missing backup parent"))?;
-            File::open(parent).map_err(failed)?.sync_all().map_err(failed)?;
+            let parent = output
+                .parent()
+                .ok_or_else(|| denied("missing backup parent"))?;
+            File::open(parent)
+                .map_err(failed)?
+                .sync_all()
+                .map_err(failed)?;
         }
         drop(cleanup);
         Ok(VerifiedSnapshot {
