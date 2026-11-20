@@ -192,12 +192,13 @@ fn output_path(destination: &Path, source: &Path) -> Result<PathBuf, StoreError>
     #[cfg(unix)]
     {
         use std::os::unix::fs::PermissionsExt;
-        if fs::metadata(&parent).map_err(failed)?.permissions().mode() & 0o022 != 0 {
+        let mode = fs::metadata(&parent).map_err(failed)?.permissions().mode();
+        if mode & 0o022 != 0 {
             return Err(denied("backup directory must not be group/other-writable"));
         }
-    }
-    if fs::metadata(&parent).map_err(failed)?.permissions().readonly() {
-        return Err(denied("backup directory must be writable by its owner"));
+        if mode & 0o200 == 0 {
+            return Err(denied("backup directory must be writable by its owner"));
+        }
     }
     let path = parent.join(name);
     if path == source {
