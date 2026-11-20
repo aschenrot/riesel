@@ -97,6 +97,14 @@ This is a **code-path risk inference, not a successfully executed stale-owner fa
 - Never automatically downgrade. A reverted binary cannot open the evolved model set; rollback means restoring a separately verified compatible backup, losing any post-snapshot writes unless a separate restoration policy exists.
 - Model transition identity must be tied to **persisted expected source definitions** and derived target definitions. A plain numeric sequence number alone is not sufficient to establish the old data shape. Review whether exact serialized definitions are a stable cross-version representation or whether a separately versioned canonical encoding is needed.
 
+### Existing SDK/derive constraints verified
+
+- The \`RieselModel\` derive requires a **named Rust struct** with \`#[riesel(model = "name")]\` and derives a \`BTreeMap\` definition from its field types. It does not support generics, and rejects field-level Serde customization.
+- \`Application::records_at<T>()\` registers a single authoritative definition and requirement alias; registering an old and a new shape under the same name in one application fails as a duplicate. \`Application::sqlite_storage()\` binds the **current** registered model map only.
+- Accordingly a typed migration can retain a historical \`OldTask\` with the same persistent model identity **outside** the current app's normal \`records<T>\` registration. An offline maintenance action is more consistent with this SDK boundary than silently modifying \`sqlite_storage()\` startup. The author-facing API shape still needs proof with a real Rust derive fixture and migration ownership/alias checks.
+
+Sources: [RieselModel derive](../../../crates/riesel_macros/src/derives/model.rs) and [Application builder](../../../crates/riesel/src/application/builder.rs).
+
 ### Minimal author-facing API alternatives (illustrative, not compiled)
 
 A. Typed transitions: \`migration::<OldTask, Task>(|old| -> Result<Task> { ... })\`, where the old and new Rust structures each derive their model definition. This removes handwritten JSON schemas but requires keeping an immutable historical Rust type and an unambiguous persistent model name.
