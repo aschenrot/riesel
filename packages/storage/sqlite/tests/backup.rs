@@ -383,6 +383,7 @@ fn os_file_size_limit_aborts_partial_snapshot_before_publication() {
     );
     // SAFETY: successful getrlimit initialized the entire rlimit value.
     let mut limit = unsafe { limit.assume_init() };
+    let original_soft_limit = limit.rlim_cur;
     limit.rlim_cur = 16 * 1024;
     // SAFETY: SIG_IGN is a valid signal disposition for SIGXFSZ in this
     // isolated subprocess; setrlimit receives an initialized rlimit pointer.
@@ -392,10 +393,17 @@ fn os_file_size_limit_aborts_partial_snapshot_before_publication() {
     }
 
     let destination = dir.path().join("never-published.db");
-    assert!(matches!(
-        maintenance.backup_to(&destination, budget),
-        Err(StoreError::Failed(_))
-    ));
+    let refused = maintenance.backup_to(&destination, budget);
+
+    // SQLite's WAL reader may need to create/update its -shm sidecar. Return
+    // to the original kernel file limit before performing independent reopen
+    // and record comparison, or a valid WAL read may itself report IOERR.
+    limit.rlim_cur = original_soft_limit;
+    // SAFETY: only restores the original soft limit, without changing the
+    // original hard limit, in the isolated child process.
+    assert_eq!(unsafe { libc::setrlimit(libc::RLIMIT_FSIZE, &limit) }, 0);
+
+    assert!(matches!(refused, Err(StoreError::Failed(_))));
     assert!(!destination.exists());
     assert_eq!(rows(&db), source_before);
     assert!(std::fs::read_dir(dir.path()).unwrap().all(|entry| {
