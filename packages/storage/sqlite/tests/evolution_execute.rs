@@ -5,7 +5,7 @@ use riesel_storage_sqlite::{
     EvolutionAuthorization, EvolutionLimits, ModelEvolution, RestoreAuthorization, SnapshotBudget,
     SqliteMaintenance, SqliteStore,
 };
-use rusqlite::{Connection, params};
+use rusqlite::Connection;
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 use std::{collections::BTreeMap, path::Path, time::Duration};

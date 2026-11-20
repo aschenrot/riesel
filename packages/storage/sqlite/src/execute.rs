@@ -13,7 +13,7 @@ use crate::{
 use riesel_storage::StoreError;
 use rusqlite::{Connection, OpenFlags, Transaction, TransactionBehavior, params};
 use serde_json::Value;
-use std::{fs, path::Path};
+use std::path::Path;
 use uuid::Uuid;
 
 /// Explicit invocation intent. The future operator workflow must separately
