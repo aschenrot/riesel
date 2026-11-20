@@ -3,7 +3,7 @@ use riesel_storage::{RecordStore, StoreError};
 use riesel_storage_sqlite::{SnapshotBudget, SqliteMaintenance, SqliteStore};
 use rusqlite::{Connection, OpenFlags};
 use serde_json::json;
-use std::{collections::BTreeMap, path::Path};
+use std::{collections::BTreeMap, path::Path, time::Duration};
 
 fn models() -> BTreeMap<String, ModelDefinition> {
     BTreeMap::from([(
@@ -19,6 +19,7 @@ fn budget() -> SnapshotBudget {
         max_records: 8,
         max_json_bytes: 65_536,
         max_snapshot_bytes: 1_048_576,
+        max_elapsed: Duration::from_secs(30),
     }
 }
 
@@ -114,6 +115,7 @@ fn resource_ceiling_rejects_without_publishing_incomplete_backup() {
         max_records: 8,
         max_json_bytes: 65_536,
         max_snapshot_bytes: 1,
+        max_elapsed: Duration::from_secs(30),
     };
     assert!(matches!(
         maintenance.backup_to(&output, bounded),
@@ -178,6 +180,7 @@ fn oversized_raw_sqlite_blob_is_rejected_before_snapshot_publication() {
         max_records: 8,
         max_json_bytes: 200_000,
         max_snapshot_bytes: 1_048_576,
+        max_elapsed: Duration::from_secs(30),
     };
     assert!(matches!(
         SqliteMaintenance::open_existing(&db, models(), large_budget),
@@ -234,6 +237,7 @@ fn missing_or_overbudget_source_does_not_create_a_backup_database() {
         max_records: 1,
         max_json_bytes: 65_536,
         max_snapshot_bytes: 1_048_576,
+        max_elapsed: Duration::from_secs(30),
     };
     assert!(matches!(
         SqliteMaintenance::open_existing(&db, models(), too_small),
@@ -292,4 +296,34 @@ fn readonly_destination_directory_fails_before_creating_a_partial_backup() {
     assert!(!backup.exists());
     assert_eq!(rows(&db), before);
     assert!(std::fs::read_dir(readonly).unwrap().next().is_none());
+}
+
+#[test]
+fn expired_backup_deadline_rejects_publication_and_preserves_source() {
+    let dir = tempfile::tempdir().unwrap();
+    let db = dir.path().join("source.db");
+    fixture(&db);
+    let before = rows(&db);
+    let maintenance = SqliteMaintenance::open_existing(&db, models(), budget()).unwrap();
+    let destination = dir.path().join("expired.db");
+    let expired = SnapshotBudget {
+        max_elapsed: Duration::from_nanos(1),
+        ..budget()
+    };
+    assert!(maintenance.backup_to(&destination, expired).is_err());
+    assert!(!destination.exists());
+    assert_eq!(rows(&db), before);
+}
+
+#[test]
+fn zero_elapsed_budget_rejects_maintenance_open() {
+    let dir = tempfile::tempdir().unwrap();
+    let db = dir.path().join("source.db");
+    fixture(&db);
+    let invalid = SnapshotBudget {
+        max_elapsed: Duration::ZERO,
+        ..budget()
+    };
+    assert!(SqliteMaintenance::open_existing(&db, models(), invalid).is_err());
+    drop(SqliteStore::open(&db, models()).unwrap());
 }

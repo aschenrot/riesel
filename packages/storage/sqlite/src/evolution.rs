@@ -3,6 +3,7 @@
 //! recovery and authorization gates and is not implemented by this module.
 use crate::{
     database::failed,
+    deadline::Deadline,
     maintenance::{SnapshotBudget, SqliteMaintenance, audit, denied},
     records::MAX_RECORD_BYTES,
 };
@@ -144,7 +145,12 @@ impl SqliteMaintenance {
         )
         .map_err(failed)?;
         conn.execute_batch("BEGIN").map_err(failed)?;
-        let counts = audit(&conn, &self.models, limits.snapshot)?;
+        let counts = audit(
+            &conn,
+            &self.models,
+            limits.snapshot,
+            Deadline::start(limits.snapshot)?,
+        )?;
         let mut projected = counts.json_bytes;
         let mut affected = 0_u64;
 
