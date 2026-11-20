@@ -1,10 +1,12 @@
 //! Explicit, linked-only SQLite RecordStore provider.
 //! Construction is side-effect-free; the database opens in the local factory.
 mod database;
+mod maintenance;
 mod owner;
 mod records;
 
 pub use database::SqliteStore;
+pub use maintenance::{SnapshotBudget, SqliteMaintenance, VerifiedSnapshot};
 
 use riesel_app::{
     ConnectorError, LocalComponentFactory, LocalProviderFactory, LocalProviderInstance,
