@@ -12,10 +12,7 @@ use riesel_storage::StoreError;
 use rusqlite::{Connection, OpenFlags};
 use serde::{Serialize, de::DeserializeOwned};
 use serde_json::Value;
-use std::{
-    collections::BTreeMap,
-    time::{Duration, Instant},
-};
+use std::{collections::BTreeMap, time::Duration};
 use uuid::Uuid;
 
 type Transformation = Box<dyn Fn(Value) -> Result<Value, StoreError> + Send + Sync>;
@@ -138,19 +135,15 @@ impl SqliteMaintenance {
                 "evolution preview requires a positive elapsed-time limit",
             ));
         }
-        let started = Instant::now();
-        let conn = Connection::open_with_flags(
+        let deadline = Deadline::start_with_limit(limits.snapshot, limits.max_elapsed)?;
+        let mut conn = Connection::open_with_flags(
             self.owner.database_path(),
             OpenFlags::SQLITE_OPEN_READ_ONLY,
         )
         .map_err(failed)?;
+        deadline.install(&mut conn)?;
         conn.execute_batch("BEGIN").map_err(failed)?;
-        let counts = audit(
-            &conn,
-            &self.models,
-            limits.snapshot,
-            Deadline::start(limits.snapshot)?,
-        )?;
+        let counts = audit(&conn, &self.models, limits.snapshot, deadline)?;
         let mut projected = counts.json_bytes;
         let mut affected = 0_u64;
 
@@ -159,9 +152,7 @@ impl SqliteMaintenance {
             .map_err(failed)?;
         let mut rows = stmt.query([]).map_err(failed)?;
         while let Some(row) = rows.next().map_err(failed)? {
-            if started.elapsed() > limits.max_elapsed {
-                return Err(denied("evolution preview elapsed-time budget exceeded"));
-            }
+            deadline.check()?;
             let name: String = row.get(0).map_err(failed)?;
             let Some(transform) = plan.transformations.get(&name) else {
                 continue;
@@ -202,14 +193,11 @@ impl SqliteMaintenance {
             affected = affected
                 .checked_add(1)
                 .ok_or_else(|| denied("affected record count overflow"))?;
-            if started.elapsed() > limits.max_elapsed {
-                return Err(denied("evolution preview elapsed-time budget exceeded"));
-            }
+            deadline.check()?;
         }
-        if started.elapsed() > limits.max_elapsed {
-            return Err(denied("evolution preview elapsed-time budget exceeded"));
-        }
+        deadline.check()?;
         self.owner.verify()?;
+        deadline.check()?;
         Ok(EvolutionPreview {
             records: counts.records,
             changed_models: plan.transformations.len(),
