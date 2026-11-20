@@ -1,6 +1,7 @@
 //! Explicit, linked-only SQLite RecordStore provider.
 //! Construction is side-effect-free; the database opens in the local factory.
 mod database;
+mod owner;
 mod records;
 
 pub use database::SqliteStore;
