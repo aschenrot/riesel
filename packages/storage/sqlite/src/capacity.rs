@@ -1,7 +1,10 @@
 //! Conservative filesystem-space preflight for explicit SQLite maintenance.
 //! This is not a reservation: another writer, filesystem metadata, SQLite
 //! temporary files, and sudden I/O failure can exhaust space after the check.
-use crate::maintenance::{SnapshotBudget, denied};
+use crate::{
+    database::failed,
+    maintenance::{SnapshotBudget, denied},
+};
 use riesel_storage::StoreError;
 use std::{
     fs,
