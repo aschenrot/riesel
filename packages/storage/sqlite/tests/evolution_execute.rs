@@ -626,3 +626,351 @@ fn deliberate_field_rename_is_a_typed_transform_not_an_inferred_upgrade() {
         before.iter().find(|row| row.0 == "note").unwrap()
     );
 }
+
+
+fn persisted_definitions(path: &Path) -> Vec<(String, Vec<u8>)> {
+    let conn = Connection::open(path).unwrap();
+    let mut statement = conn
+        .prepare("SELECT name,definition FROM models ORDER BY name")
+        .unwrap();
+    statement
+        .query_map([], |row| Ok((row.get(0)?, row.get(1)?)))
+        .unwrap()
+        .map(Result::unwrap)
+        .collect()
+}
+
+#[test]
+fn unsupported_or_incomplete_evolution_plan_cannot_create_backup_or_change_source() {
+    let dir = tempfile::tempdir().unwrap();
+    let db = dir.path().join("source.db");
+    fixture(&db);
+    let before = rows(&db);
+    let definitions = persisted_definitions(&db);
+
+    assert!(ModelEvolution::new(source_models(), source_models()).is_err());
+    let mut added = target_models::<CurrentTask>();
+    added.insert("unexpected".into(), HistoricalTask::model_definition());
+    assert!(ModelEvolution::new(source_models(), added).is_err());
+    let mut removed = target_models::<CurrentTask>();
+    removed.remove("note");
+    assert!(ModelEvolution::new(source_models(), removed).is_err());
+
+    let without_transform =
+        ModelEvolution::new(source_models(), target_models::<CurrentTask>()).unwrap();
+    let backup = dir.path().join("not-created.db");
+    let maintenance = SqliteMaintenance::open_existing(&db, source_models(), budget()).unwrap();
+    assert!(
+        maintenance
+            .execute_evolution(
+                &without_transform,
+                &backup,
+                limits(),
+                EvolutionAuthorization::ExecuteWithVerifiedBackup,
+            )
+            .is_err()
+    );
+    assert!(!backup.exists(), "invalid plan must not create an archive");
+    assert_eq!(rows(&db), before);
+    assert_eq!(persisted_definitions(&db), definitions);
+
+    // The normal provider must never infer or apply a schema update.
+    assert!(SqliteStore::open(&db, target_models::<CurrentTask>()).is_err());
+    assert_eq!(rows(&db), before);
+    drop(SqliteStore::open(&db, source_models()).unwrap());
+
+    assert!(
+        ModelEvolution::new(source_models(), target_models::<CurrentTask>())
+            .unwrap()
+            .transform::<HistoricalTask, MetadataTask, _>(|old| {
+                Ok(MetadataTask {
+                    title: old.title,
+                    completed: old.completed,
+                    note: None,
+                })
+            })
+            .is_err(),
+        "typed target definition must match the declared target plan"
+    );
+    assert!(
+        plan()
+            .transform::<HistoricalTask, CurrentTask, _>(|old| {
+                Ok(CurrentTask {
+                    title: old.title,
+                    completed: old.completed,
+                    priority: 0,
+                })
+            })
+            .is_err(),
+        "a second transform for the same persistent model must be rejected"
+    );
+}
+
+#[test]
+fn corrupted_source_metadata_and_record_payloads_fail_before_backup_or_mutation() {
+    for fault in [
+        "changed-metadata",
+        "extra-model",
+        "unknown-record-model",
+        "invalid-json",
+        "schema-invalid-json",
+        "oversized-source-record",
+        "wrong-physical-format",
+        "short-revision",
+        "short-uuid",
+    ] {
+        let dir = tempfile::tempdir().unwrap();
+        let db = dir.path().join("source.db");
+        let (task_id, _) = fixture(&db);
+        let connection = Connection::open(&db).unwrap();
+        match fault {
+            "changed-metadata" => {
+                connection
+                    .execute(
+                        "UPDATE models SET definition=?1 WHERE name='task'",
+                        rusqlite::params![
+                            serde_json::to_vec(&CurrentTask::model_definition()).unwrap()
+                        ],
+                    )
+                    .unwrap();
+            }
+            "extra-model" => {
+                connection
+                    .execute(
+                        "INSERT INTO models(name,definition) VALUES(?1,?2)",
+                        rusqlite::params![
+                            "unregistered",
+                            serde_json::to_vec(&HistoricalTask::model_definition()).unwrap()
+                        ],
+                    )
+                    .unwrap();
+            }
+            "unknown-record-model" => {
+                connection
+                    .execute(
+                        "INSERT INTO records(model,id,revision,data) VALUES(?1,?2,?3,?4)",
+                        rusqlite::params![
+                            "unregistered",
+                            Uuid::new_v4().as_bytes(),
+                            &1_u64.to_be_bytes()[..],
+                            serde_json::to_vec(&json!({"title":"orphan"})).unwrap()
+                        ],
+                    )
+                    .unwrap();
+            }
+            "invalid-json" | "schema-invalid-json" | "oversized-source-record" => {
+                let payload = match fault {
+                    "invalid-json" => b"not valid JSON".to_vec(),
+                    "schema-invalid-json" => {
+                        serde_json::to_vec(&json!({"title":42,"completed":false})).unwrap()
+                    }
+                    _ => serde_json::to_vec(&json!({
+                        "title":"x".repeat(65_536),
+                        "completed":false
+                    }))
+                    .unwrap(),
+                };
+                connection
+                    .execute(
+                        "UPDATE records SET data=?1 WHERE model='task' AND id=?2",
+                        rusqlite::params![payload, task_id.as_bytes()],
+                    )
+                    .unwrap();
+            }
+            "wrong-physical-format" => {
+                connection.pragma_update(None, "user_version", 2).unwrap();
+            }
+            "short-revision" | "short-uuid" => {
+                // Simulate a corrupt/nonconforming SQLite writer without
+                // changing the maintained v1 schema's CHECK constraints.
+                connection
+                    .pragma_update(None, "ignore_check_constraints", "ON")
+                    .unwrap();
+                if fault == "short-revision" {
+                    connection
+                        .execute(
+                            "UPDATE records SET revision=x'01' WHERE model='task'",
+                            [],
+                        )
+                        .unwrap();
+                } else {
+                    connection
+                        .execute(
+                            "UPDATE records SET id=x'01' WHERE model='task' AND id=?1",
+                            rusqlite::params![task_id.as_bytes()],
+                        )
+                        .unwrap();
+                }
+            }
+            _ => unreachable!(),
+        }
+        drop(connection);
+        let before = rows(&db);
+        let model_bytes = persisted_definitions(&db);
+        let destination = dir.path().join("must-not-exist.db");
+        assert!(
+            SqliteMaintenance::open_existing(&db, source_models(), budget()).is_err(),
+            "invalid source accepted: {fault}"
+        );
+        assert!(!destination.exists());
+        assert_eq!(rows(&db), before, "source changed on refusal: {fault}");
+        assert_eq!(
+            persisted_definitions(&db),
+            model_bytes,
+            "metadata changed on refusal: {fault}"
+        );
+    }
+}
+
+#[test]
+fn bounded_evolution_rejects_record_file_byte_and_time_limits_without_mutation() {
+    let dir = tempfile::tempdir().unwrap();
+    let db = dir.path().join("source.db");
+    fixture(&db);
+    let before = rows(&db);
+    let definitions = persisted_definitions(&db);
+
+    let too_few_records = SnapshotBudget {
+        max_records: 1,
+        ..budget()
+    };
+    assert!(SqliteMaintenance::open_existing(&db, source_models(), too_few_records).is_err());
+
+    let too_few_bytes = SnapshotBudget {
+        max_json_bytes: 1,
+        ..budget()
+    };
+    assert!(SqliteMaintenance::open_existing(&db, source_models(), too_few_bytes).is_err());
+
+    let too_small_file = SnapshotBudget {
+        max_snapshot_bytes: 1,
+        ..budget()
+    };
+    assert!(SqliteMaintenance::open_existing(&db, source_models(), too_small_file).is_err());
+
+    let expired = EvolutionLimits {
+        max_elapsed: Duration::from_nanos(1),
+        ..limits()
+    };
+    let expired_archive = dir.path().join("expired.db");
+    let maintenance = SqliteMaintenance::open_existing(&db, source_models(), budget()).unwrap();
+    assert!(
+        maintenance
+            .execute_evolution(
+                &plan(),
+                &expired_archive,
+                expired,
+                EvolutionAuthorization::ExecuteWithVerifiedBackup,
+            )
+            .is_err()
+    );
+    assert!(!expired_archive.exists());
+
+    // The complete old database fits this limit, but the new field does not.
+    // The verified backup must be retained and the IMMEDIATE txn rolled back.
+    let old_bytes = before
+        .iter()
+        .map(|row| row.3.len() as u64)
+        .sum::<u64>();
+    let tight = EvolutionLimits {
+        snapshot: SnapshotBudget {
+            max_json_bytes: old_bytes,
+            ..budget()
+        },
+        ..limits()
+    };
+    let retained = dir.path().join("projected-overflow.db");
+    let maintenance = SqliteMaintenance::open_existing(&db, source_models(), budget()).unwrap();
+    assert!(
+        maintenance
+            .execute_evolution(
+                &plan(),
+                &retained,
+                tight,
+                EvolutionAuthorization::ExecuteWithVerifiedBackup,
+            )
+            .is_err()
+    );
+    assert_eq!(rows(&retained), before);
+    assert_eq!(rows(&db), before);
+    assert_eq!(persisted_definitions(&db), definitions);
+}
+
+#[test]
+fn oversized_typed_result_and_late_transform_failure_retain_recoverable_source() {
+    use std::sync::{
+        Arc,
+        atomic::{AtomicUsize, Ordering},
+    };
+
+    let dir = tempfile::tempdir().unwrap();
+    let db = dir.path().join("source.db");
+    fixture(&db);
+    let store = SqliteStore::open(&db, source_models()).unwrap();
+    store
+        .create("task", json!({"title":"second","completed":true}))
+        .unwrap();
+    drop(store);
+    let before = rows(&db);
+    let definitions = persisted_definitions(&db);
+
+    let too_large = ModelEvolution::new(source_models(), target_models::<CurrentTask>())
+        .unwrap()
+        .transform::<HistoricalTask, CurrentTask, _>(|old| {
+            Ok(CurrentTask {
+                title: "x".repeat(65_536),
+                completed: old.completed,
+                priority: 0,
+            })
+        })
+        .unwrap();
+    let size_backup = dir.path().join("large-result.db");
+    let maintenance = SqliteMaintenance::open_existing(&db, source_models(), budget()).unwrap();
+    assert!(
+        maintenance
+            .execute_evolution(
+                &too_large,
+                &size_backup,
+                limits(),
+                EvolutionAuthorization::ExecuteWithVerifiedBackup,
+            )
+            .is_err()
+    );
+    assert_eq!(rows(&size_backup), before);
+    assert_eq!(rows(&db), before);
+
+    let evaluated = Arc::new(AtomicUsize::new(0));
+    let count = Arc::clone(&evaluated);
+    let failing = ModelEvolution::new(source_models(), target_models::<CurrentTask>())
+        .unwrap()
+        .transform::<HistoricalTask, CurrentTask, _>(move |old| {
+            if count.fetch_add(1, Ordering::SeqCst) != 0 {
+                return Err(StoreError::Failed(
+                    "injected failure on second typed record".into(),
+                ));
+            }
+            Ok(CurrentTask {
+                title: old.title,
+                completed: old.completed,
+                priority: 0,
+            })
+        })
+        .unwrap();
+    let failing_backup = dir.path().join("later-failure.db");
+    let maintenance = SqliteMaintenance::open_existing(&db, source_models(), budget()).unwrap();
+    let error = maintenance
+        .execute_evolution(
+            &failing,
+            &failing_backup,
+            limits(),
+            EvolutionAuthorization::ExecuteWithVerifiedBackup,
+        )
+        .unwrap_err();
+    assert!(format!("{error}").contains("second typed record"));
+    assert_eq!(evaluated.load(Ordering::SeqCst), 2);
+    assert_eq!(rows(&failing_backup), before);
+    assert_eq!(rows(&db), before);
+    assert_eq!(persisted_definitions(&db), definitions);
+    drop(SqliteStore::open(&db, source_models()).unwrap());
+    assert!(SqliteStore::open(&db, target_models::<CurrentTask>()).is_err());
+}
