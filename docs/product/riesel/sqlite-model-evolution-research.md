@@ -1,6 +1,6 @@
 # Stage 6 — SQLite model evolution: research and proposed decision
 
-**Status: research for specification [Issue #41](https://github.com/aschenrot/riesel/issues/41); Gate B is not yet accepted.**
+**Status: completed research; the bounded Gate B direction has been accepted in the [offline migration architecture](sqlite-offline-migration-architecture.md). This research file remains evidence, not the authoritative accepted contract.**
 This document distinguishes *observed implementation facts*, *target requirements*, *experiment results* and *proposals*. A green fixture does not authorize a migration mechanism or prove power-loss safety.
 
 ## Decision to make

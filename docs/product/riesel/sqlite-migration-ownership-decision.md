@@ -1,6 +1,6 @@
 # Stage 6 — Model evolution ownership and recovery decision
 
-**Status: proposed decision; [Issue #41](https://github.com/aschenrot/riesel/issues/41) remains open.** This document extends the [initial migration research](sqlite-model-evolution-research.md). The tested experiments in this PR are not an implementation of a safe migration mechanism.
+**Status: completed research proposal; the accepted Gate B contract is the [offline migration architecture](sqlite-offline-migration-architecture.md). This investigation is historical evidence, not the authoritative accepted policy.** This document extends the [initial migration research](sqlite-model-evolution-research.md). The tested experiments in this PR are not an implementation of a safe migration mechanism.
 
 ## Verified results (Linux, pinned Rust 1.100)
 
@@ -56,7 +56,7 @@ Lock-file naming and path resolution require explicit design: canonicalize the p
 7. **Compatibility and downgrade:** retain physical format `user_version=1` when only changing JSON shapes and existing model metadata. Introduce a new physical version only for an actual layout/metadata encoding change. Old binaries must fail closed on incompatible new models; downgrading requires a verified pre-upgrade snapshot and deliberate loss-of-newer-write disclosure.
 8. **Operational scope:** linked provider, single local host and supported local filesystem only. No public API, remote/managed parity, filesystem-level power-loss proof, distributed lease or generic SQL migration framework.
 
-**No architecture is accepted by this proposal.** The final Gate B decision must explicitly accept/revise/reject the policy and name the accountable maintainer before opening implementation issues.
+**Historical research status:** at the time of this proposal, no architecture was accepted. The project owner subsequently accepted the [bounded offline contract](sqlite-offline-migration-architecture.md) on 2026-11-20; implementation verification remains separate.
 
 ## Typed authoring and backup preflight — targeted research
 
@@ -66,7 +66,7 @@ The [backup research fixtures](../../../packages/storage/sqlite/tests/migration_
 
 ### Minimal Gate B decision to record
 
-**Recommendation to the accountable maintainer — not accepted by research alone:** accept only a **bounded, offline, explicitly authorized** first SQLite model-evolution scope, and *defer online and cross-version autonomous upgrades*. The contract should require historical and target `RieselModel` types with a deliberately authored transform, exact source/target model-set verification, validation of every affected record, conservative revision increments with overflow rejection, an independently verified backup *before* mutation, and a single bounded transaction. It must also require a tested owner/rollout policy that excludes **legacy binaries** and protects stable ownership identity; transaction-local write fencing already exists in participating new providers via PR #45 but cannot replace that policy. Reopening normal applications must not execute migrations.
+**Research recommendation (subsequently accepted in bounded form by the project owner):** accept only a **bounded, offline, explicitly authorized** first SQLite model-evolution scope, and *defer online and cross-version autonomous upgrades*. The contract should require historical and target `RieselModel` types with a deliberately authored transform, exact source/target model-set verification, validation of every affected record, conservative revision increments with overflow rejection, an independently verified backup *before* mutation, and a single bounded transaction. It must also require a tested owner/rollout policy that excludes **legacy binaries** and protects stable ownership identity; transaction-local write fencing already exists in participating new providers via PR #45 but cannot replace that policy. Reopening normal applications must not execute migrations.
 
 If owner exclusion, backup retention/restore, or the supported transaction resource envelope **cannot** be specified and tested for the initial delivery, **defer the migration engine entirely** and keep strict exact-schema startup. This is a decision boundary, not an implementation plan already authorized.
 

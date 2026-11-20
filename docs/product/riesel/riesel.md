@@ -66,9 +66,15 @@ The application uses capabilities; components implement capabilities; Riesel res
 
 The current reference Storage provider is ephemeral, and loopback TCP is not authenticated. Passing development tests does **not** establish production persistence, authenticated remote networking, or distributed recovery.
 
+### Durable Record Storage evolution
+
+- Linked local SQLite Storage shall support an **explicit, offline, authorized** transformation of Rust-derived application models, with pre-mutation verified backup, preserved UUIDs, checked revision fencing, exact source/target validation, and bounded recovery.
+- Ordinary application startup remains fail-closed on incompatible stored models; automatic/online upgrades and remote/managed parity are not accepted.
+- The [accepted model migration architecture](sqlite-offline-migration-architecture.md) defines the controlled single-host ownership, legacy process rollout and verification boundary. **This is accepted product scope, not delivered functionality.**
+
 ## Planned infrastructure extensions
 
-- Durable Storage, schema evolution, and migration.
+- Deliver the accepted bounded SQLite model-evolution workflow and separately plan any broader Storage support.
 - Authentication, authorization, and protected remote transport.
 - Operational visibility, configurable resource budgets, and reliable deployment management.
 - Standalone manager workflows and independently executed native interfaces.

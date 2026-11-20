@@ -1,6 +1,6 @@
 # Stage 6 — Durable Record Storage architecture
 
-**Status: proposed for Gate B acceptance.** Decision evidence: [Issue #24](https://github.com/aschenrot/riesel/issues/24), [research brief](durable-record-storage-research.md), [backend comparison](durable-record-storage-evaluation.md), and [isolated Rust probes](https://github.com/aschenrot/riesel/pull/29). Merging the reviewed decision PR accepts the **bounded first-delivery contract below**; it does not certify production durability or complete Stage 6.
+**Status: first-delivery SQLite contract accepted and implemented; later model evolution is separately accepted but not yet implemented.** Decision evidence: [Issue #24](https://github.com/aschenrot/riesel/issues/24), [research brief](durable-record-storage-research.md), [backend comparison](durable-record-storage-evaluation.md), and [isolated Rust probes](https://github.com/aschenrot/riesel/pull/29). Merging the reviewed decision PR accepts the **bounded first-delivery contract below**; it does not certify production durability or complete Stage 6.
 
 ## Decision and rationale
 
@@ -21,7 +21,7 @@ SQLite is preferred for the first provider because it has documented transaction
 | Durability | Initial WAL with `synchronous=FULL`; acknowledge only after a successful commit. State explicitly that real host power-loss safety also depends on OS, filesystem and device behavior |
 | Identity and pagination | Stable UUIDs and full `u64` revisions across restarts; ordered model+UUID bounded pages with the existing non-snapshot cursor behavior |
 | Model enforcement | Provider validates authoritative application model definitions even for raw `RecordStore` callers; unknown models and invalid data fail |
-| Compatibility | Persist format/version and model definition metadata. Initially **exact schema match** for reopening existing databases; incompatible schema fails during startup without rewriting records; migrations deferred |
+| Compatibility | Persist format/version and model definition metadata. Ordinary startup maintains **exact schema match**; incompatible schemas fail without rewrite. A separate, explicitly authorized offline model-evolution path is now accepted by the [Stage 6 migration decision](sqlite-offline-migration-architecture.md), but is **not implemented by normal open** |
 | Failure behavior | Preserve `NotFound`, `RevisionConflict`, `InvalidPageSize`, `Failed`, and `Transport`; fail closed on database open, permission, lock, corruption or incompatible schema errors; do not silently repair corrupted data |
 | Recovery | Existing runtime session semantics remain; no automatic retry/exactly-once command semantics, transparent rebinding or silent MemoryStore fallback |
 
@@ -73,3 +73,7 @@ The accepted implementation must add Riesel-specific tests for provider registra
 Do not interpret completion of this first Storage slice as completion of Stage 6 production reliability. Managed-process durability, migrations, network trust, authorization, external connectivity and generic fallible component construction remain independently scoped.
 
 **Gate B decision:** an accountable reviewer must explicitly accept, revise or defer this limited architecture. After acceptance is recorded in Issue #24 and the corresponding PR is merged, create independently verifiable implementation Issues with accepted dependencies and verification boundaries.
+
+## Subsequent accepted evolution (2026-11-20)
+
+The [offline model-migration architecture](sqlite-offline-migration-architecture.md) extends this already delivered Storage scope **without** authorizing automatic startup upgrades, remote providers or a general file-ownership guarantee. Its separate implementation/verification remains outstanding. This original first-delivery decision retains its historical exact-startup invariants.
