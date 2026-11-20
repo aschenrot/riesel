@@ -135,7 +135,9 @@ impl SqliteMaintenance {
                 rusqlite::backup::StepResult::Done => break,
                 rusqlite::backup::StepResult::More => {}
                 _ => {
-                    return Err(denied("restoration copy blocked; new authorization required"));
+                    return Err(denied(
+                        "restoration copy blocked; new authorization required",
+                    ));
                 }
             }
         }

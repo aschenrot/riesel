@@ -19,7 +19,7 @@ fn budget() -> SnapshotBudget {
         max_records: 8,
         max_json_bytes: 65_536,
         max_snapshot_bytes: 1_048_576,
-    max_elapsed: Duration::from_secs(30),
+        max_elapsed: Duration::from_secs(30),
     }
 }
 
@@ -115,7 +115,7 @@ fn resource_ceiling_rejects_without_publishing_incomplete_backup() {
         max_records: 8,
         max_json_bytes: 65_536,
         max_snapshot_bytes: 1,
-    max_elapsed: Duration::from_secs(30),
+        max_elapsed: Duration::from_secs(30),
     };
     assert!(matches!(
         maintenance.backup_to(&output, bounded),
@@ -180,7 +180,7 @@ fn oversized_raw_sqlite_blob_is_rejected_before_snapshot_publication() {
         max_records: 8,
         max_json_bytes: 200_000,
         max_snapshot_bytes: 1_048_576,
-    max_elapsed: Duration::from_secs(30),
+        max_elapsed: Duration::from_secs(30),
     };
     assert!(matches!(
         SqliteMaintenance::open_existing(&db, models(), large_budget),
@@ -237,7 +237,7 @@ fn missing_or_overbudget_source_does_not_create_a_backup_database() {
         max_records: 1,
         max_json_bytes: 65_536,
         max_snapshot_bytes: 1_048_576,
-    max_elapsed: Duration::from_secs(30),
+        max_elapsed: Duration::from_secs(30),
     };
     assert!(matches!(
         SqliteMaintenance::open_existing(&db, models(), too_small),

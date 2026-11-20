@@ -31,7 +31,7 @@ fn budget() -> SnapshotBudget {
         max_records: 10,
         max_json_bytes: 65_536,
         max_snapshot_bytes: 1_048_576,
-    max_elapsed: Duration::from_secs(30),
+        max_elapsed: Duration::from_secs(30),
     }
 }
 
@@ -360,7 +360,7 @@ fn restore_rejects_invalid_budget_before_copying_any_pages() {
         max_records: 1,
         max_json_bytes: 65_536,
         max_snapshot_bytes: 1_048_576,
-    max_elapsed: Duration::from_secs(30),
+        max_elapsed: Duration::from_secs(30),
     };
     assert!(matches!(
         maintenance.restore_from_backup(
@@ -418,13 +418,17 @@ fn expired_restore_deadline_preserves_original_without_retention() {
         max_elapsed: Duration::from_nanos(1),
         ..budget()
     };
-    assert!(maintenance.restore_from_backup(
-        &archived,
-        models_v1(),
-        &retained,
-        expired,
-        RestoreAuthorization::DiscardPostSnapshotWrites,
-    ).is_err());
+    assert!(
+        maintenance
+            .restore_from_backup(
+                &archived,
+                models_v1(),
+                &retained,
+                expired,
+                RestoreAuthorization::DiscardPostSnapshotWrites,
+            )
+            .is_err()
+    );
     assert!(!retained.exists());
     assert_eq!(rows(&db), before);
     drop(SqliteStore::open(&db, models_v1()).unwrap());
