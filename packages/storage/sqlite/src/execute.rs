@@ -11,7 +11,9 @@ use crate::{
     records::MAX_RECORD_BYTES,
 };
 use riesel_storage::StoreError;
-use rusqlite::{Connection, OpenFlags, OptionalExtension, Transaction, TransactionBehavior, params};
+use rusqlite::{
+    Connection, OpenFlags, OptionalExtension, Transaction, TransactionBehavior, params,
+};
 use serde_json::Value;
 use std::path::Path;
 use uuid::Uuid;
@@ -177,10 +179,11 @@ fn verify_updated_bytes(
             })
             .optional()
             .map_err(failed)?;
-        let (revision, data) = actual
-            .ok_or_else(|| denied("evolution lost an updated record"))?;
+        let (revision, data) = actual.ok_or_else(|| denied("evolution lost an updated record"))?;
         if revision.as_slice() != change.next_revision || data != change.data {
-            return Err(denied("evolution result differs from typed transform output"));
+            return Err(denied(
+                "evolution result differs from typed transform output",
+            ));
         }
     }
     Ok(())

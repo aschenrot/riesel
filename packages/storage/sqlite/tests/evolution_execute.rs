@@ -407,10 +407,8 @@ fn unexpected_schema_valid_trigger_rewrite_rolls_back_instead_of_committing() {
     fixture(&db);
     let original = rows(&db);
     let connection = Connection::open(&db).unwrap();
-    let replacement = serde_json::to_vec(
-        &json!({"title":"unexpected","completed":true,"priority":999}),
-    )
-    .unwrap();
+    let replacement =
+        serde_json::to_vec(&json!({"title":"unexpected","completed":true,"priority":999})).unwrap();
     let hex_payload: String = replacement
         .iter()
         .map(|byte| format!("{byte:02X}"))
