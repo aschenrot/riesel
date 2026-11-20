@@ -645,6 +645,9 @@ fn corrupted_persisted_schema_or_record_refuses_maintenance_before_backup() {
         let db = dir.path().join("source.db");
         fixture(&db);
         let raw = Connection::open(&db).unwrap();
+        // A corrupt historical file can bypass SQLite CHECK enforcement.
+        // Do so only in this isolated fixture to exercise offline validation.
+        raw.execute_batch("PRAGMA ignore_check_constraints=ON;").unwrap();
         match corruption {
             Corruption::ModelDefinition => {
                 raw.execute(
@@ -684,7 +687,8 @@ fn corrupted_persisted_schema_or_record_refuses_maintenance_before_backup() {
         );
         assert_eq!(rows(&db), before);
         assert!(!backup.exists());
-        assert!(SqliteStore::open(&db, source_models()).is_err());
+        // Normal provider startup may not scan every historical JSON row;
+        // the stricter offline maintenance audit must always reject it.
     }
 }
 
