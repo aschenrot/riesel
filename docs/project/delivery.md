@@ -4,7 +4,7 @@
 
 ## Purpose
 
-Maintain a clear, auditable path from a product outcome to accepted implementation without producing duplicate plans or status reports. Prefer coherent solutions that remain useful as the product grows; avoid both recurring one-off patches and speculative frameworks. Project management must support decisions and testing rather than add ceremony.
+Maintain a clear, auditable path from a product outcome to accepted implementation without producing duplicate plans or status reports. Riesel deliberately favors long-term architectural quality and reuse over the lowest initial implementation effort. Project management must support decisions and testing rather than add ceremony.
 
 ## Sources of truth
 
@@ -31,15 +31,15 @@ Do not duplicate open-issue status or past commit histories in the roadmap. Expl
 
 ### Strategic fit and bias control
 
-**Intentional preference:** favor a coherent, reusable and evolvable design when the accepted product outcome spans applications, teams or likely future integrations. Choose the **smallest coherent architecture**, not automatically the smallest patch or the most general framework. A bounded first increment may leave capabilities for later, but should not knowingly impose avoidable reimplementation, contract migration or duplicated infrastructure to reach the accepted outcome.
+**Architecture-first preference:** favor strategic upfront investment in correctness, coherent composition, clear ownership, reusable contracts, extensibility and long-term maintainability, even when it increases initial implementation cost. Evaluate the **target architecture across the accepted product scope and credible growth scenarios** before selecting an implementation increment. Prefer shared foundations over recurring one-off solutions when they reduce expected integration or migration costs. Do not require a speculative feature or larger abstraction merely to appear future-proof.
 
 For material design choices, challenge both directions:
 
-- **Short-term bias:** existing-code preference, lowest initial effort, artificially narrow reference-example scope, and deferring a product requirement until several copies of the same workaround exist. Compare the cumulative cost of repetition, integration and migration.
-- **Overengineering bias:** presumed need for new crates, commands, layers, standards or universal abstractions based only on speculative future features. Require a specific use case, boundary or risk that the added complexity actually addresses.
-- **Architecture durability:** identify likely extension points, ownership boundaries, stable public contracts, deployment/platform variants, operational failure modes and how an accepted first increment can evolve without redesign. Consider maintenance and switching costs over a stated, plausible horizon rather than forecasting arbitrary features.
+- **Short-term bias:** existing-code preference, lowest initial effort, artificially narrow reference-example scope, and deferring a platform requirement until several copies of the same workaround exist. Compare the cumulative cost of repetition, integration, future migration and constrained extension paths; **upfront complexity is not grounds for rejection by itself**.
+- **Speculative abstraction bias:** assuming new crates, commands, layers, standards or universal frameworks are inherently more durable. Trace each significant abstraction to an accepted requirement, credible growth scenario, ownership boundary or identified risk. Distinguish preparing an extension point from implementing every future extension.
+- **Architecture durability:** identify credible extension points, ownership boundaries, contract evolution/compatibility costs, deployment and platform variants, operational failure modes and the path from the first increment to the intended architecture. Favor coherent boundaries over gratuitous configurability. Document important irreversible choices and the likely cost of changing them; do not freeze speculative APIs prematurely.
 
-The product requirement establishes **what outcome is worth supporting**; research determines **which mechanism is justified**. Multiple examples can validate an architecture but are not inherently a prerequisite to recognizing a platform-level requirement. Record decisive evidence, unknowns and trade-offs only where they change the decision. No scoring formula, extra approval stage, architecture diagram or new document is mandatory.
+The product requirement establishes **what outcome is worth supporting**; research determines **which mechanism is justified**. A higher initial cost is acceptable when it buys a demonstrably better foundation; lower initial cost wins only where the important architectural qualities are comparable. Multiple examples can validate an architecture but are not inherently a prerequisite to recognizing a platform-level requirement. Record decisive evidence, unknowns and trade-offs only where they change the decision. No scoring formula, extra approval stage, architecture diagram or new document is mandatory.
 
 ### When a separate specification gate is warranted
 
