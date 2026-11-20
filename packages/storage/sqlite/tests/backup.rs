@@ -185,3 +185,60 @@ fn oversized_raw_sqlite_blob_is_rejected_before_snapshot_publication() {
     ));
     assert!(!destination.exists());
 }
+
+#[test]
+fn snapshot_captures_committed_wal_rows_while_an_older_reader_is_pinned() {
+    let dir = tempfile::tempdir().unwrap();
+    let db = dir.path().join("source.db");
+    let store = SqliteStore::open(&db, models()).unwrap();
+    store.create("task", json!({"title":"earlier"})).unwrap();
+
+    // A separate reader retains an older SQLite view across a committed write.
+    let pinned = Connection::open(&db).unwrap();
+    pinned.execute_batch("BEGIN").unwrap();
+    let old_count: i64 = pinned
+        .query_row("SELECT count(*) FROM records", [], |row| row.get(0))
+        .unwrap();
+    assert_eq!(old_count, 1);
+    store.create("task", json!({"title":"newer"})).unwrap();
+    let expected = rows(&db);
+    assert_eq!(expected.len(), 2);
+    drop(store);
+
+    let maintenance = SqliteMaintenance::open_existing(&db, models(), budget()).unwrap();
+    let output = dir.path().join("wal-consistent.db");
+    let verified = maintenance.backup_to(&output, budget()).unwrap();
+    assert_eq!(verified.records, 2);
+    assert_eq!(rows(&output), expected);
+    assert_eq!(rows(&db), expected);
+    pinned.execute_batch("ROLLBACK").unwrap();
+}
+
+#[test]
+fn missing_or_overbudget_source_does_not_create_a_backup_database() {
+    let dir = tempfile::tempdir().unwrap();
+    let missing = dir.path().join("missing.db");
+    assert!(matches!(
+        SqliteMaintenance::open_existing(&missing, models(), budget()),
+        Err(StoreError::Failed(_))
+    ));
+    assert!(
+        !missing.exists(),
+        "maintenance may not initialize missing data"
+    );
+
+    let db = dir.path().join("source.db");
+    fixture(&db);
+    let before = rows(&db);
+    let too_small = SnapshotBudget {
+        max_records: 1,
+        max_json_bytes: 65_536,
+        max_snapshot_bytes: 1_048_576,
+    };
+    assert!(matches!(
+        SqliteMaintenance::open_existing(&db, models(), too_small),
+        Err(StoreError::Failed(_))
+    ));
+    assert_eq!(rows(&db), before);
+    assert!(!dir.path().join("not-created.db").exists());
+}
