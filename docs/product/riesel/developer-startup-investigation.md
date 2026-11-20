@@ -59,9 +59,17 @@ The **Cargo Book** documents [workspace Cargo aliases](https://doc.rust-lang.org
 | **D — New general `riesel dev/run/inspect` CLI + manifest** | Potentially | New cross-project discovery, names, configuration and duplication of existing SDK CLI; large API surface for one example | More behavior to secure, version and maintain; requires at least Todo and headless Counter/Hello evidence | **Defer** until two substantively different apps prove `xtask` inadequate |
 | **E — Manager-controlled app launch** | Potentially | Reuses eventual operator control but introduces #59 ownership and authorization dependencies | A Manager that itself needs bootstrapping cannot be the basic developer-launch prerequisite | **Reject as default prerequisite** |
 
-**Recommendation is conditional, not approval:** choose a **workspace-scoped, foreground `xtask` Todo launch task** as the minimal first implementation. A short Cargo alias may be added, but the alias must be explicitly selected only after confirming consistent command ergonomics from workspace root. Do not claim a universal `riesel dev` program exists. If one additional real application demonstrates reusable behavior beyond app-specific configuration, reassess a separate generic CLI.
+**Recommendation is conditional, not approval:** choose a **workspace-scoped, foreground `xtask` Todo launch task** as the minimal first implementation. A short Cargo alias may be added, but the alias must be explicitly selected only after confirming consistent command ergonomics from workspace root. **This does not deliver the generalized developer-startup experience for a third-party Riesel application**; Cargo aliases and repository `xtask` code belong to the current workspace, not every downstream app's checkout. Do not claim a universal `riesel dev` program exists. If independently authored applications prove repeated tooling needs, evaluate a reusable SDK-facing/CLI entrypoint against the simpler `cargo run` and explicit app-level configuration.
 
 **Why not a Cargo build script?** An ordinary Cargo build script is executed as part of building a crate, not an interactive persistent app launcher; mixing application startup and durable data creation with Rust compile-time steps violates a clear side-effect boundary ([Cargo build script contract](https://doc.rust-lang.org/cargo/reference/build-scripts.html)). An `xtask` is an explicit operation invoked by the developer instead.
+
+### Cross-repository developer experience is a separate acceptance boundary
+
+A contributor starting Todo **inside `aschenrot/riesel`** can use that workspace's Cargo aliases and `xtask`. A developer building `my_app` in **another Cargo workspace** does not inherit this repository's alias, runner, Todo-specific binary or Node layout. The initial one-command Todo result therefore proves a *repository-level* development convenience, **not** a product-wide “Riesel apps start with one command” capability. The [Cargo workspace configuration rules](https://doc.rust-lang.org/cargo/reference/config.html#hierarchical-structure) support this distinction.
+
+For a later reusable tooling decision, construct an independent miniature Rust application *outside the Riesel workspace*, using published/path Riesel SDK APIs and its normal Cargo metadata. Measure how much manual startup plumbing remains after normal `cargo run`; only if it is repeated across at least two real application shapes should a generic launcher, app manifest or `riesel dev` API be accepted. Ordinary headless apps may not need a dedicated launcher at all.
+
+This is a **separate future generalization gate**. Do not expand the first `xtask` Todo implementation into a general discovery/installer tool simply to claim cross-project coverage. Conversely, do not close a broad developer-experience claim on the strength of a Todo-only shortcut.
 
 ## 5. Proposed first operator/developer contract for review
 
@@ -100,7 +108,7 @@ A **future test fixture** should invoke the launch command with a disposable *ex
 
 ## 7. Decision and delivery boundary
 
-**Research recommendation for Gate B: ACCEPT a *bounded developer-launch outcome*, but do not yet approve a full platform CLI.** Choose existing `xtask` plus a workspace Cargo alias as the initial implementation candidate, with one-command Todo static UI+backend and stable explicit data semantics. This is a recommendation awaiting the accountable maintainer's **accept / revise / defer / reject** decision; documentation is not proof of a working command.
+**Research recommendation for Gate B: ACCEPT a *bounded Todo-in-Riesel-workspace developer-launch outcome*, but do not yet approve a full platform CLI or claim downstream projects are served.** Choose existing `xtask` plus a workspace Cargo alias as the initial implementation candidate, with one-command Todo static UI+backend and stable explicit data semantics. A later generalized app-developer workflow needs separate cross-repository evidence. This is a recommendation awaiting the accountable maintainer's **accept / revise / defer / reject** decision; documentation is not proof of a working command.
 
 **Resolved for planning if accepted:** no Manager dependency, no new process supervisor, no generic manifest, no native UI dependency, no auto migration, no remote bind, no downloaded dependencies without explicit setup, no claim that source-code launch equals installed-user packaging.
 
