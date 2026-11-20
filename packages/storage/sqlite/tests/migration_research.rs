@@ -7,11 +7,7 @@ use riesel_storage::{RecordStore, StoreError};
 use riesel_storage_sqlite::SqliteStore;
 use rusqlite::{Connection, TransactionBehavior, params};
 use serde_json::{Value, json};
-use std::{
-    collections::BTreeMap,
-    path::Path,
-    process::Command,
-};
+use std::{collections::BTreeMap, path::Path, process::Command};
 use tempfile::TempDir;
 use uuid::Uuid;
 
@@ -40,7 +36,11 @@ fn models_v1() -> BTreeMap<String, ModelDefinition> {
 
 fn models_v2() -> BTreeMap<String, ModelDefinition> {
     let mut models = models_v1();
-    models.get_mut("task").unwrap().fields.insert("priority".into(), TypeRef::I64);
+    models
+        .get_mut("task")
+        .unwrap()
+        .fields
+        .insert("priority".into(), TypeRef::I64);
     models
 }
 
@@ -48,13 +48,22 @@ fn fixture() -> (TempDir, Uuid, Uuid, Uuid) {
     let directory = tempfile::tempdir().unwrap();
     let db = directory.path().join("records.db");
     let store = SqliteStore::open(&db, models_v1()).unwrap();
-    let one = store.create("task", json!({"title":"one","completed":false})).unwrap();
-    let two = store.create("task", json!({"title":"two","completed":true})).unwrap();
+    let one = store
+        .create("task", json!({"title":"one","completed":false}))
+        .unwrap();
+    let two = store
+        .create("task", json!({"title":"two","completed":true}))
+        .unwrap();
     let note = store
         .create("note", json!({"task_id":one.id,"text":"cross-reference"}))
         .unwrap();
     let updated = store
-        .update("task", one.id, one.revision, json!({"title":"revised","completed":false}))
+        .update(
+            "task",
+            one.id,
+            one.revision,
+            json!({"title":"revised","completed":false}),
+        )
         .unwrap();
     assert_eq!(updated.revision, 2);
     drop(store);
@@ -66,8 +75,12 @@ type Snapshot = (i64, Vec<(String, Vec<u8>)>, Vec<Row>);
 
 fn snapshot(path: &Path) -> Snapshot {
     let conn = Connection::open(path).unwrap();
-    let version: i64 = conn.pragma_query_value(None, "user_version", |row| row.get(0)).unwrap();
-    let mut stmt = conn.prepare("SELECT name, definition FROM models ORDER BY name").unwrap();
+    let version: i64 = conn
+        .pragma_query_value(None, "user_version", |row| row.get(0))
+        .unwrap();
+    let mut stmt = conn
+        .prepare("SELECT name, definition FROM models ORDER BY name")
+        .unwrap();
     let metadata = stmt
         .query_map([], |row| Ok((row.get(0)?, row.get(1)?)))
         .unwrap()
@@ -101,18 +114,28 @@ fn trial_transactional_upgrade(
     transformation: TestTransformation,
 ) -> Result<(), &'static str> {
     let mut conn = Connection::open(path).unwrap();
-    let tx = conn.transaction_with_behavior(TransactionBehavior::Immediate).unwrap();
-    let version: i64 = tx.pragma_query_value(None, "user_version", |row| row.get(0)).unwrap();
+    let tx = conn
+        .transaction_with_behavior(TransactionBehavior::Immediate)
+        .unwrap();
+    let version: i64 = tx
+        .pragma_query_value(None, "user_version", |row| row.get(0))
+        .unwrap();
     if version != 1 {
         return Err("unexpected physical format");
     }
     let stored: Vec<u8> = tx
-        .query_row("SELECT definition FROM models WHERE name='task'", [], |row| row.get(0))
+        .query_row(
+            "SELECT definition FROM models WHERE name='task'",
+            [],
+            |row| row.get(0),
+        )
         .unwrap();
     if stored != serde_json::to_vec(&models_v1()["task"]).unwrap() {
         return Err("unexpected source schema");
     }
-    let expected_count: i64 = tx.query_row("SELECT count(*) FROM models", [], |row| row.get(0)).unwrap();
+    let expected_count: i64 = tx
+        .query_row("SELECT count(*) FROM models", [], |row| row.get(0))
+        .unwrap();
     if expected_count != 2 {
         return Err("unexpected model set");
     }
@@ -174,10 +197,17 @@ fn format_v1_two_models_reopen_without_schema_mutation() {
         SqliteStore::open(&path, models_v2()),
         Err(StoreError::Failed(_))
     ));
-    assert_eq!(snapshot(&path), original, "failed open must not modify stored records or model metadata");
+    assert_eq!(
+        snapshot(&path),
+        original,
+        "failed open must not modify stored records or model metadata"
+    );
     let store = SqliteStore::open(&path, models_v1()).unwrap();
     assert_eq!(store.get("task", first).unwrap().unwrap().revision, 2);
-    assert_eq!(store.get("note", note).unwrap().unwrap().data["task_id"], first.to_string());
+    assert_eq!(
+        store.get("note", note).unwrap().unwrap().data["task_id"],
+        first.to_string()
+    );
 }
 
 #[test]
@@ -187,11 +217,15 @@ fn even_compatible_optional_field_requires_explicit_metadata_change() {
     let mut optional = models_v1();
     optional.get_mut("task").unwrap().fields.insert(
         "comment".into(),
-        TypeRef::Optional { item: Box::new(TypeRef::String) },
+        TypeRef::Optional {
+            item: Box::new(TypeRef::String),
+        },
     );
-    assert!(optional["task"]
-        .validate_record(&json!({"title":"old record","completed":false}))
-        .is_ok());
+    assert!(
+        optional["task"]
+            .validate_record(&json!({"title":"old record","completed":false}))
+            .is_ok()
+    );
     let before = snapshot(&db);
     assert!(SqliteStore::open(&db, optional).is_err());
     assert_eq!(snapshot(&db), before);
@@ -203,14 +237,20 @@ fn candidate_atomic_transform_preserves_identity_and_revisions() {
     let db = dir.path().join("records.db");
     trial_transactional_upgrade(&db, TestTransformation::AddPriority).unwrap();
     let (format, schemas, rows) = snapshot(&db);
-    assert_eq!(format, 1, "model evolution does not require changing physical format version");
+    assert_eq!(
+        format, 1,
+        "model evolution does not require changing physical format version"
+    );
     assert_eq!(schemas.len(), 2);
     assert_eq!(rows.len(), 3);
     let store = SqliteStore::open(&db, models_v2()).unwrap();
     assert_eq!(store.get("task", first).unwrap().unwrap().revision, 3);
     assert_eq!(store.get("task", second).unwrap().unwrap().revision, 2);
     assert_eq!(store.get("note", note).unwrap().unwrap().revision, 1);
-    assert_eq!(store.get("note", note).unwrap().unwrap().data["task_id"], first.to_string());
+    assert_eq!(
+        store.get("note", note).unwrap().unwrap().data["task_id"],
+        first.to_string()
+    );
     for id in [first, second] {
         assert_eq!(store.get("task", id).unwrap().unwrap().data["priority"], 0);
     }
@@ -223,12 +263,18 @@ fn candidate_atomic_transform_preserves_identity_and_revisions() {
         ),
         Err(StoreError::RevisionConflict)
     ));
-    assert!(SqliteStore::open(&db, models_v1()).is_err(), "downgrade is not silently accepted");
+    assert!(
+        SqliteStore::open(&db, models_v1()).is_err(),
+        "downgrade is not silently accepted"
+    );
 }
 
 #[test]
 fn bad_transformation_or_interruption_rolls_back_all_rows_and_metadata() {
-    for mode in [TestTransformation::InvalidPriority, TestTransformation::StopAfterFirst] {
+    for mode in [
+        TestTransformation::InvalidPriority,
+        TestTransformation::StopAfterFirst,
+    ] {
         let (dir, first, _, _) = fixture();
         let db = dir.path().join("records.db");
         let before = snapshot(&db);
@@ -252,7 +298,10 @@ fn overflowing_full_width_revision_aborts_candidate_upgrade() {
     .unwrap();
     drop(conn);
     let before = snapshot(&db);
-    assert_eq!(trial_transactional_upgrade(&db, TestTransformation::AddPriority), Err("revision overflow"));
+    assert_eq!(
+        trial_transactional_upgrade(&db, TestTransformation::AddPriority),
+        Err("revision overflow")
+    );
     assert_eq!(snapshot(&db), before);
     let old = SqliteStore::open(&db, models_v1()).unwrap();
     assert_eq!(old.get("task", first).unwrap().unwrap().revision, u64::MAX);
@@ -263,10 +312,15 @@ fn uncommitted_process_exit_rolls_back_both_records_and_model_metadata() {
     if let Some(path) = std::env::var_os("RIESEL_MIGRATION_RESEARCH_CHILD_DB") {
         let marker = std::env::var_os("RIESEL_MIGRATION_RESEARCH_MARKER").unwrap();
         let mut conn = Connection::open(path).unwrap();
-        let tx = conn.transaction_with_behavior(TransactionBehavior::Immediate).unwrap();
+        let tx = conn
+            .transaction_with_behavior(TransactionBehavior::Immediate)
+            .unwrap();
         tx.execute(
             "UPDATE records SET data=?1 WHERE model='task'",
-            params![serde_json::to_vec(&json!({"title":"uncommitted","completed":false,"priority":0})).unwrap()],
+            params![
+                serde_json::to_vec(&json!({"title":"uncommitted","completed":false,"priority":0}))
+                    .unwrap()
+            ],
         )
         .unwrap();
         tx.execute(
@@ -275,7 +329,11 @@ fn uncommitted_process_exit_rolls_back_both_records_and_model_metadata() {
         )
         .unwrap();
         // Marker proves both SQL statements ran; neither was committed.
-        std::fs::write(marker, b"updated records and model inside uncommitted transaction").unwrap();
+        std::fs::write(
+            marker,
+            b"updated records and model inside uncommitted transaction",
+        )
+        .unwrap();
         std::process::exit(137);
     }
     let (dir, _, _, _) = fixture();
@@ -283,12 +341,20 @@ fn uncommitted_process_exit_rolls_back_both_records_and_model_metadata() {
     let marker = dir.path().join("child.marker");
     let before = snapshot(&db);
     let output = Command::new(std::env::current_exe().unwrap())
-        .args(["--exact", "uncommitted_process_exit_rolls_back_both_records_and_model_metadata"])
+        .args([
+            "--exact",
+            "uncommitted_process_exit_rolls_back_both_records_and_model_metadata",
+        ])
         .env("RIESEL_MIGRATION_RESEARCH_CHILD_DB", &db)
         .env("RIESEL_MIGRATION_RESEARCH_MARKER", &marker)
         .output()
         .unwrap();
-    assert_eq!(output.status.code(), Some(137), "child failed to reach forced exit: {}", String::from_utf8_lossy(&output.stderr));
+    assert_eq!(
+        output.status.code(),
+        Some(137),
+        "child failed to reach forced exit: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
     assert!(marker.is_file(), "child did not run both SQL writes");
     assert_eq!(snapshot(&db), before);
     assert!(SqliteStore::open(&db, models_v1()).is_ok());
@@ -300,16 +366,21 @@ fn consistent_sqlite_vacuum_into_snapshot_reopens_while_original_store_is_live()
     let original = dir.path().join("origin.db");
     let backup = dir.path().join("snapshot.db");
     let store = SqliteStore::open(&original, models_v1()).unwrap();
-    let record = store.create("task", json!({"title":"in live WAL","completed":false})).unwrap();
+    let record = store
+        .create("task", json!({"title":"in live WAL","completed":false}))
+        .unwrap();
     let conn = Connection::open(&original).unwrap();
-    conn.execute("VACUUM INTO ?1", params![backup.to_string_lossy().as_ref()]).unwrap();
+    conn.execute("VACUUM INTO ?1", params![backup.to_string_lossy().as_ref()])
+        .unwrap();
     let copy = SqliteStore::open(&backup, models_v1()).unwrap();
-    assert_eq!(copy.get("task", record.id).unwrap().unwrap().data["title"], "in live WAL");
+    assert_eq!(
+        copy.get("task", record.id).unwrap().unwrap().data["title"],
+        "in live WAL"
+    );
     assert_eq!(snapshot(&backup).0, 1);
     // This demonstrates a consistent snapshot, not a restore/swap procedure
     // or a power-loss/directory-sync guarantee.
 }
-
 
 #[test]
 fn competing_sqlite_writer_blocks_migration_transaction() {
@@ -318,11 +389,17 @@ fn competing_sqlite_writer_blocks_migration_transaction() {
     let before = snapshot(&db);
 
     let mut holder = Connection::open(&db).unwrap();
-    let write = holder.transaction_with_behavior(TransactionBehavior::Immediate).unwrap();
+    let write = holder
+        .transaction_with_behavior(TransactionBehavior::Immediate)
+        .unwrap();
     let mut contender = Connection::open(&db).unwrap();
-    contender.busy_timeout(std::time::Duration::from_millis(25)).unwrap();
+    contender
+        .busy_timeout(std::time::Duration::from_millis(25))
+        .unwrap();
     assert!(
-        contender.transaction_with_behavior(TransactionBehavior::Immediate).is_err(),
+        contender
+            .transaction_with_behavior(TransactionBehavior::Immediate)
+            .is_err(),
         "SQLite must not grant a second simultaneous write transaction"
     );
     drop(write);
@@ -341,10 +418,15 @@ fn corrupt_stored_model_metadata_fails_closed_without_repair() {
     conn.execute(
         "UPDATE models SET definition=?1 WHERE name='task'",
         params![b"invalid serialized model definition"],
-    ).unwrap();
+    )
+    .unwrap();
     drop(conn);
     let corrupted = snapshot(&db);
     assert!(SqliteStore::open(&db, models_v1()).is_err());
     assert!(SqliteStore::open(&db, models_v2()).is_err());
-    assert_eq!(snapshot(&db), corrupted, "mismatched metadata is not silently rewritten");
+    assert_eq!(
+        snapshot(&db),
+        corrupted,
+        "mismatched metadata is not silently rewritten"
+    );
 }

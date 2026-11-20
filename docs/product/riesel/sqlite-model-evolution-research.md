@@ -52,7 +52,7 @@ The research-only tests use the **actual production \`SqliteStore::open\` to cre
 | Forced child process exit before commit | Incomplete model/data writes are rolled back when SQLite reopens | Host/power loss or volatile filesystem corruption recovery |
 | \`VACUUM INTO\` with live source open | Consistent snapshot reopens and preserves an acknowledged record | Crash-safe destination replacement, backup retention or directory sync guarantees |
 
-**Validation gate:** record the exact CI SHA and actual outcomes in PR #42 / Issue #41. Tests running is not equivalent to passing. Unexpected failures require correcting test assumptions or deferring decisions, never suppressing failing fixtures.
+**Verified research probe:** Rust 1.100.0 with the pinned `rusqlite = 0.43.0` succeeded on all **9/9** migration research tests at commit `fa852bfb` ([run 44656535947](https://github.com/aschenrot/riesel/actions/runs/44656535947)). These are test-only SQLite semantics, not a production migration engine. Normal workspace validation and smoke remain an independent final-commit gate.
 
 ## Provisional specification to review at Gate B
 
