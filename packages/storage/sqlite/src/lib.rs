@@ -10,6 +10,7 @@ mod maintenance;
 mod owner;
 mod records;
 mod restore;
+mod review;
 
 pub use database::SqliteStore;
 pub use evolution::{EvolutionLimits, EvolutionPreview, ModelEvolution};
@@ -17,6 +18,7 @@ pub use execute::{EvolutionAuthorization, EvolutionReceipt};
 pub use invariants::{EvolutionRecord, EvolutionRecords};
 pub use maintenance::{SnapshotBudget, SqliteMaintenance, VerifiedSnapshot};
 pub use restore::{RestoreAuthorization, RestoreReceipt};
+pub use review::{EvolutionReview, ReviewedEvolutionAuthorization};
 
 use riesel_app::{
     ConnectorError, LocalComponentFactory, LocalProviderFactory, LocalProviderInstance,
