@@ -834,3 +834,57 @@ fn oversized_typed_result_and_insufficient_source_budgets_preserve_original_data
     drop(SqliteStore::open(&db, source_models()).unwrap());
     assert!(SqliteStore::open(&db, target_models::<CurrentTask>()).is_err());
 }
+
+
+#[derive(Serialize)]
+struct InvalidSerializedTarget {
+    title: String,
+    completed: bool,
+    priority: String,
+}
+
+impl RieselModel for InvalidSerializedTarget {
+    const MODEL_NAME: &'static str = "task";
+
+    fn model_definition() -> ModelDefinition {
+        // Deliberately dishonest metadata to prove the engine independently
+        // validates the serialized target, not just the registered Rust type.
+        CurrentTask::model_definition()
+    }
+}
+
+#[test]
+fn target_schema_validation_rejects_an_inconsistent_typed_serializer_after_backup() {
+    let dir = tempfile::tempdir().unwrap();
+    let db = dir.path().join("source.db");
+    fixture(&db);
+    let before = rows(&db);
+    let model_bytes = persisted_definitions(&db);
+    let untrusted = ModelEvolution::new(source_models(), target_models::<CurrentTask>())
+        .unwrap()
+        .transform::<HistoricalTask, InvalidSerializedTarget, _>(|old| {
+            Ok(InvalidSerializedTarget {
+                title: old.title,
+                completed: old.completed,
+                priority: "not an i64".into(),
+            })
+        })
+        .unwrap();
+    let recovery = dir.path().join("target-refused.db");
+    let maintenance = SqliteMaintenance::open_existing(&db, source_models(), budget()).unwrap();
+    assert!(
+        maintenance
+            .execute_evolution(
+                &untrusted,
+                &recovery,
+                limits(),
+                EvolutionAuthorization::ExecuteWithVerifiedBackup,
+            )
+            .is_err()
+    );
+    assert_eq!(rows(&db), before);
+    assert_eq!(persisted_definitions(&db), model_bytes);
+    assert_eq!(rows(&recovery), before);
+    drop(SqliteStore::open(&db, source_models()).unwrap());
+    assert!(SqliteStore::open(&db, target_models::<CurrentTask>()).is_err());
+}
