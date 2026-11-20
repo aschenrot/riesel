@@ -60,9 +60,9 @@ Lock-file naming and path resolution require explicit design: canonicalize the p
 
 ## Typed authoring and backup preflight — targeted research
 
-The [historical/current model test](../../../crates/riesel/src/application/tests.rs) compiles two Rust structs deriving `RieselModel` with the **same persistent model identity** but different Rust types and structural definitions. It demonstrates a developer-written typed `HistoricalTask -> EvolvedTask` conversion, source/target record validation, and rejection if both shapes are registered as live models in a single `Application`. This is an *authoring feasibility test*, **not** a migration registration API, durable upgrade or guarantee of stable business semantics. A historical model type would be held outside normal app registration during an explicit offline maintenance step.
+**Validated in [Linux run 44666777326](https://github.com/aschenrot/riesel/actions/runs/44666777326), test head `31eb1f6e`** (Rust 1.100, workspace validation and smoke passed; historical-model test and both backup tests passed). The [historical/current model test](../../../crates/riesel/src/application/tests.rs) compiles two Rust structs deriving `RieselModel` with the **same persistent model identity** but different Rust types and structural definitions. It demonstrates a developer-written typed `HistoricalTask -> EvolvedTask` conversion, source/target record validation, and rejection if both shapes are registered as live models in a single `Application`. This is an *authoring feasibility test*, **not** a migration registration API, durable upgrade or guarantee of stable business semantics. A historical model type would be held outside normal app registration during an explicit offline maintenance step.
 
-The [backup research fixtures](../../../packages/storage/sqlite/tests/migration_research.rs) now also exercise refusing an occupied `VACUUM INTO` target and rejecting an intentionally invalid snapshot after a completed backup. Such tests establish limited preflight checks, **not** a complete restore/recovery protocol, correct OS-level syncing, or resilience to partial real disk failures.
+The [backup research fixtures](../../../packages/storage/sqlite/tests/migration_research.rs) now also exercise refusing an occupied `VACUUM INTO` target and rejecting an intentionally invalid snapshot after a completed backup. Such tests establish limited preflight checks, **not** a complete restore/recovery protocol, correct OS-level syncing, or resilience to partial real disk failures. SQLite [documents](https://www.sqlite.org/pragma.html#pragma_integrity_check) that `integrity_check` does not validate foreign keys; Riesel's cross-record JSON references require separate application-specific invariant checks.
 
 ### Minimal Gate B decision to record
 
@@ -74,16 +74,16 @@ If owner exclusion, backup retention/restore, or the supported transaction resou
 
 ## Required decision-critical verification
 
-- [ ] Reproduce the stale provider write through **a separate running Rust process** using the current shipped store, after the test-only migration commits; demonstrate the new store fails to decode the resulting record.
-- [ ] Demonstrate a transaction-local schema check rejecting an old definition and preserving the database, and identify the migration needed to roll out this check.
-- [ ] Verify the standalone backup/recovery fixture preserves the old schema, UUIDs and revisions; distinguish this controlled copy from crash-safe in-place rollback.
+- [x] Reproduce stale provider writes through an independent process at historical `06c3116d`, then prove write rejection with the corrected current provider in [PR #45](https://github.com/aschenrot/riesel/pull/45). This does not certify uncooperative old binaries.
+- [x] Demonstrate atomic schema checks rejecting changed stored definitions. Participating new SQLite providers now enforce them for all write operations ([PR #45](https://github.com/aschenrot/riesel/pull/45)); read fencing and lifetime ownership are separate.
+- [x] Verify independent backup, old-model reopen, UUIDs/revisions, `integrity_check`, and refusal of occupied/invalid backup files. This is **not** a crash-safe in-place restore or power-loss certification.
 - [ ] Prove a cooperating lifetime-lock prototype on the pinned toolchain across processes: second owner cannot acquire while first lives; only after the first exits; a maintenance action must refuse active owners. Test aliases, lockfile replacement and startup errors before approving a concrete lock algorithm.
-- [ ] Test and document stable source/target schema identification and a minimal typed historical-model API without duplicating Rust schemas (test evidence to be recorded after CI).
+- [x] Compile a typed historical/new Rust-derived schema and explicit record transform without duplicate schemas; verify normal `Application` rejects both as active versions. A migration-registration API itself remains unimplemented and unapproved.
 - [ ] Separate hard operational guarantees (power-loss behavior, disk-full, permissions, long-running migration resource budget, backups) from those actually tested. Test on Linux; Windows remains a manual pre-release gate.
 - [ ] Record an explicit Gate B **accept/revise/defer** verdict and any remaining exclusions in Issue #41. Only then create independently scoped implementation issues.
 
 ## Review outcome required
 
-The stale-provider failure **is now reproduced**, and Unix lockfile replacement also bypasses naive pathname identity. Do not ship migration until an enforceable owner-fencing contract, a write-integrity guard and a legacy-process rollout are accepted and tested. Reject unsupported “safe migration” claims rather than relying on shutdown instructions alone.
+The stale-provider failure was reproduced on an older build and is now rejected by corrected cooperating writes, but Unix lockfile replacement still bypasses naive pathname identity. Do not ship migration until an enforceable owner-fencing contract, a write-integrity guard and a legacy-process rollout are accepted and tested. Reject unsupported “safe migration” claims rather than relying on shutdown instructions alone.
 
 If the first safe scope cannot establish lock identity, maintenance exclusivity, backup verification and bounded failure behavior at reasonable cost, defer migration implementation and retain current exact-schema startup rejection.
