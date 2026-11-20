@@ -1,5 +1,6 @@
 //! Explicit, linked-only SQLite RecordStore provider.
 //! Construction is side-effect-free; the database opens in the local factory.
+mod capacity;
 mod database;
 mod evolution;
 mod maintenance;
