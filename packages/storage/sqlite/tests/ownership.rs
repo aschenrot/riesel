@@ -149,3 +149,47 @@ fn refuses_insecure_parent_or_lock_permissions_before_opening_database() {
     std::fs::set_permissions(&lock_path, std::fs::Permissions::from_mode(0o600)).unwrap();
     assert!(SqliteStore::open(&db, models()).is_ok());
 }
+
+/// Symlinked lock paths cannot be trusted as unique ownership identities.
+#[cfg(unix)]
+#[test]
+fn refuses_symlinked_lockfile_before_creating_a_database() {
+    use std::os::unix::fs::symlink;
+
+    let temporary = tempfile::tempdir().unwrap();
+    let db = temporary.path().join("records.db");
+    let target = temporary.path().join("unrelated.file");
+    std::fs::write(&target, b"untouched").unwrap();
+    let lock = temporary.path().join("records.db.riesel-owner.lock");
+    symlink(&target, &lock).unwrap();
+
+    assert!(matches!(
+        SqliteStore::open(&db, models()),
+        Err(StoreError::Failed(_))
+    ));
+    assert!(!db.exists());
+    assert_eq!(std::fs::read(&target).unwrap(), b"untouched");
+}
+
+/// The already-running provider refuses to write through a database path
+/// switched to a different inode. This is detection, not a filesystem lease
+/// against a hostile operator.
+#[cfg(unix)]
+#[test]
+fn detects_database_path_replacement_before_record_mutation() {
+    let temporary = tempfile::tempdir().unwrap();
+    let db = temporary.path().join("records.db");
+    let store = SqliteStore::open(&db, models()).unwrap();
+    store.create("task", json!({"title":"keep"})).unwrap();
+    std::fs::rename(&db, temporary.path().join("moved-original.db")).unwrap();
+    std::fs::write(&db, b"replacement").unwrap();
+
+    assert!(matches!(
+        store.create("task", json!({"title":"blocked"})),
+        Err(StoreError::Failed(_))
+    ));
+    assert!(matches!(
+        store.list_page("task", None, 32),
+        Err(StoreError::Failed(_))
+    ));
+}
