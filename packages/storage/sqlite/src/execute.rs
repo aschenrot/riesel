@@ -5,6 +5,7 @@ use crate::{
     database::failed,
     deadline::Deadline,
     evolution::{EvolutionLimits, ModelEvolution},
+    invariants::EvolutionRecords,
     maintenance::{
         SnapshotBudget, SqliteMaintenance, VerifiedSnapshot, audit, compare_records, denied,
     },
@@ -327,6 +328,14 @@ impl SqliteMaintenance {
         }
         verify_revisions_and_unchanged(&source, &tx, plan, deadline)?;
         verify_updated_bytes(&tx, &updates, deadline)?;
+        // Deliberate invariants inspect the complete proposed target through
+        // validated reads without receiving a SQL execution or mutation API.
+        let proposed = EvolutionRecords::new(&tx, &plan.target, deadline);
+        for validate in &plan.invariants {
+            deadline.check()?;
+            validate(&proposed)?;
+            deadline.check()?;
+        }
         check_logical_size(&tx, limits.snapshot)?;
         check_sidecars(self.owner.database_path(), limits.snapshot)?;
         self.owner.verify()?;

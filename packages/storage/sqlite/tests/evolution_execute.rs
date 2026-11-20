@@ -478,3 +478,145 @@ fn verified_retained_archive_excludes_a_cooperating_provider_until_commit() {
     drop(SqliteStore::open(&archive, source_models()).unwrap());
     drop(SqliteStore::open(&db, target_models::<CurrentTask>()).unwrap());
 }
+
+#[derive(Serialize, Deserialize)]
+struct RenamedTask {
+    name: String,
+    completed: bool,
+}
+
+impl RieselModel for RenamedTask {
+    const MODEL_NAME: &'static str = "task";
+    fn model_definition() -> ModelDefinition {
+        ModelDefinition {
+            fields: BTreeMap::from([
+                ("name".into(), TypeRef::String),
+                ("completed".into(), TypeRef::Bool),
+            ]),
+        }
+    }
+}
+
+fn validate_note_links(
+    records: &riesel_storage_sqlite::EvolutionRecords<'_>,
+) -> Result<(), StoreError> {
+    records.for_each("note", |note| {
+        let id = note.data["task_id"]
+            .as_str()
+            .ok_or_else(|| StoreError::Failed("missing note task_id".into()))?;
+        let id = Uuid::parse_str(id)
+            .map_err(|error| StoreError::Failed(error.to_string()))?;
+        if records.get("task", id)?.is_none() {
+            return Err(StoreError::Failed("orphan note task reference".into()));
+        }
+        Ok(())
+    })
+}
+
+#[test]
+fn successful_cross_model_invariant_sees_transformed_target_records() {
+    let dir = tempfile::tempdir().unwrap();
+    let db = dir.path().join("source.db");
+    let (task_id, note_id) = fixture(&db);
+    let original = rows(&db);
+    let saved = dir.path().join("before.db");
+    let checked = plan().invariant(|records| {
+        validate_note_links(records)?;
+        let task = records
+            .get("task", task_id)?
+            .ok_or_else(|| StoreError::Failed("missing migrated task".into()))?;
+        if task.revision != 2 || task.data["priority"] != 0 {
+            return Err(StoreError::Failed("invariant saw unexpected target task".into()));
+        }
+        if records.get("not_registered", note_id).is_ok() {
+            return Err(StoreError::Failed("unknown invariant model accepted".into()));
+        }
+        Ok(())
+    });
+    let maintenance = SqliteMaintenance::open_existing(&db, source_models(), budget()).unwrap();
+    let receipt = maintenance
+        .execute_evolution(
+            &checked,
+            &saved,
+            limits(),
+            EvolutionAuthorization::ExecuteWithVerifiedBackup,
+        )
+        .unwrap();
+    assert_eq!(receipt.records, 2);
+    assert_eq!(rows(&saved), original);
+    let current = SqliteStore::open(&db, target_models::<CurrentTask>()).unwrap();
+    assert_eq!(
+        current.get("note", note_id).unwrap().unwrap().data["task_id"],
+        task_id.to_string()
+    );
+    drop(current);
+}
+
+#[test]
+fn orphan_reference_invariant_rolls_back_after_typed_updates() {
+    let dir = tempfile::tempdir().unwrap();
+    let db = dir.path().join("source.db");
+    fixture(&db);
+    let store = SqliteStore::open(&db, source_models()).unwrap();
+    store
+        .create("note", json!({"task_id": Uuid::new_v4(), "text":"orphan"}))
+        .unwrap();
+    drop(store);
+    let before = rows(&db);
+    let saved = dir.path().join("retained.db");
+    let checked = plan().invariant(validate_note_links);
+    let maintenance = SqliteMaintenance::open_existing(&db, source_models(), budget()).unwrap();
+    let failure = maintenance
+        .execute_evolution(
+            &checked,
+            &saved,
+            limits(),
+            EvolutionAuthorization::ExecuteWithVerifiedBackup,
+        )
+        .unwrap_err();
+    assert!(
+        format!("{failure}").contains("orphan note task reference"),
+        "{failure}"
+    );
+    assert_eq!(rows(&db), before);
+    assert_eq!(rows(&saved), before);
+    drop(SqliteStore::open(&db, source_models()).unwrap());
+    assert!(SqliteStore::open(&db, target_models::<CurrentTask>()).is_err());
+}
+
+#[test]
+fn deliberate_field_rename_is_a_typed_transform_not_an_inferred_upgrade() {
+    let dir = tempfile::tempdir().unwrap();
+    let db = dir.path().join("source.db");
+    let (task_id, note_id) = fixture(&db);
+    let before = rows(&db);
+    let target = target_models::<RenamedTask>();
+    let renamed = ModelEvolution::new(source_models(), target.clone())
+        .unwrap()
+        .transform::<HistoricalTask, RenamedTask, _>(|old| {
+            Ok(RenamedTask { name: old.title, completed: old.completed })
+        })
+        .unwrap()
+        .invariant(validate_note_links);
+    let maintenance = SqliteMaintenance::open_existing(&db, source_models(), budget()).unwrap();
+    maintenance
+        .execute_evolution(
+            &renamed,
+            dir.path().join("old.db"),
+            limits(),
+            EvolutionAuthorization::ExecuteWithVerifiedBackup,
+        )
+        .unwrap();
+    let current = SqliteStore::open(&db, target).unwrap();
+    let task = current.get("task", task_id).unwrap().unwrap();
+    assert_eq!(task.revision, 2);
+    assert_eq!(task.data["name"], "original");
+    assert!(task.data.get("title").is_none());
+    let note = current.get("note", note_id).unwrap().unwrap();
+    assert_eq!(note.revision, 1);
+    drop(current);
+    assert_eq!(
+        rows(&db).iter().find(|row| row.0 == "note").unwrap(),
+        before.iter().find(|row| row.0 == "note").unwrap()
+    );
+}
