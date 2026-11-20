@@ -903,7 +903,9 @@ fn historical_rust_types_can_describe_explicit_transitions_without_duplicate_sch
     assert!(matches!(duplicate, SdkError::DuplicateModel(_)));
 
     // A current application needs only the target Rust-derived model.
-    let active = Application::new("Current").records::<EvolvedTask>().unwrap();
+    let active = Application::new("Current")
+        .records::<EvolvedTask>()
+        .unwrap();
     assert_eq!(
         active.definition().models["historical_task"],
         EvolvedTask::model_definition()
