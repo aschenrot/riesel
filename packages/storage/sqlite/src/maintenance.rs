@@ -158,6 +158,19 @@ impl Drop for PendingSnapshot {
     }
 }
 
+/// Only a fully synced and validated publication is disarmed. If the
+/// post-link steps fail, do not leave an apparently completed destination
+/// under normal filesystem error conditions.
+struct PublishedSnapshot(Option<PathBuf>);
+
+impl Drop for PublishedSnapshot {
+    fn drop(&mut self) {
+        if let Some(path) = &self.0 {
+            let _ = fs::remove_file(path);
+        }
+    }
+}
+
 fn output_path(destination: &Path, source: &Path) -> Result<PathBuf, StoreError> {
     let name = destination
         .file_name()
@@ -267,6 +280,7 @@ impl SqliteMaintenance {
         // Unlike rename, hard_link fails atomically if destination exists.
         // Both names are in the same directory/filesystem.
         fs::hard_link(&pending, &output).map_err(failed)?;
+        let mut publication = PublishedSnapshot(Some(output.clone()));
         fs::remove_file(&pending).map_err(failed)?;
         #[cfg(unix)]
         {
@@ -278,6 +292,7 @@ impl SqliteMaintenance {
                 .sync_all()
                 .map_err(failed)?;
         }
+        publication.0 = None;
         drop(cleanup);
         Ok(VerifiedSnapshot {
             path: output,
