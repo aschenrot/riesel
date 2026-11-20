@@ -1,0 +1,28 @@
+name: Temporary SQLite migration research probe
+
+permissions:
+  contents: read
+
+on:
+  pull_request:
+    paths:
+      - "packages/storage/sqlite/tests/migration_research.rs"
+      - ".github/workflows/sqlite-migration-research.yml"
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - name: Pin Rust toolchain and format research fixture
+        run: |
+          rustup toolchain install 1.100.0 --profile minimal --component rustfmt
+          rustup default 1.100.0
+          cargo fmt --all
+          echo "RESEARCH_FORMAT_BEGIN:packages/storage/sqlite/tests/migration_research.rs"
+          base64 -w0 packages/storage/sqlite/tests/migration_research.rs
+          echo
+          echo "RESEARCH_FORMAT_END:packages/storage/sqlite/tests/migration_research.rs"
+      - name: Compile and run research fixtures on the pinned toolchain
+        run: cargo test --locked -p riesel_storage_sqlite --test migration_research -- --nocapture
