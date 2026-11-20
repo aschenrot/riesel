@@ -114,7 +114,16 @@ fn missing_or_wrong_operator_consent_rejects_without_backup() {
     let db = dir.path().join("active.db");
     let archive = dir.path().join("never-published.db");
     let id = fixture(&db);
-    for confirmation in ["", "MIGRATE different-database\n"] {
+    let wrong_backup = format!(
+        "MIGRATE {} BACKUP {}\n",
+        db.canonicalize().unwrap().display(),
+        dir.path().join("wrong-archive.db").display()
+    );
+    for confirmation in [
+        String::new(),
+        "MIGRATE different-database\n".to_owned(),
+        wrong_backup,
+    ] {
         let mut output = Vec::new();
         let result = run_operator_maintenance_cli(
             &command("execute", &[&db, &archive]),
@@ -172,6 +181,23 @@ fn consented_evolution_and_separate_restore_keep_both_recovery_images() {
             &plan(),
             limits(),
             &mut Cursor::new(Vec::<u8>::new()),
+            &mut rejected,
+        )
+        .is_err()
+    );
+    assert!(!retained.exists());
+    let wrong_retention = format!(
+        "RESTORE {} FROM {} RETAIN {} DISCARD POST-SNAPSHOT WRITES\n",
+        db.canonicalize().unwrap().display(),
+        archive.display(),
+        dir.path().join("wrong-retention.db").display()
+    );
+    assert!(
+        run_operator_maintenance_cli(
+            &command("restore", &[&db, &archive, &retained]),
+            &plan(),
+            limits(),
+            &mut Cursor::new(wrong_retention.as_bytes()),
             &mut rejected,
         )
         .is_err()
