@@ -261,3 +261,60 @@ fn incomplete_native_backup_copy_does_not_publish_a_partial_restore() {
     drop(source);
     assert_eq!(rows(&db), before);
 }
+
+#[test]
+fn physically_invalid_archived_snapshot_fails_before_target_mutation() {
+    let dir = tempfile::tempdir().unwrap();
+    let db = dir.path().join("records.db");
+    fixture(&db);
+    let archive = dir.path().join("historical.db");
+    snapshot(&db, &archive);
+    let original = rows(&db);
+
+    // A damaged archive, not a simulation of a physical disk failure.
+    std::fs::write(&archive, b"not a valid SQLite database").unwrap();
+    let retained = dir.path().join("retained.db");
+    let maintenance = SqliteMaintenance::open_existing(&db, models_v1(), budget()).unwrap();
+    assert!(matches!(
+        maintenance.restore_from_backup(
+            &archive,
+            models_v1(),
+            &retained,
+            budget(),
+            RestoreAuthorization::DiscardPostSnapshotWrites,
+        ),
+        Err(StoreError::Failed(_))
+    ));
+    assert_eq!(rows(&db), original);
+    assert!(!retained.exists());
+}
+
+#[test]
+fn restore_rejects_invalid_budget_before_copying_any_pages() {
+    let dir = tempfile::tempdir().unwrap();
+    let db = dir.path().join("records.db");
+    fixture(&db);
+    let archive = dir.path().join("historical.db");
+    snapshot(&db, &archive);
+    let before = rows(&db);
+    let retained = dir.path().join("budget-rejected.db");
+
+    let maintenance = SqliteMaintenance::open_existing(&db, models_v1(), budget()).unwrap();
+    let restrictive = SnapshotBudget {
+        max_records: 1,
+        max_json_bytes: 65_536,
+        max_snapshot_bytes: 1_048_576,
+    };
+    assert!(matches!(
+        maintenance.restore_from_backup(
+            &archive,
+            models_v1(),
+            &retained,
+            restrictive,
+            RestoreAuthorization::DiscardPostSnapshotWrites,
+        ),
+        Err(StoreError::Failed(_))
+    ));
+    assert_eq!(rows(&db), before);
+    assert!(!retained.exists());
+}
