@@ -430,3 +430,65 @@ fn corrupt_stored_model_metadata_fails_closed_without_repair() {
         "mismatched metadata is not silently rewritten"
     );
 }
+
+
+/// Frozen format-v1 bytes, rather than a fixture emitted by today's writer.
+/// These constants intentionally duplicate the *historical persisted wire format*
+/// and must not be regenerated when implementations evolve.
+#[test]
+fn frozen_format_v1_file_from_fixed_bytes_reopens_and_upgrades() {
+    const TASK_DEF_V1: &[u8] =
+        br#"{"fields":{"completed":{"kind":"bool"},"title":{"kind":"string"}}}"#;
+    const NOTE_DEF_V1: &[u8] =
+        br#"{"fields":{"task_id":{"kind":"uuid"},"text":{"kind":"string"}}}"#;
+    const TASK_V1: &[u8] = br#"{"completed":false,"title":"frozen legacy"}"#;
+    const NOTE_V1: &[u8] = br#"{"task_id":"00000000-0000-4000-8000-000000000001","text":"linked legacy"}"#;
+
+    assert_eq!(TASK_DEF_V1, serde_json::to_vec(&models_v1()["task"]).unwrap());
+    assert_eq!(NOTE_DEF_V1, serde_json::to_vec(&models_v1()["note"]).unwrap());
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("historical-v1.db");
+    let conn = Connection::open(&path).unwrap();
+    conn.pragma_update(None, "journal_mode", "WAL").unwrap();
+    conn.pragma_update(None, "synchronous", "FULL").unwrap();
+    conn.execute_batch(
+        "CREATE TABLE models (
+             name TEXT PRIMARY KEY NOT NULL,
+             definition BLOB NOT NULL
+         ) WITHOUT ROWID;
+         CREATE TABLE records (
+             model TEXT NOT NULL,
+             id BLOB NOT NULL CHECK(length(id)=16),
+             revision BLOB NOT NULL CHECK(length(revision)=8),
+             data BLOB NOT NULL,
+             PRIMARY KEY(model,id)
+         ) WITHOUT ROWID;",
+    ).unwrap();
+    conn.pragma_update(None, "user_version", 1).unwrap();
+    conn.execute("INSERT INTO models(name,definition) VALUES(?1,?2)", params!["task", TASK_DEF_V1]).unwrap();
+    conn.execute("INSERT INTO models(name,definition) VALUES(?1,?2)", params!["note", NOTE_DEF_V1]).unwrap();
+    let task_id = Uuid::parse_str("00000000-0000-4000-8000-000000000001").unwrap();
+    let note_id = Uuid::parse_str("00000000-0000-4000-8000-000000000002").unwrap();
+    conn.execute(
+        "INSERT INTO records(model,id,revision,data) VALUES(?1,?2,?3,?4)",
+        params!["task", task_id.as_bytes(), &2u64.to_be_bytes()[..], TASK_V1],
+    ).unwrap();
+    conn.execute(
+        "INSERT INTO records(model,id,revision,data) VALUES(?1,?2,?3,?4)",
+        params!["note", note_id.as_bytes(), &1u64.to_be_bytes()[..], NOTE_V1],
+    ).unwrap();
+    drop(conn);
+
+    let historical = snapshot(&path);
+    let legacy = SqliteStore::open(&path, models_v1()).unwrap();
+    assert_eq!(legacy.get("task", task_id).unwrap().unwrap().revision, 2);
+    assert_eq!(legacy.get("note", note_id).unwrap().unwrap().data["task_id"], task_id.to_string());
+    drop(legacy);
+    assert_eq!(snapshot(&path), historical);
+
+    trial_transactional_upgrade(&path, TestTransformation::AddPriority).unwrap();
+    let updated = SqliteStore::open(&path, models_v2()).unwrap();
+    assert_eq!(updated.get("task", task_id).unwrap().unwrap().revision, 3);
+    assert_eq!(updated.get("task", task_id).unwrap().unwrap().data["priority"], 0);
+    assert_eq!(updated.get("note", note_id).unwrap().unwrap().data["task_id"], task_id.to_string());
+}
