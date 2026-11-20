@@ -11,6 +11,7 @@ use crate::{
     },
     owner::OwnerGuard,
     records::MAX_RECORD_BYTES,
+    review::SourceRow,
 };
 use riesel_storage::StoreError;
 use rusqlite::{
@@ -191,6 +192,43 @@ fn verify_updated_bytes(
     Ok(())
 }
 
+/// Reject direct/non-cooperating edits made after the operator preview, even
+/// when the total row count, JSON bytes and model definitions are unchanged.
+/// This check runs INSIDE the IMMEDIATE transaction before any mutation.
+fn verify_reviewed_source(
+    tx: &Transaction<'_>,
+    expected: &[SourceRow],
+    deadline: Deadline,
+) -> Result<(), StoreError> {
+    let mut statement = tx
+        .prepare("SELECT model,id,revision,data FROM records ORDER BY model,id")
+        .map_err(failed)?;
+    let mut rows = statement.query([]).map_err(failed)?;
+    for original in expected {
+        deadline.check()?;
+        let current = rows
+            .next()
+            .map_err(failed)?
+            .ok_or_else(|| denied("source drift since approved preview: record removed"))?;
+        let actual = SourceRow {
+            model: current.get(0).map_err(failed)?,
+            id: current.get(1).map_err(failed)?,
+            revision: current.get(2).map_err(failed)?,
+            data: current.get(3).map_err(failed)?,
+        };
+        if actual != *original {
+            return Err(denied(
+                "source drift since approved preview: record changed",
+            ));
+        }
+    }
+    if rows.next().map_err(failed)?.is_some() {
+        return Err(denied("source drift since approved preview: record added"));
+    }
+    deadline.check()?;
+    Ok(())
+}
+
 fn check_logical_size(conn: &Connection, budget: SnapshotBudget) -> Result<(), StoreError> {
     let pages: i64 = conn
         .pragma_query_value(None, "page_count", |row| row.get(0))
@@ -225,6 +263,16 @@ impl SqliteMaintenance {
         backup_destination: impl AsRef<Path>,
         limits: EvolutionLimits,
         _authorization: EvolutionAuthorization,
+    ) -> Result<EvolutionReceipt, StoreError> {
+        self.execute_with_expected_source(plan, backup_destination, limits, None)
+    }
+
+    pub(crate) fn execute_with_expected_source(
+        self,
+        plan: &ModelEvolution,
+        backup_destination: impl AsRef<Path>,
+        limits: EvolutionLimits,
+        expected_source: Option<&[SourceRow]>,
     ) -> Result<EvolutionReceipt, StoreError> {
         plan.validate_for(&self.models)?;
         let deadline = Deadline::start_with_limit(limits.snapshot, limits.max_elapsed)?;
@@ -286,6 +334,9 @@ impl SqliteMaintenance {
             return Err(denied("database changed since retained migration snapshot"));
         }
         compare_records(&source, &tx, deadline)?;
+        if let Some(expected) = expected_source {
+            verify_reviewed_source(&tx, expected, deadline)?;
+        }
         let (updates, projected) =
             prepare_updates(&tx, plan, limits.snapshot, deadline, old.json_bytes)?;
         let affected = updates.len() as u64;

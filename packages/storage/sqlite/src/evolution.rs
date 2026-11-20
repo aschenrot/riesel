@@ -6,6 +6,7 @@ use crate::{
     invariants::EvolutionRecords,
     maintenance::{SnapshotBudget, SqliteMaintenance, audit, denied},
     records::MAX_RECORD_BYTES,
+    review::SourceRow,
 };
 use riesel_schema::{ModelDefinition, RieselModel};
 use riesel_storage::StoreError;
@@ -146,6 +147,19 @@ impl SqliteMaintenance {
         plan: &ModelEvolution,
         limits: EvolutionLimits,
     ) -> Result<EvolutionPreview, StoreError> {
+        self.preview_with_source_rows(plan, limits, false)
+            .map(|(summary, _)| summary)
+    }
+
+    /// The optional source-row capture is part of the SAME SQLite read
+    /// snapshot as the preview. A reviewed session needs exact bytes to reject
+    /// drift, not just counts, aggregate sizes, or a replayable version number.
+    pub(crate) fn preview_with_source_rows(
+        &self,
+        plan: &ModelEvolution,
+        limits: EvolutionLimits,
+        capture_rows: bool,
+    ) -> Result<(EvolutionPreview, Vec<SourceRow>), StoreError> {
         self.owner.verify()?;
         plan.validate_for(&self.models)?;
         if limits.max_elapsed.is_zero() {
@@ -164,6 +178,7 @@ impl SqliteMaintenance {
         let counts = audit(&conn, &self.models, limits.snapshot, deadline)?;
         let mut projected = counts.json_bytes;
         let mut affected = 0_u64;
+        let mut original_rows = Vec::new();
 
         let mut stmt = conn
             .prepare("SELECT model,id,revision,length(data),data FROM records ORDER BY model,id")
@@ -172,6 +187,14 @@ impl SqliteMaintenance {
         while let Some(row) = rows.next().map_err(failed)? {
             deadline.check()?;
             let name: String = row.get(0).map_err(failed)?;
+            if capture_rows {
+                original_rows.push(SourceRow {
+                    model: name.clone(),
+                    id: row.get(1).map_err(failed)?,
+                    revision: row.get(2).map_err(failed)?,
+                    data: row.get(4).map_err(failed)?,
+                });
+            }
             let Some(transform) = plan.transformations.get(&name) else {
                 continue;
             };
@@ -216,11 +239,14 @@ impl SqliteMaintenance {
         deadline.check()?;
         self.owner.verify()?;
         deadline.check()?;
-        Ok(EvolutionPreview {
-            records: counts.records,
-            changed_models: plan.transformations.len(),
-            affected_records: affected,
-            projected_json_bytes: projected,
-        })
+        Ok((
+            EvolutionPreview {
+                records: counts.records,
+                changed_models: plan.transformations.len(),
+                affected_records: affected,
+                projected_json_bytes: projected,
+            },
+            original_rows,
+        ))
     }
 }
