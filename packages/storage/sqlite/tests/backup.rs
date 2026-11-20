@@ -470,3 +470,36 @@ fn bounded_maintenance_refuses_oversized_live_wal_before_snapshot() {
     reader.execute_batch("ROLLBACK").unwrap();
     assert!(!dir.path().join("unpublished.db").exists());
 }
+
+#[cfg(unix)]
+#[test]
+fn maintenance_rejects_symlinked_or_hardlinked_wal_sidecars() {
+    use std::os::unix::fs::symlink;
+
+    let dir = tempfile::tempdir().unwrap();
+    let db = dir.path().join("source.db");
+    fixture(&db);
+    let before = rows(&db);
+    let mut wal_name = db.as_os_str().to_owned();
+    wal_name.push("-wal");
+    let wal = std::path::PathBuf::from(wal_name);
+    assert!(!wal.exists(), "closed SQLite WAL should be checkpointed");
+
+    let outside = dir.path().join("elsewhere");
+    std::fs::write(&outside, b"unrelated data").unwrap();
+    symlink(&outside, &wal).unwrap();
+    assert!(matches!(
+        SqliteMaintenance::open_existing(&db, models(), budget()),
+        Err(StoreError::Failed(message)) if message.contains("regular file")
+    ));
+    std::fs::remove_file(&wal).unwrap();
+
+    std::fs::hard_link(&outside, &wal).unwrap();
+    assert!(matches!(
+        SqliteMaintenance::open_existing(&db, models(), budget()),
+        Err(StoreError::Failed(message)) if message.contains("hard-linked")
+    ));
+    std::fs::remove_file(&wal).unwrap();
+    assert_eq!(rows(&db), before);
+    assert_eq!(std::fs::read(outside).unwrap(), b"unrelated data");
+}
