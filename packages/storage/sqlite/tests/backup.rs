@@ -493,7 +493,10 @@ fn maintenance_rejects_symlinked_or_hardlinked_wal_sidecars() {
         .unwrap();
     assert_eq!(journal.to_ascii_lowercase(), "delete");
     drop(conn);
-    assert!(!wal.exists(), "DELETE journal mode must remove the fixture WAL");
+    assert!(
+        !wal.exists(),
+        "DELETE journal mode must remove the fixture WAL"
+    );
 
     let outside = dir.path().join("elsewhere");
     std::fs::write(&outside, b"unrelated data").unwrap();
