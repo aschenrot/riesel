@@ -105,6 +105,22 @@ Compare:
 
 Source evidence for browser-origin risk: [Todo local boundary](../todo/http-local-browser-contract.md), [MDN local network access](https://developer.mozilla.org/en-US/docs/Web/Security/Defenses/Local_network_access). OS IPC documentation: [Tokio Unix peer credentials](https://docs.rs/tokio/latest/tokio/net/struct.UnixStream.html#method.peer_cred), [Windows named pipe options](https://docs.rs/tokio/latest/tokio/net/windows/named_pipe/struct.ServerOptions.html).
 
+### Bounded first-release policy proposal (explicit decision requested)
+
+To avoid leaving every implementation detail open, the following is a **specific candidate** for first acceptance; none of these are facts about current Riesel:
+
+- **Deployment and trust:** Linux, one trusted interactive OS user on a machine without adversarial local processes; no remote/browser-origin trust. Run a separate Manager foreground/service process only while needed. No multi-user host or internet-exposed HTTP claim.
+- **Source of applications:** an operator-edited, validated allowlist of executable paths and immutable per-application arguments. No executable uploads, shell interpolation, arbitrary command entry, network discovery or mutable registration API in the browser.
+- **Ownership:** only start, stop and inspect applications launched by *this* Manager instance. Each application keeps owning its own provider processes. An app already running outside Manager is displayed only if independently and explicitly inspectable, never adopted or stopped.
+- **Readiness:** distinguish `spawned/running` from `application ready`. Unless a separate app-level readiness signal is implemented, display `readiness unknown` rather than inventing proof. Provider readiness does not establish application readiness.
+- **Manager failure:** normal shutdown attempts to terminate owned children; after abnormal Manager loss, do **not** reattach/kills by PID alone, mark prior state unreconciled and require manual inspection/cleanup before restarting a potentially duplicate app. Automatic system-daemon resurrection is excluded.
+- **Commands:** generation-fenced start/stop for allowlisted applications only. A response timeout is not a reversal; clients fetch observed state/command outcome and never automatically resubmit a mutation.
+- **Local control transport:** on Linux, evaluate a Unix socket inside an operator-owned private directory, requiring client OS identity/credential checking and bounded framed requests. Do not infer owner authorization solely from socket pathname. A Windows equivalent needs explicit ACL/remote-client tests ([Windows named pipe security](https://learn.microsoft.com/en-us/windows/win32/ipc/named-pipe-security-and-access-rights)).
+- **Browser access:** the Manager may serve one *separate*, same-origin loopback UI bridge to the same authorization/operation layer; no direct arbitrary executable control endpoints. Apply strict Host/Origin checks, no CORS, bounded requests and a short-lived operator-bootstrapped session secret; avoid URL query-string credentials, logging secrets and auto-starting Manager on arbitrary page visit. Treat session bootstrap and hostile local-client tests as mandatory before enabling browser mutations. A read-only dashboard plus authenticated local CLI is the safe fallback if the bridge is not proven.
+- **Scope tradeoff:** local MVP with explicit limitations is preferable to claiming cross-user or remote security without evidence. The maintainer may instead require authenticated multi-user management, but that is a distinct larger product gate.
+
+This narrows the decision to an identifiable single-host product and gives engineering acceptance tests a stable target. It does **not** certify Unix credential policy, token handling, UI bridge bootstrap or crash recovery; those must be implemented and tested in the accepted security scope.
+
 ## 7. Dependencies, decision risks, and proposed delivery slices
 
 1. **Must decide before acceptance:** whether first delivery really requires app **start/stop** versus read-only visibility; whether Manager is allowed to own launched app processes; trusted operator and local-client threat model; a safe authorization mechanism; application-level readiness and Manager-restart ownership policy. These are material and cannot be silently treated as implementation details.
