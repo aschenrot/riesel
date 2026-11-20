@@ -158,3 +158,30 @@ fn incompatible_models_and_corrupt_records_fail_without_a_backup() {
     ));
     assert!(!dir.path().join("unverified.db").exists());
 }
+
+#[test]
+fn oversized_raw_sqlite_blob_is_rejected_before_snapshot_publication() {
+    let dir = tempfile::tempdir().unwrap();
+    let db = dir.path().join("source.db");
+    let id = fixture(&db);
+    let conn = Connection::open(&db).unwrap();
+    let raw = serde_json::to_vec(&json!({"title":"x".repeat(70_000)})).unwrap();
+    conn.execute(
+        "UPDATE records SET data=?1 WHERE model='task' AND id=?2",
+        rusqlite::params![raw, id.as_bytes()],
+    )
+    .unwrap();
+    drop(conn);
+
+    let destination = dir.path().join("oversized.db");
+    let large_budget = SnapshotBudget {
+        max_records: 8,
+        max_json_bytes: 200_000,
+        max_snapshot_bytes: 1_048_576,
+    };
+    assert!(matches!(
+        SqliteMaintenance::open_existing(&db, models(), large_budget),
+        Err(StoreError::Failed(_))
+    ));
+    assert!(!destination.exists());
+}
