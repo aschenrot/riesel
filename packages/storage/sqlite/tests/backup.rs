@@ -269,3 +269,27 @@ fn impossible_capacity_reserve_refuses_backup_before_creating_a_pending_file() {
             .contains("riesel-pending")
     }));
 }
+
+#[cfg(unix)]
+#[test]
+fn readonly_destination_directory_fails_before_creating_a_partial_backup() {
+    use std::os::unix::fs::PermissionsExt;
+
+    let dir = tempfile::tempdir().unwrap();
+    let db = dir.path().join("source.db");
+    fixture(&db);
+    let before = rows(&db);
+    let readonly = dir.path().join("readonly");
+    std::fs::create_dir(&readonly).unwrap();
+    std::fs::set_permissions(&readonly, std::fs::Permissions::from_mode(0o500)).unwrap();
+
+    let maintenance = SqliteMaintenance::open_existing(&db, models(), budget()).unwrap();
+    let backup = readonly.join("not-created.db");
+    let result = maintenance.backup_to(&backup, budget());
+
+    std::fs::set_permissions(&readonly, std::fs::Permissions::from_mode(0o700)).unwrap();
+    assert!(matches!(result, Err(StoreError::Failed(_))));
+    assert!(!backup.exists());
+    assert_eq!(rows(&db), before);
+    assert!(std::fs::read_dir(readonly).unwrap().next().is_none());
+}
