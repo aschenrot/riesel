@@ -3,6 +3,7 @@
 use crate::{
     database::failed,
     deadline::Deadline,
+    invariants::EvolutionRecords,
     maintenance::{SnapshotBudget, SqliteMaintenance, audit, denied},
     records::MAX_RECORD_BYTES,
 };
@@ -15,6 +16,8 @@ use std::{collections::BTreeMap, time::Duration};
 use uuid::Uuid;
 
 pub(crate) type Transformation = Box<dyn Fn(Value) -> Result<Value, StoreError> + Send + Sync>;
+pub(crate) type Invariant =
+    Box<dyn for<'a> Fn(&EvolutionRecords<'a>) -> Result<(), StoreError> + Send + Sync>;
 
 /// An explicit plan for non-destructive changes to existing model identities.
 /// Both schema maps should come from Rust-derived models, not handwritten JSON.
@@ -22,6 +25,7 @@ pub struct ModelEvolution {
     pub(crate) source: BTreeMap<String, ModelDefinition>,
     pub(crate) target: BTreeMap<String, ModelDefinition>,
     pub(crate) transformations: BTreeMap<String, Transformation>,
+    pub(crate) invariants: Vec<Invariant>,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -57,6 +61,7 @@ impl ModelEvolution {
             source,
             target,
             transformations: BTreeMap::new(),
+            invariants: Vec::new(),
         })
     }
 
@@ -95,6 +100,17 @@ impl ModelEvolution {
             }),
         );
         Ok(self)
+    }
+
+    /// Register an application invariant checked against the complete target
+    /// inside the same uncommitted migration transaction. A callback error
+    /// rolls back the migration. Callbacks must avoid blocking and side effects.
+    pub fn invariant<F>(mut self, validate: F) -> Self
+    where
+        F: for<'a> Fn(&EvolutionRecords<'a>) -> Result<(), StoreError> + Send + Sync + 'static,
+    {
+        self.invariants.push(Box::new(validate));
+        self
     }
 
     pub(crate) fn validate_for(
