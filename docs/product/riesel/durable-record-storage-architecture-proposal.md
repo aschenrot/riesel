@@ -1,6 +1,6 @@
 # Stage 6 — Durable Record Storage architecture
 
-**Status: first-delivery linked SQLite contract accepted and implemented; offline model evolution accepted and partially implemented.** A bounded internal typed migration engine exists ([PR #70](https://github.com/aschenrot/riesel/pull/70), [PR #72](https://github.com/aschenrot/riesel/pull/72)), but [#50](https://github.com/aschenrot/riesel/issues/50) still has verification acceptance work and [#51](https://github.com/aschenrot/riesel/issues/51) has **not** delivered the required operator preview/consent workflow. Decision evidence: [Issue #24](https://github.com/aschenrot/riesel/issues/24), [research brief](durable-record-storage-research.md), [backend comparison](durable-record-storage-evaluation.md), and [isolated Rust probes](https://github.com/aschenrot/riesel/pull/29). Merging the reviewed decision PR accepts the **bounded first-delivery contract below**; it does not certify production durability or complete Stage 6.
+**Status: first-delivery linked SQLite contract accepted and implemented; offline model evolution accepted and partially implemented.** A bounded internal typed migration engine exists ([PR #70](https://github.com/aschenrot/riesel/pull/70), [PR #72](https://github.com/aschenrot/riesel/pull/72)), but [#50](https://github.com/aschenrot/riesel/issues/50) still has verification acceptance work and [#51](https://github.com/aschenrot/riesel/issues/51) has **not** delivered the required operator preview/consent workflow. Decision evidence: [Issue #24](https://github.com/aschenrot/riesel/issues/24), [research brief](durable-record-storage-research.md), [backend comparison](durable-record-storage-evaluation.md), and [isolated Rust probes](https://github.com/aschenrot/riesel/pull/29). The reviewed first-delivery decision accepted the **bounded contract below**; it did not certify production durability or complete Stage 6.
 
 ## Decision and rationale
 
@@ -72,7 +72,7 @@ The accepted implementation must add Riesel-specific tests for provider registra
 
 Do not interpret completion of this first Storage slice as completion of Stage 6 production reliability. Managed-process durability, migrations, network trust, authorization, external connectivity and generic fallible component construction remain independently scoped.
 
-**Historical Gate B instruction (completed):** the accountable reviewer accepted this limited first-provider architecture in [Issue #24](https://github.com/aschenrot/riesel/issues/24); the reviewed architecture was integrated separately before its implementation Issues. The instruction below records the original decision order, not a currently pending architecture gate.
+**Historical Gate B instruction (completed):** the accountable reviewer accepted this limited first-provider architecture in [Issue #24](https://github.com/aschenrot/riesel/issues/24); the reviewed architecture was integrated separately before its implementation Issues. This note records the original decision order, not a currently pending architecture gate.
 
 ## Subsequent accepted evolution (2026-11-20)
 
