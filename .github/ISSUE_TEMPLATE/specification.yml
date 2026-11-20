@@ -9,7 +9,7 @@ body:
     id: question
     attributes:
       label: Outcome or decision needed
-      description: What question must be resolved, for which product goal, and why now?
+      description: What question must be resolved, for which product goal and users, and why now? State application-specific versus shared-platform scope.
       placeholder: "Decide the durability and compatibility guarantees for Riesel Record Storage."
     validations:
       required: true
@@ -17,21 +17,21 @@ body:
     id: scope
     attributes:
       label: Investigation scope and constraints
-      description: Specify the boundaries, known requirements, relevant quality attributes, and exclusions. Distinguish facts from assumptions.
+      description: Specify the proposed product outcome, reuse boundary, credible future scenarios, quality attributes and exclusions. Do not shrink a platform requirement to one example or treat unaccepted scope as accepted.
     validations:
       required: true
   - type: textarea
     id: alternatives
     attributes:
       label: Research approach and alternatives (when needed)
-      description: For material alternatives, define discovery and screening, shared comparison criteria, evidence needed and a stopping rule. Track unknowns; do not preselect a winner.
+      description: Compare existing mechanisms and strategic shared foundations against the full outcome and credible growth. Higher upfront effort is acceptable when it reduces long-term duplication, migration or risk; challenge speculative abstractions too. Use common criteria and a stopping rule.
     validations:
       required: false
   - type: textarea
     id: acceptance
     attributes:
       label: Specification acceptance criteria
-      description: What must be clear to make and record an accept/defer/reject decision? Include testable boundaries.
+      description: What must be clear to make and record an accept/defer/reject decision? Would passing all tests meet the original product outcome and intended reuse boundary?
       placeholder: |
         - [ ] Material options and trade-offs are evaluated.
         - [ ] Requirements, exclusions, and verification criteria are explicit.
