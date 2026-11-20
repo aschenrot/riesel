@@ -4,7 +4,7 @@ use rusqlite::{Connection, OptionalExtension, TransactionBehavior, params};
 use serde_json::Value;
 use uuid::Uuid;
 
-const MAX_RECORD_BYTES: usize = 64 * 1024;
+pub(crate) const MAX_RECORD_BYTES: usize = 64 * 1024;
 
 fn revision_bytes(revision: u64) -> [u8; 8] {
     revision.to_be_bytes()

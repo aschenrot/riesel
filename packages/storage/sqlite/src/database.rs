@@ -4,7 +4,7 @@ use riesel_storage::StoreError;
 use rusqlite::{Connection, OpenFlags, TransactionBehavior, params};
 use std::{collections::BTreeMap, path::Path, sync::Mutex};
 
-const FORMAT_VERSION: i64 = 1;
+pub(crate) const FORMAT_VERSION: i64 = 1;
 
 const TABLES: &str = "
     CREATE TABLE models (
@@ -37,7 +37,7 @@ pub(super) fn failed(error: impl std::fmt::Display) -> StoreError {
 /// Compare the whole persisted model set, including names and exact bytes.
 /// Call with the SQLite write transaction held so a competing connection cannot
 /// change the registration between this check and a record mutation.
-fn verify_models(
+pub(crate) fn verify_models(
     conn: &Connection,
     expected: &BTreeMap<String, Vec<u8>>,
 ) -> Result<(), StoreError> {
