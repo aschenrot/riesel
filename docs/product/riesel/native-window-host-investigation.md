@@ -124,7 +124,7 @@ Toolkit evaluation is separate from choosing a Riesel connection protocol. The a
 | Cross-platform | Linux Rust 1.100 `cargo validate --check` and `cargo smoke`, explicit integration tests, manual Windows release validation; other OS claims only with evidence |
 
 **Focused probes before choosing an adapter/export contract:**
-1. Build a tiny two-process fixture using *one real generated capability* and a currently supported app-owned hosting path if one exists. Confirm whether a new exporter is unavoidable; record paths and failures, not a bespoke network stack.
+1. Build a two-process fixture using *one real generated capability* and the existing app-owned hosting path where feasible. Compare its developer wiring, lifecycle and trust behavior with a bounded first-class export candidate; record the marginal cost and long-term integration benefits, not merely whether the existing path can function.
 2. Evaluate one or more representative toolkit adapters **only when the first reference app's real UX/platform constraints are known**. A second toolkit spike is justified only if the first cannot answer a decision-critical question; avoid gratuitous benchmarks or unrelated framework selection during the IPC contract gate.
 3. Fault inject GUI disconnect and backend crash with a revisioned mutation; prove no silent replay and distinct session identity, including under current reference recovery.
 4. Test chosen local IPC trust on Linux and explicit Windows equivalents before claiming cross-platform authorization or an authorized remote host.
