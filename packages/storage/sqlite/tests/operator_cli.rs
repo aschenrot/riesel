@@ -271,14 +271,12 @@ impl std::io::Read for EditSourceWhenConsentIsRead {
 impl std::io::BufRead for EditSourceWhenConsentIsRead {
     fn fill_buf(&mut self) -> std::io::Result<&[u8]> {
         if !self.edited {
-            let writer = rusqlite::Connection::open(&self.database)
-                .map_err(std::io::Error::other)?;
+            let writer =
+                rusqlite::Connection::open(&self.database).map_err(std::io::Error::other)?;
             writer
                 .execute(
                     "UPDATE records SET data=?1 WHERE model='task'",
-                    rusqlite::params![
-                        serde_json::to_vec(&json!({"title":"modified"})).unwrap()
-                    ],
+                    rusqlite::params![serde_json::to_vec(&json!({"title":"modified"})).unwrap()],
                 )
                 .map_err(std::io::Error::other)?;
             self.edited = true;
@@ -314,7 +312,10 @@ fn correct_operator_consent_does_not_override_direct_source_drift_during_prompt(
     let error = result.unwrap_err();
     assert!(input.edited);
     assert!(format!("{error}").contains("source drift"), "{error}");
-    assert!(archive.exists(), "a verified post-drift preimage is retained");
+    assert!(
+        archive.exists(),
+        "a verified post-drift preimage is retained"
+    );
     let old = SqliteStore::open(&db, models::<Old>()).unwrap();
     let source = old.get("task", id).unwrap().unwrap();
     assert_eq!(source.revision, 1);
