@@ -8,6 +8,7 @@ mod execute;
 mod invariants;
 mod maintenance;
 mod owner;
+mod operator;
 mod records;
 mod restore;
 mod review;
@@ -17,6 +18,7 @@ pub use evolution::{EvolutionLimits, EvolutionPreview, ModelEvolution};
 pub use execute::{EvolutionAuthorization, EvolutionReceipt};
 pub use invariants::{EvolutionRecord, EvolutionRecords};
 pub use maintenance::{SnapshotBudget, SqliteMaintenance, VerifiedSnapshot};
+pub use operator::{OperatorOutcome, run_operator_maintenance_cli};
 pub use restore::{RestoreAuthorization, RestoreReceipt};
 pub use review::{EvolutionReview, ReviewedEvolutionAuthorization};
 

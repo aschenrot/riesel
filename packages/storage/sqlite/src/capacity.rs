@@ -19,6 +19,15 @@ pub(crate) fn check_sidecars(
     database_path: &Path,
     budget: SnapshotBudget,
 ) -> Result<(), StoreError> {
+    observed_sidecar_bytes(database_path, budget).map(|_| ())
+}
+
+/// Observed WAL/SHM total is usable for operator preview reporting. It is
+/// neither a future growth reservation nor a guarantee against direct writers.
+pub(crate) fn observed_sidecar_bytes(
+    database_path: &Path,
+    budget: SnapshotBudget,
+) -> Result<u64, StoreError> {
     let mut bytes = 0_u64;
     for suffix in ["-wal", "-shm"] {
         let mut name = database_path.as_os_str().to_owned();
@@ -46,7 +55,7 @@ pub(crate) fn check_sidecars(
             return Err(denied("SQLite WAL/SHM sidecar byte budget exceeded"));
         }
     }
-    Ok(())
+    Ok(bytes)
 }
 
 /// Reserve two declared maximum database images as a conservative floor for
@@ -74,7 +83,7 @@ fn check_capacity(available: u64, max_snapshot_bytes: u64) -> Result<(), StoreEr
 }
 
 #[cfg(unix)]
-fn available_bytes(directory: &Path) -> Result<u64, StoreError> {
+pub(crate) fn available_bytes(directory: &Path) -> Result<u64, StoreError> {
     use std::{ffi::CString, mem::MaybeUninit, os::unix::ffi::OsStrExt};
 
     let path = CString::new(directory.as_os_str().as_bytes())
@@ -94,7 +103,7 @@ fn available_bytes(directory: &Path) -> Result<u64, StoreError> {
 }
 
 #[cfg(windows)]
-fn available_bytes(directory: &Path) -> Result<u64, StoreError> {
+pub(crate) fn available_bytes(directory: &Path) -> Result<u64, StoreError> {
     use std::{iter, os::windows::ffi::OsStrExt};
     use windows_sys::Win32::Storage::FileSystem::GetDiskFreeSpaceExW;
 
@@ -120,7 +129,7 @@ fn available_bytes(directory: &Path) -> Result<u64, StoreError> {
 }
 
 #[cfg(not(any(unix, windows)))]
-fn available_bytes(_directory: &Path) -> Result<u64, StoreError> {
+pub(crate) fn available_bytes(_directory: &Path) -> Result<u64, StoreError> {
     Err(denied(
         "filesystem capacity checks are unsupported on this platform",
     ))
