@@ -44,6 +44,7 @@ The research-only tests use the **actual production \`SqliteStore::open\` to cre
 
 | Fixture | Observation being tested | Does not establish |
 | --- | --- | --- |
+| Frozen format-v1 bytes from a static, independently authored SQL fixture | Historical schema, model-definition bytes, UUID/revision BLOB encoding and records reopen with the current provider, then pass a test-only upgrade | Compatibility with arbitrary historical database versions or a supported upgrade path |
 | Format-v1 reopen and changed model | v1 metadata, UUID/revision BLOB shape, model count, restart-safe rejection without logical data mutation | Byte-for-byte unchanged database/WAL or a supported migration |
 | Add an optional field | Existing records pass target *record* validation, but provider still rejects unequal model metadata | That any optional field is semantically safe to auto-upgrade |
 | Explicit additive transformation | Update task JSON + task metadata together; note references and IDs unchanged; task revisions increment, stale write conflicts | Generic migration API, semantic cross-model consistency, unlimited transaction size |
@@ -52,7 +53,7 @@ The research-only tests use the **actual production \`SqliteStore::open\` to cre
 | Forced child process exit before commit | Incomplete model/data writes are rolled back when SQLite reopens | Host/power loss or volatile filesystem corruption recovery |
 | \`VACUUM INTO\` with live source open | Consistent snapshot reopens and preserves an acknowledged record | Crash-safe destination replacement, backup retention or directory sync guarantees |
 
-**Verified research probe:** Rust 1.100.0 with the pinned `rusqlite = 0.43.0` succeeded on all **9/9** migration research tests at commit `fa852bfb` ([run 44656535947](https://github.com/aschenrot/riesel/actions/runs/44656535947)). These are test-only SQLite semantics, not a production migration engine. Normal workspace validation and smoke remain an independent final-commit gate.
+**Verified research probe:** Rust 1.100.0 with the pinned `rusqlite = 0.43.0` succeeded on all **10/10** migration research tests at commit `5a0ab9c4` ([run 44656949504](https://github.com/aschenrot/riesel/actions/runs/44656949504)). These are test-only SQLite semantics, not a production migration engine. Normal workspace validation and smoke remain an independent final-commit gate.
 
 ## Provisional specification to review at Gate B
 
