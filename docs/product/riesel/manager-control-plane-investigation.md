@@ -2,7 +2,7 @@
 
 **Status: research proposal; NOT an accepted architecture or implementation authorization.**  
 **Specification:** [#59](https://github.com/aschenrot/riesel/issues/59) · **Evidence date:** 2026-11-20 · **Repository baseline:** `b2702907` (`main`).  
-**Decision required:** maintainer accept / revise / defer / reject under [delivery.md](../../project/delivery.md). This document is investigation evidence, not a new roadmap stage.
+**Decision required:** maintainer accept / revise / defer / reject under [delivery.md](../../project/delivery.md). This document is investigation evidence, not a new roadmap stage. **Cross-product semantic coordination:** [#75](https://github.com/aschenrot/riesel/issues/75) / [operational boundary research](application-operational-boundary-investigation.md).
 
 ## 1. Problem and observed baseline
 
@@ -40,11 +40,13 @@ The requirement is an *operator-facing management product*, not a requirement th
 | Approach | Process ownership and restart | API/UI and security | Complexity/long-term fit | Assessment |
 | --- | --- | --- | --- | --- |
 | **A. Per-application management endpoint** | App can report/stop itself; endpoint disappears when stopped, so cannot start it | Each app exposes its own surface and authentication | Small per app but duplicates bootstrap/discovery and cannot meet start-stopped-app outcome | Reject as complete Manager; may supply an optional in-app diagnostics adapter |
-| **B. Separate single-host Manager owning application processes** | Manager owns launched app children; each app still owns its internal managed provider children | One local management API; browser UI is a client | Additional bounded service/lifecycle design, but unique authority and restart-independent UI | **Proposed first architecture** with explicit local/owned scope |
+| **B. Separate single-host Manager owning application processes** | Manager owns launched app children; each app still owns its internal managed provider children | One local management API; browser UI is a client | Additional service/lifecycle and failure-reconciliation design | Viable candidate; direct-child-only ownership must not be misreported as process-tree control |
 | **C. Static read-only dashboard over inspections** | Does not own processes; cannot manage start/stop | Easiest UI and minimal trust surface | Useful interim viewer, but fails management outcome | Viable reduced-scope fallback if mutating API cannot yet be secured |
 | **D. Distributed/global orchestrator** | Multiple nodes, leases, scheduling and inter-host failure handling | Requires remote identity, authorization and durable coordination | Much larger security and reliability surface | Defer; not a Stage-6 prerequisite for local Manager |
+| **E. OS-managed application unit as the process owner** | On supported hosts, an OS service/scope manager can own and report the actual app unit across a Manager UI restart | Platform-specific registration, permissions and APIs; no guaranteed portable identity or security | More upfront integration, potentially stronger lifecycle containment/reconciliation and less custom supervisor logic | **Must compare before selecting B** |
+| **F. Hybrid: Riesel management semantics with pluggable process ownership** | Shared identity, observations and command contract; one of direct foreground child or OS service-unit ownership selected per deployment | Need a single unambiguous owner; do not split one app between two controllers | Potential long-term flexibility without forcing OS units on a developer command | Investigate against B/E; not automatic abstraction requirement |
 
-**Proposal B refinement:** the independent Manager owns **application executable processes** that it launches; a running application's existing `riesel_app` runtime continues to own its **managed provider child processes**. This preserves the internal dependency resolver, supervision and application-session identity. An externally operated application is never silently taken under ownership. Do not share `ProcessRegistry` across mutually unaware processes.
+**Conditional candidate B:** when Manager directly launches an application, it owns **that application's OS child handle**; the running application's existing `riesel_app` runtime still owns its managed provider children. When an OS service manager owns the application instead (E/F), the Riesel Manager may **request** OS-unit operations under an explicit authorization policy but must not claim to own a `ProcessRegistry` child. Provider resolution and application-session identity remain in Riesel. An externally operated application is never silently adopted. Compare ongoing child supervision and OS-owned lifecycle using the same operator jobs, failure modes and total ownership cost.
 
 **Critical consequence:** a Manager that must survive an application closing cannot be *only* a library executing inside that application. A Manager service process (or another externally owned launcher) is necessary; this is not automatically a mandate for a new crate or always-on system service.
 
@@ -63,7 +65,7 @@ Proposed minimal conceptual operations (names and serialization deliberately *no
 
 | Operation | Precondition / result |
 | --- | --- |
-| `list`, `inspect(id)`, `status(id)` | Read-only, may report absent/stale; inspection stays side-effect-free |
+| `list`, `inspect(id)`, `status(id)` | **Passive** inspection reads cached/validated metadata and observed state without starting app code; **active** inspection that executes a trusted binary is an explicit authorized operation with its own side effects/exit result. A stale/unknown state must be reported as such |
 | `start(id, expected_state)` | Trusted registered executable only; reject duplicate launch and conflicting generation |
 | `stop(id, expected_generation)` | Applies only to Manager-owned process; graceful stop then bounded escalation with explicit reporting |
 | `command_status(command_id)` | Acknowledge accepted command separately from observed process outcome to handle client disconnects |
@@ -84,7 +86,7 @@ Compare:
 - Bound loopback TCP only: portable, but loopback is *network location*, not an access-control identity.
 - Remote HTTPS management: deferred until separate trust/authentication and secrets requirements are accepted.
 
-**Recommended separation for research acceptance:** trusted local control channel and single-origin UI bridge that delegates to the same command/service layer, with one authorization policy; not two independently implemented backends. No guarantee of security until adversarial and platform tests pass.
+**Recommended separation for research acceptance:** trusted local control channel and single-origin UI bridge that delegates to the same command/service layer, with one authorization policy; not two independently implemented backends. No guarantee of security until adversarial and platform tests pass. The application-definition/epoch/readiness concepts should be compared with CLI and native interface needs in [#75](https://github.com/aschenrot/riesel/issues/75), without making the GUI or developer CLI dependent on a persistent Manager.
 
 ## 5. Failure-trace analysis
 
@@ -98,7 +100,7 @@ Compare:
 
 | Test gate | Expected observable evidence |
 | --- | --- |
-| Registration/inspection | Explicit trusted program/args, invalid configuration and duplicate ID fail; inspection never spawns app |
+| Registration/inspection | Explicit trusted program/args, invalid configuration and duplicate ID fail; passive metadata inspection never spawns app, while explicit trusted executable inspection may launch and must report side effects/authority |
 | Ownership | Distinguish Manager-owned application vs app-owned provider vs external process; no accidental termination |
 | Lifecycle | Cold start, duplicate start, readiness timeout, normal stop, refused stop, crash and escalation; PID reuse/stale generation guarded |
 | API semantics | Same error/status meanings through CLI and UI; concurrent commands and lost response do not silently replay |
@@ -111,7 +113,7 @@ Source evidence for browser-origin risk: [Todo local boundary](../todo/http-loca
 
 ### Bounded first-release policy proposal (explicit decision requested)
 
-To avoid leaving every implementation detail open, the following is a **specific candidate** for first acceptance; none of these are facts about current Riesel:
+To avoid leaving every implementation detail open, the following is **one candidate based on direct Manager-owned children (B)**; none of these are facts about current Riesel. It is **not** a decision against OS-owned app units or a hybrid process-owner adapter (E/F), which must be compared under the same operator lifecycle, portability, security and restart/reconciliation criteria:
 
 - **Deployment and trust:** Linux, one trusted interactive OS user on a machine without adversarial local processes; no remote/browser-origin trust. Run a separate Manager foreground/service process only while needed. No multi-user host or internet-exposed HTTP claim.
 - **Source of applications:** an operator-edited, validated allowlist of executable paths and immutable per-application arguments; define trusted file ownership and resist pathname replacement at launch (a path string is not an executable integrity guarantee). No executable uploads, shell interpolation, arbitrary command entry, network discovery or mutable registration API in the browser.
@@ -134,7 +136,7 @@ This narrows the decision to an identifiable single-host product and gives engin
 
 ## 8. Critical review and bounded feasibility evidence
 
-**Review recommendation: REVISE before Gate B.** The research comparison identified a plausible local Manager but originally under-specified full process-tree cleanup, executable-inspection side effects and the limitations of per-UID authorization.
+**Review recommendation: REVISE before Gate B.** The research comparison identified a plausible local Manager but originally under-specified full process-tree cleanup, executable-inspection side effects and the limitations of per-UID authorization. The new architecture-first audit also found that OS-owned process units and a hybrid operational contract were omitted from the original comparison; selecting direct Manager children alone may create avoidable process ownership and recovery infrastructure.
 
 **Focused OS-level probe (Linux 6.18, Python 3.13; NOT a Riesel or Rust integration test):** a short launcher created a `sleep` process and exited immediately via `os._exit(0)`; the child PID was still alive afterwards and was explicitly terminated. An AF_UNIX socket pair also exposed a matching OS peer PID/UID/GID using `SO_PEERCRED`. These results establish that parent exit does not itself guarantee descendants are terminated, and that peer credentials can be queried on this Linux environment. They do **not** prove cross-platform service management, Rust integration, same-UID adversary isolation, or an effective OS containment/recovery policy. References: Linux [unix(7)](https://man7.org/linux/man-pages/man7/unix.7.html); [Windows named-pipe ACLs](https://learn.microsoft.com/en-us/windows/win32/ipc/named-pipe-security-and-access-rights).
 
@@ -148,8 +150,16 @@ This narrows the decision to an identifiable single-host product and gives engin
 
 Only implementation tests on the accepted platform and exact revision can close these gates. Research probes do not.
 
+### Architecture-first addendum — process ownership and growth (2026-11-20)
+
+**Missing candidate evidence:** direct child handles are not the only process-owner model. On Linux, [systemd transient service/scope units](https://www.freedesktop.org/software/systemd/man/latest/systemd-run.html) may provide service-level observations and scoped process ownership. On Windows, [Job Objects](https://learn.microsoft.com/en-us/windows/win32/procthread/job-objects) support grouped process management; on macOS, [launchd service management](https://developer.apple.com/documentation/ServiceManagement) has distinct ownership rules. These are **documented options, not Riesel integration tests or guaranteed transitive cleanup**. Test launch, process tree, restart, exit and authorization in the supported OS environment before relying on one. OS units may impose operator/deployment overhead unsuitable for one-shot `cargo run`; no universal OS-service dependency is accepted.
+
+**Comparable growth scenario:** a developer runs one foreground app during development, then installs it as a managed service, with an independent GUI attached. The same app *definition*, runtime *session generation*, and optional exported capability should retain their meanings; the **process owner may change** from the CLI to an OS service manager. Cross-product [Issue #75](https://github.com/aschenrot/riesel/issues/75) owns the semantic comparison, not process-control policy or the Manager UI. Record a migration path from B to E/F if B wins, or explicitly accept its limitations.
+
+**Verification expansion:** assert that a passive `status/inspect` never executes the app; a separate explicitly requested executable inspection *does* execute trusted code and is never advertised as side-effect-free. Exercise OS-unit ownership versus direct-child shutdown, abrupt controller failure, orphan reconciliation and stale-generation commands. Distinguish **service health**, **app session health** and **interface readiness**. Neither CLI nor UI can terminate an externally owned process by inference from a PID, hostname or registration label.
+
 ## 9. Proposed Gate B outcome — pending owner review
 
-**Recommend REVISE, not unconditional acceptance yet.** A single-host Manager remains the preferred candidate, but the precise authority, process-tree guarantee, trusted inspection/readiness contract and local authorization policy must be resolved before implementation authorization. Keep browser mutations deferred if their trust boundary is unproven. Do not prematurely approve a full manager daemon, persisted registry or service installation.
+**Recommend REVISE, not unconditional acceptance yet.** Compare a dedicated Manager-owned child, an OS-owned application unit and a hybrid model **on equal terms** against the original operator outcome, including future installations, restart recovery and migration cost. Then resolve authority, process-tree guarantee, passive versus executable inspection, application-level readiness and local authorization. Keep browser mutations deferred if their trust boundary is unproven. Do not prematurely approve a full Manager daemon, persisted registry or service installation.
 
 The maintainer must choose **accept / revise / defer / reject** and record rationale on [#59](https://github.com/aschenrot/riesel/issues/59). Only an accepted decision may update [riesel.md](riesel.md), a durable architecture contract, [implementation-roadmap.md](implementation-roadmap.md), implementation Issues or an optional GitHub Milestone. This research document must not be cited as accepted architecture until then.

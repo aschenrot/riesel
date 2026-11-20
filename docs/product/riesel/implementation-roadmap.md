@@ -1,6 +1,6 @@
 # Riesel — Implementation Roadmap
 
-Status reviewed: 2026-11-19. Stage 5 reference commit: `b862e3f` (Linux [validation and smoke passed](https://github.com/aschenrot/riesel/actions/runs/44535298922)). This document tracks **accepted delivery scope and tested progress**. Git commits, Pull Requests and CI retain implementation history; this roadmap is not a running change log.
+Status reviewed: 2026-11-20. Stage 5 reference commit: `b862e3f` (Linux [validation and smoke passed](https://github.com/aschenrot/riesel/actions/runs/44535298922)). This document tracks **accepted delivery scope and tested progress**. Git commits, Pull Requests and CI retain implementation history; this roadmap is not a running change log.
 
 ## Current delivery position
 

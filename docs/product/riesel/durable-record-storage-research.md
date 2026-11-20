@@ -1,6 +1,6 @@
 # Stage 6 — Durable Record Storage research brief
 
-**Status: research brief; architecture not selected.** [Specification Issue #24](https://github.com/aschenrot/riesel/issues/24) owns the investigation and final decision. This document defines what to research, not which database or architecture to implement.
+**Status: historical Gate A research brief (2026-11-19); architecture subsequently accepted.** This file preserves the *pre-decision* candidate-discovery questions and does **not** represent current selection status. [Specification #24](https://github.com/aschenrot/riesel/issues/24) is closed with an accepted SQLite-first decision; the authoritative [first Storage contract](durable-record-storage-architecture-proposal.md) and later [offline model-evolution contract](sqlite-offline-migration-architecture.md) supersede its open questions. It is research method/evidence, not an executable requirement checklist.
 
 ## Problem and verified baseline
 

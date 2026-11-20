@@ -64,13 +64,13 @@ The application uses capabilities; components implement capabilities; Riesel res
 | **Manager UI** | Inspect and manage applications and infrastructure | Planned, not delivered |
 | **Native window hosts** | Independent interfaces attached to application logic | Planned, not delivered |
 
-The current reference Storage provider is ephemeral, and loopback TCP is not authenticated. Passing development tests does **not** establish production persistence, authenticated remote networking, or distributed recovery.
+The in-memory reference Storage provider is ephemeral; a linked SQLite provider is available for explicit single-host local persistence. Loopback TCP is not authenticated. Passing development tests does **not** establish production-wide durability, authenticated remote networking or distributed recovery.
 
 ### Durable Record Storage evolution
 
 - Linked local SQLite Storage shall support an **explicit, offline, authorized** transformation of Rust-derived application models, with pre-mutation verified backup, preserved UUIDs, checked revision fencing, exact source/target validation, and bounded recovery.
 - Ordinary application startup remains fail-closed on incompatible stored models; automatic/online upgrades and remote/managed parity are not accepted.
-- The [accepted model migration architecture](sqlite-offline-migration-architecture.md) defines the controlled single-host ownership, legacy process rollout and verification boundary. **This is accepted product scope, not delivered functionality.**
+- The [accepted model migration architecture](sqlite-offline-migration-architecture.md) defines the controlled single-host ownership, legacy process rollout and verification boundary. Provider ownership, offline backup and an internal typed migration engine have partial delivered evidence; **the approved operator preview/consent workflow is not delivered**, so the end-to-end product outcome remains incomplete. See the [roadmap](implementation-roadmap.md) and implementation [#50](https://github.com/aschenrot/riesel/issues/50)/[#51](https://github.com/aschenrot/riesel/issues/51).
 
 ## Planned infrastructure extensions
 
@@ -78,6 +78,7 @@ The current reference Storage provider is ephemeral, and loopback TCP is not aut
 - Authentication, authorization, and protected remote transport.
 - Operational visibility, configurable resource budgets, and reliable deployment management.
 - Standalone manager workflows and independently executed native interfaces.
+- Investigate coherent **cross-project developer tooling** and **shared application identity/readiness/interface semantics** without assuming one daemon, supervisor, public exporter or new configuration source ([developer tooling #68](https://github.com/aschenrot/riesel/issues/68), [operational boundary #75](https://github.com/aschenrot/riesel/issues/75), [Manager #59](https://github.com/aschenrot/riesel/issues/59), [native host #60](https://github.com/aschenrot/riesel/issues/60)). The architecture and expanded product scope remain subject to explicit acceptance.
 
 These outcomes require separate designs and acceptance criteria; they must not be treated as already implemented.
 
