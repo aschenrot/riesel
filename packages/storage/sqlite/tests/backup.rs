@@ -327,3 +327,90 @@ fn zero_elapsed_budget_rejects_maintenance_open() {
     assert!(SqliteMaintenance::open_existing(&db, models(), invalid).is_err());
     drop(SqliteStore::open(&db, models()).unwrap());
 }
+
+#[cfg(target_os = "linux")]
+#[test]
+fn os_file_size_limit_aborts_partial_snapshot_before_publication() {
+    // A separate test process is essential: RLIMIT_FSIZE and SIGXFSZ are
+    // process-global and must not affect concurrently running Rust tests.
+    const CHILD: &str = "RIESEL_SQLITE_FSIZE_FAILURE_CHILD";
+    if std::env::var_os(CHILD).is_none() {
+        let output = std::process::Command::new(std::env::current_exe().unwrap())
+            .args([
+                "--exact",
+                "os_file_size_limit_aborts_partial_snapshot_before_publication",
+                "--nocapture",
+            ])
+            .env(CHILD, "1")
+            .output()
+            .unwrap();
+        assert!(
+            output.status.success(),
+            "OS file limit child failed: stdout={} stderr={}",
+            String::from_utf8_lossy(&output.stdout),
+            String::from_utf8_lossy(&output.stderr)
+        );
+        assert!(String::from_utf8_lossy(&output.stdout).contains("1 passed"));
+        return;
+    }
+
+    let dir = tempfile::tempdir().unwrap();
+    let db = dir.path().join("source.db");
+    let storage = SqliteStore::open(&db, models()).unwrap();
+    for _ in 0..12 {
+        storage
+            .create("task", json!({"title":"x".repeat(8_000)}))
+            .unwrap();
+    }
+    drop(storage);
+    let source_before = rows(&db);
+    let budget = SnapshotBudget {
+        max_records: 16,
+        max_json_bytes: 200_000,
+        max_snapshot_bytes: 2_000_000,
+        max_elapsed: Duration::from_secs(30),
+    };
+    let maintenance = SqliteMaintenance::open_existing(&db, models(), budget).unwrap();
+
+    // Linux reports an OS-level write refusal when VACUUM INTO grows its
+    // pending output beyond this per-file bound. Ignoring SIGXFSZ allows
+    // SQLite to report the error rather than terminating this test process.
+    let mut limit = std::mem::MaybeUninit::<libc::rlimit>::uninit();
+    // SAFETY: getrlimit initializes the writable rlimit pointer on success.
+    assert_eq!(
+        unsafe { libc::getrlimit(libc::RLIMIT_FSIZE, limit.as_mut_ptr()) },
+        0
+    );
+    // SAFETY: successful getrlimit initialized the entire rlimit value.
+    let mut limit = unsafe { limit.assume_init() };
+    let original_soft_limit = limit.rlim_cur;
+    limit.rlim_cur = 16 * 1024;
+    // SAFETY: SIG_IGN is a valid signal disposition for SIGXFSZ in this
+    // isolated subprocess; setrlimit receives an initialized rlimit pointer.
+    unsafe {
+        assert_ne!(libc::signal(libc::SIGXFSZ, libc::SIG_IGN), libc::SIG_ERR);
+        assert_eq!(libc::setrlimit(libc::RLIMIT_FSIZE, &limit), 0);
+    }
+
+    let destination = dir.path().join("never-published.db");
+    let refused = maintenance.backup_to(&destination, budget);
+
+    // SQLite's WAL reader may need to create/update its -shm sidecar. Return
+    // to the original kernel file limit before performing independent reopen
+    // and record comparison, or a valid WAL read may itself report IOERR.
+    limit.rlim_cur = original_soft_limit;
+    // SAFETY: only restores the original soft limit, without changing the
+    // original hard limit, in the isolated child process.
+    assert_eq!(unsafe { libc::setrlimit(libc::RLIMIT_FSIZE, &limit) }, 0);
+
+    assert!(matches!(refused, Err(StoreError::Failed(_))));
+    assert!(!destination.exists());
+    assert_eq!(rows(&db), source_before);
+    assert!(std::fs::read_dir(dir.path()).unwrap().all(|entry| {
+        !entry
+            .unwrap()
+            .file_name()
+            .to_string_lossy()
+            .contains("riesel-pending")
+    }));
+}
