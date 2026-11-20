@@ -15,7 +15,10 @@ fn models() -> BTreeMap<String, ModelDefinition> {
 
 fn run_probed_owner(path: &Path, available: bool) {
     let mut cmd = Command::new(std::env::current_exe().unwrap());
-    cmd.args(["--exact", "cooperating_sqlite_owner_is_exclusive_across_processes"]);
+    cmd.args([
+        "--exact",
+        "cooperating_sqlite_owner_is_exclusive_across_processes",
+    ]);
     cmd.env("RIESEL_SQLITE_OWNER_DB", path);
     if available {
         cmd.env("RIESEL_SQLITE_OWNER_EXPECT_FREE", "1");
@@ -32,7 +35,7 @@ fn run_probed_owner(path: &Path, available: bool) {
 fn cooperating_sqlite_owner_is_exclusive_across_processes() {
     if let Some(db) = std::env::var_os("RIESEL_SQLITE_OWNER_DB") {
         let available = std::env::var_os("RIESEL_SQLITE_OWNER_EXPECT_FREE").is_some();
-        let result = SqliteStore::open(db, models());
+        let result = SqliteStore::open(std::path::PathBuf::from(db), models());
         assert_eq!(result.is_ok(), available);
         return;
     }

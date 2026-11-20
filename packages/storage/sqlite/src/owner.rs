@@ -78,7 +78,9 @@ impl OwnerGuard {
         {
             use std::os::unix::fs::PermissionsExt;
             if parent_metadata.permissions().mode() & 0o022 != 0 {
-                return Err(invalid("database directory must not be group/other-writable"));
+                return Err(invalid(
+                    "database directory must not be group/other-writable",
+                ));
             }
         }
 
@@ -101,7 +103,9 @@ impl OwnerGuard {
         match lock_file.try_lock() {
             Ok(()) => {}
             Err(TryLockError::WouldBlock) => {
-                return Err(invalid("database is already owned by a cooperating process"));
+                return Err(invalid(
+                    "database is already owned by a cooperating process",
+                ));
             }
             Err(TryLockError::Error(error)) => return Err(failed(error)),
         }
