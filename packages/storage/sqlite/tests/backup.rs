@@ -32,7 +32,9 @@ fn fixture(path: &Path) -> uuid::Uuid {
     one.id
 }
 
-fn rows(path: &Path) -> Vec<(String, Vec<u8>, Vec<u8>, Vec<u8>)> {
+type StoredRow = (String, Vec<u8>, Vec<u8>, Vec<u8>);
+
+fn rows(path: &Path) -> Vec<StoredRow> {
     let conn = Connection::open_with_flags(path, OpenFlags::SQLITE_OPEN_READ_ONLY).unwrap();
     let mut stmt = conn
         .prepare("SELECT model,id,revision,data FROM records ORDER BY model,id")
