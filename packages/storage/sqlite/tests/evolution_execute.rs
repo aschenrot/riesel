@@ -394,3 +394,49 @@ fn max_revision_refuses_evolution_before_transaction_writes_and_keeps_snapshot()
     drop(old);
     assert!(SqliteStore::open(&db, target_models::<CurrentTask>()).is_err());
 }
+
+#[test]
+fn unexpected_schema_valid_trigger_rewrite_rolls_back_instead_of_committing() {
+    let dir = tempfile::tempdir().unwrap();
+    let db = dir.path().join("source.db");
+    fixture(&db);
+    let original = rows(&db);
+    let connection = Connection::open(&db).unwrap();
+    let replacement = serde_json::to_vec(
+        &json!({"title":"unexpected","completed":true,"priority":999}),
+    )
+    .unwrap();
+    let hex_payload: String = replacement
+        .iter()
+        .map(|byte| format!("{byte:02X}"))
+        .collect();
+    connection
+        .execute_batch(&format!(
+            "CREATE TRIGGER rewrite_evolution AFTER UPDATE ON records
+             WHEN NEW.model='task'
+             BEGIN
+               UPDATE records SET data=x'{hex_payload}'
+               WHERE model=NEW.model AND id=NEW.id;
+             END;"
+        ))
+        .unwrap();
+    drop(connection);
+
+    let saved = dir.path().join("retained.db");
+    let maintenance = SqliteMaintenance::open_existing(&db, source_models(), budget()).unwrap();
+    let error = maintenance
+        .execute_evolution(
+            &plan(),
+            &saved,
+            limits(),
+            EvolutionAuthorization::ExecuteWithVerifiedBackup,
+        )
+        .unwrap_err();
+    assert!(
+        format!("{error}").contains("typed transform output"),
+        "unexpectedly accepted or misclassified trigger rewrite: {error}"
+    );
+    assert_eq!(rows(&db), original);
+    assert_eq!(rows(&saved), original);
+    drop(SqliteStore::open(&db, source_models()).unwrap());
+}
