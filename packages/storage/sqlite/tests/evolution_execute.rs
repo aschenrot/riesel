@@ -627,7 +627,6 @@ fn deliberate_field_rename_is_a_typed_transform_not_an_inferred_upgrade() {
     );
 }
 
-
 fn persisted_definitions(path: &Path) -> Vec<(String, Vec<u8>)> {
     let conn = Connection::open(path).unwrap();
     let mut statement = conn
@@ -788,10 +787,7 @@ fn corrupted_source_metadata_and_record_payloads_fail_before_backup_or_mutation(
                     .unwrap();
                 if fault == "short-revision" {
                     connection
-                        .execute(
-                            "UPDATE records SET revision=x'01' WHERE model='task'",
-                            [],
-                        )
+                        .execute("UPDATE records SET revision=x'01' WHERE model='task'", [])
                         .unwrap();
                 } else {
                     connection
@@ -868,10 +864,7 @@ fn bounded_evolution_rejects_record_file_byte_and_time_limits_without_mutation()
 
     // The complete old database fits this limit, but the new field does not.
     // The verified backup must be retained and the IMMEDIATE txn rolled back.
-    let old_bytes = before
-        .iter()
-        .map(|row| row.3.len() as u64)
-        .sum::<u64>();
+    let old_bytes = before.iter().map(|row| row.3.len() as u64).sum::<u64>();
     let tight = EvolutionLimits {
         snapshot: SnapshotBudget {
             max_json_bytes: old_bytes,
