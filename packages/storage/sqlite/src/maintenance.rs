@@ -224,8 +224,8 @@ fn output_path(destination: &Path, source: &Path) -> Result<PathBuf, StoreError>
     Ok(path)
 }
 
-/// An explicitly acquired *offline* owner. No migrations can be initiated
-/// through this first backup-only interface. Acquiring may create a persistent
+/// An explicitly acquired *offline* owner, shared across backup, restore and
+/// explicit evolution. Acquiring may create a persistent
 /// owner lockfile, but never creates/initializes an absent source database.
 pub struct SqliteMaintenance {
     pub(crate) owner: OwnerGuard,

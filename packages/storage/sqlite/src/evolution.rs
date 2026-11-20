@@ -1,6 +1,5 @@
-//! Stage 6: explicit typed schema-evolution planning only.
-//! Preview is read-only; applying migrations requires separately verified
-//! recovery and authorization gates and is not implemented by this module.
+//! Stage 6: explicit typed schema-evolution planning and read-only preview.
+//! Execution is a separate, explicitly authorized offline maintenance API.
 use crate::{
     database::failed,
     deadline::Deadline,
@@ -15,14 +14,14 @@ use serde_json::Value;
 use std::{collections::BTreeMap, time::Duration};
 use uuid::Uuid;
 
-type Transformation = Box<dyn Fn(Value) -> Result<Value, StoreError> + Send + Sync>;
+pub(crate) type Transformation = Box<dyn Fn(Value) -> Result<Value, StoreError> + Send + Sync>;
 
 /// An explicit plan for non-destructive changes to existing model identities.
 /// Both schema maps should come from Rust-derived models, not handwritten JSON.
 pub struct ModelEvolution {
-    source: BTreeMap<String, ModelDefinition>,
-    target: BTreeMap<String, ModelDefinition>,
-    transformations: BTreeMap<String, Transformation>,
+    pub(crate) source: BTreeMap<String, ModelDefinition>,
+    pub(crate) target: BTreeMap<String, ModelDefinition>,
+    pub(crate) transformations: BTreeMap<String, Transformation>,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -98,7 +97,10 @@ impl ModelEvolution {
         Ok(self)
     }
 
-    fn validate_for(&self, actual: &BTreeMap<String, ModelDefinition>) -> Result<(), StoreError> {
+    pub(crate) fn validate_for(
+        &self,
+        actual: &BTreeMap<String, ModelDefinition>,
+    ) -> Result<(), StoreError> {
         if actual != &self.source {
             return Err(denied(
                 "plan source models differ from the owned database models",
