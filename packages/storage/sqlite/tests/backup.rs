@@ -222,7 +222,10 @@ fn missing_or_overbudget_source_does_not_create_a_backup_database() {
         SqliteMaintenance::open_existing(&missing, models(), budget()),
         Err(StoreError::Failed(_))
     ));
-    assert!(!missing.exists(), "maintenance may not initialize missing data");
+    assert!(
+        !missing.exists(),
+        "maintenance may not initialize missing data"
+    );
 
     let db = dir.path().join("source.db");
     fixture(&db);
