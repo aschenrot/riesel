@@ -1,10 +1,5 @@
 //! Constrained read-only access to the proposed transaction target.
-use crate::{
-    database::failed,
-    deadline::Deadline,
-    maintenance::denied,
-    records::MAX_RECORD_BYTES,
-};
+use crate::{database::failed, deadline::Deadline, maintenance::denied, records::MAX_RECORD_BYTES};
 use riesel_schema::ModelDefinition;
 use riesel_storage::StoreError;
 use rusqlite::{Connection, OptionalExtension, params};
@@ -63,7 +58,9 @@ impl<'a> EvolutionRecords<'a> {
             return Err(denied("invariant found an oversized record"));
         }
         let data: Value = serde_json::from_slice(bytes).map_err(failed)?;
-        self.definition(model)?.validate_record(&data).map_err(failed)?;
+        self.definition(model)?
+            .validate_record(&data)
+            .map_err(failed)?;
         self.deadline.check()?;
         Ok(EvolutionRecord {
             id,
@@ -73,11 +70,7 @@ impl<'a> EvolutionRecords<'a> {
     }
 
     /// Read a validated record by model identity and UUID.
-    pub fn get(
-        &self,
-        model: &str,
-        id: Uuid,
-    ) -> Result<Option<EvolutionRecord>, StoreError> {
+    pub fn get(&self, model: &str, id: Uuid) -> Result<Option<EvolutionRecord>, StoreError> {
         self.deadline.check()?;
         self.definition(model)?;
         let row: Option<(Vec<u8>, Vec<u8>)> = self

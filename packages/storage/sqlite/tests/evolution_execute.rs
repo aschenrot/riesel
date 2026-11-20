@@ -504,8 +504,7 @@ fn validate_note_links(
         let id = note.data["task_id"]
             .as_str()
             .ok_or_else(|| StoreError::Failed("missing note task_id".into()))?;
-        let id = Uuid::parse_str(id)
-            .map_err(|error| StoreError::Failed(error.to_string()))?;
+        let id = Uuid::parse_str(id).map_err(|error| StoreError::Failed(error.to_string()))?;
         if records.get("task", id)?.is_none() {
             return Err(StoreError::Failed("orphan note task reference".into()));
         }
@@ -526,10 +525,14 @@ fn successful_cross_model_invariant_sees_transformed_target_records() {
             .get("task", task_id)?
             .ok_or_else(|| StoreError::Failed("missing migrated task".into()))?;
         if task.revision != 2 || task.data["priority"] != 0 {
-            return Err(StoreError::Failed("invariant saw unexpected target task".into()));
+            return Err(StoreError::Failed(
+                "invariant saw unexpected target task".into(),
+            ));
         }
         if records.get("not_registered", note_id).is_ok() {
-            return Err(StoreError::Failed("unknown invariant model accepted".into()));
+            return Err(StoreError::Failed(
+                "unknown invariant model accepted".into(),
+            ));
         }
         Ok(())
     });
@@ -594,7 +597,10 @@ fn deliberate_field_rename_is_a_typed_transform_not_an_inferred_upgrade() {
     let renamed = ModelEvolution::new(source_models(), target.clone())
         .unwrap()
         .transform::<HistoricalTask, RenamedTask, _>(|old| {
-            Ok(RenamedTask { name: old.title, completed: old.completed })
+            Ok(RenamedTask {
+                name: old.title,
+                completed: old.completed,
+            })
         })
         .unwrap()
         .invariant(validate_note_links);
