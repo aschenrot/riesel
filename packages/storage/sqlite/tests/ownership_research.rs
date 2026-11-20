@@ -1,11 +1,7 @@
 //! Research-only probes for a cooperating *lifetime* owner lock.
 //! This file does not change SQLite Store startup or introduce a lock protocol.
 //! File locks are OS/platform dependent and may be advisory.
-use std::{
-    fs::OpenOptions,
-    path::Path,
-    process::Command,
-};
+use std::{fs::OpenOptions, path::Path, process::Command};
 
 /// The standard-library file lock can exclude a cooperating second process
 /// while the owner is active and is released on normal owner termination.
