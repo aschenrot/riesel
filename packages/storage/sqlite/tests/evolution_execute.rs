@@ -280,16 +280,26 @@ fn sqlite_failure_after_first_update_rolls_back_all_rows_and_metadata() {
     let db = dir.path().join("source.db");
     fixture(&db);
     let store = SqliteStore::open(&db, source_models()).unwrap();
-    let second = store
+    store
         .create("task", json!({"title":"second","completed":true}))
         .unwrap();
     drop(store);
+    // Force the trigger on the *last* sorted task row so at least one
+    // UPDATE succeeds before SQLite raises an error. UUID allocation order
+    // does not define SQL primary-key order.
+    let last_task_id = rows(&db)
+        .into_iter()
+        .filter(|row| row.0 == "task")
+        .map(|row| row.1)
+        .max()
+        .unwrap();
+    let reject_id: String = last_task_id.iter().map(|byte| format!("{byte:02X}")).collect();
     let conn = Connection::open(&db).unwrap();
     conn.execute_batch(&format!(
         "CREATE TRIGGER reject_evolution BEFORE UPDATE ON records
          WHEN NEW.model='task' AND hex(NEW.id)='{}'
          BEGIN SELECT RAISE(ABORT, 'injected update failure'); END;",
-        second.id.simple().to_string().to_uppercase()
+        reject_id
     ))
     .unwrap();
     drop(conn);
@@ -351,4 +361,36 @@ fn occupied_backup_and_invalid_limits_prevent_evolution_and_write() {
             .is_err()
     );
     assert_eq!(rows(&db), before);
+}
+
+#[test]
+fn max_revision_refuses_evolution_before_transaction_writes_and_keeps_snapshot() {
+    let dir = tempfile::tempdir().unwrap();
+    let db = dir.path().join("source.db");
+    let (id, _) = fixture(&db);
+    let direct = Connection::open(&db).unwrap();
+    direct
+        .execute(
+            "UPDATE records SET revision=?1 WHERE model='task' AND id=?2",
+            rusqlite::params![&u64::MAX.to_be_bytes()[..], id.as_bytes()],
+        )
+        .unwrap();
+    drop(direct);
+    let before = rows(&db);
+    let saved = dir.path().join("overflow-backup.db");
+    let maintenance = SqliteMaintenance::open_existing(&db, source_models(), budget()).unwrap();
+    assert!(maintenance
+        .execute_evolution(
+            &plan(),
+            &saved,
+            limits(),
+            EvolutionAuthorization::ExecuteWithVerifiedBackup,
+        )
+        .is_err());
+    assert_eq!(rows(&db), before);
+    assert_eq!(rows(&saved), before);
+    let old = SqliteStore::open(&db, source_models()).unwrap();
+    assert_eq!(old.get("task", id).unwrap().unwrap().revision, u64::MAX);
+    drop(old);
+    assert!(SqliteStore::open(&db, target_models::<CurrentTask>()).is_err());
 }
