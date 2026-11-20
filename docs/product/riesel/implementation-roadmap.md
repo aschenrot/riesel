@@ -60,11 +60,13 @@ Linux milestone integration.
 
 The first bounded Storage slice is delivered through linked SQLite and opt-in SDK registration. The [Todo product](../todo/todo.md) now exercises it through persistent R1 headless commands and a local-only R2 SvelteKit/browser integration with a Riesel-owned HTTP session. The in-memory R0 regression example remains separate. These **product-level acceptance scenarios** do not establish complete Stage 6 reliability or general production release readiness.
 
+The [Stage 6 offline SQLite model migration contract](sqlite-offline-migration-architecture.md) was **accepted on 2026-11-20** after [specification #41](https://github.com/aschenrot/riesel/issues/41). Implementation has **not** yet met its exit gates. It requires cooperating provider ownership, verified backup/restore, typed bounded transforms and an explicit operator workflow; online migration and uncooperative legacy binaries remain unsupported.
+
 Plan and separately accept production features by user value and operational risk. Current candidates:
 
 | Area | Required future outcomes |
 | --- | --- |
-| Storage | Durable backend, migration/versioning, schema enforcement and crash/restart tests |
+| Storage | Linked durable backend delivered; **accepted offline model migration pending implementation and verification**; broader schema/versioning and operational recovery separate |
 | Networking | Authenticated/authorized remote transport, trust establishment and secrets handling |
 | Runtime | Operational metrics, configurable resource budgets and safe stateful recovery contracts |
 | Tools | Manager/discovery workflows, platform CLI parity, and repeatable deployment |
