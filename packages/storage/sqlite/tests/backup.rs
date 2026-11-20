@@ -19,6 +19,7 @@ fn budget() -> SnapshotBudget {
         max_records: 8,
         max_json_bytes: 65_536,
         max_snapshot_bytes: 1_048_576,
+        max_sidecar_bytes: 1_048_576,
         max_elapsed: Duration::from_secs(30),
     }
 }
@@ -115,6 +116,7 @@ fn resource_ceiling_rejects_without_publishing_incomplete_backup() {
         max_records: 8,
         max_json_bytes: 65_536,
         max_snapshot_bytes: 1,
+        max_sidecar_bytes: 1_048_576,
         max_elapsed: Duration::from_secs(30),
     };
     assert!(matches!(
@@ -180,6 +182,7 @@ fn oversized_raw_sqlite_blob_is_rejected_before_snapshot_publication() {
         max_records: 8,
         max_json_bytes: 200_000,
         max_snapshot_bytes: 1_048_576,
+        max_sidecar_bytes: 1_048_576,
         max_elapsed: Duration::from_secs(30),
     };
     assert!(matches!(
@@ -237,6 +240,7 @@ fn missing_or_overbudget_source_does_not_create_a_backup_database() {
         max_records: 1,
         max_json_bytes: 65_536,
         max_snapshot_bytes: 1_048_576,
+        max_sidecar_bytes: 1_048_576,
         max_elapsed: Duration::from_secs(30),
     };
     assert!(matches!(
@@ -368,6 +372,7 @@ fn os_file_size_limit_aborts_partial_snapshot_before_publication() {
         max_records: 16,
         max_json_bytes: 200_000,
         max_snapshot_bytes: 2_000_000,
+        max_sidecar_bytes: 2_000_000,
         max_elapsed: Duration::from_secs(30),
     };
     let maintenance = SqliteMaintenance::open_existing(&db, models(), budget).unwrap();
@@ -413,4 +418,55 @@ fn os_file_size_limit_aborts_partial_snapshot_before_publication() {
             .to_string_lossy()
             .contains("riesel-pending")
     }));
+}
+
+#[test]
+fn bounded_maintenance_refuses_oversized_live_wal_before_snapshot() {
+    let dir = tempfile::tempdir().unwrap();
+    let db = dir.path().join("records.db");
+    let store = SqliteStore::open(&db, models()).unwrap();
+    store.create("task", json!({"title":"first"})).unwrap();
+
+    // Keep an earlier SQLite reader pinned so committed writes remain in WAL
+    // instead of being checkpointed when the provider closes.
+    let reader = Connection::open(&db).unwrap();
+    reader.execute_batch("BEGIN").unwrap();
+    let count: i64 = reader
+        .query_row("SELECT count(*) FROM records", [], |row| row.get(0))
+        .unwrap();
+    assert_eq!(count, 1);
+    for _ in 0..24 {
+        store
+            .create("task", json!({"title":"x".repeat(4_000)}))
+            .unwrap();
+    }
+    let before = rows(&db);
+    let mut wal_name = db.as_os_str().to_owned();
+    wal_name.push("-wal");
+    let wal_bytes = std::fs::metadata(std::path::PathBuf::from(wal_name))
+        .unwrap()
+        .len();
+    let mut shm_name = db.as_os_str().to_owned();
+    shm_name.push("-shm");
+    let shm_bytes = std::fs::metadata(std::path::PathBuf::from(shm_name))
+        .unwrap()
+        .len();
+    assert!(wal_bytes > 8_192);
+    drop(store);
+
+    let strict = SnapshotBudget {
+        max_records: 32,
+        max_json_bytes: 200_000,
+        max_snapshot_bytes: 1_048_576,
+        max_sidecar_bytes: shm_bytes + wal_bytes / 2,
+        max_elapsed: Duration::from_secs(30),
+    };
+    let denied = SqliteMaintenance::open_existing(&db, models(), strict);
+    assert!(matches!(
+        denied,
+        Err(StoreError::Failed(message)) if message.contains("sidecar byte budget")
+    ));
+    assert_eq!(rows(&db), before);
+    reader.execute_batch("ROLLBACK").unwrap();
+    assert!(!dir.path().join("unpublished.db").exists());
 }

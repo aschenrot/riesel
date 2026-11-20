@@ -7,7 +7,8 @@ use crate::{
     database::failed,
     deadline::Deadline,
     maintenance::{
-        SnapshotBudget, SqliteMaintenance, VerifiedSnapshot, audit, compare_records, denied,
+        SnapshotBudget, SqliteMaintenance, VerifiedSnapshot, audit, check_sidecars,
+        compare_records, denied,
     },
     owner::OwnerGuard,
 };
@@ -71,6 +72,8 @@ impl SqliteMaintenance {
         {
             return Err(denied("restoration snapshot exceeds the byte ceiling"));
         }
+        check_sidecars(source_owner.database_path(), budget)?;
+        check_sidecars(self.owner.database_path(), budget)?;
         source_owner.opened()?;
         let mut source = Connection::open_with_flags(
             source_owner.database_path(),
@@ -114,6 +117,8 @@ impl SqliteMaintenance {
 
         self.owner.verify()?;
         source_owner.verify()?;
+        check_sidecars(source_owner.database_path(), budget)?;
+        check_sidecars(self.owner.database_path(), budget)?;
         deadline.check()?;
         target = Connection::open_with_flags(
             self.owner.database_path(),
@@ -151,6 +156,7 @@ impl SqliteMaintenance {
             ));
         }
         compare_records(&source, &target, deadline)?;
+        check_sidecars(self.owner.database_path(), budget)?;
         self.owner.verify()?;
         source_owner.verify()?;
 
