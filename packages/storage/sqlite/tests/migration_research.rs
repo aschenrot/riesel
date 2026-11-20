@@ -541,7 +541,6 @@ fn unexpected_other_model_schema_aborts_candidate_before_writes() {
     assert_eq!(snapshot(&db), before);
 }
 
-
 /// Real separate-process regression: a provider opened before a metadata
 /// upgrade can still create a record using its cached old model schema.
 /// This is a deliberately *passing demonstration of an unsafe condition*,
@@ -573,7 +572,10 @@ fn stale_cross_process_provider_can_insert_incompatible_json_after_upgrade() {
         std::fs::write(ready, b"provider opened under source schema").unwrap();
         wait_for(Path::new(&go));
         let stale = provider
-            .create("task", json!({"title":"stale owner wrote after migration","completed":false}))
+            .create(
+                "task",
+                json!({"title":"stale owner wrote after migration","completed":false}),
+            )
             .unwrap();
         std::fs::write(result, stale.id.to_string()).unwrap();
         return;
@@ -617,7 +619,10 @@ fn stale_cross_process_provider_can_insert_incompatible_json_after_upgrade() {
     );
     let stale_id = Uuid::parse_str(std::fs::read_to_string(&result).unwrap().trim()).unwrap();
     let current = SqliteStore::open(&db, models_v2()).unwrap();
-    assert_eq!(current.get("task", first).unwrap().unwrap().data["priority"], 0);
+    assert_eq!(
+        current.get("task", first).unwrap().unwrap().data["priority"],
+        0
+    );
     assert!(
         matches!(current.get("task", stale_id), Err(StoreError::Failed(_))),
         "stale cached schema inserted a record that the new model cannot decode"
@@ -633,7 +638,9 @@ fn transactional_model_guard_rejects_stale_write_without_mutating_records() {
     trial_transactional_upgrade(&db, TestTransformation::AddPriority).unwrap();
     let before = snapshot(&db);
     let mut conn = Connection::open(&db).unwrap();
-    let tx = conn.transaction_with_behavior(TransactionBehavior::Immediate).unwrap();
+    let tx = conn
+        .transaction_with_behavior(TransactionBehavior::Immediate)
+        .unwrap();
     for (name, definition) in models_v1() {
         let bytes: Vec<u8> = tx
             .query_row(
@@ -644,7 +651,11 @@ fn transactional_model_guard_rejects_stale_write_without_mutating_records() {
             .unwrap();
         if bytes != serde_json::to_vec(&definition).unwrap() {
             drop(tx);
-            assert_eq!(snapshot(&db), before, "stale writes must not modify anything");
+            assert_eq!(
+                snapshot(&db),
+                before,
+                "stale writes must not modify anything"
+            );
             assert!(SqliteStore::open(&db, models_v2()).is_ok());
             return;
         }
