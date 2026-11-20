@@ -240,8 +240,12 @@ pub fn run_operator_maintenance_cli(
             )
             .map_err(failed)?;
             writeln!(output, "Database: {}", database.display()).map_err(failed)?;
-            writeln!(output, "Verified source snapshot: {}", archive_path.display())
-                .map_err(failed)?;
+            writeln!(
+                output,
+                "Verified source snapshot: {}",
+                archive_path.display()
+            )
+            .map_err(failed)?;
             writeln!(
                 output,
                 "Retain current database at: {}",
