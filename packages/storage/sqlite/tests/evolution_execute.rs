@@ -443,3 +443,38 @@ fn unexpected_schema_valid_trigger_rewrite_rolls_back_instead_of_committing() {
     assert_eq!(rows(&saved), original);
     drop(SqliteStore::open(&db, source_models()).unwrap());
 }
+
+#[test]
+fn verified_retained_archive_excludes_a_cooperating_provider_until_commit() {
+    let dir = tempfile::tempdir().unwrap();
+    let db = dir.path().join("source.db");
+    fixture(&db);
+    let archive = dir.path().join("retained.db");
+    let archive_for_transform = archive.clone();
+    let source_for_transform = source_models();
+    let guarded = ModelEvolution::new(source_models(), target_models::<CurrentTask>())
+        .unwrap()
+        .transform::<HistoricalTask, CurrentTask, _>(move |old| {
+            assert!(
+                SqliteStore::open(&archive_for_transform, source_for_transform.clone()).is_err(),
+                "a cooperating provider must not own the retained snapshot during evolution"
+            );
+            Ok(CurrentTask {
+                title: old.title,
+                completed: old.completed,
+                priority: 0,
+            })
+        })
+        .unwrap();
+    let maintenance = SqliteMaintenance::open_existing(&db, source_models(), budget()).unwrap();
+    maintenance
+        .execute_evolution(
+            &guarded,
+            &archive,
+            limits(),
+            EvolutionAuthorization::ExecuteWithVerifiedBackup,
+        )
+        .unwrap();
+    drop(SqliteStore::open(&archive, source_models()).unwrap());
+    drop(SqliteStore::open(&db, target_models::<CurrentTask>()).unwrap());
+}
