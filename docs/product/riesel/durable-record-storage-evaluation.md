@@ -1,6 +1,6 @@
 # Stage 6 — Durable Record Storage: candidate evaluation
 
-**Research date:** 2026-11-19. **Status:** evidence review and conditional recommendation; **not an accepted architecture decision**. Investigation: [Issue #24](https://github.com/aschenrot/riesel/issues/24). Method and acceptance boundaries: [research brief](durable-record-storage-research.md).
+**Research date:** 2026-11-19. **Status:** historical conditional recommendation, **superseded as a decision state** by accepted [SQLite-first architecture](durable-record-storage-architecture-proposal.md) and closed [Issue #24](https://github.com/aschenrot/riesel/issues/24). This document retains the original options and evidence limits; it is not itself an architecture acceptance. Research method: [brief](durable-record-storage-research.md).
 
 ## Decision context and evidence limits
 
@@ -81,8 +81,8 @@ Primary evidence: [SQLite SQL UPDATE](https://www.sqlite.org/lang_update.html), 
 - Review the minimal fallible startup change separately against Riesel's local and managed lifecycle.
 - If either candidate fails a hard requirement, re-open the relevant screened candidates rather than forcing a weak selection.
 
-## Gate B: architecture decision pending
+## Historical Gate B — subsequently accepted
 
-This evaluation **does not complete** [Issue #24](https://github.com/aschenrot/riesel/issues/24) and does not authorize implementation Issues. Gate B needs the explicit decisions above, evidence resolving any decision-critical unknowns, accepted testable guarantees, and maintainer acceptance or documented deferral in a separate reviewed architecture change.
+**At the date of this evaluation**, these results alone did not complete [Issue #24](https://github.com/aschenrot/riesel/issues/24) or authorize implementation. The subsequent owner decision accepted the bounded SQLite-first contract in [the authoritative architecture](durable-record-storage-architecture-proposal.md). The alternative-engine comparison remains historical evidence; it does not establish all-provider parity or production power-loss durability.
 
 No distributed replication, multi-user authorization, network filesystem sharing, implicit command retries, generic migration framework or cross-platform production claim is implied.
