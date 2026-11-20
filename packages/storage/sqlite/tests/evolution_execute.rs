@@ -627,7 +627,6 @@ fn deliberate_field_rename_is_a_typed_transform_not_an_inferred_upgrade() {
     );
 }
 
-
 fn persisted_definitions(path: &Path) -> Vec<(String, Vec<u8>)> {
     let conn = Connection::open(path).unwrap();
     let mut statement = conn
@@ -800,9 +799,7 @@ fn oversized_typed_result_and_insufficient_source_budgets_preserve_original_data
             ..budget()
         },
     ] {
-        assert!(
-            SqliteMaintenance::open_existing(&db, source_models(), insufficient).is_err()
-        );
+        assert!(SqliteMaintenance::open_existing(&db, source_models(), insufficient).is_err());
         assert_eq!(rows(&db), before);
         assert_eq!(persisted_definitions(&db), definitions);
     }
