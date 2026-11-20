@@ -2,7 +2,7 @@
 
 **Status:** research only; no accepted new CLI, implementation authorization or release claim.  
 **Issue:** [#68](https://github.com/aschenrot/riesel/issues/68) · **Reviewed:** 2026-11-20 · **Base:** `main` at `70e751c8`.  
-The Issue owns the requested outcome and acceptance checklist. This document records comparative evidence and a proposed decision under the [delivery workflow](../../project/delivery.md).
+The Issue owns the requested outcome and acceptance checklist. This document records comparative evidence and a proposed decision under the [delivery workflow](../../project/delivery.md). Shared application identity, readiness, inspection and launch semantics are investigated in [#75](https://github.com/aschenrot/riesel/issues/75) / [operational boundary research](application-operational-boundary-investigation.md), without preapproving a new daemon, export API or manifest.
 
 ## 1. Verified baseline
 
@@ -29,7 +29,7 @@ Headless Hello/Counter and application binaries must retain ordinary `cargo run`
 
 ## 3. Alternatives using common criteria
 
-Criteria: the proposed cross-project user outcome, reuse of SDK/Cargo semantics, first-run and repeated-use friction, foreseeable app/UI variants, configuration/discovery, maintenance and migration cost, reversibility, persistent data, startup/stop failure semantics and security. Compare all candidates against the **same** product scope; distinguish current repo convenience from platform capability.
+Criteria: the proposed cross-project user outcome, reuse of SDK/Cargo semantics, first-run and repeated-use friction, foreseeable app/UI variants, configuration/discovery, operational identity/readiness semantics, maintenance and migration cost, reversibility, persistent data, startup/stop failure semantics and security. Compare all candidates against the **same** product scope; distinguish current repo convenience from platform capability.
 
 | Candidate | Benefit | Main drawback or unknown | Assessment |
 | --- | --- | --- | --- |
@@ -67,15 +67,23 @@ Do not introduce a new JSON deployment manifest, second process registry or GUI 
 | Failure safety | Invalid DB/asset path, missing npm, invalid command, bad/oversized readiness, early backend exit and startup timeout produce actionable errors with no silently orphaned owned process |
 | Foreground lifecycle | Ctrl-C and normal exit stop and reap the owned child; abnormal helper death is distinguished from controlled shutdown; no claim of universal descendant cleanup |
 | Browser/security | `--no-open` works without a graphical environment; browser-open failure is nonfatal; existing Host/Origin/Fetch Metadata rejection tests remain green |
-| Cross-project portability | An independent Cargo workspace with a small headless Riesel app can build, inspect and start using the proposed supported workflow, without copying Riesel-repository scripts; compare authoring/configuration boilerplate with Todo |\n| Evolution | Document how another frontend type, app workspace and future Manager could use the same canonical app semantics without a second schema/runtime; identify what must change to add them |\n| Isolation | Headless examples still work with normal Cargo; existing Todo unit, HTTP and Playwright tests use isolated stores and remain independent |
+| Cross-project portability | An independent Cargo workspace with a small headless Riesel app can build, inspect and start using the proposed supported workflow, without copying Riesel-repository scripts; compare authoring/configuration boilerplate with Todo |
+| Evolution | Document how another frontend type, app workspace and future Manager could reuse coherent app identity, readiness and interface semantics without a second schema/runtime; identify what must change to add them |
+| Isolation | Headless examples still work with normal Cargo; existing Todo unit, HTTP and Playwright tests use isolated stores and remain independent |
 | CI | Linux `cargo validate --check`, `cargo smoke`, focused launcher tests and real Todo browser E2E on the exact change; Windows manual pre-release validation |
 
 A **future focused test** can borrow the E2E runner's *readiness parsing and child cleanup technique*, not its temporary-data default. There is **no claimed running launcher or passing implementation test** in this research PR.
 
+### Long-term coordination boundary
+
+A developer CLI that starts an application must **not** become a second provider resolver or authoritative application-session owner. Reuse current SDK definitions and runtime preflight. Distinguish the build tool's *process launch attempt*, the app runtime's *session generation*, the provider readiness handshake and any app-owned *public interface readiness*. This same distinction matters for Manager and native GUI but does not require the developer to install or start those products.
+
+An independent project should not copy the Riesel repository's `xtask`. Compare a thin CLI/Cargo integration, a standardized SDK-authored description and a small transport-neutral operational boundary with their **real authoring costs in both Todo and another independent application**. A shared boundary is only justified if it avoids future duplicated identity/readiness/authorization behavior or costly migration; a universal discovery daemon or new application manifest is not assumed.
+
 ## 6. Recommendation at the specification gate
 
-**Recommended Gate B direction: first decide whether Riesel should support a coherent cross-project developer workflow, then choose the smallest architecture that meets that outcome.** The most relevant technical candidates are a thin reusable CLI/Cargo integration and SDK-supported launch metadata, potentially implemented together; repository `xtask` is a narrower fallback or reference, not the selected platform design. The owner must explicitly **accept / revise / defer / reject** the scope and mechanism on [#68](https://github.com/aschenrot/riesel/issues/68). A second application is a **validation case**, not a prerequisite for recognizing the proposed platform need.
+**Recommended Gate B direction: first decide whether Riesel should support a coherent cross-project developer workflow, then select a reusable, evolvable architecture against its full long-term outcome, allowing greater initial investment when justified.** The most relevant technical candidates are a thin reusable CLI/Cargo integration and SDK-supported launch metadata, potentially implemented together; repository `xtask` is a narrower fallback or reference, not the selected platform design. The owner must explicitly **accept / revise / defer / reject** the scope and mechanism on [#68](https://github.com/aschenrot/riesel/issues/68). A second application is a **validation case**, not a prerequisite for recognizing the proposed platform need.
 
-Before implementation authorization, decide what operations are genuinely shared across projects, who owns builds vs application execution, canonical discovery and readiness semantics, setup/data-root policy, browser-opening and platform-specific shutdown guarantees. Avoid locking CLI spelling or manifests unless they affect compatibility. If an incremental Todo-only launcher is delivered first, identify it explicitly as an **interim** integration rather than fulfillment of cross-project tooling.
+Before implementation authorization, decide what operations are genuinely shared across projects, who owns builds vs application execution, canonical discovery and readiness semantics, setup/data-root policy, browser-opening and platform-specific shutdown guarantees. Explicitly reuse or reconcile the cross-product distinctions under [#75](https://github.com/aschenrot/riesel/issues/75) rather than creating a CLI-specific application identity or readiness signal. Avoid locking CLI spelling or manifests unless they affect compatibility. If an incremental Todo-only launcher is delivered first, identify it explicitly as an **interim** integration rather than fulfillment of cross-project tooling.
 
-Only after acceptance: update applicable product/architecture contracts, create a single independently verifiable implementation Issue, test in a coherent PR and adjust the roadmap *only if an accepted stage changes*. Leave #59/#60 independent and do not create a milestone merely to schedule a helper.
+Only after acceptance: update applicable product/architecture contracts, create independently verifiable implementation Issues only where boundaries require them, test in coherent PRs and adjust the roadmap *only if an accepted stage changes*. Manager #59 and native host #60 remain separate product decisions; link to #75 only for genuinely shared semantic invariants, not as a blanket prerequisite.
