@@ -540,3 +540,161 @@ fn unexpected_other_model_schema_aborts_candidate_before_writes() {
     );
     assert_eq!(snapshot(&db), before);
 }
+
+/// Real separate-process regression: a provider opened before a metadata
+/// upgrade can still create a record using its cached old model schema.
+/// This is a deliberately *passing demonstration of an unsafe condition*,
+/// not a migration facility or a test of an accepted owner-fencing protocol.
+#[test]
+fn stale_cross_process_provider_can_insert_incompatible_json_after_upgrade() {
+    const DB: &str = "RIESEL_MIGRATION_STALE_PROVIDER_DB";
+    const READY: &str = "RIESEL_MIGRATION_STALE_PROVIDER_READY";
+    const GO: &str = "RIESEL_MIGRATION_STALE_PROVIDER_GO";
+    const RESULT: &str = "RIESEL_MIGRATION_STALE_PROVIDER_RESULT";
+
+    fn wait_for(path: &Path) {
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(10);
+        while !path.exists() {
+            assert!(
+                std::time::Instant::now() < deadline,
+                "timed out waiting for {}",
+                path.display()
+            );
+            std::thread::sleep(std::time::Duration::from_millis(10));
+        }
+    }
+
+    if let Some(path) = std::env::var_os(DB) {
+        let provider = SqliteStore::open(path, models_v1()).unwrap();
+        let ready = std::env::var_os(READY).unwrap();
+        let go = std::env::var_os(GO).unwrap();
+        let result = std::env::var_os(RESULT).unwrap();
+        std::fs::write(ready, b"provider opened under source schema").unwrap();
+        wait_for(Path::new(&go));
+        let stale = provider
+            .create(
+                "task",
+                json!({"title":"stale owner wrote after migration","completed":false}),
+            )
+            .unwrap();
+        std::fs::write(result, stale.id.to_string()).unwrap();
+        return;
+    }
+
+    let (dir, first, _, _) = fixture();
+    let db = dir.path().join("records.db");
+    let ready = dir.path().join("provider.ready");
+    let go = dir.path().join("provider.go");
+    let result = dir.path().join("provider.result");
+    let mut child = Command::new(std::env::current_exe().unwrap())
+        .args([
+            "--exact",
+            "stale_cross_process_provider_can_insert_incompatible_json_after_upgrade",
+            "--nocapture",
+        ])
+        .env(DB, &db)
+        .env(READY, &ready)
+        .env(GO, &go)
+        .env(RESULT, &result)
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::piped())
+        .spawn()
+        .unwrap();
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(10);
+    while !ready.exists() {
+        if std::time::Instant::now() >= deadline {
+            let _ = child.kill();
+            let _ = child.wait();
+            panic!("stale child did not open the pre-migration model");
+        }
+        std::thread::sleep(std::time::Duration::from_millis(10));
+    }
+    trial_transactional_upgrade(&db, TestTransformation::AddPriority).unwrap();
+    std::fs::write(&go, b"upgrade committed").unwrap();
+    let outcome = child.wait_with_output().unwrap();
+    assert!(
+        outcome.status.success(),
+        "stale provider child failed: {}",
+        String::from_utf8_lossy(&outcome.stderr)
+    );
+    let stale_id = Uuid::parse_str(std::fs::read_to_string(&result).unwrap().trim()).unwrap();
+    let current = SqliteStore::open(&db, models_v2()).unwrap();
+    assert_eq!(
+        current.get("task", first).unwrap().unwrap().data["priority"],
+        0
+    );
+    assert!(
+        matches!(current.get("task", stale_id), Err(StoreError::Failed(_))),
+        "stale cached schema inserted a record that the new model cannot decode"
+    );
+}
+
+/// A transaction-local source-model equality check is an alternative *write
+/// fence*, but this probe is not integrated with the shipped RecordStore API.
+#[test]
+fn transactional_model_guard_rejects_stale_write_without_mutating_records() {
+    let (dir, _, _, _) = fixture();
+    let db = dir.path().join("records.db");
+    trial_transactional_upgrade(&db, TestTransformation::AddPriority).unwrap();
+    let before = snapshot(&db);
+    let mut conn = Connection::open(&db).unwrap();
+    let tx = conn
+        .transaction_with_behavior(TransactionBehavior::Immediate)
+        .unwrap();
+    for (name, definition) in models_v1() {
+        let bytes: Vec<u8> = tx
+            .query_row(
+                "SELECT definition FROM models WHERE name=?1",
+                params![name],
+                |row| row.get(0),
+            )
+            .unwrap();
+        if bytes != serde_json::to_vec(&definition).unwrap() {
+            drop(tx);
+            assert_eq!(
+                snapshot(&db),
+                before,
+                "stale writes must not modify anything"
+            );
+            assert!(SqliteStore::open(&db, models_v2()).is_ok());
+            return;
+        }
+    }
+    panic!("old schema passed an atomic check after model metadata changed");
+}
+
+#[test]
+fn offline_snapshot_restores_legacy_data_without_downgrading_in_place() {
+    let (dir, first, _, note) = fixture();
+    let db = dir.path().join("records.db");
+    let backup = dir.path().join("backup-v1.db");
+    let recovered = dir.path().join("restored-v1.db");
+    let original = snapshot(&db);
+    let conn = Connection::open(&db).unwrap();
+    conn.execute("VACUUM INTO ?1", params![backup.to_string_lossy().as_ref()])
+        .unwrap();
+    drop(conn);
+    assert!(backup.exists());
+    let integrity: String = Connection::open(&backup)
+        .unwrap()
+        .pragma_query_value(None, "integrity_check", |row| row.get(0))
+        .unwrap();
+    assert_eq!(integrity, "ok");
+
+    trial_transactional_upgrade(&db, TestTransformation::AddPriority).unwrap();
+    assert!(SqliteStore::open(&db, models_v1()).is_err());
+    assert!(SqliteStore::open(&db, models_v2()).is_ok());
+
+    // This is an independent restore from a completed SQLite snapshot,
+    // never a copy of a live WAL main database and never an in-place downgrade.
+    std::fs::copy(&backup, &recovered).unwrap();
+    let old = SqliteStore::open(&recovered, models_v1()).unwrap();
+    assert_eq!(old.get("task", first).unwrap().unwrap().revision, 2);
+    assert_eq!(
+        old.get("note", note).unwrap().unwrap().data["task_id"],
+        first.to_string()
+    );
+    drop(old);
+    assert_eq!(snapshot(&recovered), original);
+    assert!(SqliteStore::open(&recovered, models_v2()).is_err());
+}
