@@ -647,7 +647,8 @@ fn corrupted_persisted_schema_or_record_refuses_maintenance_before_backup() {
         let raw = Connection::open(&db).unwrap();
         // A corrupt historical file can bypass SQLite CHECK enforcement.
         // Do so only in this isolated fixture to exercise offline validation.
-        raw.execute_batch("PRAGMA ignore_check_constraints=ON;").unwrap();
+        raw.execute_batch("PRAGMA ignore_check_constraints=ON;")
+            .unwrap();
         match corruption {
             Corruption::ModelDefinition => {
                 raw.execute(
@@ -756,8 +757,7 @@ fn target_json_ceiling_refuses_after_verified_backup_without_migration() {
         ..limits()
     };
     let retained = dir.path().join("retained.db");
-    let maintenance =
-        SqliteMaintenance::open_existing(&db, source_models(), strict).unwrap();
+    let maintenance = SqliteMaintenance::open_existing(&db, source_models(), strict).unwrap();
     let err = maintenance
         .execute_evolution(
             &plan(),
