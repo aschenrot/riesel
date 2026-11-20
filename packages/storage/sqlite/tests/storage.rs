@@ -302,7 +302,11 @@ fn two_model_registrations() -> BTreeMap<String, ModelDefinition> {
     definitions
 }
 
-fn raw_revision_and_data(conn: &rusqlite::Connection, model: &str, id: uuid::Uuid) -> (Vec<u8>, Vec<u8>) {
+fn raw_revision_and_data(
+    conn: &rusqlite::Connection,
+    model: &str,
+    id: uuid::Uuid,
+) -> (Vec<u8>, Vec<u8>) {
     conn.query_row(
         "SELECT revision,data FROM records WHERE model=?1 AND id=?2",
         rusqlite::params![model, id.as_bytes()],
