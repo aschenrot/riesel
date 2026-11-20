@@ -293,7 +293,10 @@ fn sqlite_failure_after_first_update_rolls_back_all_rows_and_metadata() {
         .map(|row| row.1)
         .max()
         .unwrap();
-    let reject_id: String = last_task_id.iter().map(|byte| format!("{byte:02X}")).collect();
+    let reject_id: String = last_task_id
+        .iter()
+        .map(|byte| format!("{byte:02X}"))
+        .collect();
     let conn = Connection::open(&db).unwrap();
     conn.execute_batch(&format!(
         "CREATE TRIGGER reject_evolution BEFORE UPDATE ON records
@@ -379,14 +382,16 @@ fn max_revision_refuses_evolution_before_transaction_writes_and_keeps_snapshot()
     let before = rows(&db);
     let saved = dir.path().join("overflow-backup.db");
     let maintenance = SqliteMaintenance::open_existing(&db, source_models(), budget()).unwrap();
-    assert!(maintenance
-        .execute_evolution(
-            &plan(),
-            &saved,
-            limits(),
-            EvolutionAuthorization::ExecuteWithVerifiedBackup,
-        )
-        .is_err());
+    assert!(
+        maintenance
+            .execute_evolution(
+                &plan(),
+                &saved,
+                limits(),
+                EvolutionAuthorization::ExecuteWithVerifiedBackup,
+            )
+            .is_err()
+    );
     assert_eq!(rows(&db), before);
     assert_eq!(rows(&saved), before);
     let old = SqliteStore::open(&db, source_models()).unwrap();
