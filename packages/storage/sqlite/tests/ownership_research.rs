@@ -41,10 +41,7 @@ fn cooperating_cross_process_file_lock_blocks_until_owner_releases() {
     let primary = open_lock(&path);
     primary.try_lock().unwrap();
 
-    for expect_free in [false, true] {
-        if expect_free {
-            drop(primary);
-        }
+    let observe = |expect_free: bool| {
         let mut cmd = Command::new(std::env::current_exe().unwrap());
         cmd.args([
             "--exact",
@@ -60,7 +57,10 @@ fn cooperating_cross_process_file_lock_blocks_until_owner_releases() {
             "lock observation failed (expect_free={expect_free}): {}",
             String::from_utf8_lossy(&result.stderr)
         );
-    }
+    };
+    observe(false);
+    drop(primary);
+    observe(true);
 }
 
 /// On Unix a renamed/unlinked lockfile retains its old inode and lock.
