@@ -15,6 +15,7 @@ impl Deadline {
         if budget.max_records == 0
             || budget.max_json_bytes == 0
             || budget.max_snapshot_bytes == 0
+            || budget.max_sidecar_bytes == 0
             || budget.max_elapsed.is_zero()
         {
             return Err(denied("all snapshot budgets must be positive"));

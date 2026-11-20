@@ -3,7 +3,7 @@
 //! Restoration has a distinct, explicitly authorized entrypoint; migration
 //! execution remains a separate Stage 6 delivery gate.
 use crate::{
-    capacity::require_headroom,
+    capacity::{check_sidecars, require_headroom},
     database::{FORMAT_VERSION, failed, verify_models},
     deadline::Deadline,
     owner::OwnerGuard,
@@ -33,6 +33,8 @@ pub struct SnapshotBudget {
     pub max_records: u64,
     pub max_json_bytes: u64,
     pub max_snapshot_bytes: u64,
+    /// Maximum combined physical size of the database's -wal and -shm files.
+    pub max_sidecar_bytes: u64,
     /// Per-operation cooperative elapsed-time budget.
     pub max_elapsed: std::time::Duration,
 }
@@ -240,6 +242,7 @@ impl SqliteMaintenance {
     ) -> Result<Self, StoreError> {
         let deadline = Deadline::start(budget)?;
         let mut owner = OwnerGuard::acquire(path.as_ref())?;
+        check_sidecars(owner.database_path(), budget)?;
         if fs::metadata(owner.database_path()).map_err(failed)?.len() > budget.max_snapshot_bytes {
             return Err(denied(
                 "source database exceeds the declared snapshot byte ceiling",
@@ -276,6 +279,7 @@ impl SqliteMaintenance {
     ) -> Result<VerifiedSnapshot, StoreError> {
         deadline.check()?;
         self.owner.verify()?;
+        check_sidecars(self.owner.database_path(), budget)?;
         let output = output_path(destination.as_ref(), self.owner.database_path())?;
         require_headroom(
             output
@@ -314,6 +318,7 @@ impl SqliteMaintenance {
             return Err(denied("snapshot audit differs from source"));
         }
         compare_records(&source, &copied, deadline)?;
+        check_sidecars(self.owner.database_path(), budget)?;
         let file_bytes = fs::metadata(&pending).map_err(failed)?.len();
         if file_bytes > budget.max_snapshot_bytes {
             return Err(denied("snapshot file byte budget exceeded"));

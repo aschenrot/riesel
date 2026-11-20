@@ -31,6 +31,7 @@ fn budget() -> SnapshotBudget {
         max_records: 10,
         max_json_bytes: 65_536,
         max_snapshot_bytes: 1_048_576,
+        max_sidecar_bytes: 1_048_576,
         max_elapsed: Duration::from_secs(30),
     }
 }
@@ -360,6 +361,7 @@ fn restore_rejects_invalid_budget_before_copying_any_pages() {
         max_records: 1,
         max_json_bytes: 65_536,
         max_snapshot_bytes: 1_048_576,
+        max_sidecar_bytes: 1_048_576,
         max_elapsed: Duration::from_secs(30),
     };
     assert!(matches!(

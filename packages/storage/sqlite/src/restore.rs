@@ -3,7 +3,7 @@
 //! The caller must explicitly acknowledge loss of writes made after the source
 //! snapshot. Corrupt destination repair and power-loss durability are excluded.
 use crate::{
-    capacity::require_headroom,
+    capacity::{check_sidecars, require_headroom},
     database::failed,
     deadline::Deadline,
     maintenance::{
@@ -71,6 +71,8 @@ impl SqliteMaintenance {
         {
             return Err(denied("restoration snapshot exceeds the byte ceiling"));
         }
+        check_sidecars(source_owner.database_path(), budget)?;
+        check_sidecars(self.owner.database_path(), budget)?;
         source_owner.opened()?;
         let mut source = Connection::open_with_flags(
             source_owner.database_path(),
@@ -114,6 +116,8 @@ impl SqliteMaintenance {
 
         self.owner.verify()?;
         source_owner.verify()?;
+        check_sidecars(source_owner.database_path(), budget)?;
+        check_sidecars(self.owner.database_path(), budget)?;
         deadline.check()?;
         target = Connection::open_with_flags(
             self.owner.database_path(),
@@ -151,6 +155,7 @@ impl SqliteMaintenance {
             ));
         }
         compare_records(&source, &target, deadline)?;
+        check_sidecars(self.owner.database_path(), budget)?;
         self.owner.verify()?;
         source_owner.verify()?;
 
