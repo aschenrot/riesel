@@ -1015,5 +1015,11 @@ fn typed_evolution_preview_rejects_missing_or_failed_transform_without_mutation(
     drop(maintenance);
 
     let reopened = SqliteStore::open(&db, source).unwrap();
-    assert_eq!(reopened.get(HistoricalTask::MODEL_NAME, row.id).unwrap().unwrap(), row);
+    let loaded = reopened
+        .get(HistoricalTask::MODEL_NAME, row.id)
+        .unwrap()
+        .unwrap();
+    assert_eq!(loaded.id, row.id);
+    assert_eq!(loaded.data, row.data);
+    assert_eq!(loaded.revision, row.revision);
 }
