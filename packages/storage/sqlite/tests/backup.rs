@@ -483,7 +483,17 @@ fn maintenance_rejects_symlinked_or_hardlinked_wal_sidecars() {
     let mut wal_name = db.as_os_str().to_owned();
     wal_name.push("-wal");
     let wal = std::path::PathBuf::from(wal_name);
-    assert!(!wal.exists(), "closed SQLite WAL should be checkpointed");
+
+    // SQLite may retain a WAL file after the last provider closes. Switch
+    // the isolated fixture to DELETE journaling, which checkpoints and
+    // removes it, before intentionally placing synthetic unsafe sidecars.
+    let conn = Connection::open(&db).unwrap();
+    let journal: String = conn
+        .query_row("PRAGMA journal_mode=DELETE", [], |row| row.get(0))
+        .unwrap();
+    assert_eq!(journal.to_ascii_lowercase(), "delete");
+    drop(conn);
+    assert!(!wal.exists(), "DELETE journal mode must remove the fixture WAL");
 
     let outside = dir.path().join("elsewhere");
     std::fs::write(&outside, b"unrelated data").unwrap();
