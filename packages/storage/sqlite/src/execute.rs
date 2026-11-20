@@ -8,6 +8,7 @@ use crate::{
     maintenance::{
         SnapshotBudget, SqliteMaintenance, VerifiedSnapshot, audit, compare_records, denied,
     },
+    owner::OwnerGuard,
     records::MAX_RECORD_BYTES,
 };
 use riesel_storage::StoreError;
@@ -241,6 +242,10 @@ impl SqliteMaintenance {
         // file. It is independently verified before any mutation is attempted.
         let retained_backup =
             self.backup_to_with_deadline(backup_destination, limits.snapshot, deadline)?;
+        // Keep the verified archive unavailable to other cooperating providers
+        // while it is the authority for source drift and revision comparison.
+        let mut snapshot_owner = OwnerGuard::acquire(&retained_backup.path)?;
+        snapshot_owner.opened()?;
         deadline.check()?;
         let mut source =
             Connection::open_with_flags(&retained_backup.path, OpenFlags::SQLITE_OPEN_READ_ONLY)
@@ -325,6 +330,7 @@ impl SqliteMaintenance {
         check_logical_size(&tx, limits.snapshot)?;
         check_sidecars(self.owner.database_path(), limits.snapshot)?;
         self.owner.verify()?;
+        snapshot_owner.verify()?;
         deadline.check()?;
 
         // SQLite commits the record and metadata changes together. Errors
@@ -337,6 +343,7 @@ impl SqliteMaintenance {
             ));
         }
         self.owner.verify()?;
+        snapshot_owner.verify()?;
         deadline.check()?;
         Ok(EvolutionReceipt {
             retained_backup,
