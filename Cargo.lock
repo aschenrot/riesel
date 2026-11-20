@@ -553,6 +553,7 @@ dependencies = [
 name = "riesel_storage_sqlite"
 version = "0.1.0"
 dependencies = [
+ "libc",
  "riesel_app",
  "riesel_schema",
  "riesel_storage",
@@ -561,6 +562,7 @@ dependencies = [
  "serde_json",
  "tempfile",
  "uuid",
+ "windows-sys",
 ]
 
 [[package]]

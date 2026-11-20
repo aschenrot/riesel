@@ -3,6 +3,7 @@
 //! The caller must explicitly acknowledge loss of writes made after the source
 //! snapshot. Corrupt destination repair and power-loss durability are excluded.
 use crate::{
+    capacity::require_headroom,
     database::failed,
     maintenance::{
         SnapshotBudget, SqliteMaintenance, VerifiedSnapshot, audit, compare_records, denied,
@@ -89,6 +90,16 @@ impl SqliteMaintenance {
         if !journal.eq_ignore_ascii_case("wal") {
             return Err(denied("restoration requires a WAL-mode destination"));
         }
+
+        // Reserve space on the destination filesystem for the SQLite restore
+        // WAL as well as separately checking the retention filesystem.
+        require_headroom(
+            self.owner
+                .database_path()
+                .parent()
+                .ok_or_else(|| denied("missing restoration target parent"))?,
+            budget.max_snapshot_bytes,
+        )?;
 
         // An explicit retained copy of the *current* state precedes mutation.
         // This uses VACUUM INTO and refuses an occupied destination.

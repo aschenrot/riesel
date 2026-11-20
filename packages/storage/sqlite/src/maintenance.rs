@@ -3,6 +3,7 @@
 //! Restoration has a distinct, explicitly authorized entrypoint; migration
 //! execution remains a separate Stage 6 delivery gate.
 use crate::{
+    capacity::require_headroom,
     database::{FORMAT_VERSION, failed, verify_models},
     owner::OwnerGuard,
     records::MAX_RECORD_BYTES,
@@ -248,6 +249,12 @@ impl SqliteMaintenance {
     ) -> Result<VerifiedSnapshot, StoreError> {
         self.owner.verify()?;
         let output = output_path(destination.as_ref(), self.owner.database_path())?;
+        require_headroom(
+            output
+                .parent()
+                .ok_or_else(|| denied("missing backup parent"))?,
+            budget.max_snapshot_bytes,
+        )?;
         let source = Connection::open_with_flags(
             self.owner.database_path(),
             OpenFlags::SQLITE_OPEN_READ_ONLY,

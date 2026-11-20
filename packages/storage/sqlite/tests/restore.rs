@@ -318,3 +318,31 @@ fn restore_rejects_invalid_budget_before_copying_any_pages() {
     assert_eq!(rows(&db), before);
     assert!(!retained.exists());
 }
+
+#[test]
+fn impossible_restore_capacity_refuses_before_retention_or_mutation() {
+    let dir = tempfile::tempdir().unwrap();
+    let db = dir.path().join("records.db");
+    fixture(&db);
+    let historical = dir.path().join("historical.db");
+    snapshot(&db, &historical);
+    let before = rows(&db);
+    let retained = dir.path().join("should-not-be-created.db");
+    let maintenance = SqliteMaintenance::open_existing(&db, models_v1(), budget()).unwrap();
+    let impossible = SnapshotBudget {
+        max_snapshot_bytes: u64::MAX,
+        ..budget()
+    };
+    assert!(matches!(
+        maintenance.restore_from_backup(
+            &historical,
+            models_v1(),
+            &retained,
+            impossible,
+            RestoreAuthorization::DiscardPostSnapshotWrites,
+        ),
+        Err(StoreError::Failed(_))
+    ));
+    assert_eq!(rows(&db), before);
+    assert!(!retained.exists());
+}

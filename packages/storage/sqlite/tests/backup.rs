@@ -242,3 +242,30 @@ fn missing_or_overbudget_source_does_not_create_a_backup_database() {
     assert_eq!(rows(&db), before);
     assert!(!dir.path().join("not-created.db").exists());
 }
+
+#[test]
+fn impossible_capacity_reserve_refuses_backup_before_creating_a_pending_file() {
+    let dir = tempfile::tempdir().unwrap();
+    let db = dir.path().join("source.db");
+    fixture(&db);
+    let before = rows(&db);
+    let maintenance = SqliteMaintenance::open_existing(&db, models(), budget()).unwrap();
+    let backup = dir.path().join("insufficient-capacity.db");
+    let impossible = SnapshotBudget {
+        max_snapshot_bytes: u64::MAX,
+        ..budget()
+    };
+    assert!(matches!(
+        maintenance.backup_to(&backup, impossible),
+        Err(StoreError::Failed(_))
+    ));
+    assert!(!backup.exists());
+    assert_eq!(rows(&db), before);
+    assert!(std::fs::read_dir(dir.path()).unwrap().all(|entry| {
+        !entry
+            .unwrap()
+            .file_name()
+            .to_string_lossy()
+            .contains("riesel-pending")
+    }));
+}
