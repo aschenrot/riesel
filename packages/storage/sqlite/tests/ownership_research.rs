@@ -26,9 +26,9 @@ fn cooperating_cross_process_file_lock_blocks_until_owner_releases() {
         let expect_free = std::env::var_os(EXPECT_FREE).is_some();
         match (expect_free, file.try_lock()) {
             (true, Ok(())) | (false, Err(std::fs::TryLockError::WouldBlock)) => {}
-            (expected, observed) => panic!(
-                "cooperating process expected free={expected}, observed {observed:?}"
-            ),
+            (expected, observed) => {
+                panic!("cooperating process expected free={expected}, observed {observed:?}")
+            }
         }
         return;
     }
