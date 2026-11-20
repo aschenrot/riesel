@@ -557,6 +557,7 @@ dependencies = [
  "riesel_schema",
  "riesel_storage",
  "rusqlite",
+ "serde",
  "serde_json",
  "tempfile",
  "uuid",
