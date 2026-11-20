@@ -58,13 +58,27 @@ Lock-file naming and path resolution require explicit design: canonicalize the p
 
 **No architecture is accepted by this proposal.** The final Gate B decision must explicitly accept/revise/reject the policy and name the accountable maintainer before opening implementation issues.
 
+## Typed authoring and backup preflight — targeted research
+
+The [historical/current model test](../../../crates/riesel/src/application/tests.rs) compiles two Rust structs deriving `RieselModel` with the **same persistent model identity** but different Rust types and structural definitions. It demonstrates a developer-written typed `HistoricalTask -> EvolvedTask` conversion, source/target record validation, and rejection if both shapes are registered as live models in a single `Application`. This is an *authoring feasibility test*, **not** a migration registration API, durable upgrade or guarantee of stable business semantics. A historical model type would be held outside normal app registration during an explicit offline maintenance step.
+
+The [backup research fixtures](../../../packages/storage/sqlite/tests/migration_research.rs) now also exercise refusing an occupied `VACUUM INTO` target and rejecting an intentionally invalid snapshot after a completed backup. Such tests establish limited preflight checks, **not** a complete restore/recovery protocol, correct OS-level syncing, or resilience to partial real disk failures.
+
+### Minimal Gate B decision to record
+
+**Recommendation to the accountable maintainer — not accepted by research alone:** accept only a **bounded, offline, explicitly authorized** first SQLite model-evolution scope, and *defer online and cross-version autonomous upgrades*. The contract should require historical and target `RieselModel` types with a deliberately authored transform, exact source/target model-set verification, validation of every affected record, conservative revision increments with overflow rejection, an independently verified backup *before* mutation, and a single bounded transaction. It must also require a tested owner/rollout policy that excludes **legacy binaries** and protects stable ownership identity; transaction-local write fencing already exists in participating new providers via PR #45 but cannot replace that policy. Reopening normal applications must not execute migrations.
+
+If owner exclusion, backup retention/restore, or the supported transaction resource envelope **cannot** be specified and tested for the initial delivery, **defer the migration engine entirely** and keep strict exact-schema startup. This is a decision boundary, not an implementation plan already authorized.
+
+**Remaining verification/acceptance work after any Gate B acceptance:** prove old-provider exclusion and restart prevention, define local-filesystem/path and lockfile integrity assumptions, prove one bounded maintenance operation's failure/recovery contract including disk capacity and interruption, and define source/target authoring error behavior without adding a second authoritative schema. Host power loss, malicious/uncooperative writers, unsupported filesystem behavior, online upgrades and Windows deployment remain outside current experimental evidence.
+
 ## Required decision-critical verification
 
 - [ ] Reproduce the stale provider write through **a separate running Rust process** using the current shipped store, after the test-only migration commits; demonstrate the new store fails to decode the resulting record.
 - [ ] Demonstrate a transaction-local schema check rejecting an old definition and preserving the database, and identify the migration needed to roll out this check.
 - [ ] Verify the standalone backup/recovery fixture preserves the old schema, UUIDs and revisions; distinguish this controlled copy from crash-safe in-place rollback.
 - [ ] Prove a cooperating lifetime-lock prototype on the pinned toolchain across processes: second owner cannot acquire while first lives; only after the first exits; a maintenance action must refuse active owners. Test aliases, lockfile replacement and startup errors before approving a concrete lock algorithm.
-- [ ] Test and document stable source/target schema identification and a minimal typed historical-model API without duplicating Rust schemas.
+- [ ] Test and document stable source/target schema identification and a minimal typed historical-model API without duplicating Rust schemas (test evidence to be recorded after CI).
 - [ ] Separate hard operational guarantees (power-loss behavior, disk-full, permissions, long-running migration resource budget, backups) from those actually tested. Test on Linux; Windows remains a manual pre-release gate.
 - [ ] Record an explicit Gate B **accept/revise/defer** verdict and any remaining exclusions in Issue #41. Only then create independently scoped implementation issues.
 

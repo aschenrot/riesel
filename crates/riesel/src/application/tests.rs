@@ -838,3 +838,74 @@ fn prepared_handler_can_use_explicit_sqlite_storage() {
         .unwrap();
     assert!(path.exists());
 }
+#[cfg(feature = "records")]
+#[derive(Debug, Clone, Serialize, Deserialize, RieselModel)]
+#[riesel(model = "historical_task")]
+struct HistoricalTask {
+    title: String,
+    completed: bool,
+}
+
+#[cfg(feature = "records")]
+#[derive(Debug, Clone, Serialize, Deserialize, RieselModel)]
+#[riesel(model = "historical_task")]
+struct EvolvedTask {
+    title: String,
+    completed: bool,
+    priority: i64,
+}
+
+#[cfg(feature = "records")]
+impl From<HistoricalTask> for EvolvedTask {
+    fn from(old: HistoricalTask) -> Self {
+        Self {
+            title: old.title,
+            completed: old.completed,
+            priority: 0,
+        }
+    }
+}
+
+/// Research-only typed-authoring proof for Stage 6 specification #41.
+/// It does not register a migration or update a database.
+#[cfg(feature = "records")]
+#[test]
+fn historical_rust_types_can_describe_explicit_transitions_without_duplicate_schemas() {
+    assert_eq!(HistoricalTask::MODEL_NAME, EvolvedTask::MODEL_NAME);
+    let source_schema = HistoricalTask::model_definition();
+    let target_schema = EvolvedTask::model_definition();
+    assert_ne!(source_schema, target_schema);
+    assert_ne!(
+        serde_json::to_vec(&source_schema).unwrap(),
+        serde_json::to_vec(&target_schema).unwrap()
+    );
+
+    let source_json = serde_json::json!({"title":"legacy","completed":false});
+    source_schema.validate_record(&source_json).unwrap();
+    assert!(target_schema.validate_record(&source_json).is_err());
+
+    // Historical Rust types remain separate from the current live app.
+    let old: HistoricalTask = serde_json::from_value(source_json).unwrap();
+    let evolved: EvolvedTask = old.into();
+    let target_json = serde_json::to_value(&evolved).unwrap();
+    target_schema.validate_record(&target_json).unwrap();
+    assert_eq!(target_json["title"], "legacy");
+    assert_eq!(target_json["priority"], 0);
+
+    // Riesel's existing builder prevents conflicting active registrations
+    // even though both Rust types share the persistent storage model name.
+    let duplicate = Application::new("InvalidActiveModels")
+        .records::<HistoricalTask>()
+        .unwrap()
+        .records::<EvolvedTask>()
+        .err()
+        .unwrap();
+    assert!(matches!(duplicate, SdkError::DuplicateModel(_)));
+
+    // A current application needs only the target Rust-derived model.
+    let active = Application::new("Current").records::<EvolvedTask>().unwrap();
+    assert_eq!(
+        active.definition().models["historical_task"],
+        EvolvedTask::model_definition()
+    );
+}
