@@ -17,14 +17,14 @@ body:
     id: scope
     attributes:
       label: Investigation scope and constraints
-      description: Specify accepted outcome, reuse boundary, realistic growth scenarios, relevant quality attributes and exclusions. Do not shrink a platform requirement to one example.
+      description: Specify the proposed product outcome, reuse boundary, credible future scenarios, quality attributes and exclusions. Do not shrink a platform requirement to one example or treat unaccepted scope as accepted.
     validations:
       required: true
   - type: textarea
     id: alternatives
     attributes:
       label: Research approach and alternatives (when needed)
-      description: Compare local patches, reuse of existing mechanisms and extensible shared designs where relevant. Consider long-term duplication/migration and speculative complexity symmetrically; use common criteria and a stopping rule.
+      description: Compare existing mechanisms and strategic shared foundations against the full outcome and credible growth. Higher upfront effort is acceptable when it reduces long-term duplication, migration or risk; challenge speculative abstractions too. Use common criteria and a stopping rule.
     validations:
       required: false
   - type: textarea
