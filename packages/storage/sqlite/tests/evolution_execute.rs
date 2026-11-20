@@ -835,7 +835,6 @@ fn oversized_typed_result_and_insufficient_source_budgets_preserve_original_data
     assert!(SqliteStore::open(&db, target_models::<CurrentTask>()).is_err());
 }
 
-
 #[derive(Serialize)]
 struct InvalidSerializedTarget {
     title: String,
