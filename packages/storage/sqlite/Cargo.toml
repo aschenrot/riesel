@@ -9,7 +9,7 @@ repository.workspace = true
 riesel_storage.workspace = true
 riesel_schema.workspace = true
 riesel_app.workspace = true
-rusqlite = { version = "=0.43.0", features = ["bundled"] }
+rusqlite = { version = "=0.43.0", features = ["bundled", "backup"] }
 serde_json.workspace = true
 uuid.workspace = true
 
