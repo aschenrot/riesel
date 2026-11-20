@@ -56,9 +56,13 @@ impl SqliteMaintenance {
         // against a second supported provider modifying the verified snapshot.
         let mut source_owner = OwnerGuard::acquire(source_snapshot.as_ref())?;
         if source_owner.database_path() == self.owner.database_path() {
-            return Err(denied("restoration snapshot must not be the target database"));
+            return Err(denied(
+                "restoration snapshot must not be the target database",
+            ));
         }
-        if fs::metadata(source_owner.database_path()).map_err(failed)?.len()
+        if fs::metadata(source_owner.database_path())
+            .map_err(failed)?
+            .len()
             > budget.max_snapshot_bytes
         {
             return Err(denied("restoration snapshot exceeds the byte ceiling"));
@@ -115,13 +119,17 @@ impl SqliteMaintenance {
 
         let after = audit(&target, &snapshot_models, budget)?;
         if after != verified {
-            return Err(denied("restored content does not match the verified snapshot"));
+            return Err(denied(
+                "restored content does not match the verified snapshot",
+            ));
         }
         compare_records(&source, &target)?;
         self.owner.verify()?;
         source_owner.verify()?;
 
-        let restored_size = fs::metadata(self.owner.database_path()).map_err(failed)?.len();
+        let restored_size = fs::metadata(self.owner.database_path())
+            .map_err(failed)?
+            .len();
         if restored_size > budget.max_snapshot_bytes {
             return Err(denied("restored database exceeds the byte ceiling"));
         }

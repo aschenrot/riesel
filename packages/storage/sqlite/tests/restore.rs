@@ -1,8 +1,6 @@
 use riesel_schema::{ModelDefinition, TypeRef};
 use riesel_storage::{RecordStore, StoreError};
-use riesel_storage_sqlite::{
-    RestoreAuthorization, SnapshotBudget, SqliteMaintenance, SqliteStore,
-};
+use riesel_storage_sqlite::{RestoreAuthorization, SnapshotBudget, SqliteMaintenance, SqliteStore};
 use rusqlite::{Connection, OpenFlags};
 use serde_json::json;
 use std::{collections::BTreeMap, path::Path};
@@ -76,7 +74,12 @@ fn deliberate_restore_discards_later_writes_and_retains_current_state() {
     store.create("task", json!({"title":"newer"})).unwrap();
     let first = store.get("task", original_id).unwrap().unwrap();
     store
-        .update("task", original_id, first.revision, json!({"title":"changed"}))
+        .update(
+            "task",
+            original_id,
+            first.revision,
+            json!({"title":"changed"}),
+        )
         .unwrap();
     drop(store);
     let newer = rows(&db);
@@ -100,7 +103,10 @@ fn deliberate_restore_discards_later_writes_and_retains_current_state() {
     assert_eq!(rows(&saved), original);
 
     let reopened = SqliteStore::open(&db, models_v1()).unwrap();
-    assert_eq!(reopened.get("task", original_id).unwrap().unwrap().revision, 1);
+    assert_eq!(
+        reopened.get("task", original_id).unwrap().unwrap().revision,
+        1
+    );
 }
 
 #[test]
@@ -227,4 +233,31 @@ fn active_provider_cannot_run_offline_restore() {
     let first = store.create("task", json!({"title":"active"})).unwrap();
     assert!(SqliteMaintenance::open_existing(&db, models_v1(), budget()).is_err());
     assert_eq!(store.get("task", first.id).unwrap().unwrap().revision, 1);
+}
+
+#[test]
+fn incomplete_native_backup_copy_does_not_publish_a_partial_restore() {
+    let dir = tempfile::tempdir().unwrap();
+    let db = dir.path().join("records.db");
+    fixture(&db);
+    let archive = dir.path().join("older.db");
+    snapshot(&db, &archive);
+    let store = SqliteStore::open(&db, models_v1()).unwrap();
+    store.create("task", json!({"title":"newer"})).unwrap();
+    drop(store);
+    let before = rows(&db);
+
+    // Test the underlying SQLite backup API contract with a single page step
+    // and then drop the incomplete handle. Not a production fault injection.
+    let source = Connection::open_with_flags(&archive, OpenFlags::SQLITE_OPEN_READ_ONLY).unwrap();
+    let mut destination = Connection::open(&db).unwrap();
+    let interrupted = rusqlite::backup::Backup::new(&source, &mut destination).unwrap();
+    assert_eq!(
+        interrupted.step(1).unwrap(),
+        rusqlite::backup::StepResult::More
+    );
+    drop(interrupted);
+    drop(destination);
+    drop(source);
+    assert_eq!(rows(&db), before);
 }
