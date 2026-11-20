@@ -255,3 +255,72 @@ fn unsupported_args_owner_conflict_and_impossible_reserve_fail_closed() {
     assert!(!archive.exists());
     drop(SqliteStore::open(&db, models::<Old>()).unwrap());
 }
+
+struct EditSourceWhenConsentIsRead {
+    database: std::path::PathBuf,
+    input: Cursor<Vec<u8>>,
+    edited: bool,
+}
+
+impl std::io::Read for EditSourceWhenConsentIsRead {
+    fn read(&mut self, out: &mut [u8]) -> std::io::Result<usize> {
+        std::io::Read::read(&mut self.input, out)
+    }
+}
+
+impl std::io::BufRead for EditSourceWhenConsentIsRead {
+    fn fill_buf(&mut self) -> std::io::Result<&[u8]> {
+        if !self.edited {
+            let writer = rusqlite::Connection::open(&self.database)
+                .map_err(std::io::Error::other)?;
+            writer
+                .execute(
+                    "UPDATE records SET data=?1 WHERE model='task'",
+                    rusqlite::params![
+                        serde_json::to_vec(&json!({"title":"modified"})).unwrap()
+                    ],
+                )
+                .map_err(std::io::Error::other)?;
+            self.edited = true;
+        }
+        std::io::BufRead::fill_buf(&mut self.input)
+    }
+
+    fn consume(&mut self, amount: usize) {
+        std::io::BufRead::consume(&mut self.input, amount);
+    }
+}
+
+#[test]
+fn correct_operator_consent_does_not_override_direct_source_drift_during_prompt() {
+    let dir = tempfile::tempdir().unwrap();
+    let db = dir.path().join("active.db");
+    let archive = dir.path().join("newly-verified-source.db");
+    let id = fixture(&db);
+    let consent = format!("MIGRATE {}\n", db.canonicalize().unwrap().display());
+    let mut input = EditSourceWhenConsentIsRead {
+        database: db.clone(),
+        input: Cursor::new(consent.into_bytes()),
+        edited: false,
+    };
+    let mut output = Vec::new();
+    let result = run_operator_maintenance_cli(
+        &command("execute", &[&db, &archive]),
+        &plan(),
+        limits(),
+        &mut input,
+        &mut output,
+    );
+    let error = result.unwrap_err();
+    assert!(input.edited);
+    assert!(format!("{error}").contains("source drift"), "{error}");
+    assert!(archive.exists(), "a verified post-drift preimage is retained");
+    let old = SqliteStore::open(&db, models::<Old>()).unwrap();
+    let source = old.get("task", id).unwrap().unwrap();
+    assert_eq!(source.revision, 1);
+    assert_eq!(source.data["title"], "modified");
+    drop(old);
+    assert!(SqliteStore::open(&db, models::<New>()).is_err());
+    let saved = SqliteStore::open(&archive, models::<Old>()).unwrap();
+    assert_eq!(saved.get("task", id).unwrap().unwrap().data, source.data);
+}
