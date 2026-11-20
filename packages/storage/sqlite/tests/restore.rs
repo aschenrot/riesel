@@ -285,7 +285,9 @@ fn native_restore_with_exhausted_sqlite_page_budget_rolls_back_completely() {
         .unwrap();
     let cap = existing_pages + 4;
     let applied: i64 = destination
-        .query_row(&format!("PRAGMA max_page_count={cap}"), [], |row| row.get(0))
+        .query_row(&format!("PRAGMA max_page_count={cap}"), [], |row| {
+            row.get(0)
+        })
         .unwrap();
     assert_eq!(applied, cap);
     let source = Connection::open(&archived).unwrap();
@@ -298,11 +300,7 @@ fn native_restore_with_exhausted_sqlite_page_budget_rolls_back_completely() {
     // SQLite's own page limit injects SQLITE_FULL during the same native
     // backup/restore API used by maintenance. This is not physical ENOSPC.
     let error = destination
-        .restore(
-            rusqlite::MAIN_DB,
-            &archived,
-            rusqlite::backup::NO_PROGRESS,
-        )
+        .restore(rusqlite::MAIN_DB, &archived, rusqlite::backup::NO_PROGRESS)
         .unwrap_err();
     assert!(
         matches!(

@@ -196,6 +196,13 @@ fn output_path(destination: &Path, source: &Path) -> Result<PathBuf, StoreError>
             return Err(denied("backup directory must not be group/other-writable"));
         }
     }
+    if fs::metadata(&parent)
+        .map_err(failed)?
+        .permissions()
+        .readonly()
+    {
+        return Err(denied("backup directory must be writable by its owner"));
+    }
     let path = parent.join(name);
     if path == source {
         return Err(denied("backup destination is the live database"));
