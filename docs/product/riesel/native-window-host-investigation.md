@@ -18,7 +18,7 @@ Audit of [application authoring](high-level-app.md), [API authoring](api-authori
 | Todo R2 app-specific Axum + SvelteKit | Proven backend-independent browser lifecycle, Rust domain authority, same-origin security boundary | Browser and app-specific HTTP are **not** a reusable native host contract or a generated front-door for arbitrary app capabilities |
 | `riesel_manager::ProcessRegistry` | Child-process ownership when explicitly managed | Does not automatically own arbitrary windows; Manager [#59](https://github.com/aschenrot/riesel/issues/59) need not exist for app/GUI separation |
 
-**Key gap:** a native GUI needs an explicitly exported **application-facing capability/adapter** or equivalent public-facing app API. Binding the GUI directly to arbitrary internal provider instances would bypass the application's intended composition boundary, lifecycle and future authorization. The required export mechanism is part of this specification, not assumed already delivered.
+**Key gap:** a GUI needs an **explicit application-facing interface**. This is a product boundary, not proof that Riesel must implement a new generic `Application::expose` API. An application-specific endpoint (as in Todo), a deliberately public facade component that reuses generated capability hosting, and a new app-level exporter are **different implementation options**. Directly exposing arbitrary internal providers would bypass application ownership and authorization; a facade deliberately selected and governed by the app is not equivalent to exposing arbitrary internals.
 
 ## 2. Minimal proposed user outcome
 
@@ -45,6 +45,7 @@ The useful MVP can be a single native app-specific GUI connected to a headless a
 | **C. Embedded GUI in app process** | Straightforward direct calls; event-loop integration may compete with app runtime | No IPC boundary | Violates already accepted separate-OS-process requirement | Reject for this product milestone; may exist as external, independently scoped pattern |
 | **D. Independent webview/browser GUI attached to app** | Can be a separate client/process; Todo pattern already exists | HTTP/webview bridge and browser-origin/command permission model needed | Efficient for web reuse, but is not necessarily a native toolkit experience | Viable *adapter*, not an automatic replacement for native-window-host requirement |
 | **E. Native GUI directly connected to internal managed providers** | Component may be owned by app and restarted with it | Exposes internal providers to arbitrary UI, loses app-level mediation | Accidental shadow API and capability topology leak | Reject as the default application integration boundary |
+| **F. App-declared public facade component** | Generated component/contract adapters already exist; app explicitly selects facade as allowed external surface | Still needs discovery, trusted client authorization, readiness/session mapping and export policy | May avoid new application exporter abstractions if lifecycle can be made correct | **Must test before adding a new SDK export API** |
 
 **Lifecycle rationale:** winit's supported desktop event loop is normally created on the **main thread** and is not a general async executor; a separate GUI process lets Riesel's existing session executor run independently ([winit event loop](https://docs.rs/winit/latest/winit/event_loop/struct.EventLoop.html)). This is supporting evidence for the already accepted separation, **not** proof of complete cross-platform behavior.
 
@@ -61,7 +62,7 @@ Toolkit evaluation is separate from choosing a Riesel connection protocol. The a
 | **Tauri 2** | Desktop webview + Rust native host, multi-process webview model ([architecture](https://v2.tauri.app/concept/architecture/), [process model](https://v2.tauri.app/concept/process-model/)); frontend permission model ([capabilities](https://v2.tauri.app/security/capabilities/)) | Strong web UI reuse but JS/webview dependency and separate frontend security/IPC review; webview subprocess is **not by itself** separation of Riesel application business logic |
 | **Other licensed/native binding** | GTK, Qt or platform-specific host may serve real user requirements | Packaging, licenses, OS behavior, FFI and maintenance cost require the same evidence gates |
 
-**Finding:** no toolkit uniquely satisfies the Riesel architecture. Choosing a toolkit now would conflate the foundational host contract with the look-and-feel of the first example. **Propose a toolkit-neutral connection/lifecycle contract and select exactly one reference adapter only for an accepted MVP** (candidate choice to be justified by a scored, task-based prototype). Avoid introducing an entirely new crate per toolkit before reuse is demonstrated.
+**Finding:** the host lifecycle/export decision is independent from toolkit choice. A dedicated GUI toolkit evaluation is **not automatically a blocker to accepting the host architecture**; selecting one tested adapter is a later implementation gate. No toolkit uniquely satisfies the Riesel architecture. Choosing a toolkit now would conflate the foundational host contract with the look-and-feel of the first example. **Propose a toolkit-neutral connection/lifecycle contract and select exactly one reference adapter only for an accepted MVP** (candidate choice to be justified by a scored, task-based prototype). Avoid introducing an entirely new crate per toolkit before reuse is demonstrated.
 
 ## 5. Export/IPC and event delivery options
 
@@ -123,7 +124,7 @@ Toolkit evaluation is separate from choosing a Riesel connection protocol. The a
 
 **Focused probes before choosing an adapter/export contract:**
 1. Build a tiny two-process fixture using *one real generated capability* and a currently supported app-owned hosting path if one exists. Confirm whether a new exporter is unavoidable; record paths and failures, not a bespoke network stack.
-2. Compare two representative toolkit adapters for startup, main-thread/event-loop integration, accessibility, native packaging and pinned-toolchain compatibility. This is a **future decision-critical test**, not claimed completed by document research.
+2. Evaluate one or more representative toolkit adapters **only when the first reference app's real UX/platform constraints are known**. A second toolkit spike is justified only if the first cannot answer a decision-critical question; avoid gratuitous benchmarks or unrelated framework selection during the IPC contract gate.
 3. Fault inject GUI disconnect and backend crash with a revisioned mutation; prove no silent replay and distinct session identity, including under current reference recovery.
 4. Test chosen local IPC trust on Linux and explicit Windows equivalents before claiming cross-platform authorization or an authorized remote host.
 
@@ -131,10 +132,10 @@ Toolkit evaluation is separate from choosing a Riesel connection protocol. The a
 
 The following is a bounded **proposed** integration contract, not a currently supported SDK API:
 
-- **Export is opt-in and app-owned:** application author declares an *application-facing* versioned capability contract and deliberately exports that specific interface. Internal requirement aliases and provider instances are never automatically exposed. Exports reuse the existing Rust-derived contract and typed adapter machinery; an illustrative name such as `Application::expose::<UiContract>(...)` is **not** a promised API signature.
+- **Export is opt-in and app-owned:** application author declares an *application-facing* versioned capability contract and deliberately publishes that specific interface. Internal requirement aliases and provider instances are never automatically exposed. **First try** an application-owned facade component and the existing generated bindings/host, then a Todo-style app-owned adapter; introduce a new generic `Application::expose` SDK surface **only if tests show neither can satisfy lifecycle, inspection and security guarantees without duplicating logic**.
 - **Listener lifecycle:** exporter starts only after successful application/provider startup, belongs to the current application session and stops with it. No socket, directory, process or GUI is created by schema generation, inspection or preflight. App start must remain headless by default.
 - **Local bootstrap:** for a first trusted Linux user deployment, evaluate a runtime-generated Unix-domain socket within a private operator-owned runtime directory (for example a verified `XDG_RUNTIME_DIR` location) and an explicitly selected application identity. The independent GUI obtains a fresh bounded descriptor via a trusted launch/attach operation; **never** hardcodes a port or relies on ambient network scanning. Check permissions, aliases and peer credentials, not just a socket pathname ([Linux `unix(7)`](https://man7.org/linux/man-pages/man7/unix.7.html)).
-- **Handshake and binding:** verify expected application identity, declared capability/version and current session generation; the local OS credential/access policy must authorize the peer independently of advertised metadata. Wrong identity, stale descriptor or unsupported version must reject before dispatch. Same-user malicious clients and remote access are not covered unless a stronger explicit policy is later adopted.
+- **Handshake and binding:** verify expected application identity, declared capability/version and current session generation; the local OS credential/access policy must authorize the peer independently of advertised metadata. `SessionToken` is an in-process cancellation object, **not** a cross-process credential or serialized session ID; a new externally represented generation/epoch requires a specified mapping and rejection policy. Wrong identity, stale descriptor or unsupported version must reject before dispatch. Same-user malicious clients and remote access are not covered unless a stronger explicit policy is later adopted.
 - **GUI responsibilities:** one separate native OS process owns its toolkit, main-thread event loop, windows, rendering and transient view state. It performs transport on a worker/async scope, hands bounded messages to the UI loop, and keeps domain state authoritative in the application.
 - **Failure semantics:** backend restart requires a new descriptor/session handshake; GUI-only close does not stop the app. Requests have a distinct `outcome unknown` case on lost reply, no automatic replay. First slice uses snapshot-on-connect and explicit refresh; subscriptions are deferred unless an example demonstrates a measurable requirement.
 - **Platforms:** Linux acceptance first; Windows pipe ACL, process/event-loop and GUI toolkit behavior remain separate manual **pre-release** requirements if Windows support is claimed. A CI-green Linux experiment does not establish OS-local authentication parity.
@@ -154,15 +155,33 @@ This design still needs a focused **two-process feasibility probe** to confirm t
 
 **Possible implementation order after an accepted architecture:**
 1. Bounded application-owned, explicitly exported **typed host-facing contract** with lifecycle/session identity and permitted local attachment; preserve preflight purity.
-2. Test-only two-process reference client/host; failure, authorization and no-retry tests.
+2. A test-only **two-process** client/host that exercises the real generated facade (or identifies exactly why it cannot work), session generation, failure, authorization and no-retry tests.
 3. One **chosen** toolkit-backed independent GUI example, keyboard and accessibility review; test GUI-only exit/reconnect.
 4. Optional discovery/launcher integration and expanded UI adapters **only** when separately accepted.
 
 This order does not make a native UI host a required Stage-6 network feature, nor does it make Manager [#59](https://github.com/aschenrot/riesel/issues/59) a prerequisite. Export security *is* a real prerequisite for any sensitive UI calls. Do not create a crate merely because a product concept exists.
 
-## 9. Proposed Gate B outcome — pending owner review
+## 9. Critical review findings and feasibility gates
 
-**Recommend accepting the minimal outcome of a separately executing, replaceable native GUI client backed by explicitly exported versioned app-facing operations**, preserving the headless application and session model. **Do not yet accept a universal Riesel window host, widget tree protocol, custom UI framework, renderer, event broker, or particular toolkit.**
+**Review outcome (2026-11-20): REVISE before Gate B.** The earlier draft risked treating an entirely new app-level exporter as inevitable and requiring two UI toolkit prototypes before the fundamental IPC question could be answered. Those were not justified by observed runtime behavior.
+
+**Repository evidence:** [`Context`](../../../crates/riesel/src/application/context.rs) obtains application-selected typed capability handles *by requirement alias*, but is not itself a network server. [`PreparedAsyncApplication::run`](../../../crates/riesel/src/application/async_handler.rs) executes a handler in a session-owned Tokio scope and does not expose the handler as an RPC endpoint. [`serve_router` / `run_async_tcp_rpc_host`](../../../crates/riesel_protocol/src/host.rs) host **provider/component** routes with provider readiness. Therefore a public facade component and an application-owned export bridge are not proven equivalent; they must be compared with tests around scope and identity. Provider readiness remains distinct from readiness of the application's public interface.
+
+**Platform/transport evidence:** recent [winit event-loop documentation](https://docs.rs/winit/latest/winit/event_loop/struct.EventLoop.html) states its event loop is `!Send`/`!Sync` and offers a cross-thread `EventLoopProxy`, confirming a dedicated GUI-thread/event-loop boundary is necessary for that adapter. Linux [unix(7)](https://man7.org/linux/man-pages/man7/unix.7.html) and Rust [UnixStream peer credentials](https://doc.rust-lang.org/std/os/unix/net/struct.UnixStream.html#method.peer_cred) support OS-local identity checks where available, but **same-UID malicious processes are not excluded by peer UID**. These facts do not prove native GUI behavior, a secure bootstrap protocol, Windows pipe-ACL equivalence or a working Riesel two-process application export.
+
+**Decision-critical probes, before implementation authorization:**
+
+1. Build a minimal Riesel headless app with one typed public-facing facade component and an independent *headless test client*; verify that it can be explicitly exported **without exposing unrelated providers**. Check connection/instance ownership and whether it outlives/survives app-session changes correctly.
+2. Compare the resulting developer code and error/inspection behavior against an app-specific Todo-style endpoint. Record whether a new generic host/export API would actually remove repeated boilerplate or instead add a redundant third model.
+3. Define the application generation representation across processes, bootstrap authorization, and stale/broken connection handling; verify a lost mutation response is **never replayed automatically**.
+4. Only then implement **one** native window adapter and test OS process independence, event-loop responsiveness, keyboard/focus/accessibility and backend reconnect. A multi-toolkit comparison is optional if it can change the decision.
+5. Keep Manager [#59](https://github.com/aschenrot/riesel/issues/59) optional. A GUI host must work with explicit independent startup/attachment; automatic discovery/installation is separate.
+
+**Outstanding:** no real Rust two-process fixture or native GUI test has yet been executed in this investigation. Documentation and OS API availability alone are insufficient to declare the export/lifecycle design verified.
+
+## 10. Proposed Gate B outcome — pending owner review
+
+**Recommend REVISE before unconditional Gate B acceptance.** Preserve the minimal separate-process native GUI outcome, but first resolve whether an **explicit public facade component** plus existing generated bindings or an app-specific adapter is sufficient. Accept a generic exporter only if that smaller mechanism demonstrably fails the intended host contract. **Do not accept a universal window host, widget protocol, renderer, event broker or toolkit by default.**
 
 Acceptance must be **conditional** on resolving the exported endpoint's authority/identity, the trust/IPC contract, toolkit/platform verification expectations, and the first example's observable user experience. If those questions remain material, keep [#60](https://github.com/aschenrot/riesel/issues/60) open rather than treating the proposal as acceptance.
 
