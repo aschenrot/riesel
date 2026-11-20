@@ -675,6 +675,11 @@ fn offline_snapshot_restores_legacy_data_without_downgrading_in_place() {
         .unwrap();
     drop(conn);
     assert!(backup.exists());
+    let integrity: String = Connection::open(&backup)
+        .unwrap()
+        .pragma_query_value(None, "integrity_check", |row| row.get(0))
+        .unwrap();
+    assert_eq!(integrity, "ok");
 
     trial_transactional_upgrade(&db, TestTransformation::AddPriority).unwrap();
     assert!(SqliteStore::open(&db, models_v1()).is_err());

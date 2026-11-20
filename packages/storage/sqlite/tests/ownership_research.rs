@@ -23,12 +23,13 @@ fn cooperating_cross_process_file_lock_blocks_until_owner_releases() {
 
     if let Some(lock_path) = std::env::var_os(PATH) {
         let file = open_lock(Path::new(&lock_path));
-        let could_lock = file.try_lock().is_ok();
         let expect_free = std::env::var_os(EXPECT_FREE).is_some();
-        assert_eq!(
-            could_lock, expect_free,
-            "cooperating process saw unexpected lifetime lock state"
-        );
+        match (expect_free, file.try_lock()) {
+            (true, Ok(())) | (false, Err(std::fs::TryLockError::WouldBlock)) => {}
+            (expected, observed) => panic!(
+                "cooperating process expected free={expected}, observed {observed:?}"
+            ),
+        }
         return;
     }
 
@@ -65,6 +66,8 @@ fn cooperating_cross_process_file_lock_blocks_until_owner_releases() {
 #[cfg(unix)]
 #[test]
 fn replacement_of_cooperating_lockfile_creates_a_second_lock_identity() {
+    use std::os::unix::fs::MetadataExt;
+
     let dir = tempfile::tempdir().unwrap();
     let path = dir.path().join("db.owner.lock");
     let displaced = dir.path().join("displaced.owner.lock");
@@ -85,9 +88,11 @@ fn replacement_of_cooperating_lockfile_creates_a_second_lock_identity() {
         .open(&path)
         .unwrap();
     replacement.try_lock().unwrap();
+    let original_meta = original.metadata().unwrap();
+    let replacement_meta = replacement.metadata().unwrap();
     assert_ne!(
-        std::fs::canonicalize(&path).unwrap(),
-        std::fs::canonicalize(&displaced).unwrap()
+        (original_meta.dev(), original_meta.ino()),
+        (replacement_meta.dev(), replacement_meta.ino())
     );
     // Both independent file objects remain locked simultaneously. Therefore
     // canonicalizing a parent directory is insufficient against replacement.
