@@ -97,7 +97,10 @@ impl ModelEvolution {
         Ok(self)
     }
 
-    pub(crate) fn validate_for(&self, actual: &BTreeMap<String, ModelDefinition>) -> Result<(), StoreError> {
+    pub(crate) fn validate_for(
+        &self,
+        actual: &BTreeMap<String, ModelDefinition>,
+    ) -> Result<(), StoreError> {
         if actual != &self.source {
             return Err(denied(
                 "plan source models differ from the owned database models",

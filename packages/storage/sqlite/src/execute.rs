@@ -5,7 +5,9 @@ use crate::{
     database::failed,
     deadline::Deadline,
     evolution::{EvolutionLimits, ModelEvolution},
-    maintenance::{SnapshotBudget, SqliteMaintenance, VerifiedSnapshot, audit, compare_records, denied},
+    maintenance::{
+        SnapshotBudget, SqliteMaintenance, VerifiedSnapshot, audit, compare_records, denied,
+    },
     records::MAX_RECORD_BYTES,
 };
 use riesel_storage::StoreError;
@@ -158,10 +160,19 @@ fn verify_revisions_and_unchanged(
 }
 
 fn check_logical_size(conn: &Connection, budget: SnapshotBudget) -> Result<(), StoreError> {
-    let pages: i64 = conn.pragma_query_value(None, "page_count", |row| row.get(0)).map_err(failed)?;
-    let page_bytes: i64 = conn.pragma_query_value(None, "page_size", |row| row.get(0)).map_err(failed)?;
-    let bytes = u64::try_from(pages).ok()
-        .and_then(|pages| u64::try_from(page_bytes).ok().and_then(|size| pages.checked_mul(size)))
+    let pages: i64 = conn
+        .pragma_query_value(None, "page_count", |row| row.get(0))
+        .map_err(failed)?;
+    let page_bytes: i64 = conn
+        .pragma_query_value(None, "page_size", |row| row.get(0))
+        .map_err(failed)?;
+    let bytes = u64::try_from(pages)
+        .ok()
+        .and_then(|pages| {
+            u64::try_from(page_bytes)
+                .ok()
+                .and_then(|size| pages.checked_mul(size))
+        })
         .ok_or_else(|| denied("SQLite logical size overflow"))?;
     if bytes > budget.max_snapshot_bytes {
         return Err(denied("evolution logical database size exceeds budget"));
@@ -188,7 +199,9 @@ impl SqliteMaintenance {
         self.owner.verify()?;
         check_sidecars(self.owner.database_path(), limits.snapshot)?;
         require_headroom(
-            self.owner.database_path().parent()
+            self.owner
+                .database_path()
+                .parent()
                 .ok_or_else(|| denied("missing migration database parent"))?,
             limits.snapshot.max_snapshot_bytes,
         )?;
@@ -196,13 +209,12 @@ impl SqliteMaintenance {
 
         // Backup is authoritative recovery data, never a temporary scratch
         // file. It is independently verified before any mutation is attempted.
-        let retained_backup = self.backup_to_with_deadline(
-            backup_destination, limits.snapshot, deadline,
-        )?;
+        let retained_backup =
+            self.backup_to_with_deadline(backup_destination, limits.snapshot, deadline)?;
         deadline.check()?;
-        let mut source = Connection::open_with_flags(
-            &retained_backup.path, OpenFlags::SQLITE_OPEN_READ_ONLY,
-        ).map_err(failed)?;
+        let mut source =
+            Connection::open_with_flags(&retained_backup.path, OpenFlags::SQLITE_OPEN_READ_ONLY)
+                .map_err(failed)?;
         deadline.install(&mut source)?;
         let archived = audit(&source, &plan.source, limits.snapshot, deadline)?;
         if archived.records != retained_backup.records
@@ -213,16 +225,23 @@ impl SqliteMaintenance {
 
         self.owner.verify()?;
         let mut target = Connection::open_with_flags(
-            self.owner.database_path(), OpenFlags::SQLITE_OPEN_READ_WRITE,
-        ).map_err(failed)?;
+            self.owner.database_path(),
+            OpenFlags::SQLITE_OPEN_READ_WRITE,
+        )
+        .map_err(failed)?;
         deadline.install(&mut target)?;
-        let mode: String = target.pragma_query_value(None, "journal_mode", |row| row.get(0)).map_err(failed)?;
+        let mode: String = target
+            .pragma_query_value(None, "journal_mode", |row| row.get(0))
+            .map_err(failed)?;
         if !mode.eq_ignore_ascii_case("wal") {
             return Err(denied("migration requires a WAL-mode SQLite database"));
         }
-        target.pragma_update(None, "synchronous", "FULL").map_err(failed)?;
+        target
+            .pragma_update(None, "synchronous", "FULL")
+            .map_err(failed)?;
         let tx = target
-            .transaction_with_behavior(TransactionBehavior::Immediate).map_err(failed)?;
+            .transaction_with_behavior(TransactionBehavior::Immediate)
+            .map_err(failed)?;
 
         // Audit and exact compare *inside* the write transaction so external
         // direct writers cannot drift between validation and mutation.
@@ -231,18 +250,24 @@ impl SqliteMaintenance {
             return Err(denied("database changed since retained migration snapshot"));
         }
         compare_records(&source, &tx, deadline)?;
-        let (updates, projected) = prepare_updates(&tx, plan, limits.snapshot, deadline, old.json_bytes)?;
+        let (updates, projected) =
+            prepare_updates(&tx, plan, limits.snapshot, deadline, old.json_bytes)?;
         let affected = updates.len() as u64;
         for change in updates {
             deadline.check()?;
-            let changed = tx.execute(
-                "UPDATE records SET revision=?1,data=?2
+            let changed = tx
+                .execute(
+                    "UPDATE records SET revision=?1,data=?2
                  WHERE model=?3 AND id=?4 AND revision=?5",
-                params![
-                    &change.next_revision[..], change.data, change.model,
-                    change.id, change.previous_revision,
-                ],
-            ).map_err(failed)?;
+                    params![
+                        &change.next_revision[..],
+                        change.data,
+                        change.model,
+                        change.id,
+                        change.previous_revision,
+                    ],
+                )
+                .map_err(failed)?;
             if changed != 1 {
                 return Err(denied("stale record changed during offline migration"));
             }
@@ -251,10 +276,12 @@ impl SqliteMaintenance {
             deadline.check()?;
             let target_bytes = serde_json::to_vec(&plan.target[name]).map_err(failed)?;
             let source_bytes = serde_json::to_vec(&plan.source[name]).map_err(failed)?;
-            let changed = tx.execute(
-                "UPDATE models SET definition=?1 WHERE name=?2 AND definition=?3",
-                params![target_bytes, name, source_bytes],
-            ).map_err(failed)?;
+            let changed = tx
+                .execute(
+                    "UPDATE models SET definition=?1 WHERE name=?2 AND definition=?3",
+                    params![target_bytes, name, source_bytes],
+                )
+                .map_err(failed)?;
             if changed != 1 {
                 return Err(denied("source metadata changed during offline migration"));
             }
@@ -274,7 +301,9 @@ impl SqliteMaintenance {
         tx.commit().map_err(failed)?;
         let confirmed = audit(&target, &plan.target, limits.snapshot, deadline)?;
         if confirmed != after {
-            return Err(denied("committed evolution failed post-commit verification"));
+            return Err(denied(
+                "committed evolution failed post-commit verification",
+            ));
         }
         self.owner.verify()?;
         deadline.check()?;

@@ -1046,8 +1046,8 @@ fn typed_evolution_preview_rejects_missing_or_failed_transform_without_mutation(
 fn derived_historical_and_target_models_execute_offline_with_retained_backup() {
     use crate::storage::{RecordStore, StoreError};
     use riesel_storage_sqlite::{
-        EvolutionAuthorization, EvolutionLimits, ModelEvolution, SnapshotBudget,
-        SqliteMaintenance, SqliteStore,
+        EvolutionAuthorization, EvolutionLimits, ModelEvolution, SnapshotBudget, SqliteMaintenance,
+        SqliteStore,
     };
     use std::{collections::BTreeMap, time::Duration};
 
@@ -1099,7 +1099,10 @@ fn derived_historical_and_target_models_execute_offline_with_retained_backup() {
     assert!(SqliteStore::open(&db, source.clone()).is_err());
 
     let current = SqliteStore::open(&db, target).unwrap();
-    let updated = current.get(EvolvedTask::MODEL_NAME, record.id).unwrap().unwrap();
+    let updated = current
+        .get(EvolvedTask::MODEL_NAME, record.id)
+        .unwrap()
+        .unwrap();
     assert_eq!(updated.revision, record.revision + 1);
     assert_eq!(updated.data["priority"], 0);
     assert!(matches!(

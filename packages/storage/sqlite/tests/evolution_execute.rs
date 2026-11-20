@@ -2,8 +2,8 @@
 use riesel_schema::{ModelDefinition, RieselModel, TypeRef};
 use riesel_storage::{RecordStore, StoreError};
 use riesel_storage_sqlite::{
-    EvolutionAuthorization, EvolutionLimits, ModelEvolution, RestoreAuthorization,
-    SnapshotBudget, SqliteMaintenance, SqliteStore,
+    EvolutionAuthorization, EvolutionLimits, ModelEvolution, RestoreAuthorization, SnapshotBudget,
+    SqliteMaintenance, SqliteStore,
 };
 use rusqlite::{Connection, params};
 use serde::{Deserialize, Serialize};
@@ -57,7 +57,12 @@ impl RieselModel for MetadataTask {
     const MODEL_NAME: &'static str = "task";
     fn model_definition() -> ModelDefinition {
         let mut fields = HistoricalTask::model_definition().fields;
-        fields.insert("note".into(), TypeRef::Optional { item: Box::new(TypeRef::String) });
+        fields.insert(
+            "note".into(),
+            TypeRef::Optional {
+                item: Box::new(TypeRef::String),
+            },
+        );
         ModelDefinition { fields }
     }
 }
@@ -93,7 +98,10 @@ fn budget() -> SnapshotBudget {
     }
 }
 fn limits() -> EvolutionLimits {
-    EvolutionLimits { snapshot: budget(), max_elapsed: Duration::from_secs(30) }
+    EvolutionLimits {
+        snapshot: budget(),
+        max_elapsed: Duration::from_secs(30),
+    }
 }
 
 fn plan() -> ModelEvolution {
@@ -112,17 +120,25 @@ fn plan() -> ModelEvolution {
 type StoredRow = (String, Vec<u8>, Vec<u8>, Vec<u8>);
 fn rows(path: &Path) -> Vec<StoredRow> {
     let db = Connection::open(path).unwrap();
-    let mut stmt = db.prepare("SELECT model,id,revision,data FROM records ORDER BY model,id").unwrap();
-    stmt.query_map([], |row| Ok((row.get(0)?,row.get(1)?,row.get(2)?,row.get(3)?)))
-        .unwrap()
-        .map(Result::unwrap)
-        .collect()
+    let mut stmt = db
+        .prepare("SELECT model,id,revision,data FROM records ORDER BY model,id")
+        .unwrap();
+    stmt.query_map([], |row| {
+        Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?))
+    })
+    .unwrap()
+    .map(Result::unwrap)
+    .collect()
 }
 
 fn fixture(path: &Path) -> (Uuid, Uuid) {
     let store = SqliteStore::open(path, source_models()).unwrap();
-    let task = store.create("task", json!({"title":"original","completed":false})).unwrap();
-    let note = store.create("note", json!({"task_id":task.id,"text":"reference"})).unwrap();
+    let task = store
+        .create("task", json!({"title":"original","completed":false}))
+        .unwrap();
+    let note = store
+        .create("note", json!({"task_id":task.id,"text":"reference"}))
+        .unwrap();
     drop(store);
     (task.id, note.id)
 }
@@ -139,9 +155,14 @@ fn explicit_typed_execute_preserves_identity_links_and_retains_verified_backup()
     assert_eq!(preview.records, 2);
     assert_eq!(preview.affected_records, 1);
 
-    let receipt = maintenance.execute_evolution(
-        &plan(), &saved, limits(), EvolutionAuthorization::ExecuteWithVerifiedBackup,
-    ).unwrap();
+    let receipt = maintenance
+        .execute_evolution(
+            &plan(),
+            &saved,
+            limits(),
+            EvolutionAuthorization::ExecuteWithVerifiedBackup,
+        )
+        .unwrap();
     assert_eq!(receipt.records, 2);
     assert_eq!(receipt.affected_records, 1);
     assert_eq!(receipt.retained_backup.path, saved);
@@ -156,18 +177,30 @@ fn explicit_typed_execute_preserves_identity_links_and_retains_verified_backup()
     assert_eq!(unchanged.data["task_id"], task_id.to_string());
     drop(current);
     let after = rows(&db);
-    assert_eq!(after.iter().filter(|row| row.0 == "note").collect::<Vec<_>>(),
-               original.iter().filter(|row| row.0 == "note").collect::<Vec<_>>());
+    assert_eq!(
+        after
+            .iter()
+            .filter(|row| row.0 == "note")
+            .collect::<Vec<_>>(),
+        original
+            .iter()
+            .filter(|row| row.0 == "note")
+            .collect::<Vec<_>>()
+    );
 
     // Recovery is a separate, deliberately authorized offline action.
-    let maintenance = SqliteMaintenance::open_existing(
-        &db, target_models::<CurrentTask>(), budget(),
-    ).unwrap();
+    let maintenance =
+        SqliteMaintenance::open_existing(&db, target_models::<CurrentTask>(), budget()).unwrap();
     let before_restore = dir.path().join("pre-restore.db");
-    maintenance.restore_from_backup(
-        &saved, source_models(), &before_restore, budget(),
-        RestoreAuthorization::DiscardPostSnapshotWrites,
-    ).unwrap();
+    maintenance
+        .restore_from_backup(
+            &saved,
+            source_models(),
+            &before_restore,
+            budget(),
+            RestoreAuthorization::DiscardPostSnapshotWrites,
+        )
+        .unwrap();
     assert_eq!(rows(&db), original);
     assert_eq!(rows(&before_restore), after);
     drop(SqliteStore::open(&db, source_models()).unwrap());
@@ -190,10 +223,14 @@ fn metadata_only_transition_still_increments_revision_without_rewriting_json() {
         })
         .unwrap();
     let maintenance = SqliteMaintenance::open_existing(&db, source_models(), budget()).unwrap();
-    maintenance.execute_evolution(
-        &changed, dir.path().join("pre.db"), limits(),
-        EvolutionAuthorization::ExecuteWithVerifiedBackup,
-    ).unwrap();
+    maintenance
+        .execute_evolution(
+            &changed,
+            dir.path().join("pre.db"),
+            limits(),
+            EvolutionAuthorization::ExecuteWithVerifiedBackup,
+        )
+        .unwrap();
     let current = SqliteStore::open(&db, target_models::<MetadataTask>()).unwrap();
     let result = current.get("task", id).unwrap().unwrap();
     assert_eq!(result.revision, 2);
@@ -214,14 +251,23 @@ fn failing_transform_retains_backup_without_committing_any_change() {
     let rejected = ModelEvolution::new(source_models(), target_models::<CurrentTask>())
         .unwrap()
         .transform::<HistoricalTask, CurrentTask, _>(|_| {
-            Err(StoreError::Failed("injected typed transform failure".into()))
+            Err(StoreError::Failed(
+                "injected typed transform failure".into(),
+            ))
         })
         .unwrap();
     let backup = dir.path().join("retained.db");
     let maintenance = SqliteMaintenance::open_existing(&db, source_models(), budget()).unwrap();
-    assert!(maintenance.execute_evolution(
-        &rejected, &backup, limits(), EvolutionAuthorization::ExecuteWithVerifiedBackup,
-    ).is_err());
+    assert!(
+        maintenance
+            .execute_evolution(
+                &rejected,
+                &backup,
+                limits(),
+                EvolutionAuthorization::ExecuteWithVerifiedBackup,
+            )
+            .is_err()
+    );
     assert!(backup.exists());
     assert_eq!(rows(&backup), before);
     assert_eq!(rows(&db), before);
@@ -234,7 +280,9 @@ fn sqlite_failure_after_first_update_rolls_back_all_rows_and_metadata() {
     let db = dir.path().join("source.db");
     fixture(&db);
     let store = SqliteStore::open(&db, source_models()).unwrap();
-    let second = store.create("task", json!({"title":"second","completed":true})).unwrap();
+    let second = store
+        .create("task", json!({"title":"second","completed":true}))
+        .unwrap();
     drop(store);
     let conn = Connection::open(&db).unwrap();
     conn.execute_batch(&format!(
@@ -242,14 +290,20 @@ fn sqlite_failure_after_first_update_rolls_back_all_rows_and_metadata() {
          WHEN NEW.model='task' AND hex(NEW.id)='{}'
          BEGIN SELECT RAISE(ABORT, 'injected update failure'); END;",
         second.id.simple().to_string().to_uppercase()
-    )).unwrap();
+    ))
+    .unwrap();
     drop(conn);
     let before = rows(&db);
     let backup = dir.path().join("retained.db");
     let maintenance = SqliteMaintenance::open_existing(&db, source_models(), budget()).unwrap();
-    let error = maintenance.execute_evolution(
-        &plan(), &backup, limits(), EvolutionAuthorization::ExecuteWithVerifiedBackup,
-    ).unwrap_err();
+    let error = maintenance
+        .execute_evolution(
+            &plan(),
+            &backup,
+            limits(),
+            EvolutionAuthorization::ExecuteWithVerifiedBackup,
+        )
+        .unwrap_err();
     assert!(matches!(error, StoreError::Failed(_)));
     assert_eq!(rows(&db), before);
     assert_eq!(rows(&backup), before);
@@ -265,20 +319,36 @@ fn occupied_backup_and_invalid_limits_prevent_evolution_and_write() {
     let occupied = dir.path().join("occupied.db");
     std::fs::write(&occupied, b"must survive").unwrap();
     let maintenance = SqliteMaintenance::open_existing(&db, source_models(), budget()).unwrap();
-    assert!(maintenance.execute_evolution(
-        &plan(), &occupied, limits(), EvolutionAuthorization::ExecuteWithVerifiedBackup,
-    ).is_err());
+    assert!(
+        maintenance
+            .execute_evolution(
+                &plan(),
+                &occupied,
+                limits(),
+                EvolutionAuthorization::ExecuteWithVerifiedBackup,
+            )
+            .is_err()
+    );
     assert_eq!(rows(&db), before);
     assert_eq!(std::fs::read(&occupied).unwrap(), b"must survive");
 
     let maintenance = SqliteMaintenance::open_existing(&db, source_models(), budget()).unwrap();
     let impossible = EvolutionLimits {
-        snapshot: SnapshotBudget { max_snapshot_bytes: u64::MAX, ..budget() },
+        snapshot: SnapshotBudget {
+            max_snapshot_bytes: u64::MAX,
+            ..budget()
+        },
         ..limits()
     };
-    assert!(maintenance.execute_evolution(
-        &plan(), dir.path().join("unpublished.db"), impossible,
-        EvolutionAuthorization::ExecuteWithVerifiedBackup,
-    ).is_err());
+    assert!(
+        maintenance
+            .execute_evolution(
+                &plan(),
+                dir.path().join("unpublished.db"),
+                impossible,
+                EvolutionAuthorization::ExecuteWithVerifiedBackup,
+            )
+            .is_err()
+    );
     assert_eq!(rows(&db), before);
 }
