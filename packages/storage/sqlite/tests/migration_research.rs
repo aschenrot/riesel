@@ -123,21 +123,24 @@ fn trial_transactional_upgrade(
     if version != 1 {
         return Err("unexpected physical format");
     }
-    let stored: Vec<u8> = tx
-        .query_row(
-            "SELECT definition FROM models WHERE name='task'",
-            [],
-            |row| row.get(0),
-        )
-        .unwrap();
-    if stored != serde_json::to_vec(&models_v1()["task"]).unwrap() {
-        return Err("unexpected source schema");
-    }
+    let expected = models_v1();
     let expected_count: i64 = tx
         .query_row("SELECT count(*) FROM models", [], |row| row.get(0))
         .unwrap();
-    if expected_count != 2 {
+    if expected_count != expected.len() as i64 {
         return Err("unexpected model set");
+    }
+    for (name, definition) in expected {
+        let stored: Vec<u8> = tx
+            .query_row(
+                "SELECT definition FROM models WHERE name=?1",
+                params![name],
+                |row| row.get(0),
+            )
+            .map_err(|_| "missing source model")?;
+        if stored != serde_json::to_vec(&definition).unwrap() {
+            return Err("unexpected source schema");
+        }
     }
     let records: Vec<(Vec<u8>, Vec<u8>, Vec<u8>)> = {
         let mut stmt = tx
@@ -517,4 +520,24 @@ fn frozen_format_v1_file_from_fixed_bytes_reopens_and_upgrades() {
         updated.get("note", note_id).unwrap().unwrap().data["task_id"],
         task_id.to_string()
     );
+}
+
+
+#[test]
+fn unexpected_other_model_schema_aborts_candidate_before_writes() {
+    let (dir, _, _, _) = fixture();
+    let db = dir.path().join("records.db");
+    let conn = Connection::open(&db).unwrap();
+    conn.execute(
+        "UPDATE models SET definition=?1 WHERE name='note'",
+        params![serde_json::to_vec(&models_v2()["task"]).unwrap()],
+    )
+    .unwrap();
+    drop(conn);
+    let before = snapshot(&db);
+    assert_eq!(
+        trial_transactional_upgrade(&db, TestTransformation::AddPriority),
+        Err("unexpected source schema")
+    );
+    assert_eq!(snapshot(&db), before);
 }
