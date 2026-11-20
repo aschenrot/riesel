@@ -1,12 +1,14 @@
 //! Explicit, linked-only SQLite RecordStore provider.
 //! Construction is side-effect-free; the database opens in the local factory.
 mod database;
+mod evolution;
 mod maintenance;
 mod owner;
 mod records;
 mod restore;
 
 pub use database::SqliteStore;
+pub use evolution::{EvolutionLimits, EvolutionPreview, ModelEvolution};
 pub use maintenance::{SnapshotBudget, SqliteMaintenance, VerifiedSnapshot};
 pub use restore::{RestoreAuthorization, RestoreReceipt};
 

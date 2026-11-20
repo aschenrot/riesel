@@ -911,3 +911,109 @@ fn historical_rust_types_can_describe_explicit_transitions_without_duplicate_sch
         EvolvedTask::model_definition()
     );
 }
+
+#[cfg(feature = "sqlite-storage")]
+#[test]
+fn typed_offline_model_evolution_preview_is_read_only_and_explicit() {
+    use crate::storage::RecordStore;
+    use riesel_storage_sqlite::{
+        EvolutionLimits, ModelEvolution, SnapshotBudget, SqliteMaintenance, SqliteStore,
+    };
+    use std::{collections::BTreeMap, time::Duration};
+
+    let temporary = tempfile::tempdir().unwrap();
+    let path = temporary.path().join("preview.db");
+    let source = BTreeMap::from([(
+        HistoricalTask::MODEL_NAME.into(),
+        HistoricalTask::model_definition(),
+    )]);
+    let target = BTreeMap::from([(
+        EvolvedTask::MODEL_NAME.into(),
+        EvolvedTask::model_definition(),
+    )]);
+    let original = serde_json::json!({"title":"historical","completed":false});
+    let store = SqliteStore::open(&path, source.clone()).unwrap();
+    let record = store.create(HistoricalTask::MODEL_NAME, original.clone()).unwrap();
+    drop(store);
+
+    let plan = ModelEvolution::new(source.clone(), target.clone())
+        .unwrap()
+        .transform::<HistoricalTask, EvolvedTask, _>(|old| Ok(old.into()))
+        .unwrap();
+    let limits = EvolutionLimits {
+        snapshot: SnapshotBudget {
+            max_records: 5,
+            max_json_bytes: 65_536,
+            max_snapshot_bytes: 1_048_576,
+        },
+        max_elapsed: Duration::from_secs(5),
+    };
+    let maintenance = SqliteMaintenance::open_existing(&path, source.clone(), limits.snapshot)
+        .unwrap();
+    let preview = maintenance.preview_evolution(&plan, limits).unwrap();
+    assert_eq!(preview.records, 1);
+    assert_eq!(preview.affected_records, 1);
+    assert_eq!(preview.changed_models, 1);
+    assert!(preview.projected_json_bytes > 0);
+    drop(maintenance);
+
+    let source_store = SqliteStore::open(&path, source.clone()).unwrap();
+    let persisted = source_store.get(HistoricalTask::MODEL_NAME, record.id).unwrap().unwrap();
+    assert_eq!(persisted.data, original);
+    assert_eq!(persisted.revision, 1);
+    drop(source_store);
+    assert!(SqliteStore::open(&path, target).is_err());
+}
+
+#[cfg(feature = "sqlite-storage")]
+#[test]
+fn typed_evolution_preview_rejects_missing_or_failed_transform_without_mutation() {
+    use crate::storage::{RecordStore, StoreError};
+    use riesel_storage_sqlite::{
+        EvolutionLimits, ModelEvolution, SnapshotBudget, SqliteMaintenance, SqliteStore,
+    };
+    use std::{collections::BTreeMap, time::Duration};
+
+    let temp = tempfile::tempdir().unwrap();
+    let db = temp.path().join("invalid-preview.db");
+    let source = BTreeMap::from([(
+        HistoricalTask::MODEL_NAME.into(),
+        HistoricalTask::model_definition(),
+    )]);
+    let target = BTreeMap::from([(
+        EvolvedTask::MODEL_NAME.into(),
+        EvolvedTask::model_definition(),
+    )]);
+    let store = SqliteStore::open(&db, source.clone()).unwrap();
+    let row = store
+        .create(
+            HistoricalTask::MODEL_NAME,
+            serde_json::json!({"title":"keep","completed":true}),
+        )
+        .unwrap();
+    drop(store);
+    let limits = EvolutionLimits {
+        snapshot: SnapshotBudget {
+            max_records: 10,
+            max_json_bytes: 65_536,
+            max_snapshot_bytes: 1_048_576,
+        },
+        max_elapsed: Duration::from_secs(5),
+    };
+    let maintenance = SqliteMaintenance::open_existing(&db, source.clone(), limits.snapshot)
+        .unwrap();
+    let missing = ModelEvolution::new(source.clone(), target.clone()).unwrap();
+    assert!(maintenance.preview_evolution(&missing, limits).is_err());
+
+    let failing = ModelEvolution::new(source.clone(), target)
+        .unwrap()
+        .transform::<HistoricalTask, EvolvedTask, _>(|_old| {
+            Err(StoreError::Failed("deliberate transform failure".into()))
+        })
+        .unwrap();
+    assert!(maintenance.preview_evolution(&failing, limits).is_err());
+    drop(maintenance);
+
+    let reopened = SqliteStore::open(&db, source).unwrap();
+    assert_eq!(reopened.get(HistoricalTask::MODEL_NAME, row.id).unwrap().unwrap(), row);
+}
