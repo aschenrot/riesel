@@ -1,6 +1,7 @@
 //! Explicit offline SQLite maintenance; no migration is run on provider open.
 //! Snapshot creation is independently validated and does not overwrite files.
-//! Restore/migration execution are separate Stage 6 delivery gates.
+//! Restoration has a distinct, explicitly authorized entrypoint; migration
+//! execution remains a separate Stage 6 delivery gate.
 use crate::{
     database::{FORMAT_VERSION, failed, verify_models},
     owner::OwnerGuard,
@@ -19,7 +20,7 @@ use std::{
 };
 use uuid::Uuid;
 
-fn denied(message: &str) -> StoreError {
+pub(crate) fn denied(message: &str) -> StoreError {
     StoreError::Failed(format!("SQLite offline backup refused: {message}"))
 }
 
@@ -42,12 +43,12 @@ pub struct VerifiedSnapshot {
 }
 
 #[derive(Debug, PartialEq, Eq)]
-struct Audit {
-    records: u64,
-    json_bytes: u64,
+pub(crate) struct Audit {
+    pub(crate) records: u64,
+    pub(crate) json_bytes: u64,
 }
 
-fn audit(
+pub(crate) fn audit(
     conn: &Connection,
     models: &BTreeMap<String, ModelDefinition>,
     budget: SnapshotBudget,
@@ -124,7 +125,7 @@ fn audit(
 }
 
 /// Read both databases in stable order without materializing all rows.
-fn compare_records(left: &Connection, right: &Connection) -> Result<(), StoreError> {
+pub(crate) fn compare_records(left: &Connection, right: &Connection) -> Result<(), StoreError> {
     const QUERY: &str = "SELECT model,id,revision,data FROM records ORDER BY model,id";
     let mut lstmt = left.prepare(QUERY).map_err(failed)?;
     let mut rstmt = right.prepare(QUERY).map_err(failed)?;
@@ -210,8 +211,8 @@ fn output_path(destination: &Path, source: &Path) -> Result<PathBuf, StoreError>
 /// through this first backup-only interface. Acquiring may create a persistent
 /// owner lockfile, but never creates/initializes an absent source database.
 pub struct SqliteMaintenance {
-    owner: OwnerGuard,
-    models: BTreeMap<String, ModelDefinition>,
+    pub(crate) owner: OwnerGuard,
+    pub(crate) models: BTreeMap<String, ModelDefinition>,
 }
 
 impl SqliteMaintenance {
