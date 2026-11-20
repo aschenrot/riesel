@@ -11,7 +11,7 @@ use crate::{
     records::MAX_RECORD_BYTES,
 };
 use riesel_storage::StoreError;
-use rusqlite::{Connection, OpenFlags, Transaction, TransactionBehavior, params};
+use rusqlite::{Connection, OpenFlags, OptionalExtension, Transaction, TransactionBehavior, params};
 use serde_json::Value;
 use std::path::Path;
 use uuid::Uuid;
@@ -159,6 +159,33 @@ fn verify_revisions_and_unchanged(
     }
 }
 
+/// Detect database-side triggers or unexpected SQL effects that replace a
+/// typed transform's exact bytes with another schema-valid value.
+fn verify_updated_bytes(
+    tx: &Transaction<'_>,
+    updates: &[Update],
+    deadline: Deadline,
+) -> Result<(), StoreError> {
+    let mut statement = tx
+        .prepare("SELECT revision,data FROM records WHERE model=?1 AND id=?2")
+        .map_err(failed)?;
+    for change in updates {
+        deadline.check()?;
+        let actual: Option<(Vec<u8>, Vec<u8>)> = statement
+            .query_row(params![&change.model, &change.id], |row| {
+                Ok((row.get(0)?, row.get(1)?))
+            })
+            .optional()
+            .map_err(failed)?;
+        let (revision, data) = actual
+            .ok_or_else(|| denied("evolution lost an updated record"))?;
+        if revision.as_slice() != change.next_revision || data != change.data {
+            return Err(denied("evolution result differs from typed transform output"));
+        }
+    }
+    Ok(())
+}
+
 fn check_logical_size(conn: &Connection, budget: SnapshotBudget) -> Result<(), StoreError> {
     let pages: i64 = conn
         .pragma_query_value(None, "page_count", |row| row.get(0))
@@ -253,7 +280,7 @@ impl SqliteMaintenance {
         let (updates, projected) =
             prepare_updates(&tx, plan, limits.snapshot, deadline, old.json_bytes)?;
         let affected = updates.len() as u64;
-        for change in updates {
+        for change in &updates {
             deadline.check()?;
             let changed = tx
                 .execute(
@@ -261,10 +288,10 @@ impl SqliteMaintenance {
                  WHERE model=?3 AND id=?4 AND revision=?5",
                     params![
                         &change.next_revision[..],
-                        change.data,
-                        change.model,
-                        change.id,
-                        change.previous_revision,
+                        &change.data,
+                        &change.model,
+                        &change.id,
+                        &change.previous_revision,
                     ],
                 )
                 .map_err(failed)?;
@@ -291,6 +318,7 @@ impl SqliteMaintenance {
             return Err(denied("evolved record audit differs from projected result"));
         }
         verify_revisions_and_unchanged(&source, &tx, plan, deadline)?;
+        verify_updated_bytes(&tx, &updates, deadline)?;
         check_logical_size(&tx, limits.snapshot)?;
         check_sidecars(self.owner.database_path(), limits.snapshot)?;
         self.owner.verify()?;
