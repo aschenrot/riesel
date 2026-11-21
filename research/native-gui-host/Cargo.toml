@@ -14,5 +14,4 @@ resolver = "3"
 eframe = { version = "=0.33.3", default-features = false, features = ["glow", "x11", "default_fonts", "accesskit"] }
 riesel_counter = { path = "../../examples/counter/contract" }
 riesel_protocol = { path = "../../crates/riesel_protocol", features = ["async-tcp"] }
-riesel_schema = { path = "../../crates/riesel_schema" }
 tokio = { version = "=1.54.1", features = ["rt", "net", "time"] }
