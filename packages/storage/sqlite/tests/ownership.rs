@@ -90,7 +90,8 @@ fn parent_symlink_aliases_share_the_same_owner_identity() {
         let competing_lock_records: Vec<_> = {
             use std::os::unix::fs::MetadataExt;
             let inode = std::fs::metadata(&lock_path).unwrap().ino().to_string();
-            std::fs::read_to_string("/proc/locks").unwrap_or_default()
+            std::fs::read_to_string("/proc/locks")
+                .unwrap_or_default()
                 .lines()
                 .filter_map(|line| {
                     // /proc/locks: ID TYPE ADVISORY WRITE PID MAJ:MIN:INODE 0 EOF.
