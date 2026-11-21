@@ -766,3 +766,172 @@ test('selection indicator retains native semantics in forced-colors mode', async
   await selection.check();
   await expect(selection).toBeChecked();
 });
+
+test('Undo returns completion and reopening to their prior state with new revisions', async ({ page, request }) => {
+  await page.goto('/');
+  await page.getByRole('textbox', { name: 'New task' }).fill('Undo completion');
+  await page.getByRole('button', { name: 'Add task' }).click();
+  await expect(page.getByText('Undo completion', { exact: true })).toBeVisible();
+  const before = (await (await request.get(api)).json()).records[0];
+  await page.getByRole('checkbox', { name: 'Mark Undo completion complete' }).check();
+  await expect(page.getByRole('button', { name: 'Undo', exact: true })).toBeVisible();
+  await page.getByRole('button', { name: 'Undo', exact: true }).click();
+  await expect(page.getByRole('status')).toContainText('Change undone');
+  let current = (await (await request.get(api)).json()).records[0];
+  expect(current.id).toBe(before.id);
+  expect(current.completed).toBe(false);
+  expect(BigInt(current.revision)).toBe(BigInt(before.revision) + 2n);
+
+  await page.getByRole('checkbox', { name: 'Mark Undo completion complete' }).check();
+  await page.getByRole('checkbox', { name: 'Mark Undo completion incomplete' }).uncheck();
+  await page.getByRole('button', { name: 'Undo', exact: true }).click();
+  await expect(page.getByRole('checkbox', { name: 'Mark Undo completion incomplete' })).toBeChecked();
+  current = (await (await request.get(api)).json()).records[0];
+  expect(current.completed).toBe(true);
+});
+
+test('Undo of title editing preserves the same task identity and last saved completion', async ({ page, request }) => {
+  await page.goto('/');
+  await page.getByRole('textbox', { name: 'New task' }).fill('Initial title');
+  await page.getByRole('button', { name: 'Add task' }).click();
+  await expect(page.getByText('Initial title', { exact: true })).toBeVisible();
+  const before = (await (await request.get(api)).json()).records[0];
+  await page.getByRole('button', { name: 'Edit Initial title', exact: true }).click();
+  await page.getByRole('textbox', { name: 'Edit task title' }).fill('Saved title');
+  await page.getByRole('button', { name: 'Save' }).click();
+  await expect(page.getByText('Saved title', { exact: true })).toBeVisible();
+  await page.getByRole('button', { name: 'Undo', exact: true }).click();
+  await expect(page.getByText('Initial title', { exact: true })).toBeVisible();
+  const restored = (await (await request.get(api)).json()).records[0];
+  expect(restored.id).toBe(before.id);
+  expect(restored.title).toBe(before.title);
+  expect(restored.completed).toBe(before.completed);
+  expect(BigInt(restored.revision)).toBe(BigInt(before.revision) + 2n);
+});
+
+test('Undo refuses to overwrite a newer revision from another client', async ({ page, request }) => {
+  await page.goto('/');
+  await page.getByRole('textbox', { name: 'New task' }).fill('Undo stale');
+  await page.getByRole('button', { name: 'Add task' }).click();
+  await expect(page.getByText('Undo stale', { exact: true })).toBeVisible();
+  await page.getByRole('checkbox', { name: 'Mark Undo stale complete' }).check();
+  await expect(page.getByRole('button', { name: 'Undo', exact: true })).toBeVisible();
+  const completed = (await (await request.get(api)).json()).records[0];
+  const changed = await request.patch(api + '/' + completed.id, {
+    headers: { Origin: origin() },
+    data: { revision: completed.revision, title: 'External update after completion' }
+  });
+  expect(changed.status()).toBe(200);
+  await page.getByRole('button', { name: 'Undo', exact: true }).click();
+  await expect(page.getByRole('alert')).toContainText('Task revision is stale');
+  await expect(page.getByRole('button', { name: 'Undo', exact: true })).toHaveCount(0);
+  const retained = (await (await request.get(api)).json()).records[0];
+  expect(retained.completed).toBe(true);
+  expect(retained.title).toBe('External update after completion');
+});
+
+test('Undo uncertain network response is not retried automatically', async ({ page, request }) => {
+  await page.goto('/');
+  await page.getByRole('textbox', { name: 'New task' }).fill('Undo offline');
+  await page.getByRole('button', { name: 'Add task' }).click();
+  await expect(page.getByText('Undo offline', { exact: true })).toBeVisible();
+  await page.getByRole('checkbox', { name: 'Mark Undo offline complete' }).check();
+  const completed = (await (await request.get(api)).json()).records[0];
+  let undoRequests = 0;
+  const pattern = '**/api/v1/tasks/' + completed.id;
+  await page.route(pattern, (route) => {
+    if (route.request().method() === 'PATCH') {
+      undoRequests++;
+      return route.abort();
+    }
+    return route.continue();
+  });
+  await page.getByRole('button', { name: 'Undo', exact: true }).click();
+  await expect(page.getByRole('alert')).toContainText('Cannot connect to the Todo backend.');
+  await expect(page.getByRole('button', { name: 'Undo', exact: true })).toHaveCount(0);
+  expect(undoRequests).toBe(1);
+  const retained = (await (await request.get(api)).json()).records[0];
+  expect(retained.completed).toBe(true);
+  await page.unroute(pattern);
+});
+
+test('Undo reverses only the successful batch completion updates', async ({ page, request }) => {
+  await page.goto('/');
+  for (const title of ['Undo batch one', 'Undo batch two', 'Undo batch three']) {
+    await page.getByRole('textbox', { name: 'New task' }).fill(title);
+    await page.getByRole('button', { name: 'Add task' }).click();
+    await expect(page.getByText(title, { exact: true })).toBeVisible();
+  }
+  await page.getByRole('checkbox', { name: 'Mark Undo batch one complete' }).check();
+  await page.getByRole('button', { name: 'Select tasks' }).click();
+  await page.getByRole('button', { name: 'Select all loaded' }).click();
+  await page.getByRole('button', { name: 'Mark done' }).click();
+  await expect(page.getByRole('status')).toContainText('2 tasks marked done');
+  await page.getByRole('button', { name: 'Undo', exact: true }).click();
+  await expect(page.getByRole('status')).toContainText('2 changes undone');
+  const records = (await (await request.get(api)).json()).records;
+  expect(records.filter((r: { completed: boolean }) => r.completed).map((r: { title: string }) => r.title))
+    .toEqual(['Undo batch one']);
+});
+
+test('partial batch failure offers reversible successful subset without touching conflicted task', async ({ page, request }) => {
+  await page.goto('/');
+  for (const title of ['Undo partial stale', 'Undo partial safe']) {
+    await page.getByRole('textbox', { name: 'New task' }).fill(title);
+    await page.getByRole('button', { name: 'Add task' }).click();
+    await expect(page.getByText(title, { exact: true })).toBeVisible();
+  }
+  await page.getByRole('button', { name: 'Select tasks' }).click();
+  await page.getByRole('button', { name: 'Select all loaded' }).click();
+  const stale = (await (await request.get(api)).json()).records.find(
+    (r: { title: string }) => r.title === 'Undo partial stale'
+  );
+  const updated = await request.patch(api + '/' + stale.id, {
+    headers: { Origin: origin() },
+    data: { revision: stale.revision, title: 'Another client title' }
+  });
+  expect(updated.status()).toBe(200);
+  await page.getByRole('button', { name: 'Mark done' }).click();
+  await expect(page.getByRole('alert')).toContainText('1 failed');
+  await expect(page.getByRole('button', { name: 'Undo successful changes' })).toBeVisible();
+  await page.getByRole('button', { name: 'Undo successful changes' }).click();
+  await expect(page.getByRole('alert')).toContainText('Undid 1 successful changes');
+  const records = (await (await request.get(api)).json()).records;
+  expect(records.find((r: { title: string }) => r.title === 'Undo partial safe').completed).toBe(false);
+  const foreign = records.find((r: { title: string }) => r.title === 'Another client title');
+  expect(foreign.completed).toBe(false);
+  await expect(page.getByRole('checkbox', { name: 'Select Undo partial stale' })).toBeChecked();
+});
+
+test('permanent Delete has no Undo and mobile Undo toast does not overflow', async ({ page }) => {
+  await page.setViewportSize({ width: 320, height: 740 });
+  await page.goto('/');
+  await page.getByRole('textbox', { name: 'New task' }).fill('Mobile undo');
+  await page.getByRole('button', { name: 'Add task' }).click();
+  await expect(page.getByText('Mobile undo', { exact: true })).toBeVisible();
+  await page.getByRole('checkbox', { name: 'Mark Mobile undo complete' }).check();
+  await expect(page.getByRole('button', { name: 'Undo', exact: true })).toBeVisible();
+  expect(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth + 1)).toBe(false);
+  await page.getByRole('button', { name: 'Dismiss notification' }).click();
+  await page.getByRole('button', { name: 'Delete Mobile undo' }).click();
+  await page.getByRole('button', { name: 'Delete', exact: true }).click();
+  await expect(page.getByRole('status')).toContainText('Task removed');
+  await expect(page.getByRole('button', { name: 'Undo', exact: true })).toHaveCount(0);
+});
+
+test('focused Undo remains actionable when toast timeout elapses, and dismiss clears it', async ({ page }) => {
+  await page.clock.install();
+  await page.goto('/');
+  await page.getByRole('textbox', { name: 'New task' }).fill('Undo focus');
+  await page.getByRole('button', { name: 'Add task' }).click();
+  await expect(page.getByText('Undo focus', { exact: true })).toBeVisible();
+  await page.getByRole('checkbox', { name: 'Mark Undo focus complete' }).check();
+  const undo = page.getByRole('button', { name: 'Undo', exact: true });
+  await expect(undo).toBeVisible();
+  await undo.focus();
+  await page.clock.fastForward(7100);
+  await expect(undo).toBeVisible();
+  await page.getByRole('textbox', { name: 'New task' }).focus();
+  await page.clock.fastForward(7100);
+  await expect(undo).toHaveCount(0);
+});
