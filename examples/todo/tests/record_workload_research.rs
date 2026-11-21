@@ -173,3 +173,43 @@ fn record_payload_limits_reject_bulk_asset_bytes() {
         assert_eq!(tag(&metadata), "texture");
     });
 }
+
+#[test]
+fn raw_sqlite_json_extraction_is_not_a_full_u64_equality_or_optional_contract() {
+    // SQLite-only scratch probe; not a Riesel query implementation. Riesel
+    // validates JSON u64 values, including those above SQLite's signed range.
+    let conn = rusqlite::Connection::open_in_memory().unwrap();
+    let greatest = json!({"coins": u64::MAX}).to_string();
+    let previous = json!({"coins": u64::MAX - 1}).to_string();
+    assert_ne!(greatest, previous);
+    let (a, b): (f64, f64) = conn
+        .query_row(
+            "SELECT json_extract(?1, '$.coins'), json_extract(?2, '$.coins')",
+            rusqlite::params![greatest, previous],
+            |row| Ok((row.get(0)?, row.get(1)?)),
+        )
+        .unwrap();
+    assert_eq!(a, b, "SQLite rounds distinct large u64 JSON numbers to f64");
+
+    // Both missing and explicit JSON null extract as SQL NULL. However the
+    // registered model validator permits an omitted optional field as well
+    // as one explicitly containing null; a future equality/IS NULL query
+    // must choose and implement its precise cross-provider semantics.
+    let (missing, explicit): (Option<String>, Option<String>) = conn
+        .query_row(
+            "SELECT json_type(?1, '$.note'), json_type(?2, '$.note')",
+            rusqlite::params!["{}", r#"{"note":null}"#],
+            |row| Ok((row.get(0)?, row.get(1)?)),
+        )
+        .unwrap();
+    assert_eq!(missing, None);
+    assert_eq!(explicit.as_deref(), Some("null"));
+    let (missing_value, null_value): (Option<String>, Option<String>) = conn
+        .query_row(
+            "SELECT json_extract(?1, '$.note'), json_extract(?2, '$.note')",
+            rusqlite::params!["{}", r#"{"note":null}"#],
+            |row| Ok((row.get(0)?, row.get(1)?)),
+        )
+        .unwrap();
+    assert_eq!(missing_value, null_value);
+}
