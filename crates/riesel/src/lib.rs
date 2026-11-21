@@ -69,11 +69,11 @@ pub use riesel_app::{
     DeclarativeComponent, DeploymentConfig, DeploymentError, DomainAdmissionMode, DomainBoundary,
     ExecutionPlanDescription, ExecutionPlanDraft, ExecutionPlanError, FixedStepAdmission,
     FixedStepBacklog, FixedStepError, FixedStepFrame, FixedStepPolicy, HookFailure, HookPhase,
-    LifecycleFailure, LocalProviderFactory, OperationKey, OperationNode, OperationRegistry,
-    OperationTrigger, PlanRevisionCatalog, ProviderCatalog, ProviderRegistry,
-    ProviderSelectionConfig, RecoveryPolicy, ResolutionError, ResolvedCapability, ResourceAccess,
-    RunningApp, RuntimeError, ServiceEndpoint, SessionToken, ValidatedExecutionPlan,
-    MAX_FIXED_TICK_BACKLOG, MAX_FIXED_TICKS_PER_FRAME,
+    LifecycleFailure, LocalProviderFactory, MAX_FIXED_TICK_BACKLOG, MAX_FIXED_TICKS_PER_FRAME,
+    OperationKey, OperationNode, OperationRegistry, OperationTrigger, PlanRevisionCatalog,
+    ProviderCatalog, ProviderRegistry, ProviderSelectionConfig, RecoveryPolicy, ResolutionError,
+    ResolvedCapability, ResourceAccess, RunningApp, RuntimeError, ServiceEndpoint, SessionToken,
+    ValidatedExecutionPlan,
 };
 pub use riesel_macros::{RieselModel, RieselType, app, capability, component};
 
