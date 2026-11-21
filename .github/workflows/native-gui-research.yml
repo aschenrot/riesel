@@ -1,0 +1,39 @@
+name: Native GUI research (#60)
+
+# Narrow, independent research validation; it is not a normal SDK build target.
+permissions:
+  contents: read
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - "research/native-gui-host/**"
+      - ".github/workflows/native-gui-research.yml"
+      - "examples/counter/**"
+      - "crates/riesel_protocol/**"
+
+jobs:
+  native-xvfb:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install pinned Rust
+        run: |
+          rustup toolchain install 1.100.0 --profile minimal
+          rustup default 1.100.0
+      - name: Install isolated Linux X11/OpenGL research requirements
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y xvfb xdotool x11-utils libxcb-render0-dev libxcb-shape0-dev libxcb-xfixes0-dev libxkbcommon-dev libssl-dev libgl1-mesa-dev libegl1-mesa-dev libx11-dev libxi-dev
+      - name: Build existing headless Riesel facade and isolated GUI
+        run: |
+          cargo build -p riesel_counter_example --bin counter_resolved_facade_host
+          cargo build --manifest-path research/native-gui-host/Cargo.toml
+      - name: Run real native event loop with distinct backend and GUI PIDs
+        env:
+          LIBGL_ALWAYS_SOFTWARE: "1"
+          GALLIUM_DRIVER: llvmpipe
+        run: |
+          xvfb-run -a -s "-screen 0 1280x900x24" python3 research/native-gui-host/exercise.py
