@@ -7,7 +7,6 @@ use std::sync::{
 #[cfg(feature = "research-external-epoch")]
 use std::sync::{PoisonError, RwLock, RwLockReadGuard};
 
-
 #[cfg(feature = "async-tcp")]
 use tokio::sync::Notify;
 
@@ -106,10 +105,7 @@ impl SessionToken {
     /// invalidation. Hold the returned permit through the short operation.
     /// This is an in-process lock, NOT a transport authentication boundary.
     #[cfg(feature = "research-external-epoch")]
-    pub fn research_admit(
-        &self,
-        expected_generation: &str,
-    ) -> Option<ResearchDispatchPermit<'_>> {
+    pub fn research_admit(&self, expected_generation: &str) -> Option<ResearchDispatchPermit<'_>> {
         let guard = self
             .research_epoch
             .dispatch_gate
@@ -163,11 +159,19 @@ mod external_epoch_research_tests {
         assert_eq!(same.research_generation(), generation);
         assert_ne!(generation, second.research_generation());
         assert!(first.research_admit(&generation).is_some());
-        assert!(first.research_admit(&second.research_generation()).is_none());
+        assert!(
+            first
+                .research_admit(&second.research_generation())
+                .is_none()
+        );
         first.invalidate();
         assert!(first.research_admit(&generation).is_none());
         assert!(same.research_admit(&generation).is_none());
-        assert!(second.research_admit(&second.research_generation()).is_some());
+        assert!(
+            second
+                .research_admit(&second.research_generation())
+                .is_some()
+        );
     }
 
     #[test]
