@@ -23,6 +23,12 @@ Session-wide admission provides a conservative shared resource budget; it does n
 
 This increment deliberately does not claim fixed-rate timing guarantees, reusable tick loops, nested ECS-system stepping, callback portability to other processes, typed dataflow, managed-service recovery, process-global authority or a graphical inspector. Full #112 acceptance still requires realistic domain delegation and application-session end-to-end fixtures before closure.
 
+## Runnable headless workflow and session shutdown
+
+Run `cargo run --locked -p riesel --features async-tcp --example execution_graph`. The example executes two deliberately overlapping async branches, an explicit `start` signal and a completion join, using a single real `Application::run` session. It awaits the entire graph on the caller-owned Tokio executor **before** `Application::run` tears down the session. It neither performs a second provider-resolution pass nor creates a second Riesel application.
+
+The runtime's structured `AsyncTasks` interface is separate from arbitrary `tokio::spawn`. A graph future detached into a caller-created background task is **not** automatically registered with `AsyncTasks` or guaranteed joined before managed provider teardown. Do not detach graph runners in a session that may be stopped or recovered; await them within the application entrypoint. Session expiry stops admission and conservatively classifies an already-dispatched but unfinished operation as `OutcomeUnknown`, while preserving previously confirmed completion. This is not automatic rollback, retry or safe interruption of noncooperative threads.
+
 ## Fixed-tick ownership acceptance fixture
 
 The feature-gated [two-policy domain fixture](../../../crates/riesel/tests/execution_domains.rs) compares the same two committed simulation ticks (four proposed, catch-up budget two) under **Riesel-admitted outer ticks** and a **domain-owned nested frame**. Both run alongside an overlapping two-branch async workflow and final join. The native `Rc<Cell<...>>` world never leaves its own actor thread. Per-tick nodes appear only in the central-admission projection; the delegated graph exposes one frame, not fictitious internal ECS-system steps.
