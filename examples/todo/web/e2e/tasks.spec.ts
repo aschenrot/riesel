@@ -185,11 +185,12 @@ test('direct task edit/delete controls are keyboard accessible and Escape restor
   await page.keyboard.press('Escape');
   await expect(trigger).toBeFocused();
 
-  await page.getByRole('button', { name: 'Delete Keyboard actions' }).click();
+  const deleteAction = page.getByRole('button', { name: 'Delete Keyboard actions' });
+  await deleteAction.click();
   await expect(page.getByRole('button', { name: 'Delete' })).toBeVisible();
   await page.getByRole('button', { name: 'Cancel' }).click();
   await expect(page.getByText('Keyboard actions', { exact: true })).toBeVisible();
-  await expect(trigger).toBeFocused();
+  await expect(deleteAction).toBeFocused();
 });
 
 test('mobile layout keeps task action on the row without horizontal overflow', async ({ page }) => {

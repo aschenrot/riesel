@@ -371,9 +371,14 @@
 
   function onWindowKeydown(event: KeyboardEvent) {
     if (batchRunning) return;
+    // A focused selection checkbox is not an editable text field. Ctrl/Cmd+A
+    // must select visible loaded tasks there, but preserve native text editing.
+    const textEditing = event.target instanceof HTMLTextAreaElement ||
+      (event.target instanceof HTMLInputElement &&
+        !['checkbox', 'radio', 'button', 'submit'].includes(event.target.type)) ||
+      (event.target instanceof HTMLElement && event.target.isContentEditable);
     if (selectMode && (event.ctrlKey || event.metaKey) &&
-        event.key.toLowerCase() === 'a' &&
-        !(event.target instanceof Element && event.target.closest('input, textarea, [contenteditable="true"]'))) {
+        event.key.toLowerCase() === 'a' && !textEditing) {
       event.preventDefault();
       selectAllVisible();
       return;
