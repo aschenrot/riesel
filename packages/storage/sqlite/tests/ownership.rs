@@ -67,7 +67,18 @@ fn parent_symlink_aliases_share_the_same_owner_identity() {
         Err(StoreError::Failed(_))
     ));
     drop(store);
-    assert!(SqliteStore::open(alias.join("records.db"), models()).is_ok());
+    // Keep this invariant strict, but preserve the exact underlying failure
+    // when a Linux runner intermittently refuses a released canonical alias.
+    // The original is_ok() assertion hid whether this was a stale file lock,
+    // SQLite WAL reopen, identity check, or filesystem permission failure.
+    if let Err(error) = SqliteStore::open(alias.join("records.db"), models()) {
+        panic!(
+            "reopening the released parent-symlink alias must succeed; error: {error:?}; \
+             canonical parent: {:?}; lockfile metadata: {:?}",
+            std::fs::canonicalize(&alias),
+            std::fs::symlink_metadata(temporary.path().join("records.db.riesel-owner.lock"))
+        );
+    }
 }
 
 #[cfg(unix)]
