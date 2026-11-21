@@ -145,3 +145,141 @@ fn sqlite_query_and_writer_observe_one_state() {
         SqliteStore::open(&path, models.clone()).unwrap()
     }));
 }
+
+
+/// #107 research-only candidate for a future fail-closed same-owner preflight.
+/// This is deliberately NOT a production resolver or authenticated instance proof.
+/// The runtime must separately verify its actual managed child/session at startup.
+fn research_require_same_authoritative_instance(
+    plan: &riesel_app::DeploymentPlan,
+) -> Result<(), &'static str> {
+    use riesel_app::PlannedTarget;
+    let writer = plan
+        .services
+        .iter()
+        .find(|service| service.requirement == "writer")
+        .ok_or("missing writer")?;
+    let query = plan
+        .services
+        .iter()
+        .find(|service| service.requirement == "query")
+        .ok_or("missing query")?;
+
+    match (&writer.target, &query.target) {
+        // A registered local provider ID refers to one provider instance in
+        // the existing per-application linked component registry.
+        (PlannedTarget::Local { provider: a }, PlannedTarget::Local { provider: b })
+            if a == b =>
+        {
+            Ok(())
+        }
+        // Explicitly named managed requirements can share the same launch,
+        // but matching the instance string alone is insufficient without
+        // compatible pinned provider metadata at preflight.
+        (
+            PlannedTarget::Managed {
+                instance: Some(a), ..
+            },
+            PlannedTarget::Managed {
+                instance: Some(b), ..
+            },
+        ) if a == b
+            && writer.expected_provider.is_some()
+            && writer.expected_provider == query.expected_provider =>
+        {
+            Ok(())
+        }
+        // Unnamed managed requirements launch separately; external TCP
+        // addresses are not authenticated instance identities.
+        _ => Err("query and writer do not have a verified shared local/managed target"),
+    }
+}
+
+#[test]
+fn query_writer_pairing_can_be_checked_before_side_effects() {
+    use riesel_app::{DeploymentConfig, ServiceEndpoint};
+    use std::path::PathBuf;
+
+    let models = BTreeMap::from([(
+        TaskData::MODEL_NAME.to_owned(),
+        TaskData::model_definition(),
+    )]);
+    let provider = research_provider("research.todo.memory", move || {
+        MemoryStore::with_models(models.clone())
+    });
+    let definition = provider.definition().unwrap();
+    let app = Application::new("TodoResearchPairing")
+        .handler_with_aliases(
+            |_writer: Capability<RecordStoreContract>,
+             _query: Capability<ResearchStatusQueryContract>|
+             -> Result<(), StoreError> { Ok(()) },
+            ["writer", "query"],
+        )
+        .unwrap()
+        .provider(provider)
+        .unwrap();
+
+    // The same local component instance is admissible.
+    let local = DeploymentConfig::new(BTreeMap::from([
+        (
+            "writer".into(),
+            ServiceEndpoint::Local {
+                provider: "research.todo.memory".into(),
+            },
+        ),
+        (
+            "query".into(),
+            ServiceEndpoint::Local {
+                provider: "research.todo.memory".into(),
+            },
+        ),
+    ]));
+    let local_plan = app.deployment_plan(&local).unwrap();
+    assert!(research_require_same_authoritative_instance(&local_plan).is_ok());
+
+    // The existing planner deliberately permits independent managed aliases.
+    // A future explicit pairing constraint must reject the split plan before
+    // launching either managed child, even with identical provider pins.
+    let managed = |instance: Option<&str>| ServiceEndpoint::Managed {
+        instance: instance.map(str::to_owned),
+        program: PathBuf::from("research-only-not-executed"),
+        args: Vec::new(),
+        startup_timeout_ms: 10_000,
+        shutdown_timeout_ms: 2_000,
+    };
+    let mut shared = DeploymentConfig::new(BTreeMap::from([
+        ("writer".into(), managed(Some("shared"))),
+        ("query".into(), managed(Some("shared"))),
+    ]));
+    shared
+        .expected_providers
+        .insert("writer".into(), definition.clone());
+    shared
+        .expected_providers
+        .insert("query".into(), definition.clone());
+    let plan = app.deployment_plan(&shared).unwrap();
+    assert!(research_require_same_authoritative_instance(&plan).is_ok());
+
+    let mut split = shared.clone();
+    split
+        .services
+        .insert("query".into(), managed(Some("other")));
+    let plan = app.deployment_plan(&split).unwrap();
+    assert!(research_require_same_authoritative_instance(&plan).is_err());
+
+    let mut unnamed = shared.clone();
+    unnamed.services.insert("query".into(), managed(None));
+    let plan = app.deployment_plan(&unnamed).unwrap();
+    assert!(research_require_same_authoritative_instance(&plan).is_err());
+
+    // A matching service name without verified provider pins cannot satisfy
+    // the proposed strict managed co-location predicate.
+    let mut unpinned = shared;
+    unpinned.expected_providers.clear();
+    // If core preflight already rejects unpinned managed configuration,
+    // that is also a safe failure; it is not evidence of an accepted pairing.
+    match app.deployment_plan(&unpinned) {
+        Ok(plan) => assert!(research_require_same_authoritative_instance(&plan).is_err()),
+        Err(_) => {}
+    }
+}
