@@ -529,10 +529,20 @@ impl<H: ?Sized> OperationRegistry<H> {
 }
 
 /// An immutable validated plan paired with its exact Rust code handlers.
-/// The upcoming session-owned graph runner is responsible for invoking them.
+/// The session-owned graph runner invokes them. Clones reuse identical
+/// immutable plan semantics and registered callbacks, not a running instance.
 pub struct BoundExecutionPlan<H: ?Sized> {
     plan: ValidatedExecutionPlan,
     handlers: BTreeMap<String, Arc<H>>,
+}
+
+impl<H: ?Sized> Clone for BoundExecutionPlan<H> {
+    fn clone(&self) -> Self {
+        Self {
+            plan: self.plan.clone(),
+            handlers: self.handlers.clone(),
+        }
+    }
 }
 
 impl<H: ?Sized> std::fmt::Debug for BoundExecutionPlan<H> {
