@@ -149,7 +149,29 @@ button.small { min-height: 44px; padding: 8px 11px; font-size: 13px; }
 .task:last-child { border-bottom: 0; }
 .task-check-control { width: 44px; height: 44px; display: grid; place-items: center; flex: 0 0 44px; cursor: pointer; border-radius: 8px; }
 .task-checkbox { width: 20px; height: 20px; accent-color: var(--accent); cursor: pointer; }
-.selection-checkbox { accent-color: var(--accent); }
+.selection-checkbox {
+  /* Circular selection controls are visually distinct from completion boxes. */
+  appearance: none;
+  width: 20px;
+  height: 20px;
+  margin: 0;
+  border: 2px solid var(--accent);
+  border-radius: 50%;
+  background: var(--surface);
+  display: grid;
+  place-items: center;
+}
+.selection-checkbox:checked { background: var(--accent); }
+.selection-checkbox:checked::after {
+  content: '✓';
+  color: var(--primary-ink);
+  font-size: 14px;
+  font-weight: 800;
+  line-height: 1;
+}
+@media (forced-colors: active) {
+  .selection-checkbox { appearance: auto; forced-color-adjust: auto; }
+}
 .task-content { flex: 1; min-width: 0; }
 .task-title { font-size: 15px; line-height: 1.5; word-break: break-word; }
 .task-title-button { width: 100%; min-height: 44px; border: 0; background: transparent; color: var(--ink); font-weight: 400; text-align: left; padding: 6px 4px; white-space: normal; }

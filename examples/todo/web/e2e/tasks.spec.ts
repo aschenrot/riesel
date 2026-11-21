@@ -603,7 +603,9 @@ test('selection is distinct from completion and filters clear selected task IDs'
   }
   await page.getByRole('button', { name: 'Select tasks' }).click();
   await expect(page.getByRole('checkbox', { name: 'Mark Selection first complete' })).toHaveCount(0);
-  await page.getByRole('checkbox', { name: 'Select Selection first' }).check();
+  const selectionBox = page.getByRole('checkbox', { name: 'Select Selection first' });
+  await expect(selectionBox).toHaveCSS('border-radius', '50%');
+  await selectionBox.check();
   await expect(page.getByText('1 selected')).toBeVisible();
   const state = (await (await request.get(api)).json()).records;
   expect(state.every((t: { completed: boolean }) => !t.completed)).toBe(true);
@@ -748,4 +750,19 @@ test('selection and direct task controls have no 320px horizontal overflow', asy
   await page.getByRole('checkbox', { name: 'Select Narrow controls' }).check();
   await expect(page.getByRole('button', { name: 'Mark done' })).toBeVisible();
   expect(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth + 1)).toBe(false);
+});
+
+test('selection indicator retains native semantics in forced-colors mode', async ({ page }) => {
+  await page.emulateMedia({ forcedColors: 'active' });
+  await page.goto('/');
+  await page.getByRole('textbox', { name: 'New task' }).fill('Accessible selection');
+  await page.getByRole('button', { name: 'Add task' }).click();
+  await expect(page.getByText('Accessible selection', { exact: true })).toBeVisible();
+  await page.getByRole('button', { name: 'Select tasks' }).click();
+  const selection = page.getByRole('checkbox', { name: 'Select Accessible selection' });
+  await expect(selection).toHaveCSS('appearance', 'auto');
+  await selection.focus();
+  await expect(selection).toHaveCSS('outline-style', 'solid');
+  await selection.check();
+  await expect(selection).toBeChecked();
 });
