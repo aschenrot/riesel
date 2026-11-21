@@ -158,7 +158,6 @@ impl OwnerGuard {
     }
 }
 
-
 // A child process can briefly inherit a locked file description across fork,
 // even when a descriptor is close-on-exec. Merely closing this File releases a
 // flock only after the *last* inherited/duplicated descriptor is closed.
@@ -180,7 +179,6 @@ mod tests {
     use riesel_schema::{ModelDefinition, TypeRef};
     use std::collections::BTreeMap;
 
-
     /// A child retaining a duplicated locked fd must not extend ownership
     /// past the original provider's lifetime. This is a deterministic
     /// reproduction of the otherwise timing-dependent fork/exec window.
@@ -192,7 +190,10 @@ mod tests {
         let temporary = tempfile::tempdir().unwrap();
         let db = temporary.path().join("records.db");
         let guard = OwnerGuard::acquire(&db).unwrap();
-        assert!(OwnerGuard::acquire(&db).is_err(), "live owner must exclude a second");
+        assert!(
+            OwnerGuard::acquire(&db).is_err(),
+            "live owner must exclude a second"
+        );
 
         // stderr is a clone of the same open file description. The shell waits
         // on a parent-held stdin pipe so the inherited descriptor remains open.
@@ -205,7 +206,10 @@ mod tests {
             .stderr(Stdio::from(inherited))
             .spawn()
             .unwrap();
-        assert!(child.try_wait().unwrap().is_none(), "child must still hold the inherited fd");
+        assert!(
+            child.try_wait().unwrap().is_none(),
+            "child must still hold the inherited fd"
+        );
 
         drop(guard);
         let replacement = OwnerGuard::acquire(&db)
@@ -214,7 +218,10 @@ mod tests {
         drop(replacement);
 
         drop(child.stdin.take());
-        assert!(child.wait().is_ok(), "child should terminate after stdin is closed");
+        assert!(
+            child.wait().is_ok(),
+            "child should terminate after stdin is closed"
+        );
     }
 
     #[test]
