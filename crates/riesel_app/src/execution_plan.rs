@@ -264,13 +264,13 @@ impl ExecutionPlanDraft {
         let mut indegrees = vec![0usize; description.operations.len()];
         let mut dependents = vec![Vec::<usize>::new(); description.operations.len()];
         for (index, operation) in description.operations.iter().enumerate() {
-            if let OperationTrigger::Signal(signal) = &operation.trigger {
-                if !valid_name(signal) {
-                    return Err(ExecutionPlanError::InvalidSignal {
-                        node: operation.id.clone(),
-                        signal: signal.clone(),
-                    });
-                }
+            if let OperationTrigger::Signal(signal) = &operation.trigger
+                && !valid_name(signal)
+            {
+                return Err(ExecutionPlanError::InvalidSignal {
+                    node: operation.id.clone(),
+                    signal: signal.clone(),
+                });
             }
             let mut resources = BTreeSet::new();
             for access in &operation.access {
@@ -333,7 +333,8 @@ impl ExecutionPlanDraft {
                     .operations
                     .iter()
                     .enumerate()
-                    .filter_map(|(i, node)| (indegrees[i] != 0).then(|| node.id.clone()))
+                    .filter(|(i, _)| indegrees[*i] != 0)
+                    .map(|(_, node)| node.id.clone())
                     .collect(),
             });
         }
