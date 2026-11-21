@@ -104,7 +104,7 @@ Reattach only with a new verified current generation and grants, then obtain an 
 - **M-C — unified management contract and frontends:** one authoritative CLI/UI action model for list/inspect/start/stop, explicit command identity and unknown outcomes, truthful process versus application/interface readiness, verified authorizations at every state-changing boundary. A browser control UI must be read-only or not offered until appropriate write authority and CSRF/origin/peer/credential protections are proven; framework choice is a separate UI decision.
 - **M-D — platform adapters / release evidence:** Windows job/process ownership and any macOS equivalent require platform-specific gates; no Linux proof automatically establishes parity.
 
-**Remaining acceptance questions:** trust profile (especially same-UID adversary), OS owner policy, registration admission across OS calls, stop/receipt reconciliation, durable command journal semantics and portable Riesel graceful stop. A Manager UI does **not** depend on a native #60 host. See [#94 report](https://github.com/aschenrot/riesel/blob/research/59-systemd-user-owner-probe/research/process-ownership/systemd-user-service-report.md).
+**Independent progress:** Manager process start/stop and registered-attempt fencing derive authority from the trusted OS owner and Manager registry, **not** from an app's exported capability or Riesel runtime generation. Manager can report OS-owned application status while callable app-interface status remains unknown. The #75 shared identity/error vocabulary is reused, not a requirement for one protocol or daemon.\n\n**Remaining acceptance questions:** trust profile (especially same-UID adversary), OS owner policy, registration admission across OS calls, stop/receipt reconciliation, durable command journal semantics and portable Riesel graceful stop. A Manager UI does **not** depend on a native #60 host. See [#94 report](https://github.com/aschenrot/riesel/blob/research/59-systemd-user-owner-probe/research/process-ownership/systemd-user-service-report.md).
 
 ### #60 — Native GUI and application-owned capability export
 
@@ -122,14 +122,15 @@ Reattach only with a new verified current generation and grants, then obtain an 
 
 ```text
 Accepted product outcomes (#75, #68, #59, #60) — already owner-selected
-  ├─ #75 common semantics: identity / lifecycle / observation / unknown outcomes
-  │     ├─ external session issuance + revocation + authorized attach
-  │     │     ├─ #60 reusable exported interface / production GUI attachment
-  │     │     └─ #59 privileged Manager/UI controls (with distinct OS trust model)
-  │     └─ readiness representation usable by #68, #59, #60
-  ├─ #68 Cargo/foreground workflow (independent build + owned child slice)
-  ├─ #59 OS process-owner and durable admission evidence (independent research)
-  └─ #60 native GUI event-loop / UX evidence (independent research)
+  ├─ #75 shared semantics: identities / lifecycle / observations / unknown outcomes
+  │     ├─ app runtime-issued session + authorized exported attachment
+  │     │     └─ #60 production published-capability / native-GUI attachment
+  │     └─ observation & error vocabulary reused by #68, #59, #60
+  ├─ #68 Cargo/foreground build and owned-child launch (independent)
+  ├─ #59 OS process ownership + registered-attempt admission + Manager
+  │     └─ protected Management commands: separate OS/controller authority,
+  │        NOT dependent on an app-export protocol or runtime session epoch
+  └─ #60 GUI event-loop / UX feasibility (independent)
 ```
 
 These are **dependencies between guarantees**, not a blanket serialized project schedule. #68 tooling never owns runtime session generation; #59 Manager never resolves providers; #60 GUI never owns app domain state; #75 is not a daemon. #83 general execution scheduler remains a separate product/specification and does not alter these decisions.
