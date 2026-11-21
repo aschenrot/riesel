@@ -21,6 +21,20 @@ See [the complete Rust example](../../../crates/riesel/examples/execution_plan.r
 5. Call `.bind(&registry)` to require exact matching registered handlers for every node. This is lookup-only and returns `BoundExecutionPlan<H>`; it does **not** start work. Optionally publish the immutable validated plan in a local `PlanRevisionCatalog` to reject reuse of the same logical ID/revision.
 6. Inspect `description()` or `dependency_order()`. The `serde::Serialize` projection is read-only metadata. **Do not deserialize it as an executable plan** or treat it as proof of app identity or authorization.
 
+## Declared domain boundaries
+
+A plan can optionally label outer simulation operations with
+`OperationNode::domain_tick("simulation")` (Riesel admits the outer tick),
+or `OperationNode::delegated_frame("simulation")` (the domain owns its
+internal tick/system schedule). Each label appears in read-only plan
+inspection. Validation rejects invalid domain names and conflicting
+owners of the same domain *within* one immutable plan. The runtime's
+session admission additionally rejects conflicting authorities across
+outstanding runs and serializes declared domain operations even without
+a resource key. This declaration does **not** create an ECS integration,
+clock, separate supervisor or automatic safe-point debugger; see the
+[execution runner contract](execution-runner.md).
+
 ## Boundaries and next steps
 
 - This graph is **not** the capability/provider startup dependency graph, the `AppSchema`, or the provider `DeploymentPlan`. Existing provider selection and session identity remain authoritative.
