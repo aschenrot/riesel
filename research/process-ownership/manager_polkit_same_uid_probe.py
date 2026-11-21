@@ -71,7 +71,12 @@ def verified_subject(process: subprocess.Popen[str], timeout: float = 8.0) -> st
         raise AssertionError("unprivileged polkit subject did not report status")
     marker = process.stdout.readline().strip()
     if marker != "RESEARCH_M59_POLKIT_UNTRUSTED_DIRECT_DETAILS_REJECTED":
-        raise AssertionError(f"unexpected untrusted detail status: {marker!r}")
+        diagnostic = (process.stderr.read() if process.poll() is not None
+                      and process.stderr is not None else "subject still running")
+        raise AssertionError(
+            f"unexpected untrusted detail status: {marker!r}, "
+            f"exit={process.poll()}, stderr={diagnostic[:1900]!r}"
+        )
     # Python's text-mode readline may have buffered the next line.
     identity = process.stdout.readline().strip().split()
     if len(identity) != 4 or identity[0] != "READY":
