@@ -724,7 +724,9 @@ fn async_startup_does_not_execute_legacy_blocking_connectors() {
 /// behavior; it is not a request to relax the provider/instance boundary.
 #[test]
 fn research_query_like_observer_is_not_automatically_co_selected_with_writer() {
-    use riesel::{Application, Capability, DeploymentConfig, LocalProviderFactory, ServiceEndpoint};
+    use riesel::{
+        Application, Capability, DeploymentConfig, LocalProviderFactory, ServiceEndpoint,
+    };
     use riesel_counter::CounterObserverContract;
     use riesel_counter_component::memory_counter_provider;
     use std::collections::BTreeMap;
