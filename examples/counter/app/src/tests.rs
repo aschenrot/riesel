@@ -718,3 +718,90 @@ fn async_startup_does_not_execute_legacy_blocking_connectors() {
             if requirement == "counter"
     ));
 }
+
+/// #107 research: two independently selected interfaces do not automatically
+/// require co-location. This intentionally proves the *current* preflight
+/// behavior; it is not a request to relax the provider/instance boundary.
+#[test]
+fn research_query_like_observer_is_not_automatically_co_selected_with_writer() {
+    use riesel::{
+        Application, Capability, DeploymentConfig, LocalProviderFactory, ServiceEndpoint,
+    };
+    use riesel_counter::CounterObserverContract;
+    use riesel_counter_component::memory_counter_provider;
+    use std::collections::BTreeMap;
+    use std::path::PathBuf;
+
+    let app = Application::new("QueryIdentityResearch")
+        .handler_with_aliases(
+            |_writer: Capability<CounterContract>,
+             _query: Capability<CounterObserverContract>|
+             -> Result<(), CounterError> { Ok(()) },
+            ["writer", "query"],
+        )
+        .unwrap()
+        .provider(memory_counter_provider().unwrap())
+        .unwrap();
+
+    let provider = memory_counter_provider().unwrap().definition().unwrap();
+    // Both requirements are pinned to the *same implementation*, yet the
+    // instance names identify distinct managed children. This is legal today.
+    let endpoints = |instance: &str| ServiceEndpoint::Managed {
+        instance: Some(instance.to_owned()),
+        program: PathBuf::from("counter-service"),
+        args: Vec::new(),
+        startup_timeout_ms: 10_000,
+        shutdown_timeout_ms: 2_000,
+    };
+    let mut split = DeploymentConfig::new(BTreeMap::from([
+        ("writer".into(), endpoints("writer_instance")),
+        ("query".into(), endpoints("query_instance")),
+    ]));
+    split
+        .expected_providers
+        .insert("writer".into(), provider.clone());
+    split
+        .expected_providers
+        .insert("query".into(), provider.clone());
+
+    let split_plan = app.deployment_plan(&split).unwrap();
+    let writer = split_plan
+        .services
+        .iter()
+        .find(|s| s.requirement == "writer")
+        .unwrap();
+    let reader = split_plan
+        .services
+        .iter()
+        .find(|s| s.requirement == "query")
+        .unwrap();
+    assert_ne!(
+        writer.target, reader.target,
+        "independent instances must stay distinct"
+    );
+    assert_eq!(writer.expected_provider, reader.expected_provider);
+
+    let mut colocated = DeploymentConfig::new(BTreeMap::from([
+        ("writer".into(), endpoints("same_instance")),
+        ("query".into(), endpoints("same_instance")),
+    ]));
+    colocated
+        .expected_providers
+        .insert("writer".into(), provider.clone());
+    colocated
+        .expected_providers
+        .insert("query".into(), provider);
+
+    let shared_plan = app.deployment_plan(&colocated).unwrap();
+    let writer = shared_plan
+        .services
+        .iter()
+        .find(|s| s.requirement == "writer")
+        .unwrap();
+    let reader = shared_plan
+        .services
+        .iter()
+        .find(|s| s.requirement == "query")
+        .unwrap();
+    assert_eq!(writer.target, reader.target);
+}
