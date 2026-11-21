@@ -68,6 +68,19 @@ pub fn run(mode: FormatMode) -> TaskResult {
             ],
         ),
         (
+            "Runnable session-owned headless execution graph",
+            &[
+                "run",
+                "--locked",
+                "-p",
+                "riesel",
+                "--features",
+                "async-tcp",
+                "--example",
+                "execution_graph",
+            ],
+        ),
+        (
             "Explicit fixed-tick domain authority comparison",
             &[
                 "test",
