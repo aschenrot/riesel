@@ -126,12 +126,15 @@
       fieldError = 'Enter a task title.';
       return;
     }
+    const submittedTitle = newTitle;
     creating = true;
     clearFeedback();
     try {
-      const task = await createTask(newTitle);
+      const task = await createTask(submittedTitle);
       tasks = sortedUnique([...tasks, task]);
-      newTitle = '';
+      // A user may start typing another task while this request is pending.
+      // Clear only the submitted draft; never discard newer input.
+      if (newTitle === submittedTitle) newTitle = '';
       notify('Task created');
     } catch (error) {
       if (error instanceof ApiError && error.code === 'invalid_request') {

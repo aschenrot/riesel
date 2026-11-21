@@ -220,7 +220,10 @@ test('capture desktop and mobile UI for visual review', async ({ page }) => {
   for (const text of ['Review architecture', 'Refine Todo layout', 'Verify accessibility']) {
     await title.fill(text);
     await page.getByRole('button', { name: 'Add task' }).click();
+    // Click completion is not proof that the asynchronous create was accepted.
+    await expect(page.getByText(text, { exact: true })).toBeVisible();
   }
+  await expect(page.locator('li.task')).toHaveCount(3);
   await page.getByRole('checkbox', { name: 'Mark Verify accessibility complete' }).check();
   await mkdir('test-results/visual-review', { recursive: true });
   await expect(page.getByRole('status')).toContainText('Task completed');
@@ -362,4 +365,29 @@ test('revision conflict explicitly permits reloading a stale edit', async ({ pag
   await page.getByRole('button', { name: 'Reload current tasks' }).click();
   await expect(page.getByText('External version', { exact: true })).toBeVisible();
   await expect(page.getByRole('textbox', { name: 'Edit task title' })).toHaveCount(0);
+});
+
+test('draft entered during in-flight creation is preserved after the first task is saved', async ({ page }) => {
+  await page.goto('/');
+  await expect(page.getByText('No tasks yet')).toBeVisible();
+  const input = page.getByRole('textbox', { name: 'New task' });
+  await page.route('**/api/v1/tasks', async (route) => {
+    if (route.request().method() === 'POST') {
+      await new Promise((resolve) => setTimeout(resolve, 750));
+    }
+    await route.continue();
+  });
+
+  await input.fill('First task');
+  await page.getByRole('button', { name: 'Add task' }).click();
+  await expect(page.getByRole('button', { name: 'Adding…' })).toBeDisabled();
+  await input.fill('Second task');
+  await expect(input).toHaveValue('Second task');
+  await expect(page.getByText('First task', { exact: true })).toBeVisible();
+  await expect(input).toHaveValue('Second task');
+
+  await page.getByRole('button', { name: 'Add task' }).click();
+  await expect(page.getByText('Second task', { exact: true })).toBeVisible();
+  await expect(page.locator('li.task')).toHaveCount(2);
+  await expect(input).toHaveValue('');
 });
