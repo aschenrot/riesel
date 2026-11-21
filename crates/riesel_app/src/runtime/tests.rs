@@ -1486,3 +1486,159 @@ fn graph_runner_real_local_session_shutdown_preserves_completed_prefix_and_unkno
     ));
     assert_eq!(dispatched.load(Ordering::SeqCst), 1);
 }
+
+#[cfg(feature = "async-tcp")]
+#[test]
+fn structured_background_graph_drains_before_local_provider_teardown() {
+    use crate::execution_plan::{
+        ExecutionPlanDraft, OperationKey, OperationNode, OperationRegistry,
+    };
+    use crate::execution_runner::{AsyncOperation, OperationOutcome, async_operation};
+    use std::num::NonZeroUsize;
+    use std::sync::atomic::{AtomicBool, Ordering};
+
+    struct DropProbe(Arc<AtomicBool>);
+    impl Drop for DropProbe {
+        fn drop(&mut self) {
+            self.0.store(true, Ordering::SeqCst);
+        }
+    }
+
+    let mut connectors = ConnectorRegistry::new();
+    connectors
+        .register_local(LocalCounter("example.counter.memory"))
+        .unwrap();
+    let mut running = app().start_local(&connectors).unwrap();
+    let started = Arc::new(AtomicBool::new(false));
+    let dropped = Arc::new(AtomicBool::new(false));
+    let resolved = Arc::clone(running.service::<Arc<u64>>("counter").unwrap());
+    let mut handlers = OperationRegistry::<AsyncOperation>::new();
+    handlers
+        .register(
+            OperationKey::new("pending", 1).unwrap(),
+            async_operation({
+                let started = Arc::clone(&started);
+                let dropped = Arc::clone(&dropped);
+                move || {
+                    let started = Arc::clone(&started);
+                    let dropped = Arc::clone(&dropped);
+                    let resolved = Arc::clone(&resolved);
+                    async move {
+                        let _guard = DropProbe(dropped);
+                        assert_eq!(*resolved, 123);
+                        started.store(true, Ordering::SeqCst);
+                        std::future::pending::<()>().await;
+                        OperationOutcome::Completed
+                    }
+                }
+            }),
+        )
+        .unwrap();
+    let runner = running
+        .execution_graph(
+            ExecutionPlanDraft::new("structured-background", 1)
+                .operation(OperationNode::new(
+                    "pending",
+                    OperationKey::new("pending", 1).unwrap(),
+                ))
+                .validate()
+                .unwrap()
+                .bind(&handlers)
+                .unwrap(),
+            NonZeroUsize::new(1).unwrap(),
+        )
+        .unwrap();
+    let tasks = running.async_tasks();
+    let executor = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .unwrap();
+    executor.block_on(async {
+        tasks.begin_scope().unwrap();
+        tasks.spawn_graph("graph", runner).unwrap();
+        tokio::time::timeout(Duration::from_secs(3), async {
+            while !started.load(Ordering::SeqCst) {
+                tokio::task::yield_now().await;
+            }
+        })
+        .await
+        .unwrap();
+        tasks.prepare_stop().await.unwrap();
+        assert!(dropped.load(Ordering::SeqCst));
+        // The resolved provider is still present after the graph drains.
+        assert_eq!(**running.service::<Arc<u64>>("counter").unwrap(), 123);
+        tasks.finish_scope().await.unwrap();
+    });
+    running.shutdown().unwrap();
+}
+
+#[cfg(feature = "async-tcp")]
+#[test]
+fn background_graph_failure_retains_named_task_error_and_report() {
+    use crate::execution_plan::{
+        ExecutionPlanDraft, OperationKey, OperationNode, OperationRegistry,
+    };
+    use crate::execution_runner::{
+        AsyncOperation, GraphExecutionFailure, OperationOutcome, OperationState, async_operation,
+    };
+    use std::num::NonZeroUsize;
+
+    let mut running = App::from_schema(
+        r#"{"version":1,"app":{"name":"BackgroundGraphFailure"},"models":{},"requires":[]}"#,
+    )
+    .unwrap()
+    .start_local(&ConnectorRegistry::new())
+    .unwrap();
+    let mut handlers = OperationRegistry::<AsyncOperation>::new();
+    handlers
+        .register(
+            OperationKey::new("fail", 1).unwrap(),
+            async_operation(|| async { OperationOutcome::Failed("explicit failure".into()) }),
+        )
+        .unwrap();
+    let runner = running
+        .execution_graph(
+            ExecutionPlanDraft::new("background-failure", 1)
+                .operation(OperationNode::new(
+                    "fail",
+                    OperationKey::new("fail", 1).unwrap(),
+                ))
+                .validate()
+                .unwrap()
+                .bind(&handlers)
+                .unwrap(),
+            NonZeroUsize::new(1).unwrap(),
+        )
+        .unwrap();
+    let tasks = running.async_tasks();
+    tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .unwrap()
+        .block_on(async {
+            tasks.begin_scope().unwrap();
+            tasks.spawn_graph("failed-graph", runner).unwrap();
+            tokio::time::timeout(Duration::from_secs(3), running.session_token().cancelled())
+                .await
+                .unwrap();
+            let failure = tasks.finish_scope().await.unwrap_err();
+            match failure {
+                RuntimeError::TaskFailed { name, source } => {
+                    assert_eq!(name, "failed-graph");
+                    let graph = source
+                        .downcast_ref::<GraphExecutionFailure>()
+                        .expect("failed background task must retain the local graph result");
+                    assert_eq!(
+                        graph.report.operations["fail"],
+                        OperationState::Failed("explicit failure".into())
+                    );
+                    assert!(!graph.report.succeeded());
+                }
+                error => panic!("expected a named background graph failure: {error}"),
+            }
+        });
+    assert!(matches!(
+        running.shutdown(),
+        Err(RuntimeError::TaskFailed { name, .. }) if name == "failed-graph"
+    ));
+}
