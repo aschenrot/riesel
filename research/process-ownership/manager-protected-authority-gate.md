@@ -24,7 +24,7 @@ Scope assumption for research: attackers have arbitrary unprivileged code execut
 | [#94 real-systemd research](https://github.com/aschenrot/riesel/pull/94), [executed admission CI](https://github.com/aschenrot/riesel/actions/runs/44884335628) | `systemd --user` transient services survive controller exit, can be observed across controllers; an immutable per-attempt unit name prevents a stale **name-based** stop of its replacement; durable cooperative SQLite admission can suppress duplicates | Hostile same-UID programs can invoke user-manager methods or access a same-UID registry. No protected installed broker, no true cross-principal OS owner, no verified Riesel app readiness |
 | [#96 real Linux peer/principal differential](https://github.com/aschenrot/riesel/pull/96), [executed CI](https://github.com/aschenrot/riesel/actions/runs/44886275238) | `SO_PEERCRED` identifies kernel peer UID; two independent processes with the same allowed UID both pass a UID-only policy. A distinct OS principal can protect service-owned state from a separate UID | An isolated server UID **does not authenticate which of two same-UID user clients is allowed** |
 | [#99 real Riesel Todo OS-owner fixture](https://github.com/aschenrot/riesel/pull/99) | A research-only integration test exists on a stacked draft branch | The existing report does **not** establish a completed exact-head real-Riesel/systemd CI passing outcome. Do not assume app-level graceful stop or readiness from synthetic #94 results |
-| **This differential**, [script](manager_direct_stop_principal_probe.py) | Tests actual Linux `SIGTERM` from independent unprivileged processes with distinct UIDs; one matching the victim's UID, one not | The local preliminary result must be reproduced by **exact-head repository CI** before it is counted as PR-verified evidence; no Riesel binary, browser, broker, AppArmor policy, Windows or macOS test is included |
+| **This differential**, [script](manager_direct_stop_principal_probe.py) | Tests actual Linux `SIGTERM` from independent unprivileged processes with distinct UIDs; one matching the victim's UID, one not | The disposable Linux differential **passed** at script revision `5f45e30d78ba645ac451c8acf4d0dbbeb86242d4` in [Ubuntu 24.04 research CI #44910256723](https://github.com/aschenrot/riesel/actions/runs/44910256723). This does not test a Riesel binary, browser, broker, AppArmor policy, Windows or macOS |
 
 ### Direct-stop test
 
@@ -37,13 +37,13 @@ python3 -m py_compile research/process-ownership/manager_direct_stop_principal_p
 python3 research/process-ownership/manager_direct_stop_principal_probe.py
 ```
 
-Expected markers, *not a declaration of CI success*:
+Observed markers in that successful CI run:
 
 - `RESEARCH_MANAGER_CROSS_UID_DIRECT_SIGTERM_DENIED`
 - `RESEARCH_MANAGER_SAME_UID_DIRECT_SIGTERM_BYPASSES_MANAGER`
 - `RESEARCH_MANAGER_OS_SIGNAL_PRINCIPAL_DIFFERENTIAL_PASS`
 
-The dedicated, path-scoped [Linux workflow](../../.github/workflows/manager-protected-owner-research.yml) runs on Ubuntu 24.04 without routine Windows/macOS jobs. It uses a bounded timeout and disposable processes only.
+The dedicated, path-scoped [Linux workflow](../../.github/workflows/manager-protected-owner-research.yml) runs on Ubuntu 24.04 without routine Windows/macOS jobs. It uses a bounded timeout and disposable processes only. Initial research workflow attempts failed on **test harness setup** (the non-login numeric UID could not read the runner's checkout path; later the runner's ordinary UID could not perform a liveness check on the isolated worker). The corrected test runs its disposable worker from a deliberately accessible temporary copy and checks the worker subprocess' exit instead. **These setup failures were not counted as security results**. The exact successful test revision is `5f45e30`; any subsequent report-only revision still requires its own relevant CI checks.
 
 Linux's documented `kill(2)` permission rule allows signals when matching real/effective UID and grants elevated `CAP_KILL` authority under defined conditions: [Linux manual](https://man7.org/linux/man-pages/man2/kill.2.html). Therefore ordinary same-UID OS-owned apps are **not protected from arbitrary same-UID signal interference just because a Manager broker protects its own IPC**.
 
