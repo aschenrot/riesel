@@ -44,42 +44,44 @@ fn read_or_change(
     increment: bool,
     delay: Duration,
 ) -> Reply {
-    // Deliberately model a slow client/backend boundary on the worker, never
-    // on the GUI event-loop thread. This delay is an injected adapter delay.
+    // Deliberately model slow I/O on the worker, never on the GUI event loop.
     if !delay.is_zero() {
         thread::sleep(delay);
     }
-    let transport = Arc::new(AsyncTcpRpcTransport::new(address));
-    let definition = match AsyncCounterContract::definition() {
-        Ok(definition) => definition,
-        Err(error) => return Reply::Disconnected(error.to_string()),
-    };
-    match runtime.block_on(tokio::time::timeout(
-        IO_DEADLINE,
-        transport.verify(&definition),
-    )) {
-        Ok(Ok(())) => {}
-        Ok(Err(error)) => return Reply::Disconnected(format!("capability verification: {error}")),
-        Err(_) => return Reply::Disconnected("verification timed out".into()),
-    }
-
-    let client = AsyncCounterContract::bind_async(transport);
-    if increment {
-        match runtime.block_on(tokio::time::timeout(IO_DEADLINE, client.add(1))) {
-            Ok(Ok(_)) => {}
+    // Even constructing a Tokio transport may require an active reactor.
+    // Keep transport creation, verification and all RPCs in this worker's
+    // Tokio context; the native main thread never enters this runtime.
+    runtime.block_on(async {
+        let transport = Arc::new(AsyncTcpRpcTransport::new(address));
+        let definition = match AsyncCounterContract::definition() {
+            Ok(definition) => definition,
+            Err(error) => return Reply::Disconnected(error.to_string()),
+        };
+        match tokio::time::timeout(IO_DEADLINE, transport.verify(&definition)).await {
+            Ok(Ok(())) => {}
             Ok(Err(error)) => {
-                // Conservative: until there is a verified pre/post-dispatch
-                // distinction, do not promise whether a write was applied.
-                return Reply::UnknownOutcome(format!("mutation failed: {error}"));
+                return Reply::Disconnected(format!("capability verification: {error}"));
             }
-            Err(_) => return Reply::UnknownOutcome("mutation response timed out".into()),
+            Err(_) => return Reply::Disconnected("verification timed out".into()),
         }
-    }
-    match runtime.block_on(tokio::time::timeout(IO_DEADLINE, client.value())) {
-        Ok(Ok(value)) => Reply::Value(value),
-        Ok(Err(error)) => Reply::Disconnected(format!("snapshot: {error}")),
-        Err(_) => Reply::Disconnected("snapshot timed out".into()),
-    }
+
+        let client = AsyncCounterContract::bind_async(transport);
+        if increment {
+            match tokio::time::timeout(IO_DEADLINE, client.add(1)).await {
+                Ok(Ok(_)) => {}
+                Ok(Err(error)) => {
+                    // No transport-level response is proof of non-execution.
+                    return Reply::UnknownOutcome(format!("mutation failed: {error}"));
+                }
+                Err(_) => return Reply::UnknownOutcome("mutation response timed out".into()),
+            }
+        }
+        match tokio::time::timeout(IO_DEADLINE, client.value()).await {
+            Ok(Ok(value)) => Reply::Value(value),
+            Ok(Err(error)) => Reply::Disconnected(format!("snapshot: {error}")),
+            Err(_) => Reply::Disconnected("snapshot timed out".into()),
+        }
+    })
 }
 
 fn worker(
