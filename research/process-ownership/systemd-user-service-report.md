@@ -1,0 +1,116 @@
+# Real Linux systemd user-service owner experiment — #59
+
+**Status:** Verified narrow research result, **not** adoption of a Manager process-owner API, an installed service, an accepted security model or an implementation issue.
+
+- Source branch: [draft PR #94](https://github.com/aschenrot/riesel/pull/94), based on `main` at `a35ac7c9ac9749ff023a72595c6851caee5f4859`.
+- Research harness: [systemd_user_service_probe.py](systemd_user_service_probe.py). It creates only random ephemeral `riesel-research-59-*.service` transient **user** units.
+- First verified executable code revision: `cb183e89159ccf31754e2213e5986006a6576ebe`, [GitHub Actions 44882989009](https://github.com/aschenrot/riesel/actions/runs/44882989009) **PASSED** its dedicated real-systemd job with `Ran 1 test in 2.717s / OK` and the `RESEARCH_REAL_SYSTEMD_USER_SERVICE_OWNER_PASS` marker.
+- Environment: hosted Ubuntu 24.04, systemd **255 (255.4-1ubuntu8.18)**, PID 1 **systemd**, unprivileged runner UID **1001**, existing `/run/user/1001` and active **systemd user manager**; linger was already enabled. This is an **actual systemd user service**, not a subprocess simulator, mocked D-Bus or merely a shell command that claims the service launched.
+
+## What was actually demonstrated
+
+| Case | Actual OS observation | Scope |
+| --- | --- | --- |
+| Real transient owner | `systemd-run --user` created `Type=exec` transient `.service`, `KillMode=control-group`, `TimeoutStopSec=2s`, `Restart=no`; active `MainPID`, `ExecStart`, `ControlGroup`, `InvocationID` observed | One systemd 255 user instance, synthetic Python application |
+| Controller crash | Controller submitted service start then abruptly exited `os._exit(23)`; service and child survived | Manager *process* death only; does not cover user-manager crash, logout, linger-off or reboot |
+| Independent reconciliation | New external controller obtained the **same actual** unit, `MainPID`, invocation and cgroup through `systemctl --user show` | Real owner observation; no durable registration/provenance or privileged command API |
+| Duplicate start | Starting an already active unit under its exact existing name failed; original invocation remained unchanged | Unit namespace reuse is not itself an application registration/duplicate policy |
+| New attempt identity | `systemctl --user restart` rotated `InvocationID`; old main and `setsid`-descendant process incarnations were no longer alive | OS owner restart, **not** Riesel same-PID whole-session recovery |
+| Stale stop refused | Research `stop_if_current(unit, old_invocation)` rejected the previous invocation and did not stop replacement; matching invocation could request stop | **Only a local compare-then-stop model**; systemd `StopUnit(name, mode)` has no atomic expected-invocation parameter in the tested API |
+| Descendant cleanup | A grandchild intentionally called `setsid`, ignored SIGTERM and remained inside inherited service cgroup; `KillMode=control-group`/timeout stopped the unit and the tests observed all recorded parent/child process births gone | Bounded cooperative parent and stubborn descendant; not hostile cgroup migration or user-manager death |
+
+Commands are bounded and clean up only the randomly named research unit; no service or unit belonging to a real Riesel installation is touched. Ordinary Riesel workspace validation is an independent CI gate.
+
+## Added negative stale-stop experiment
+
+A second, deliberately unsafe *research-only* case retains one stable transient unit name while a competing controller restarts it from incarnation **A** to **B**. The original controller then issues a normal name-only `systemctl --user stop UNIT` based on its old observation of A. The test asserts the stop **kills the newer incarnation B**, even though `InvocationID` changed.
+
+This does **not** demonstrate an exploit against an implemented Riesel Manager: no production Manager exists. It directly tests a failure mode of **using an unguarded systemd StopUnit against a reused unit name**. The previous `stop_if_current` fixture refuses a stale ID when the change happens **before its comparison**, but that check remains non-atomic. A race-safe admission strategy must remove or constrain the interval between proof of ownership and OS effects.
+
+The second case is added to the same dedicated real-systemd workflow; verify the current branch's exact SHA and `RESEARCH_SYSTEMD_UNFENCED_STALE_STOP_KILLS_REPLACEMENT` marker before treating it as executed evidence.
+
+## Alternative experiment: unique unit identity for each attempt
+
+A third test compares a different systemd namespace policy. Two transient services with **distinct attempt-specific unit names** start the same research executable and remain active simultaneously. Stopping attempt A by its immutable unit name leaves attempt B alive.
+
+This provides two concrete, opposing observations:
+
+- **Benefit:** an old attempt-specific unit name cannot directly name a replacement attempt, even if the old caller issues its stop after B starts.
+- **Cost:** distinct unit names permit duplicate instances of the same intended registered application. Systemd alone has no shared registration-level uniqueness constraint across the distinct names.
+
+The research therefore does **not** establish that either a reused unit name with a non-atomic invocation check or uncoordinated unique-attempt units is a complete Manager owner. A robust design needs a **fenced, authoritative registration-to-owner/attempt admission rule** as well as exact OS unit control. Define its crash/restart durability and out-of-band controller threat model before making M2 guarantees.
+
+The added isolated test prints `RESEARCH_SYSTEMD_UNIQUE_ATTEMPT_NAMES_ALLOW_DUPLICATES` and `RESEARCH_SYSTEMD_ATTEMPT_NAMES_ISOLATE_OLD_STOP`. Confirm both in exact-head Linux CI before treating these outcomes as executed.
+
+## Gate M2b — competing-controller durable admission (research extension)
+
+**Hypothesis, not a selected Manager mechanism:** A trusted single-host registry can commit a unique immutable launch-attempt reservation **before** sending a separate systemd transient-unit command. Separate cooperating controller processes use a transactional unique registration row and a separate attempt record. This avoids choosing between the two unsafe standalone policies: stable unit-name stale-stop risks and per-attempt unit-name duplicate-start risks. The experiment is implemented in [manager_admission_probe.py](manager_admission_probe.py) and deliberately uses Python's SQLite/WAL transactions as a **research oracle**, not a Riesel storage/provider selection or new public Manager dependency.
+
+### Matched observations required
+
+| Test | Expected outcome | Crucial limitation |
+| --- | --- | --- |
+| Four independent controller processes race for one registration | Exactly one durable attempt reservation; others are denied, and only the winner may launch a systemd unit | Cooperative controllers and a writable trusted registry; not hostile same-UID protection |
+| Controller crashes after systemd accepts start but before registry confirmation | Durable reservation blocks a duplicate; new controller verifies the exact unit/invocation/marker and reconciles to active | Registry and OS are not one transaction; external marker identity remains forgeable by same-UID attacker |
+| Controller crashes after reservation, before systemd request | Reconciliation returns **unknown**, does not launch another attempt or declare a running process | A process absence observation alone does not prove a delayed launch cannot later occur |
+| Stop for currently registered attempt, then reserve fresh attempt | Stopping becomes a durable transition before OS stop; a stale command for old attempt is rejected and its unique OS name cannot target the replacement | Out-of-band OS operations remain possible, crash windows require explicit recovery policy |
+| Controller crashes after OS stop, before registry confirmation | A second controller observes inactive unit and dead original processes, reconciles `stopping` to `stopped`; no duplicate during uncertainty | Tests cooperative process exit, not arbitrary delayed or malicious cgroup movement |
+| Separate process reads a 0600 registry file as the same UID | Read succeeds; sqlite file permissions alone are **not** strong caller authorization | Must choose a real privilege boundary or explicitly narrower local-trust profile |
+
+The currently implemented research state vocabulary `reserved, active, stopping, stopped, unknown` is an **example**, not a final public Manager status design. The prototype's OS attestation uses an app-authored marker, unit properties and `InvocationID`; it is insufficient to authenticate executable provenance, prevent path substitution or establish Riesel's runtime-session identity. Atomicity exists only for SQLite registry transactions, **not** for the combined DB + systemd step. Closing this residual uncertainty requires a tested explicit fail-closed reconciliation rule and accepted controller/trust boundary.
+
+Run with an operational Ubuntu/systemd user manager:
+```sh
+python3 research/process-ownership/systemd_user_service_probe.py
+python3 research/process-ownership/manager_admission_probe.py
+```
+**Executed evidence:** The first complete M2b code + report revision `8367ffe490c3d2368d74e19c10fcb89c645bcd0a` passed [GitHub Actions 44884214554](https://github.com/aschenrot/riesel/actions/runs/44884214554) on Ubuntu 24.04 / real systemd 255 user manager: **3/3 existing real-unit scenarios and 4/4 new durable-admission tests**. The new logs include:
+
+- `RESEARCH_MANAGER_SQLITE_CONCURRENT_SINGLE_ADMISSION`
+- `RESEARCH_MANAGER_CRASH_AFTER_OS_START_RECONCILED`
+- `RESEARCH_MANAGER_DURABLE_ATTEMPT_FENCES_STALE_STOP`
+- `RESEARCH_MANAGER_CRASH_AFTER_OS_STOP_RECONCILED`
+- `RESEARCH_MANAGER_UNCERTAIN_RESERVATION_FAILS_CLOSED`
+- `RESEARCH_MANAGER_SAME_UID_REGISTRY_IS_NOT_AUTH`
+
+The tests use real OS-owned transient user units and independently spawned controller processes, while the registry itself is a test-only SQLite implementation. The exact final documentation revision needs its own passing CI before treating the branch as comprehensively validated. No general Manager implementation guarantee or security acceptance is implied.
+
+### Decision comparison (not a vote)
+
+- **Stable per-registration unit and cooperating serialized controllers:** systemd itself denies same-name duplicates, but a controller may stop a replacement invocation if a foreign/uncoordinated controller restarts the unit between verification and stop; Manager-owned serialization must span every actor with mutation authority to make the guarantee credible.
+- **Immutable per-attempt unit names and durable registration admission:** old name-only stops cannot address a fresh attempt; a transactional registry can block cooperative duplicates and preserve a launch intent across controller crashes, at the cost of durable registry provenance, multi-phase reconciliation and orphan cleanup. A malicious or foreign same-UID actor can still create/stop units or edit the registry unless real principal isolation exists.
+- **Privileged broker / OS-enforced conditional operation:** might solve cross-principal fencing but adds service installation and trust/credential management. No such conditional `StopUnit(expected InvocationID)` was verified in the systemd 255 documented Manager interface; do not claim portability of a nonexistent API. <https://www.freedesktop.org/software/systemd/man/255/org.freedesktop.systemd1.html>
+
+A successful outcome would make the **immutable-attempt + transactional registry** design a stronger *research candidate under a trusted local actor model*, not a final accepted architecture. A negative test would instead refine its actual crash/admission failure and stop the assumption from entering a permanent contract.
+
+## Architecture implications
+
+The [previous #59 report](../../docs/product/riesel/manager-control-plane-investigation.md) compared direct-child, OS-owned user services and one-owner hybrid. This real experiment **supports** a systemd user `.service` as a credible first *installed Linux* owner, provided the Manager is an **authorized observer/controller** while systemd is the **actual process owner**. It does **not** establish that this mode has been technically accepted.
+
+The experiment also exposes the most important remaining correctness question: a preliminary `InvocationID` check before `StopUnit(unit)` has a **time-of-check/time-of-use race**. Another actor may restart the same unit between the comparison and stop request, causing the stop to affect a fresh attempt. The public `org.freedesktop.systemd1.Manager.StopUnit` call accepts a unit name and job mode but not an expected invocation ID: [systemd 255 D-Bus API](https://www.freedesktop.org/software/systemd/man/255/org.freedesktop.systemd1.html).
+
+Before accepting a Manager stop contract, compare:
+
+1. **Serialized trusted single-controller mutation** around a stable per-registration unit name, with a clearly defined foreign-actor/race threat boundary and reconciliation behavior. A local mutex cannot protect against out-of-band systemd user-bus controls or an unrelated same-UID controller.
+2. **Unique owner unit identity per launch attempt**, immutable registration-to-attempt mapping and authorized registry admission; stale commands name old attempts and cannot directly address the replacement. This moves complexity into durable registration/admission/cleanup and requires a separate duplicate-start/race proof.
+3. **OS-supported conditional/fenced management** if a verified systemd mechanism can enforce the expected attempt under concurrent mutation; do not assume this exists merely from observing `InvocationID`.
+
+The correct contract should refuse uncertainty rather than kill the process identified by a guessed PID or silently accept a new attempt.
+
+## Security and responsibility limits
+
+- This research **does not run a Riesel executable** and never proves SDK app-session identity or authenticated callable readiness (#75). A systemd unit can be active while a published app interface is unavailable.
+- The user D-Bus manager is reachable by the executing user. Any same-UID adversary or another trusted controller able to invoke systemd directly can interfere with a unit. Strong same-UID isolation requires a separate **real** trust/authority boundary; unit names, `InvocationID` and `SO_PEERCRED` are not credentials for distinct same-UID callers.
+- Executable provenance is only checked as a test marker/command-line observation. Real trusted installed artifact identity must verify immutable build, configuration and ownership before launch or control.
+- The test did not exercise Riesel application-level graceful drain, service disappearance, logout without linger, manager command journal crash windows, cross-controller start/stop races, service-manager crash, reboot or Windows/macOS OS ownership.
+- A normal user-manager may be unavailable on many supported developer machines. Return explicit `owner_unavailable`, and do **not** silently replace a registered service owner with direct-child launch.
+- `systemd-run --user` is a **research command**; selecting actual systemd D-Bus Rust adapter, installer, service policy or Manager API is separately reviewable.
+
+## Remaining decision gates
+
+- **M1:** accept/revise/reject Linux transient systemd user `.service` as the initial installed process owner, with precisely bounded survival/cleanup availability assumptions; distinguish this from opt-in foreground developer process ownership (#68).
+- **M2:** choose and adversarially test a race-safe registration/attempt ownership strategy before claiming a stale stop cannot affect a newly started app.
+- **M3:** decide first trusted-operator threat profile and its compatibility with #75 privileged client attachment; explicitly exclude hostile same-UID callers *only if the owner chooses that narrower boundary*.
+- **M4:** specify Manager command journal retention and outcome uncertainty, actual Riesel graceful stop/readiness linkage, and CLI/browser authorization tests.
+
+**Recommendation:** Accept the **bounded executed evidence** as replacing the earlier lack of a real systemd user-service probe, but **do not accept the final Manager technical specification** until the stale-stop admission race and local trust profile are settled. Keep [#59](https://github.com/aschenrot/riesel/issues/59) open and [#94](https://github.com/aschenrot/riesel/pull/94) draft. No implementation issue, public API, new crate, milestone, release claim or merge is authorized.

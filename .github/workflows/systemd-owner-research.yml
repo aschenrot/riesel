@@ -1,0 +1,60 @@
+name: Real systemd user-service ownership research (#59)
+
+permissions:
+  contents: read
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - "research/process-ownership/systemd_user_service_probe.py"
+      - "research/process-ownership/manager_admission_probe.py"
+      - "research/process-ownership/systemd-user-service-report.md"
+      - ".github/workflows/systemd-owner-research.yml"
+  workflow_dispatch:
+
+jobs:
+  linux-user-systemd:
+    name: Linux transient user-service research (actual OS owner)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - name: Diagnose runner user-manager availability
+        run: |
+          set -euo pipefail
+          echo "PID 1: $(ps -p 1 -o comm=)"
+          echo "uid: $(id -u) user: $(id -un)"
+          echo "XDG_RUNTIME_DIR: ${XDG_RUNTIME_DIR:-unset}"
+          systemctl --version | head -1
+          loginctl show-user "$(id -un)" -p Linger -p State || true
+          if systemctl --user show-environment >/dev/null 2>&1; then
+            echo "RESEARCH_SYSTEMD_INITIAL_USER_BUS_READY"
+          else
+            echo "RESEARCH_SYSTEMD_USER_BUS_MISSING_TRYING_LINGER"
+          fi
+      - name: Probe actual user-owned transient service, Manager crash and stop
+        run: |
+          set -euo pipefail
+          export XDG_RUNTIME_DIR="${XDG_RUNTIME_DIR:-/run/user/$(id -u)}"
+          enabled_here=0
+          if ! timeout 8 systemctl --user show-environment >/dev/null 2>&1; then
+            # Hosted Linux runners are disposable; restore linger when this
+            # step exits and never touch installed services or existing units.
+            if [[ "$(loginctl show-user "$(id -un)" -p Linger --value)" != "yes" ]]; then
+              sudo loginctl enable-linger "$(id -un)"
+              enabled_here=1
+            fi
+            sudo systemctl start "user@$(id -u).service"
+          fi
+          cleanup() {
+            if [[ "$enabled_here" = "1" ]]; then
+              sudo loginctl disable-linger "$(id -un)" || true
+            fi
+          }
+          trap cleanup EXIT
+          timeout 8 systemctl --user show-environment >/dev/null
+          python3 -m py_compile research/process-ownership/systemd_user_service_probe.py
+          timeout 75 python3 research/process-ownership/systemd_user_service_probe.py
+          python3 -m py_compile research/process-ownership/manager_admission_probe.py
+          timeout 100 python3 research/process-ownership/manager_admission_probe.py
