@@ -104,13 +104,7 @@ pub(super) fn verify_independent_inspection() -> TaskResult {
 
     let setup = scratch.join("app-setup.marker");
     let handler = scratch.join("app-handler.marker");
-    let definition = run_fixture(
-        &probe,
-        &scratch,
-        &setup,
-        &handler,
-        &["--print-definition"],
-    )?;
+    let definition = run_fixture(&probe, &scratch, &setup, &handler, &["--print-definition"])?;
     check_exit(&definition, "external executable definition inspection")?;
     let schema: serde_json::Value = serde_json::from_slice(&definition.stdout)
         .map_err(|error| format!("invalid independent app definition: {error}"))?;
