@@ -1,0 +1,62 @@
+name: Same-UID verified executable vs operator intent research (#59)
+
+permissions:
+  contents: read
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - "research/process-ownership/manager_verified_executable_intent_probe.py"
+      - "research/process-ownership/manager_apparmor_label_probe.py"
+      - "research/process-ownership/VERIFIED-CLIENT-INTENT.md"
+      - ".github/workflows/manager-verified-client-intent-research.yml"
+  workflow_dispatch:
+
+jobs:
+  verified-client-intent:
+    name: Linux same-UID verified CLI identity differential
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - name: Verify disposable runner prerequisites
+        run: |
+          set -euo pipefail
+          test "$(id -u)" != "0"
+          command -v gcc
+          command -v sudo
+          sudo -n true
+          python3 --version
+      - name: Verify real root-owned CLI attestation and malicious same-UID invocation
+        run: |
+          set -euo pipefail
+          python3 -m py_compile research/process-ownership/manager_verified_executable_intent_probe.py
+          timeout 70 python3 research/process-ownership/manager_verified_executable_intent_probe.py
+      - name: Test actual AppArmor same-user peer labels and self-transition
+        run: |
+          set -euo pipefail
+          command -v aa-exec
+          command -v apparmor_parser
+          python3 -m py_compile research/process-ownership/manager_apparmor_label_probe.py
+          timeout 80 python3 research/process-ownership/manager_apparmor_label_probe.py
+      - name: Record availability of optional OS-enforced process labels (non-acceptance)
+        run: |
+          set -euo pipefail
+          if test -r /sys/kernel/security/lsm; then
+            printf 'RESEARCH_M59_HOST_LSM_LIST='
+            cat /sys/kernel/security/lsm
+          else
+            echo 'RESEARCH_M59_HOST_LSM_LIST_UNAVAILABLE'
+          fi
+          if test -r /proc/self/attr/current; then
+            printf 'RESEARCH_M59_RUNNER_SECURITY_CONTEXT='
+            cat /proc/self/attr/current
+          else
+            echo 'RESEARCH_M59_RUNNER_SECURITY_CONTEXT_UNAVAILABLE'
+          fi
+          if command -v apparmor_parser >/dev/null 2>&1; then
+            echo 'RESEARCH_M59_APPARMOR_PARSER_PRESENT_NO_POLICY_LOADED'
+          else
+            echo 'RESEARCH_M59_APPARMOR_PARSER_ABSENT'
+          fi
