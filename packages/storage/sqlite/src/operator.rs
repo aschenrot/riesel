@@ -14,7 +14,7 @@ use riesel_storage::StoreError;
 use std::{
     ffi::OsString,
     fs,
-    io::{BufRead, Write},
+    io::{BufRead, Read, Write},
     path::Path,
 };
 
