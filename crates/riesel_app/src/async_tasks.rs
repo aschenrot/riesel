@@ -632,4 +632,82 @@ mod tests {
             ));
         });
     }
+
+    #[test]
+    fn revoked_session_does_not_invent_secondary_background_graph_failure() {
+        use crate::execution_plan::{
+            ExecutionPlanDraft, OperationKey, OperationNode, OperationRegistry,
+        };
+        use crate::execution_runner::{AsyncOperation, OperationOutcome, async_operation};
+        use crate::{App, ConnectorRegistry};
+        use std::num::NonZeroUsize;
+
+        executor().block_on(async {
+            let mut running = App::from_schema(
+                r#"{"version":1,"app":{"name":"RevokedGraph"},"models":{},"requires":[]}"#,
+            )
+            .unwrap()
+            .start_local(&ConnectorRegistry::new())
+            .unwrap();
+            let tasks = running.async_tasks();
+            tasks.begin_scope().unwrap();
+            let started = Arc::new(AtomicBool::new(false));
+            let revoked = running.session_token();
+            let mut handlers = OperationRegistry::<AsyncOperation>::new();
+            handlers
+                .register(
+                    OperationKey::new("expire", 1).unwrap(),
+                    async_operation({
+                        let started = Arc::clone(&started);
+                        move || {
+                            let started = Arc::clone(&started);
+                            let revoked = revoked.clone();
+                            async move {
+                                started.store(true, Ordering::Release);
+                                revoked.invalidate();
+                                OperationOutcome::Completed
+                            }
+                        }
+                    }),
+                )
+                .unwrap();
+            let runner = running
+                .execution_graph(
+                    ExecutionPlanDraft::new("revoked-work", 1)
+                        .operation(OperationNode::new(
+                            "expire",
+                            OperationKey::new("expire", 1).unwrap(),
+                        ))
+                        .validate()
+                        .unwrap()
+                        .bind(&handlers)
+                        .unwrap(),
+                    NonZeroUsize::new(1).unwrap(),
+                )
+                .unwrap();
+            tasks.spawn_graph("revoked", runner).unwrap();
+
+            tokio::time::timeout(Duration::from_secs(3), async {
+                while !started.load(Ordering::Acquire) {
+                    tokio::task::yield_now().await;
+                }
+                while tasks
+                    .inner
+                    .state
+                    .lock()
+                    .unwrap()
+                    .handles
+                    .iter()
+                    .any(|(_, watcher)| !watcher.is_finished())
+                {
+                    tokio::task::yield_now().await;
+                }
+            })
+            .await
+            .unwrap();
+            assert!(tasks.failure().is_none());
+            tasks.finish_scope().await.unwrap();
+            running.shutdown().unwrap();
+        });
+    }
 }
