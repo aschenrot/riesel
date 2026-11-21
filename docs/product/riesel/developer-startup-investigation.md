@@ -87,3 +87,57 @@ An independent project should not copy the Riesel repository's `xtask`. Compare 
 Before implementation authorization, decide what operations are genuinely shared across projects, who owns builds vs application execution, canonical discovery and readiness semantics, setup/data-root policy, browser-opening and platform-specific shutdown guarantees. Explicitly reuse or reconcile the cross-product distinctions under [#75](https://github.com/aschenrot/riesel/issues/75) rather than creating a CLI-specific application identity or readiness signal. Avoid locking CLI spelling or manifests unless they affect compatibility. If an incremental Todo-only launcher is delivered first, identify it explicitly as an **interim** integration rather than fulfillment of cross-project tooling.
 
 Only after acceptance: update applicable product/architecture contracts, create independently verifiable implementation Issues only where boundaries require them, test in coherent PRs and adjust the roadmap *only if an accepted stage changes*. Manager #59 and native host #60 remain separate product decisions; link to #75 only for genuinely shared semantic invariants, not as a blanket prerequisite.
+
+
+## 7. Developer-workflow decision packet — 2026-11-21 (main \`0798a6fb\`, proposal)
+
+This is a **recommendation**, not Gate B acceptance. The cross-project requirement remains distinct from Todo convenience and installation. Evidence: [#79](https://github.com/aschenrot/riesel/pull/79) actually builds/runs a Riesel application from an **independent Cargo workspace** using a path dependency and proves executable inspection can run setup code; [#81](https://github.com/aschenrot/riesel/pull/81)/[#82](https://github.com/aschenrot/riesel/pull/82) demonstrate typed app-owned clients but no universal launcher. Existing Todo E2E proves ephemeral test orchestration, **not** a persistent developer workflow. No new developer CLI exists.
+
+### Proposed product acceptance and bounded outcome
+
+**Recommend ACCEPTING the product need** for one coherent **cross-project** developer workflow, separately from selecting its command/API architecture. A Rust developer should be able to build, launch, inspect and stop an independent headless application with Riesel's existing SDK, and opt into an independently hosted browser/native interface without duplicating session discovery, readiness, error and cleanup mechanics. A GUI or frontend toolchain cannot become a prerequisite for headless use.
+
+**Recommended architectural candidate:** a thin, optional **Cargo-discoverable developer tool** plus SDK-defined/derived operational information, delegating actual compilation/package selection to Cargo and provider/session lifecycle to the application. Cargo officially supports external \`cargo-*\` subcommands and \`cargo metadata\` ([Cargo external tools](https://doc.rust-lang.org/cargo/reference/external-tools.html)). This provides cross-workspace reuse without a new required application manifest, dedicated always-on daemon or second app runtime. Compare a standalone binary and Cargo subcommand UX as **packaging variants**, not different process-ownership architectures.
+
+| Candidate | Outcome coverage | Long-term cost / reversible decision |
+| --- | --- | --- |
+| Cargo + app CLI only | Excellent for simple headless binaries; no shared optional interface lifecycle | Per-project UI discovery/orchestration persists; no single platform workflow |
+| Copyable project \`xtask\` | Can run Todo now | Copies orchestration and platform state into each project; not sufficient as the platform architecture |
+| Thin Cargo-aware CLI plus SDK operational hooks | Coherent app selection, start/inspect and opt-in interface adapter; reuse can serve editor/Manager later | Must stabilize a small discoverable operation boundary and specify how an app participates; can still delegate to normal Cargo |
+| All-purpose new manifest/plugin build system | More heterogeneous custom builds | New competing source of configuration and arbitrary script-execution trust surface without accepted need |
+| Manager-dependent launcher | Central process registration | Excludes ordinary source-workspace development; changes ownership/trust meaning |
+
+**Do not conflate** a repeatable interface launch recipe with a new app-definition schema. If frontend integration needs executable commands, they are *explicit trusted developer actions*, not executable configuration silently learned from an untrusted project. A standardized opt-in SDK/adapter hook can evolve independently from CLI spelling. A generic CLI with no reliable app-level participation/readiness is **not** implemented merely by wrapping \`cargo run\`.
+
+### Representative first-use and repeated-use workflows (illustrative, not public commands)
+
+1. **Independent headless Counter/Hello workspace:** invoke Cargo package/binary selection from its own workspace; build using Cargo; inspect a trusted app with an **explicit executable-inspection warning** or consume verifiable cached derived metadata; launch in foreground, report compilation vs app-preflight vs handler failures separately; Ctrl-C invokes owned-child shutdown and waits. No Manager, Node, browser, native host or project-local \`xtask\`.
+2. **Todo persistent browser:** opt into the existing \`todo_http\` app and static SvelteKit build. Missing npm or assets yields actionable instructions, **never** hidden dependency download. Choose an explicit or documented stable data root *outside temporary E2E and Cargo target directories*, pass \`--db\`, \`--port 0\`, \`--assets\`; consume bounded Todo HTTP readiness and validate actual serving before printing the dynamic local URL. Browser-open failure does not stop the Rust backend. Closing the browser does not stop the app. On Ctrl-C, gracefully stop/reap **owned** children, preserving data on the next launch; refuse duplicate DB/instance ambiguity instead of guessing.
+3. **Optional future native UI:** a launcher may independently spawn an opt-in GUI and pass a trusted *session-bound app-interface descriptor*, but only after #75/#60 accept authentication, interface readiness and generation semantics. The CLI must not invent those meanings first or require native GUI for the headless path.
+
+**First delivery scope proposal:** inspect, build, foreground run, explicit configuration forwarding, stable Todo data path, opt-in static browser start, bounded readiness/diagnostics and shutdown. Exclude source hot reload, installer, remote orchestration, concurrent multi-app Manager control, automatic process adoption, frontend plugin marketplace and generic manifest. These exclusions should not prevent independent apps or a second UI technology from adopting the same **operational boundary** later.
+
+### Ownership and observable failure contract
+
+| Operation/failure | Tool responsibility | Authoritative source |
+| --- | --- | --- |
+| Toolchain/package/bin missing | Report exact Cargo failure; do not start an app | Cargo |
+| Definition/selection invalid | Preserve SDK error without reimplementing resolution | Riesel app |
+| App binary inspection | Obtain explicit trust consent to execute it; metadata-only inspection must use a validated artifact with provenance | Executed binary / trusted artifact |
+| OS spawn accepted but app not ready | Show distinct starting/running/unknown interface status; bound timeout and show stderr, don't infer healthy | Launcher for spawn; runtime/interface for readiness |
+| Port already bound / unreadable assets / invalid DB | Surface selected app's failure, avoid fallback to ephemeral data | App / filesystem |
+| Another session apparently active | Never kill/adopt by PID/port; reject or attach only after explicit verified ownership and generation contract | Actual process owner |
+| Cancellation or launcher crash | Normal exit attempts graceful child stop, reaps and reports escalation; **abnormal death can orphan children** | Process owner/OS |
+| Lost response to a mutation | Do not replay; query authorized app state after reconnect once possible | Application/session |
+
+**Nonfunctional criteria:** Linux Rust 1.100 compatibility; headless dependency independence; bounded startup and shutdown; no hidden file edits or network downloads; diagnostic source/context without secret leakage; explicit local trust and executable-inspection risks; documented Windows release validation. No untested process-tree or cross-user guarantee.
+
+### Executable acceptance and decomposition after maintainer approval
+
+- **Gate T1 — independent Cargo:** create a disposable new workspace *outside* this repository with the Riesel SDK, launch and inspect it through the proposed distribution mechanism. Assert it contains no copied repo \`xtask\` and no mandatory new manifest. Inspect setup-side effects as in #79.
+- **Gate T2 — Todo static interface:** fresh explicit setup, stable retained SQLite path, dynamic port and real served static asset; round-trip a task over stop/start; verify \`--no-open\`, missing dependencies, bad paths and refusal of ambiguous duplicates.
+- **Gate T3 — owned lifecycle:** Ctrl-C, early exit, invalid and oversized readiness frames, readiness timeout, crash during start, missing stderr and non-cooperative child: no silent success, bounded cleanup and no kill of an unrelated process.
+- **Gate T4 — consistency and CI:** same inspected definition/plan via SDK and tool; no second provider-selection grammar. Linux \`cargo validate --check\`, \`cargo smoke\`, Todo HTTP/browser E2E and focused external-workspace tests on exact PR head; Windows manually before release.
+- **Possible independent implementation slices, only after Gate B:** (a) Cargo-aware headless tool + SDK participation contract, (b) Todo optional browser adapter/persistence workflow, (c) host-specific cleanup and failure hardening. Accept the shared identity/readiness semantics needed for an actual attachment through #75, not as a blanket Manager/GUI implementation dependency.
+
+**Owner decisions still needed:** accept/revise/defer/reject the cross-project outcome; select the CLI participation mechanism rather than its marketing name; decide trusted inspection, default data root, duplicate-session policy, trusted frontend build steps and the first supported cleanup guarantee. No general CLI, executable manifest or implementation milestone is authorized by this addendum. Keep #68 OPEN pending those decisions and tests.
