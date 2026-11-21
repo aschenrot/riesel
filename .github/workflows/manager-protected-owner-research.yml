@@ -1,0 +1,33 @@
+name: Manager protected-owner direct-stop research (#59)
+
+permissions:
+  contents: read
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - "research/process-ownership/manager_direct_stop_principal_probe.py"
+      - "research/process-ownership/manager-protected-authority-gate.md"
+      - ".github/workflows/manager-protected-owner-research.yml"
+  workflow_dispatch:
+
+jobs:
+  linux-direct-stop:
+    name: Linux direct stop / separate principal research
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - name: Confirm disposable runner and setpriv prerequisites
+        run: |
+          set -euo pipefail
+          test "$(id -u)" != "0"
+          command -v setpriv
+          sudo -n true
+          python3 --version
+      - name: Verify same-UID SIGTERM bypass and cross-UID refusal
+        run: |
+          set -euo pipefail
+          python3 -m py_compile research/process-ownership/manager_direct_stop_principal_probe.py
+          timeout 45 python3 research/process-ownership/manager_direct_stop_principal_probe.py
