@@ -271,7 +271,6 @@ fn expired_session_aborts_work_conservatively_and_rejects_stale_signals() {
     });
 }
 
-
 #[test]
 fn failed_prerequisite_blocks_success_dependent_without_stopping_independent_branch() {
     runtime().block_on(async {
@@ -280,17 +279,13 @@ fn failed_prerequisite_blocks_success_dependent_without_stopping_independent_bra
         registry
             .register(
                 key("failure"),
-                async_operation(|| async {
-                    OperationOutcome::Failed("operation refused".into())
-                }),
+                async_operation(|| async { OperationOutcome::Failed("operation refused".into()) }),
             )
             .unwrap();
         registry
             .register(
                 key("should-not-run"),
-                async_operation(|| async {
-                    panic!("dependent cannot execute after failure")
-                }),
+                async_operation(|| async { panic!("dependent cannot execute after failure") }),
             )
             .unwrap();
         let completed = Arc::clone(&independent);
