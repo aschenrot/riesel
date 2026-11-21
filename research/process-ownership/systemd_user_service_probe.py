@@ -270,6 +270,48 @@ class RealSystemdOwnerResearch(unittest.TestCase):
                     run("systemctl", "--user", "--no-pager", "reset-failed", unit, check=False)
 
 
+    def test_stale_unconditional_stop_kills_new_invocation_negative(self):
+        # Negative baseline: a caller observes invocation A, another actor
+        # restarts the same unit as B, then the stale caller issues the OS
+        # name-only stop. B is killed despite its different InvocationID.
+        # This must NEVER be presented as an acceptable Manager policy.
+        verify_real_manager()
+        with tempfile.TemporaryDirectory(prefix="riesel-sysd-race-59-") as root:
+            marker = Path(root) / "owned.json"
+            unit = PREFIX + uuid.uuid4().hex[:12] + ".service"
+            try:
+                start(unit, marker)
+                first = eventually(lambda: owner_state(unit, marker))
+                self.assertIsNotNone(first)
+                old_invocation = first[0]["InvocationID"]
+
+                run("systemctl", "--user", "--no-pager", "restart", unit)
+                second = eventually(
+                    lambda: (
+                        value if (value := owner_state(unit, marker))
+                        and value[0]["InvocationID"] != old_invocation else None
+                    ),
+                    timeout=10,
+                )
+                self.assertIsNotNone(second)
+                new_invocation = second[0]["InvocationID"]
+                second_birth = second[1]["birth"]
+                second_pid = second[1]["pid"]
+
+                # The stale controller SHOULD reject this, but the underlying
+                # systemd StopUnit API has no expected-invocation parameter.
+                self.assertNotEqual(old_invocation, new_invocation)
+                run("systemctl", "--user", "--no-pager", "stop", unit)
+                self.assertTrue(eventually(
+                    lambda: proc_birth(second_pid) != second_birth,
+                    timeout=10,
+                ))
+                print("RESEARCH_SYSTEMD_UNFENCED_STALE_STOP_KILLS_REPLACEMENT", flush=True)
+            finally:
+                run("systemctl", "--user", "--no-pager", "stop", unit, check=False)
+                run("systemctl", "--user", "--no-pager", "reset-failed", unit, check=False)
+
+
 if __name__ == "__main__":
     if len(sys.argv) >= 2 and sys.argv[1] == "--child":
         child_mode(Path(sys.argv[2]))
