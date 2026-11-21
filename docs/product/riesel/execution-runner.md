@@ -31,6 +31,12 @@ The runtime's structured `AsyncTasks` interface is separate from arbitrary `toki
 
 A graph interrupted during a structured stop cannot claim that dispatched effects did not occur. Async callback futures are dropped and joined, but operations that start independent native threads or external mutations must arrange their own teardown, fencing and reconciliation. Noncooperative synchronous code on a Tokio worker can still block shutdown. Authoritative committed effects and live reports remain part of [#113](https://github.com/aschenrot/riesel/issues/113).
 
+## Real managed-process crash and uncertainty fixture
+
+The feature-gated [managed graph integration fixture](../../../crates/riesel_app/tests/managed_graph_lifecycle.rs) uses **production managed-service spawn, ephemeral TCP readiness, a real OS process exit, session monitoring, and the actual graph runner**. Its small private command protocol (`COMMIT`, `CRASH`) is fixture-only, not Riesel RPC or an example of authenticated provider identity. Both the directly awaited graph and the registered `AsyncTasks::spawn_graph` path are exercised.
+
+The test first obtains a provider-confirmed acknowledgement, then dispatches another command whose child intentionally exits without replying. The already-confirmed operation remains completed, the in-flight graph operation is conservatively outcome unknown, success-only dependents do not run, stale signals are rejected, and the actual managed-service exit remains the primary failure. The structured variant verifies graph callback futures are dropped/drained before the owner scope finishes without creating a secondary graph-task error. A fresh managed application session is distinct and does not *implicitly* reexecute an old runner. **This does not prove cross-process exactly-once effects**, generic transport authorization, or that an opted-in application restart will refrain from repeating its *own* entrypoint logic.
+
 ## Fixed-tick ownership acceptance fixture
 
 The feature-gated [two-policy domain fixture](../../../crates/riesel/tests/execution_domains.rs) compares the same two committed simulation ticks (four proposed, catch-up budget two) under **Riesel-admitted outer ticks** and a **domain-owned nested frame**. Both run alongside an overlapping two-branch async workflow and final join. The native `Rc<Cell<...>>` world never leaves its own actor thread. Per-tick nodes appear only in the central-admission projection; the delegated graph exposes one frame, not fictitious internal ECS-system steps.
