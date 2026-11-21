@@ -42,7 +42,7 @@ fn providers(f: impl Fn(Store)) {
     f(Arc::new(MemoryStore::with_models(models.clone())));
     let directory = tempfile::tempdir().unwrap();
     f(Arc::new(
-        SqliteStore::open(&directory.path().join("research.db"), models).unwrap(),
+        SqliteStore::open(directory.path().join("research.db"), models).unwrap(),
     ));
 }
 
