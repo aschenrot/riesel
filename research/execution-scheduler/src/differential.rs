@@ -49,7 +49,27 @@ struct EcsSnapshot {
     invoker_thread_calls: u32,
 }
 
+enum DomainPermit {
+    Advance { generation: u64, reply: oneshot::Sender<Result<(), &'static str>> },
+    Cancel { generation: u64, reply: oneshot::Sender<Result<(), &'static str>> },
+}
+
+#[derive(Debug)]
+struct SteppedFrameOutcome {
+    ticks: Vec<EcsSnapshot>,
+    cancelled: bool,
+}
+
 enum EcsCommand {
+    SteppedFrame {
+        generation: u64,
+        proposed: usize,
+        catch_up_cap: usize,
+        input: i32,
+        permits: mpsc::Receiver<DomainPermit>,
+        observation: tokio::sync::mpsc::Sender<EcsSnapshot>,
+        completion: oneshot::Sender<Result<SteppedFrameOutcome, &'static str>>,
+    },
     Tick {
         input: i32,
         completion: oneshot::Sender<Result<EcsSnapshot, &'static str>>,
@@ -123,6 +143,50 @@ impl EcsOwner {
                             Err("the kernel owns tick admission in this session")
                         };
                         let _ = completion.send(result);
+                    }
+                    EcsCommand::SteppedFrame {
+                        generation, proposed, catch_up_cap, input, permits, observation, completion,
+                    } => {
+                        // The domain owns this frame and *each* internal tick safe point.
+                        // The outer graph does not invent per-ECS-system pause semantics.
+                        let outcome = (|| -> Result<SteppedFrameOutcome, &'static str> {
+                            if !matches!(owner, TickOwner::Domain) {
+                                return Err("the kernel owns tick admission in this session");
+                            }
+                            let mut ticks = Vec::new();
+                            for _ in 0..proposed.min(catch_up_cap) {
+                                loop {
+                                    match permits.recv() {
+                                        Ok(DomainPermit::Advance { generation: provided, reply }) => {
+                                            if provided != generation {
+                                                let _ = reply.send(Err("stale session generation"));
+                                                continue;
+                                            }
+                                            let _ = reply.send(Ok(()));
+                                            break;
+                                        }
+                                        Ok(DomainPermit::Cancel { generation: provided, reply }) => {
+                                            if provided != generation {
+                                                let _ = reply.send(Err("stale session generation"));
+                                                continue;
+                                            }
+                                            let _ = reply.send(Ok(()));
+                                            return Ok(SteppedFrameOutcome { ticks, cancelled: true });
+                                        }
+                                        Err(_) => {
+                                            return Ok(SteppedFrameOutcome { ticks, cancelled: true });
+                                        }
+                                    }
+                                }
+                                let snapshot = perform_ecs_tick(&mut world, &mut runtime, input)?;
+                                // A disconnected or slow observer must not own scheduling.
+                                // The authoritative return value retains the completed ticks.
+                                let _ = observation.try_send(snapshot.clone());
+                                ticks.push(snapshot);
+                            }
+                            Ok(SteppedFrameOutcome { ticks, cancelled: false })
+                        })();
+                        let _ = completion.send(outcome);
                     }
                     EcsCommand::Stop => break,
                 }
@@ -325,4 +389,92 @@ async fn single_outer_graph_coordinates_ecs_tick_and_async_join() {
     assert_eq!(run.snapshot().len(), 5);
     assert!(run.trace.retained.iter().any(|e|
         e.node == "ecs_tick" && e.status == Status::Completed));
+}
+
+
+/// Tests the H adapter's *real* per-tick safe points, not an arbitrary Rust
+/// system debugger. A paused domain frame is independently controlled and
+/// observed while the ECS World and !Send resource remain on their owner thread.
+#[tokio::test(flavor = "current_thread")]
+async fn domain_owned_frame_supports_fenced_cooperative_tick_stepping_and_partial_cancel() {
+    let ecs = EcsOwner::start(TickOwner::Domain);
+    let (permits, permit_rx) = mpsc::sync_channel::<DomainPermit>(1);
+    let (observation_tx, mut observations) = tokio::sync::mpsc::channel::<EcsSnapshot>(4);
+    let (completion_tx, completion_rx) = oneshot::channel();
+    ecs.sender.try_send(EcsCommand::SteppedFrame {
+        generation: 712,
+        proposed: 4,
+        catch_up_cap: 3,
+        input: 2,
+        permits: permit_rx,
+        observation: observation_tx,
+        completion: completion_tx,
+    }).expect("bounded ECS owner queue should initially be empty");
+
+    let (stale_tx, stale_rx) = oneshot::channel();
+    permits.try_send(DomainPermit::Advance { generation: 711, reply: stale_tx }).unwrap();
+    assert_eq!(stale_rx.await.unwrap(), Err("stale session generation"));
+    assert!(tokio::time::timeout(
+        std::time::Duration::from_millis(20), observations.recv()
+    ).await.is_err(), "stale step may not advance a tick");
+
+    let (first_tx, first_rx) = oneshot::channel();
+    permits.try_send(DomainPermit::Advance { generation: 712, reply: first_tx }).unwrap();
+    assert_eq!(first_rx.await.unwrap(), Ok(()));
+    let first = tokio::time::timeout(std::time::Duration::from_secs(2), observations.recv())
+        .await.unwrap().unwrap();
+    assert_eq!(first.tick, 1);
+    assert_eq!(first.positions, vec![2, 12]);
+    assert_eq!(first.invoker_thread_calls, 1);
+
+    assert!(tokio::time::timeout(
+        std::time::Duration::from_millis(20), observations.recv()
+    ).await.is_err(), "one permit must not execute two simulation ticks");
+
+    let (second_tx, second_rx) = oneshot::channel();
+    permits.try_send(DomainPermit::Advance { generation: 712, reply: second_tx }).unwrap();
+    assert_eq!(second_rx.await.unwrap(), Ok(()));
+    let second = tokio::time::timeout(std::time::Duration::from_secs(2), observations.recv())
+        .await.unwrap().unwrap();
+    assert_eq!(second.tick, 2);
+    assert_eq!(second.positions, vec![4, 12, 14]);
+
+    let (cancel_tx, cancel_rx) = oneshot::channel();
+    permits.try_send(DomainPermit::Cancel { generation: 712, reply: cancel_tx }).unwrap();
+    assert_eq!(cancel_rx.await.unwrap(), Ok(()));
+    let result = tokio::time::timeout(std::time::Duration::from_secs(2), completion_rx)
+        .await.unwrap().unwrap().unwrap();
+    assert!(result.cancelled);
+    assert_eq!(result.ticks, vec![first, second], "completed ticks cannot be rolled back");
+    assert_eq!(domain_frame(ecs.sender.clone(), 1, 2, 2).await.unwrap()[0].tick, 3,
+        "cancelling a frame cannot erase already published ECS state");
+}
+
+/// Diagnostics are bounded and lossy. Dropped ECS snapshots are not an
+/// authoritative domain-state transition nor permission to retry a tick.
+#[tokio::test(flavor = "current_thread")]
+async fn slow_domain_observer_cannot_stall_tick_execution() {
+    let ecs = EcsOwner::start(TickOwner::Domain);
+    let (permits, permit_rx) = mpsc::sync_channel::<DomainPermit>(1);
+    let (observation_tx, _unread) = tokio::sync::mpsc::channel::<EcsSnapshot>(1);
+    let (completion_tx, completion_rx) = oneshot::channel();
+    ecs.sender.try_send(EcsCommand::SteppedFrame {
+        generation: 812,
+        proposed: 3,
+        catch_up_cap: 3,
+        input: 2,
+        permits: permit_rx,
+        observation: observation_tx,
+        completion: completion_tx,
+    }).unwrap();
+    for _ in 0..3 {
+        let (response_tx, response_rx) = oneshot::channel();
+        permits.send(DomainPermit::Advance { generation: 812, reply: response_tx }).unwrap();
+        assert_eq!(response_rx.await.unwrap(), Ok(()));
+    }
+    let result = tokio::time::timeout(std::time::Duration::from_secs(2), completion_rx)
+        .await.unwrap().unwrap().unwrap();
+    assert!(!result.cancelled);
+    assert_eq!(result.ticks.len(), 3);
+    assert_eq!(result.ticks.last().unwrap().tick, 3);
 }
