@@ -2,7 +2,7 @@
 
 **Date:** 2026-11-21  
 **Status:** isolated, reproducible **research only**. The experiment is **not** a production Riesel Manager, a new system daemon, an accepted OS backend, an authorized browser/CLI channel, or Windows/macOS evidence.  
-**Baseline:** latest `main` at branch creation. Parent [#59](https://github.com/aschenrot/riesel/issues/59), identity/security coordination [#75](https://github.com/aschenrot/riesel/issues/75).
+**Baseline:** `main` at branch creation `8276e11b7a7d4024353f96ec7ff6955e37bde9f1`. Parent [#59](https://github.com/aschenrot/riesel/issues/59), identity/security coordination [#75](https://github.com/aschenrot/riesel/issues/75).
 
 ## Original requirement and why this experiment matters
 
@@ -32,9 +32,9 @@ python3 -m py_compile research/process-ownership/system_protected_owner_probe.py
 python3 research/process-ownership/system_protected_owner_probe.py
 ```
 
-The [path-scoped research workflow](../../.github/workflows/manager-system-protected-owner-research.yml) runs this one experiment under a time limit. Normal Linux `cargo validate --check` and `cargo smoke` remain separate required PR checks. **Before an actual green exact-head CI result, the markers below are expected outputs, not verified findings.**
+The [path-scoped research workflow](../../.github/workflows/manager-system-protected-owner-research.yml) runs this one experiment under a time limit. Normal Linux `cargo validate --check` and `cargo smoke` remain separate required PR checks. **Executed evidence:** real Ubuntu 24.04 systemd runner, [dedicated workflow 44911919041](https://github.com/aschenrot/riesel/actions/runs/44911919041) **PASSED** at code SHA `8de429f3ccb2240f6f0cb25ebe3dbb1f04692f00`. The subsequent report-only branch head `bcf653e7ea210db7c6228d3484b8b7b4c0821e60` also **PASSED** the same [dedicated workflow 44911963070](https://github.com/aschenrot/riesel/actions/runs/44911963070). Standard Linux validation/smoke remains a **separate** requirement; confirm its exact-head result before stating comprehensive PR CI success.
 
-Expected evidence markers:
+Observed exact-head research markers (not evidence of complete Manager security):
 
 - `RESEARCH_MANAGER_SYSTEM_OWNER_SURVIVES_CONTROLLER_EXIT`
 - `RESEARCH_MANAGER_SYSTEM_OWNER_DENIES_SAME_UID_UNTRUSTED_CALLERS`
@@ -42,7 +42,7 @@ Expected evidence markers:
 - `RESEARCH_MANAGER_PRIVILEGED_SYSTEM_OWNER_STOP_CONFIRMED`
 - `RESEARCH_MANAGER_SYSTEM_OWNER_S1_DIFFERENTIAL_PASS`
 
-**Fixture correction from executed Linux CI:** Initial systemd service creation failed before testing isolation: `User=60081` could not be resolved on the hosted runner, with `status=217/USER`. That result is an account-resolution limitation, **not security evidence**. The revised fixture uses systemd `DynamicUser=yes` with an ephemeral service principal and checks its **actual kernel UID**, avoiding permanent accounts; this hypothesis requires a passing exact-head CI run before it is treated as verified.
+**Fixture correction from executed Linux CI:** Initial systemd service creation failed before testing isolation: `User=60081` could not be resolved on the hosted runner, with `status=217/USER`. That result is an account-resolution limitation, **not security evidence**. The revised fixture uses systemd `DynamicUser=yes` with a distinct ephemeral service principal, checks its **actual kernel UID**, and **passed** the executed research tests above. This avoids permanent account installation **in the fixture**; it does not establish whether ephemeral app UIDs are suitable for Riesel's persistent SQLite data, GUI session interfaces or multi-user installations.
 
 ## Strict interpretation and threat-model gaps
 
