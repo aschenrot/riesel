@@ -81,7 +81,7 @@ For **GUI integration**, either a generated facade component or an explicit SDK 
 
 1. **SDK inspection:** run independent Rust apps in separate Cargo workspaces; compare SDK preflight, explicit executable inspection and optional cached metadata, including intentional side effects and failures.
 2. **Readiness:** distinguish provider `RIESEL_READY`, Todo `TODO_HTTP_READY`, process spawn and demonstrable public-interface availability. Identify whether an app-level notification can be layered over existing runtime/session without a second supervisor.
-3. **Export:** build a real two-process typed facade client and compare with an app-owned HTTP adapter plus an explicitly public SDK exporter; verify unauthorized provider access is rejected and GUI-only shutdown leaves backend running.
+3. **Export:** test a generated typed facade across two processes, comparing app-specific HTTP with an optional SDK exporter. Distinguish *absence of a non-exported route* from actual client authorization; verify client exit leaves the backend running.
 4. **Generation/unknown outcome:** crash/restart the app and disconnect/reconnect the client around an in-flight revisioned mutation; reject stale bindings and do not auto-replay.
 5. **Manager supervision:** compare direct owned-child stop, OS-managed containment and the available operator recovery policy. Avoid claiming cleanup of all descendants from `ProcessRegistry::stop` alone.
 
@@ -103,7 +103,34 @@ A product specification may accept independently verifiable work that **does not
 
 **Remaining untested contracts:** attested metadata/version binding; provider versus app/public-interface readiness; externally represented session generation; public facade authorization, disconnect and stale in-flight mutations; Manager/OS process-tree lifecycle ownership. No new Riesel runtime protocol or SDK interface was created by this evidence.
 
-## 8. Gate B recommendation and exclusions
+## 8. Tested two-process typed facade feasibility and limits (2026-11-21)
+
+**Research-only code:** [PR #81](https://github.com/aschenrot/riesel/pull/81); the [application-process host](../../../examples/counter/app/tests/fixtures/counter_public_facade_host.rs), [independent typed client](../../../examples/counter/app/tests/fixtures/counter_public_facade_client.rs), and [bounded smoke harness](../../../tools/xtask/src/smoke/facade.rs). Executable head `1bb17a6` passed [Linux validation and smoke run 44862084580](https://github.com/aschenrot/riesel/actions/runs/44862084580); the log includes `Two-process application facade research passed`. This is not an accepted application-export API, security protocol or native GUI.
+
+The Rust application handler explicitly creates an `AsyncMemoryCounter` implementation and hosts **only its generated `AsyncCounter` dispatcher** using the existing asynchronous TCP RPC server. It is app-*process*-owned state, **not** an export of an arbitrary capability handle resolved through the application's `Context` or provider catalog. The separate headless client uses the published `AsyncCounterContract::bind_async` and an explicitly supplied ephemeral loopback address; it does not reuse application runtime handles.
+
+| Observable | Tested outcome | Boundary / remaining concern |
+| --- | --- | --- |
+| Typed cross-process binding | Generated `AsyncCounter` contract verified; query and commands executed in a separate OS process | Reuses typed contract metadata but not an application-level interface registration |
+| Deliberate exposure | `AsyncCounterObserver` description rejected as `WrongCapability`; only the selected dispatcher was served | **Route selection is not caller authorization**; the same counter implementation also supports Observer internally |
+| Backend survives UI/client exit | First client increments to `3` then exits; second client reads `3` and increments to `5` without restarting the app | Does not yet test backend crash, process-wide recovery, multiple concurrent UI clients or long-lived subscriptions |
+| Readiness | Host prints `RESEARCH_FACADE_BOUND` after listener bind; client then verifies contract and successfully sends operations | Printed bind notice alone is **not** proof of authenticated interface readiness |
+| Graceful lifecycle | Research harness sends a test-only stdin STOP; handler requests host-loop stop and joins it | All this control wiring is application-specific, not an SDK-managed export or process-tree guarantee |
+| Trust | Credential-**less** local client can execute state-changing `add` | **No caller authentication**, permission checks, session-generation fencing or published public-interface security policy |
+
+### Equitable architecture comparison
+
+| Alternative | Demonstrated reuse | Repeated wiring or future cost | Open decision |
+| --- | --- | --- | --- |
+| **A. Generated facade hosted explicitly by the application** | This test confirms typed serialization/dispatch, explicit route selection, separate process and persistent app-process state | Manual listener, endpoint/address passing, readiness, frontend trust, application-session ownership and reconnect; naïve loopback hosting is insecure for privileged operations | Determine whether a facade can be backed by an existing **application-resolved** capability without breaking ownership/recovery |
+| **B. Application-specific HTTP adapter (Todo)** | [Todo HTTP](../todo/http-local-browser-contract.md) already proves Rust-owned domain state, browser-independent app, same-origin checks and explicit local startup | Application-specific route/JSON handling; browser-origin defense is not local privileged-client authentication; typed Rust contract reuse is not automatic | Measure the repeated cost when a second nonbrowser client/application uses the same operations |
+| **C. Reusable application export contract** | Not yet implemented or measured; could reuse existing generated dispatch and canonical SDK definitions | New public SDK semantics, explicit authorization and session/readiness/version contracts; risk of duplicating provider resolution or adding premature configuration authority | Compare concrete minimal design/authoring prototype against A and B **before** Gate B, without assuming a daemon or new crate |
+
+**Critical finding:** proving A technically possible is **not** evidence that A is the best platform architecture. It also cannot be treated as a secure public API: successful mutation from a credential-less process demonstrates the current trust gap. Equally, proposed C cannot be preferred simply because it promises more reuse; its lifecycle and authorization cost must be demonstrated.
+
+**Next decision-critical experiments:** bind an app-*resolved* capability into an explicitly exported facade, test client identity/authorization (including a same-host untrusted process), establish a server-issued application-session generation and stale-binding behavior across restart/reconnect, distinguish ambiguous in-flight mutations from safe retries, and compare a second interface frontend without rewriting business logic. A real native window loop or installed Manager is not required to study these application-facing semantics.
+
+## 9. Gate B recommendation and exclusions
 
 **Recommend a comparative Gate B**, evaluating B as an important reusable-foundation candidate alongside A and C under the same product-wide outcomes, integration tests and growth costs. **Do not accept any mechanism** before its concrete identity, readiness, trust and lifecycle semantics are compared. Product-owner acceptance is required for any shared public app/operational contract, implementation Issue, crate boundary, daemon or protocol.
 
