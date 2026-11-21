@@ -1,0 +1,66 @@
+name: Manager protected app + pinned native GUI research (#59/#60)
+
+permissions:
+  contents: read
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - "research/process-ownership/manager_native_gui_os_owner_probe.py"
+      - "research/process-ownership/REAL-RIESEL-NATIVE-GUI-OS-OWNER.md"
+      - ".github/workflows/manager-native-gui-os-owner-research.yml"
+  workflow_dispatch:
+
+jobs:
+  linux-genuine-native-gui-with-system-owner:
+    name: Ubuntu real GUI + OS-owned Riesel Counter
+    runs-on: ubuntu-24.04
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+          persist-credentials: true
+      - name: Install pinned Rust and genuine X11/OpenGL dependencies
+        run: |
+          set -euo pipefail
+          rustup toolchain install 1.100.0 --profile minimal
+          rustup default 1.100.0
+          sudo apt-get update
+          sudo apt-get install -y xvfb xdotool x11-utils libxcb-render0-dev \
+            libxcb-shape0-dev libxcb-xfixes0-dev libxkbcommon-dev \
+            libxkbcommon-x11-0 libxkbcommon-x11-dev libssl-dev \
+            libgl1-mesa-dev libegl1-mesa-dev libx11-dev libxi-dev
+          test "$(ps -p 1 -o comm=)" = systemd
+          sudo -n systemctl --system show --property=Version --value
+      - name: Fetch pinned, already verified independent Counter native GUI (PR #90)
+        env:
+          PINNED_SHA: 5201e61cc74bab778dfc63a3788f1708b2530f21
+        run: |
+          set -euo pipefail
+          git fetch --no-tags --depth=1 origin refs/pull/90/head
+          test "$(git rev-parse FETCH_HEAD)" = "$PINNED_SHA"
+          git worktree add --detach "$RUNNER_TEMP/pinned-riesel-pr90" "$PINNED_SHA"
+          echo "PINNED_NATIVE_GUI_ROOT=$RUNNER_TEMP/pinned-riesel-pr90" >> "$GITHUB_ENV"
+          test -f "$RUNNER_TEMP/pinned-riesel-pr90/research/native-gui-host/exercise.py"
+          echo "RESEARCH_M59_PINNED_NATIVE_GUI_SOURCE_EXACT_HEAD"
+      - name: Build actual Riesel SDK-resolved Counter and native GUI unchanged
+        run: |
+          set -euo pipefail
+          cd "$PINNED_NATIVE_GUI_ROOT"
+          cargo build --locked -p riesel_counter_example --bin counter_resolved_facade_host
+          cargo build --manifest-path research/native-gui-host/Cargo.toml
+      - name: Execute original GUI baseline and protected system-owner differential
+        env:
+          LIBGL_ALWAYS_SOFTWARE: "1"
+          GALLIUM_DRIVER: llvmpipe
+        run: |
+          set -euo pipefail
+          python3 -m py_compile research/process-ownership/manager_native_gui_os_owner_probe.py
+          xvfb-run -a -s "-screen 0 1280x900x24" bash -c '
+            set -euo pipefail
+            python3 "$PINNED_NATIVE_GUI_ROOT/research/native-gui-host/exercise.py"
+            echo RESEARCH_M59_REUSED_NATIVE_GUI_UNMODIFIED_BASELINE_PASS
+            timeout 140 python3 research/process-ownership/manager_native_gui_os_owner_probe.py --exercise "$PINNED_NATIVE_GUI_ROOT"
+          '
