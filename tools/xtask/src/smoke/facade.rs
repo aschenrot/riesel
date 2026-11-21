@@ -41,6 +41,7 @@ fn run_client(address: SocketAddr, mode: &str) -> TaskResult {
 fn start_facade_host(
     program: &str,
     bind_address: Option<SocketAddr>,
+    suppress_first_add_reply: bool,
 ) -> Result<(FacadeHost, SocketAddr), String> {
     let mut command = Command::new(binary(program));
     command
@@ -48,7 +49,11 @@ fn start_facade_host(
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .stderr(Stdio::inherit())
-        .env_remove("RIESEL_RESEARCH_FACADE_BIND");
+        .env_remove("RIESEL_RESEARCH_FACADE_BIND")
+        .env_remove("RIESEL_RESEARCH_SUPPRESS_ADD_REPLY");
+    if suppress_first_add_reply {
+        command.env("RIESEL_RESEARCH_SUPPRESS_ADD_REPLY", "1");
+    }
     if let Some(address) = bind_address {
         command.env("RIESEL_RESEARCH_FACADE_BIND", address.to_string());
     }
@@ -119,7 +124,7 @@ fn stop_facade_host(host: &mut FacadeHost) -> TaskResult {
 /// process, deliberate facade selection, and backend survival after GUI exit.
 /// Loopback RPC is unauthenticated; this is not an accepted public exporter.
 fn verify_facade_host(program: &str) -> TaskResult {
-    let (mut host, address) = start_facade_host(program, None)?;
+    let (mut host, address) = start_facade_host(program, None, false)?;
     run_client(address, "first")?;
     // The headless app is still running after the first client OS process
     // exits. Second client sees state mutated by the first.
@@ -140,7 +145,7 @@ fn verify_facade_host(program: &str) -> TaskResult {
 /// This is evidence of MISSING external generation fencing, NOT validation
 /// of a future exporter, authentication or in-process session recovery.
 fn verify_stale_external_client() -> TaskResult {
-    let (mut first_host, address) = start_facade_host("counter_resolved_facade_host", None)?;
+    let (mut first_host, address) = start_facade_host("counter_resolved_facade_host", None, false)?;
     let mut client = FacadeHost(
         Command::new(binary("counter_public_facade_client"))
             .arg(address.to_string())
@@ -187,7 +192,7 @@ fn verify_stale_external_client() -> TaskResult {
     }
     stop_facade_host(&mut first_host)?;
     let (mut second_host, rebound_address) =
-        start_facade_host("counter_resolved_facade_host", Some(address))?;
+        start_facade_host("counter_resolved_facade_host", Some(address), false)?;
     if rebound_address != address {
         return Err("fresh backend failed to reuse the expected endpoint".into());
     }
@@ -227,10 +232,24 @@ fn verify_stale_external_client() -> TaskResult {
     Ok(())
 }
 
+/// Research NEGATIVE: the provider mutation completes and changes memory,
+/// but its RPC response is withheld until the caller times out. A separate
+/// value() call then observes the change; no retry of the timed-out mutation
+/// was performed by the generated transport or this test.
+fn verify_lost_mutation_reply() -> TaskResult {
+    let (mut host, address) =
+        start_facade_host("counter_resolved_facade_host", None, true)?;
+    run_client(address, "lost-reply")?;
+    stop_facade_host(&mut host)?;
+    println!("RESEARCH_FACADE_UNKNOWN_MUTATION_OUTCOME_PROVEN");
+    Ok(())
+}
+
 /// Compare hosting a selected component with exporting a capability already
 /// resolved by the application runtime. Both use a headless external client.
 pub(super) fn verify_two_process_facade() -> TaskResult {
     verify_facade_host("counter_public_facade_host")?;
     verify_facade_host("counter_resolved_facade_host")?;
-    verify_stale_external_client()
+    verify_stale_external_client()?;
+    verify_lost_mutation_reply()
 }
