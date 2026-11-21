@@ -40,7 +40,10 @@ struct Snapshot {
 
 impl Snapshot {
     fn initial() -> Self {
-        Self { tick: 0, position: 0 }
+        Self {
+            tick: 0,
+            position: 0,
+        }
     }
 
     fn next(self) -> Self {
@@ -59,8 +62,14 @@ struct FrameOutcome {
 }
 
 enum Permit {
-    Advance { epoch: u64, response: oneshot::Sender<bool> },
-    Cancel { epoch: u64, response: oneshot::Sender<bool> },
+    Advance {
+        epoch: u64,
+        response: oneshot::Sender<bool>,
+    },
+    Cancel {
+        epoch: u64,
+        response: oneshot::Sender<bool>,
+    },
 }
 
 enum DomainCommand {
@@ -91,7 +100,10 @@ impl DomainActor {
             let world = Rc::new(Cell::new(Snapshot::initial()));
             while let Ok(command) = receiver.recv() {
                 match command {
-                    DomainCommand::Tick { requested, response } => {
+                    DomainCommand::Tick {
+                        requested,
+                        response,
+                    } => {
                         let result = if owner == TickOwner::Central && requested == owner {
                             let next = world.get().next();
                             world.set(next);
@@ -267,10 +279,13 @@ async fn central_policy() -> (Vec<Snapshot>, GraphRunReport) {
             let snapshots = Arc::clone(&snapshots);
             async move {
                 let (response, reply) = oneshot::channel();
-                if commands.try_send(DomainCommand::Tick {
-                    requested: TickOwner::Central,
-                    response,
-                }).is_err() {
+                if commands
+                    .try_send(DomainCommand::Tick {
+                        requested: TickOwner::Central,
+                        response,
+                    })
+                    .is_err()
+                {
                     return OperationOutcome::Failed("domain queue unavailable".into());
                 }
                 match reply.await {
@@ -306,7 +321,9 @@ async fn central_policy() -> (Vec<Snapshot>, GraphRunReport) {
     .bind(&registry)
     .unwrap();
     let owner = application_session();
-    let runner = owner.execution_graph(plan, NonZeroUsize::new(3).unwrap()).unwrap();
+    let runner = owner
+        .execution_graph(plan, NonZeroUsize::new(3).unwrap())
+        .unwrap();
     let signals = runner.signal_sender();
     let task = tokio::spawn(runner.execute());
     wait_for_count(&joined, 2).await;
@@ -318,7 +335,9 @@ async fn central_policy() -> (Vec<Snapshot>, GraphRunReport) {
         while snapshots.lock().unwrap().len() < 1 {
             tokio::task::yield_now().await;
         }
-    }).await.unwrap();
+    })
+    .await
+    .unwrap();
     assert_eq!(snapshots.lock().unwrap()[0].tick, 1);
     assert!(!task.is_finished());
 
@@ -331,12 +350,20 @@ async fn central_policy() -> (Vec<Snapshot>, GraphRunReport) {
     assert_eq!(report.operations["tick-one"], OperationState::Completed);
     assert_eq!(report.operations["tick-two"], OperationState::Completed);
     assert_eq!(report.operations["final"], OperationState::Completed);
-    assert_eq!(domain.stop(), Snapshot { tick: 2, position: 4 });
+    assert_eq!(
+        domain.stop(),
+        Snapshot {
+            tick: 2,
+            position: 4
+        }
+    );
     let snapshots = snapshots.lock().unwrap().clone();
     (snapshots, report)
 }
 
-async fn delegated_policy(cancel_after_first: bool) -> (Vec<Snapshot>, GraphRunReport, FrameOutcome) {
+async fn delegated_policy(
+    cancel_after_first: bool,
+) -> (Vec<Snapshot>, GraphRunReport, FrameOutcome) {
     let domain = DomainActor::start(TickOwner::Domain);
     let joined = Arc::new(AtomicUsize::new(0));
     let (permit_tx, permit_rx) = mpsc::sync_channel::<Permit>(2);
@@ -359,12 +386,15 @@ async fn delegated_policy(cancel_after_first: bool) -> (Vec<Snapshot>, GraphRunR
                     let final_frame = Arc::clone(&final_frame);
                     async move {
                         let (response, reply) = oneshot::channel();
-                        if commands.try_send(DomainCommand::Frame {
-                            requested: TickOwner::Domain,
-                            permits,
-                            snapshots: observation_tx,
-                            response,
-                        }).is_err() {
+                        if commands
+                            .try_send(DomainCommand::Frame {
+                                requested: TickOwner::Domain,
+                                permits,
+                                snapshots: observation_tx,
+                                response,
+                            })
+                            .is_err()
+                        {
                             return OperationOutcome::Failed("domain queue unavailable".into());
                         }
                         match reply.await {
@@ -387,12 +417,11 @@ async fn delegated_policy(cancel_after_first: bool) -> (Vec<Snapshot>, GraphRunR
         )
         .unwrap();
     let plan = with_async_branches(
-        ExecutionPlanDraft::new("fixed.delegated", 1)
-            .operation(
-                OperationNode::new("frame", key("frame"))
-                    .after("input")
-                    .access("ecs.world", AccessMode::Write),
-            ),
+        ExecutionPlanDraft::new("fixed.delegated", 1).operation(
+            OperationNode::new("frame", key("frame"))
+                .after("input")
+                .access("ecs.world", AccessMode::Write),
+        ),
         "frame",
     )
     .validate()
@@ -400,31 +429,73 @@ async fn delegated_policy(cancel_after_first: bool) -> (Vec<Snapshot>, GraphRunR
     .bind(&registry)
     .unwrap();
     let owner = application_session();
-    let runner = owner.execution_graph(plan, NonZeroUsize::new(3).unwrap()).unwrap();
+    let runner = owner
+        .execution_graph(plan, NonZeroUsize::new(3).unwrap())
+        .unwrap();
     let task = tokio::spawn(runner.execute());
     wait_for_count(&joined, 2).await;
-    assert!(!task.is_finished(), "domain controls its own frame admission");
+    assert!(
+        !task.is_finished(),
+        "domain controls its own frame admission"
+    );
 
     let (response, reply) = oneshot::channel();
-    permit_tx.send(Permit::Advance { epoch: SESSION_EPOCH - 1, response }).unwrap();
-    assert!(!tokio::time::timeout(Duration::from_secs(3), reply).await.unwrap().unwrap());
-    assert!(observation_rx.try_recv().is_err(), "stale permit cannot commit a tick");
+    permit_tx
+        .send(Permit::Advance {
+            epoch: SESSION_EPOCH - 1,
+            response,
+        })
+        .unwrap();
+    assert!(
+        !tokio::time::timeout(Duration::from_secs(3), reply)
+            .await
+            .unwrap()
+            .unwrap()
+    );
+    assert!(
+        observation_rx.try_recv().is_err(),
+        "stale permit cannot commit a tick"
+    );
 
     let (response, reply) = oneshot::channel();
-    permit_tx.send(Permit::Advance { epoch: SESSION_EPOCH, response }).unwrap();
+    permit_tx
+        .send(Permit::Advance {
+            epoch: SESSION_EPOCH,
+            response,
+        })
+        .unwrap();
     assert!(reply.await.unwrap());
     let first = tokio::time::timeout(Duration::from_secs(3), observation_rx.recv())
         .await
         .unwrap()
         .unwrap();
-    assert_eq!(first, Snapshot { tick: 1, position: 2 });
-    assert!(!task.is_finished(), "one permit cannot finish a two-tick frame");
+    assert_eq!(
+        first,
+        Snapshot {
+            tick: 1,
+            position: 2
+        }
+    );
+    assert!(
+        !task.is_finished(),
+        "one permit cannot finish a two-tick frame"
+    );
 
     let (response, reply) = oneshot::channel();
     if cancel_after_first {
-        permit_tx.send(Permit::Cancel { epoch: SESSION_EPOCH, response }).unwrap();
+        permit_tx
+            .send(Permit::Cancel {
+                epoch: SESSION_EPOCH,
+                response,
+            })
+            .unwrap();
     } else {
-        permit_tx.send(Permit::Advance { epoch: SESSION_EPOCH, response }).unwrap();
+        permit_tx
+            .send(Permit::Advance {
+                epoch: SESSION_EPOCH,
+                response,
+            })
+            .unwrap();
     }
     assert!(reply.await.unwrap());
     let mut observed = vec![first];
@@ -441,7 +512,10 @@ async fn delegated_policy(cancel_after_first: bool) -> (Vec<Snapshot>, GraphRunR
         .unwrap()
         .unwrap();
     let frame = final_frame.lock().unwrap().unwrap();
-    assert_eq!(frame.committed_ticks, if cancel_after_first { 1 } else { 2 });
+    assert_eq!(
+        frame.committed_ticks,
+        if cancel_after_first { 1 } else { 2 }
+    );
     assert_eq!(frame.last, domain.stop());
     assert!(!report.operations.contains_key("tick-one"));
     assert!(!report.operations.contains_key("tick-two"));
@@ -458,15 +532,27 @@ fn fixed_tick_modes_preserve_world_semantics_with_independent_async_work() {
         assert_eq!(
             central,
             vec![
-                Snapshot { tick: 1, position: 2 },
-                Snapshot { tick: 2, position: 4 },
+                Snapshot {
+                    tick: 1,
+                    position: 2
+                },
+                Snapshot {
+                    tick: 2,
+                    position: 4
+                },
             ]
         );
         assert!(central_report.succeeded());
         assert!(delegated_report.succeeded());
         assert_eq!(frame.committed_ticks, 2);
-        assert_eq!(delegated_report.operations["frame"], OperationState::Completed);
-        assert_eq!(delegated_report.operations["final"], OperationState::Completed);
+        assert_eq!(
+            delegated_report.operations["frame"],
+            OperationState::Completed
+        );
+        assert_eq!(
+            delegated_report.operations["final"],
+            OperationState::Completed
+        );
         assert!(central_report.peak_in_flight >= 2);
         assert!(delegated_report.peak_in_flight >= 2);
     });
@@ -476,10 +562,22 @@ fn fixed_tick_modes_preserve_world_semantics_with_independent_async_work() {
 fn partial_domain_frame_cancellation_preserves_committed_tick_and_blocks_final_join() {
     executor().block_on(async {
         let (observed, report, frame) = delegated_policy(true).await;
-        assert_eq!(observed, vec![Snapshot { tick: 1, position: 2 }]);
+        assert_eq!(
+            observed,
+            vec![Snapshot {
+                tick: 1,
+                position: 2
+            }]
+        );
         assert_eq!(frame.committed_ticks, 1);
         assert!(frame.cancelled);
-        assert_eq!(frame.last, Snapshot { tick: 1, position: 2 });
+        assert_eq!(
+            frame.last,
+            Snapshot {
+                tick: 1,
+                position: 2
+            }
+        );
         assert_eq!(report.operations["frame"], OperationState::Cancelled);
         assert_eq!(report.operations["final"], OperationState::Blocked);
         assert!(!report.succeeded());
@@ -491,10 +589,13 @@ fn mismatched_domain_admission_owner_rejects_before_world_mutation() {
     executor().block_on(async {
         let domain = DomainActor::start(TickOwner::Domain);
         let (response, reply) = oneshot::channel();
-        domain.commands.try_send(DomainCommand::Tick {
-            requested: TickOwner::Central,
-            response,
-        }).unwrap();
+        domain
+            .commands
+            .try_send(DomainCommand::Tick {
+                requested: TickOwner::Central,
+                response,
+            })
+            .unwrap();
         assert_eq!(
             reply.await.unwrap(),
             Err("tick admission authority mismatch")
@@ -505,12 +606,15 @@ fn mismatched_domain_admission_owner_rejects_before_world_mutation() {
         let (_, permits) = mpsc::sync_channel::<Permit>(1);
         let (observed, _) = async_mpsc::channel::<Snapshot>(2);
         let (response, reply) = oneshot::channel();
-        central.commands.try_send(DomainCommand::Frame {
-            requested: TickOwner::Domain,
-            permits,
-            snapshots: observed,
-            response,
-        }).unwrap();
+        central
+            .commands
+            .try_send(DomainCommand::Frame {
+                requested: TickOwner::Domain,
+                permits,
+                snapshots: observed,
+                response,
+            })
+            .unwrap();
         assert!(matches!(
             reply.await.unwrap(),
             Err("frame admission authority mismatch")
