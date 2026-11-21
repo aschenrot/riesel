@@ -258,6 +258,23 @@ def main(repo_root: Path):
         for value in (1, 2, 3):
             fixture.key("ctrl+i")
             legitimate.until(f"GUI_VALUE {value}", 18)
+
+        # Adversarial desktop input boundary: a distinct, non-elevated
+        # executable under the GUI's *same* X11 user sends real keyboard
+        # events into that already authorized GUI window. It is not given
+        # the app RPC endpoint, app capability or any Manager credential.
+        # This demonstrates why GUI client authentication alone cannot
+        # certify the origin of the human/user action on an X11 desktop.
+        attacker_path = Path(__file__).with_name("manager_x11_same_uid_input_probe.py")
+        if not attacker_path.is_file():
+            raise AssertionError("missing bounded X11 attacker fixture")
+        injected = invoke([sys.executable, str(attacker_path),
+                           window, str(legitimate.proc.pid)], timeout=15)
+        if "RESEARCH_M59_SAME_UID_X11_CLIENT_INJECTED_GUI_INCREMENT" not in injected.stdout:
+            raise AssertionError(f"missing independent X11 injection marker: {injected.stdout!r}")
+        legitimate.until("GUI_VALUE 4", 18)
+        print("RESEARCH_M59_X11_SAME_UID_UNAUTHORIZED_GUI_INPUT_MUTATED_COUNTER",
+              flush=True)
         fixture.close(legitimate, window)
         assert_target_unchanged(unit, pid, baseline)
         print("RESEARCH_M59_REAL_NATIVE_GUI_KEYBOARD_RPC_TO_SYSTEM_OWNER_PASS",
@@ -269,10 +286,10 @@ def main(repo_root: Path):
         # by reusing the published address. This is a demonstrated missing
         # exported-capability admission gate, NOT authorized Manager access.
         hostile = fixture.gui("untrusted-same-user-gui", bound)
-        hostile.until("GUI_VALUE 3", 22)
+        hostile.until("GUI_VALUE 4", 22)
         window2 = fixture.find_window()
         fixture.focus(window2)
-        for value in (4, 5):
+        for value in (5, 6):
             fixture.key("ctrl+i")
             hostile.until(f"GUI_VALUE {value}", 18)
         fixture.close(hostile, window2)
