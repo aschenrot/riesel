@@ -6,7 +6,7 @@ use riesel::{RieselModel, storage::StoredRecord};
 use riesel_storage_component::MemoryStore;
 use riesel_storage_sqlite::SqliteStore;
 use serde::{Deserialize, Serialize};
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 use std::{collections::BTreeMap, sync::Arc};
 use uuid::Uuid;
 
@@ -30,7 +30,10 @@ type Store = Arc<dyn RecordStore + Send + Sync>;
 
 fn providers(f: impl Fn(Store)) {
     let models = BTreeMap::from([
-        (Inventory::MODEL_NAME.to_owned(), Inventory::model_definition()),
+        (
+            Inventory::MODEL_NAME.to_owned(),
+            Inventory::model_definition(),
+        ),
         (
             AssetMetadata::MODEL_NAME.to_owned(),
             AssetMetadata::model_definition(),
@@ -128,7 +131,9 @@ fn editor_metadata_equality_outside_loaded_pages_requires_full_model_walk() {
             )
             .unwrap();
 
-        let first = store.list_page(AssetMetadata::MODEL_NAME, None, 32).unwrap();
+        let first = store
+            .list_page(AssetMetadata::MODEL_NAME, None, 32)
+            .unwrap();
         assert_eq!(first.records.len(), 32);
         assert!(first.records.iter().all(|item| tag(item) != "terrain"));
         let second = store
