@@ -218,6 +218,14 @@ impl GraphRunReport {
     }
 }
 
+/// Failed structured background graphs retain their local post-run result
+/// under the existing named application-task error.
+#[derive(Debug, Error)]
+#[error("background execution graph did not complete successfully")]
+pub struct GraphExecutionFailure {
+    pub report: GraphRunReport,
+}
+
 /// Consumed by execute(): aborting/dropping its future cannot leave a
 /// reusable runner containing stale Running nodes. In-flight operations are
 /// aborted on session invalidation, but effects already dispatched may be
@@ -298,12 +306,31 @@ impl ExecutionGraphRunner {
     /// signal is intentional; the owning application may cancel its session.
     /// Calls are never retried, and other branches remain eligible while a
     /// signal-gated domain tick is waiting.
-    pub async fn execute(mut self) -> GraphRunReport {
+    pub async fn execute(self) -> GraphRunReport {
+        self.execute_until(std::future::pending()).await.0
+    }
+
+    /// A structured owner can request cooperative shutdown and await all
+    /// graph-owned Tokio child futures before application provider teardown.
+    pub(crate) async fn execute_until<F: Future<Output = ()>>(
+        mut self,
+        stop: F,
+    ) -> (GraphRunReport, bool) {
         let mut jobs = JoinSet::<(usize, OperationOutcome)>::new();
         let mut active = HashMap::<Id, usize>::new();
         let mut session_expired = false;
+        let mut stopped_by_owner = false;
+        let mut stop = std::pin::pin!(stop);
 
         loop {
+            if std::future::poll_fn(|cx| {
+                std::task::Poll::Ready(stop.as_mut().poll(cx).is_ready())
+            })
+            .await
+            {
+                stopped_by_owner = true;
+                break;
+            }
             // Register for a release notification before examining capacity.
             // No other run can free a slot between our failed admission and
             // our waiter becoming visible.
@@ -335,9 +362,14 @@ impl ExecutionGraphRunner {
                 &mut jobs,
                 !active.is_empty(),
                 admission_changed,
+                stop.as_mut(),
             )
             .await
             {
+                Wake::Stopping => {
+                    stopped_by_owner = true;
+                    break;
+                }
                 Wake::Expired => {
                     session_expired = true;
                     break;
@@ -367,7 +399,7 @@ impl ExecutionGraphRunner {
             }
         }
 
-        if session_expired {
+        if session_expired || stopped_by_owner {
             jobs.abort_all();
             while jobs.join_next().await.is_some() {}
             for index in active.into_values() {
@@ -389,14 +421,17 @@ impl ExecutionGraphRunner {
             .zip(self.states)
             .map(|(node, state)| (node.id().to_owned(), state))
             .collect();
-        GraphRunReport {
-            plan_id: description.id().to_owned(),
-            revision: description.revision(),
-            operations,
-            started: self.started,
-            peak_in_flight: self.peak_in_flight,
-            session_expired,
-        }
+        (
+            GraphRunReport {
+                plan_id: description.id().to_owned(),
+                revision: description.revision(),
+                operations,
+                started: self.started,
+                peak_in_flight: self.peak_in_flight,
+                session_expired,
+            },
+            stopped_by_owner,
+        )
     }
 
     fn admit(
@@ -481,6 +516,7 @@ impl ExecutionGraphRunner {
 }
 
 enum Wake {
+    Stopping,
     Expired,
     Signal(String),
     AdmissionReleased,
@@ -491,12 +527,13 @@ enum Wake {
 /// not require Tokio's optional macros feature. Recreate neither Notify
 /// subscription nor the join future on every poll. Finished operations are
 /// polled before the signal queue, so a busy producer cannot starve cleanup.
-async fn wait_for_work<F: Future<Output = ()>>(
+async fn wait_for_work<F: Future<Output = ()>, S: Future<Output = ()>>(
     session: &SessionToken,
     signals: &mut mpsc::Receiver<String>,
     jobs: &mut JoinSet<(usize, OperationOutcome)>,
     has_jobs: bool,
     changed: F,
+    mut stop: Pin<&mut S>,
 ) -> Wake {
     use std::task::Poll;
 
@@ -505,6 +542,9 @@ async fn wait_for_work<F: Future<Output = ()>>(
     let mut completed = std::pin::pin!(jobs.join_next_with_id());
     let mut changed = std::pin::pin!(changed);
     std::future::poll_fn(|cx| {
+        if stop.as_mut().poll(cx).is_ready() {
+            return Poll::Ready(Wake::Stopping);
+        }
         if expired.as_mut().poll(cx).is_ready() {
             return Poll::Ready(Wake::Expired);
         }
