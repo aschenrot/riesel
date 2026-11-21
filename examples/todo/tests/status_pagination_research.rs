@@ -36,6 +36,7 @@ fn setup(provider: Provider, database: &Path) -> (Todo, Store) {
 fn seed(
     todo: &Todo,
     store: &Store,
+    provider: Provider,
     count: usize,
     open_positions: &[usize],
 ) -> Vec<Uuid> {
@@ -62,9 +63,8 @@ fn seed(
         assert!(!updated.value.completed);
     }
     println!(
-        "status_research setup={provider} records={count} elapsed_ms={elapsed}",
-        provider = if matches!(count, 10_000) { "large" } else { "small" },
-        elapsed = started.elapsed().as_millis()
+        "status_research provider={provider:?} setup_records={count} elapsed_ms={}",
+        started.elapsed().as_millis()
     );
     ids
 }
@@ -126,7 +126,7 @@ fn bounded_scan(
     }
 }
 
-fn drain(todo: &Todo, completed: bool, max_total_pages: usize) -> Scan {
+fn drain(todo: &Todo, provider: Provider, completed: bool, max_total_pages: usize) -> Scan {
     let mut after = None;
     let mut aggregate = Scan {
         matches: Vec::new(),
@@ -146,7 +146,7 @@ fn drain(todo: &Todo, completed: bool, max_total_pages: usize) -> Scan {
         after = part.next_cursor;
     }
     println!(
-        "status_research scanned={} matches={} pages={} elapsed_ms={}",
+        "status_research provider={provider:?} scanned={} matches={} pages={} elapsed_ms={}",
         aggregate.scanned,
         aggregate.matches.len(),
         aggregate.pages,
@@ -160,7 +160,7 @@ fn first_32_done_can_hide_the_only_open_task_on_memory_and_sqlite() {
     for provider in [Provider::Memory, Provider::Sqlite] {
         let dir = tempfile::tempdir().unwrap();
         let (todo, store) = setup(provider, &dir.path().join("tasks.db"));
-        let ids = seed(&todo, &store, 33, &[32]);
+        let ids = seed(&todo, &store, provider, 33, &[32]);
 
         let first = bounded_scan(&todo, None, false, 1);
         assert_eq!(first.scanned, 32, "{provider:?}");
@@ -180,14 +180,14 @@ fn hundred_mixed_records_require_explicit_cursor_continuation() {
     for provider in [Provider::Memory, Provider::Sqlite] {
         let dir = tempfile::tempdir().unwrap();
         let (todo, store) = setup(provider, &dir.path().join("tasks.db"));
-        let ids = seed(&todo, &store, 100, &[70, 98, 99]);
+        let ids = seed(&todo, &store, provider, 100, &[70, 98, 99]);
 
         let first = bounded_scan(&todo, None, false, 2);
         assert_eq!(first.scanned, 64, "{provider:?}");
         assert!(first.matches.is_empty(), "{provider:?}");
         assert!(!first.exhausted, "{provider:?}");
 
-        let complete = drain(&todo, false, 4);
+        let complete = drain(&todo, provider, false, 4);
         assert_eq!(complete.scanned, 100, "{provider:?}");
         assert_eq!(complete.pages, 4, "{provider:?}");
         assert_eq!(
@@ -204,7 +204,7 @@ fn sparse_ten_thousand_records_require_313_pages_on_memory_and_sqlite() {
     for provider in [Provider::Memory, Provider::Sqlite] {
         let dir = tempfile::tempdir().unwrap();
         let (todo, store) = setup(provider, &dir.path().join("tasks.db"));
-        let ids = seed(&todo, &store, 10_000, &[9_999]);
+        let ids = seed(&todo, &store, provider, 10_000, &[9_999]);
 
         // A finite eight-page scan reads at most 256 of 10,000 records,
         // reports a partial result, and cannot conclude the Open list is empty.
@@ -214,7 +214,7 @@ fn sparse_ten_thousand_records_require_313_pages_on_memory_and_sqlite() {
         assert!(bounded.matches.is_empty(), "{provider:?}");
         assert!(!bounded.exhausted, "{provider:?}");
 
-        let full = drain(&todo, false, 314);
+        let full = drain(&todo, provider, false, 314);
         assert_eq!(full.matches, vec![ids[9_999]], "{provider:?}");
         assert_eq!(full.scanned, 10_000, "{provider:?}");
         assert_eq!(full.pages, 313, "{provider:?}");
@@ -227,7 +227,7 @@ fn status_change_behind_cursor_is_missing_from_non_snapshot_continuation() {
     for provider in [Provider::Memory, Provider::Sqlite] {
         let dir = tempfile::tempdir().unwrap();
         let (todo, store) = setup(provider, &dir.path().join("tasks.db"));
-        seed(&todo, &store, 65, &[]);
+        seed(&todo, &store, provider, 65, &[]);
 
         // Client A reads and advances past a completed task.
         let first_page = todo.list_tasks_page(None, 32).unwrap();
