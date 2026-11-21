@@ -71,12 +71,28 @@ def read_uid(pid: int) -> int:
 def launch_and_crash(unit: str) -> None:
     if not NAME.fullmatch(unit):
         raise AssertionError("refuse non-research unit")
-    checked(sudo("systemd-run", "--system", "--no-ask-password",
-                 "--unit", unit, "--property=Type=exec",
-                 "--property=Restart=no", "--property=KillMode=control-group",
-                 "--property=User=60081", "--property=Group=60081",
-                 "--property=TimeoutStopSec=3s",
-                 "/usr/bin/sleep", "100"))
+    try:
+        checked(sudo("systemd-run", "--system", "--no-ask-password",
+                     "--unit", unit, "--property=Type=exec",
+                     "--property=Restart=no", "--property=KillMode=control-group",
+                     "--property=User=60081", "--property=Group=60081",
+                     "--property=TimeoutStopSec=3s",
+                     "/usr/bin/sleep", "100"))
+    except AssertionError as error:
+        # A transient service creation failure is NOT evidence about OS
+        # isolation. Inspect only the uniquely named disposable unit, then
+        # let the parent fixture clean up that unit in its finally block.
+        state = checked(sudo("systemctl", "--system", "--no-pager", "show",
+                             unit, "--property=Result", "--property=ExecMainStatus",
+                             "--property=ExecMainCode", "--property=User"))
+        logs = subprocess.run(
+            sudo("journalctl", "--system", "--no-pager", "-n", "12", "-u", unit),
+            capture_output=True, text=True, timeout=7, check=False,
+        )
+        raise AssertionError(
+            f"transient fixture launch failed: {error}; "
+            f"unit={state.stdout!r}; journal={logs.stdout[-2200:]!r}"
+        ) from error
     # The submitting Manager-like controller vanishes; systemd owns the app.
     os._exit(23)
 
