@@ -1180,7 +1180,6 @@ fn asynchronous_startup_preserves_original_and_provider_cleanup_failures() {
     assert_startup_and_rollback_errors(error);
 }
 
-
 #[cfg(feature = "async-tcp")]
 #[test]
 fn session_owned_graph_owns_thread_confined_domain_without_duplicate_scheduler() {
@@ -1263,9 +1262,7 @@ fn session_owned_graph_owns_thread_confined_domain_without_duplicate_scheduler()
         .unwrap();
 
     let plan = ExecutionPlanDraft::new("example.domain-run", 1)
-        .operation(
-            OperationNode::new("tick-one", tick.clone()).on_signal("domain.tick.one"),
-        )
+        .operation(OperationNode::new("tick-one", tick.clone()).on_signal("domain.tick.one"))
         .operation(
             OperationNode::new("tick-two", tick)
                 .after("tick-one")
