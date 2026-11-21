@@ -143,7 +143,7 @@ test('cursor pagination loads the complete collection without duplicating rows',
   await expect(page.getByText('32 loaded', { exact: false })).toBeVisible();
   await page.getByRole('button', { name: 'Load more tasks' }).click();
   await expect(page.getByText('33 loaded', { exact: false })).toBeVisible();
-  await expect(page.getByText('All available pages loaded')).toBeVisible();
+  await expect(page.getByText('All tasks loaded')).toBeVisible();
   await expect(page.locator('li.task')).toHaveCount(33);
 });
 
@@ -222,8 +222,21 @@ test('capture desktop and mobile UI for visual review', async ({ page }) => {
     await page.getByRole('button', { name: 'Add task' }).click();
   }
   await page.getByRole('checkbox', { name: 'Mark Verify accessibility complete' }).check();
-  await page.getByRole('button', { name: 'Dismiss notification' }).click();
   await mkdir('test-results/visual-review', { recursive: true });
+  await expect(page.getByRole('status')).toContainText('Task completed');
+  await page.screenshot({
+    path: 'test-results/visual-review/todo-success-toast-1280.png',
+    fullPage: true,
+    animations: 'disabled'
+  });
+  await page.getByRole('button', { name: 'Dismiss notification' }).click();
+  await page.getByRole('button', { name: 'Actions for Refine Todo layout' }).click();
+  await page.screenshot({
+    path: 'test-results/visual-review/todo-action-menu-1280.png',
+    fullPage: true,
+    animations: 'disabled'
+  });
+  await page.keyboard.press('Escape');
   await page.screenshot({
     path: 'test-results/visual-review/todo-desktop-1280.png',
     fullPage: true,

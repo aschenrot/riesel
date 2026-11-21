@@ -273,7 +273,6 @@
   <main class="content">
     <header class="page-heading">
       <div>
-        <p class="eyebrow">YOUR TASKS</p>
         <h1 id="page-title">Tasks</h1>
       </div>
       <p class="page-summary">A clear view of what needs doing.</p>
@@ -415,7 +414,7 @@
             {loadingMore ? 'Loading…' : 'Load more tasks'}
           </button>
         {:else if tasks.length > 0}
-          <span>All available pages loaded</span>
+          <span>All tasks loaded</span>
         {/if}
         <button type="button" class="refresh" disabled={loading} onclick={() => void refresh()}>
           Refresh tasks
