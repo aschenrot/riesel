@@ -246,7 +246,7 @@ Riesel's accepted product outcome remains **independent native windows in a diff
 | Application crash / whole-session restart | Old epoch/binding revoked even if PID reused or process persists; new epoch and snapshot required |
 | Lost mutation response | UI marks uncertain result, does not automatically retry; user explicitly refreshes/reconciles |
 | Toolkit responsiveness | Main thread remains responsive with disconnected backend and slow I/O; bounded event queue/backpressure and keyboard/focus/assistive interactions demonstrated |
-| Portability/validation | Rust 1.100 and Linux exact-head \`cargo validate --check\`/\`cargo smoke\` with a focused integration test, plus documented manual Windows gate before shipping claimed support |
+| Portability/validation | Rust 1.100 and Linux exact-head `cargo validate --check`/`cargo smoke` with a focused integration test, plus documented manual Windows gate before shipping claimed support |
 
 **Proposed accepted-work decomposition, only after the maintainer accepts the specifications:** (1) app-owned published interface/generation/trust semantics coordinated with #75; (2) test-only independent typed client and lifecycle/failure/authorization assertions; (3) one native toolkit adapter and accessible UI example; (4) optional CLI/Manager launch convenience if separately accepted. Headless capability/client experiments and the native event loop can be researched **in parallel**; they intersect only at the agreed app-interface contract. Manager #59 is not a prerequisite.
 
