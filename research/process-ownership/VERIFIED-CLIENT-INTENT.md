@@ -2,7 +2,7 @@
 
 **Date:** 2026-11-21  
 **Baseline:** current `main` at branch creation; [#59](https://github.com/aschenrot/riesel/issues/59) and [#75](https://github.com/aschenrot/riesel/issues/75).  
-**Status:** security research, **not** an accepted OS authorization mechanism or installed Manager. Actual GitHub CI results must be checked against the exact PR head before considering this executed evidence.
+**Status:** executed, reproducible **Linux-only security research** (source and CI below); **not** an accepted OS authorization mechanism, secure human-consent system, complete installed Manager or cross-platform release. Each newer report-only revision still needs its own exact-head CI checks.
 
 ## Original first-release requirement
 
@@ -47,6 +47,25 @@ timeout 70 python3 research/process-ownership/manager_verified_executable_intent
 - `RESEARCH_M59_ROOT_VERIFIER_MOCK_MUTATIONS_3_DENIED_1`
 - `RESEARCH_M59_VERIFIED_CLI_CODE_IDENTITY_INTENT_GAP_PASS`
 
+## Second executed experiment: real AppArmor security label and acquisition
+
+The Ubuntu 24.04 research host exposed the AppArmor LSM and userspace parser. To test the *stronger* idea that the Manager could authorize an OS security label instead of executable identity, the [separate real AppArmor probe](manager_apparmor_label_probe.py) loaded **one randomly named temporary, deliberately permissive profile** on a disposable runner and removed it unconditionally after execution.
+
+The fixture was intentionally **broad** (`file`, `network`, `unix`, `capability` and inherited execution) so it tested **label identity/acquisition**, not a secure sandbox capable of insulating code, signals or GUI resources. A root-side Unix stream verifier read both kernel `SO_PEERCRED` and **`SO_PEERSEC`**; the policy accepted only the exact loaded AppArmor peer label, mock `STOP` verb and disposable same-UID caller, without changing any real application or OS service. A root-launched client dropped its UID to **60090** and kept the profile. Two ordinary UID-60090 processes served as the negative comparisons: one remained unconfined, and another tried to acquire the *same loaded profile* with unprivileged `aa-exec`.
+
+**Executed CI:** [Ubuntu research workflow 44916069963](https://github.com/aschenrot/riesel/actions/runs/44916069963), source `b6dedd470bc2827173bebea7b0e9b2b7f747df7a`, **PASSED** both the executable identity counterexample and the AppArmor peer-label/self-transition differential. Its actual log markers:
+
+- `RESEARCH_M59_APPARMOR_DISPOSABLE_PROFILE_LOADED` — a real kernel AppArmor profile was installed for this test.
+- `RESEARCH_M59_APPARMOR_UNCONFINED_SAME_UID_DENIED` — same UID alone did not receive the trusted label's allowance.
+- `RESEARCH_M59_APPARMOR_ROOT_LAUNCHED_LABEL_ALLOWED` — the intended privileged-launch process, after dropping to the same UID, retained the label and passed.
+- `RESEARCH_M59_APPARMOR_UNPRIVILEGED_SELF_LABEL_ALLOWED` — **the other unprivileged UID-60090 process itself entered this permissive profile using `aa-exec` and passed the same test**.
+- `RESEARCH_M59_APPARMOR_SO_PEERSEC_LABEL_DIFFERENTIAL_PASS` — the observed `SO_PEERSEC` comparison was real.
+- `RESEARCH_M59_APPARMOR_DISPOSABLE_PROFILE_UNLOADED` — the temporary profile was unloaded.
+
+This is a **negative result for naive label allowlisting**: labels can add security context beyond UID, but the label must be **non-acquirable by the attacker**. The tested AppArmor profile was deliberately permissive and had no protected entry/transition rule; it is **not evidence that a properly confined, OS-enforced AppArmor client domain is inherently spoofable or insecure**. It also does not prove root-owned browsers, signed binaries, XPC, polkit or protected human-consent mechanisms are compromised.
+
+**Still necessary to establish the positive comparator:** install a protected client domain with an enforceable, root-owned **one-way entry policy**, show that only a deliberately provisioned launcher can enter it while a same-UID attacker fails `aa-exec`, injection, executable re-launch and FD relay; then prove intended CLI/browser functionality, per-operation human intent, app lifecycle fencing and working user-session GUI integration. Root-launched test clients alone do **not** demonstrate safe admission because the CI account's broad `sudo` rights are themselves ambient to all same-account programs (previous [#123](https://github.com/aschenrot/riesel/pull/123) negative proof).
+
 ## Interpretation and limitations
 
 1. **Executable integrity remains essential**, especially for Manager-owned installation/update and OS owner service definitions. But **the ability to execute the root-owned CLI is usually shared by untrusted code under the same human account**. Confirming the executable inode, hash, owner or signed client binary is not proof that a human chose a particular mutation or that its command line/request came from a trusted origin.
@@ -60,7 +79,7 @@ timeout 70 python3 research/process-ownership/manager_verified_executable_intent
 
 - Linux [`unix(7)`](https://man7.org/linux/man-pages/man7/unix.7.html) documents kernel-supplied `SO_PEERCRED` PID/UID/GID; it does not claim human intention or a trusted executable.
 - Linux [`ld.so(8)`](https://man7.org/linux/man-pages/man8/ld.so.8.html) documents `LD_PRELOAD` and the **secure-execution mode** distinction. This fixture uses an ordinary non-setuid CLI, so a user-controlled preload is expected. Do not generalize this to setuid, hardened/fully confined or verified dependencies.
-- Linux [AppArmor](https://ubuntu.com/server/docs/security-apparmor/) and [policy syntax](https://apparmor.dev/man/apparmor.d/) are *potential comparators* for OS-enforced executable/process security contexts, not accepted design or proof of feasible cross-platform same-UID client isolation. The research workflow records **only diagnostic LSM availability**; it does not load an AppArmor profile or claim a protected security label. On [the executed Ubuntu run](https://github.com/aschenrot/riesel/actions/runs/44915773507), the host reported AppArmor in its enabled LSM list and `apparmor_parser` present, while the runner was `unconfined`. That is a **candidate-platform prerequisite**, not evidence a protected labelled caller can be launched, cannot be self-labelled by an adversary, or can support Riesel desktop GUIs.
+- Linux [AppArmor](https://ubuntu.com/server/docs/security-apparmor/) and its [policy syntax](https://apparmor.dev/man/apparmor.d/) can provide real **process and Unix-socket peer labels**; the Linux [`unix(7)`](https://man7.org/linux/man-pages/man7/unix.7.html) manual documents `SO_PEERSEC`. The executed test **loaded** a temporary permissive AppArmor profile and proved it was **self-acquirable** by an unprivileged same-UID process in that fixture. It did **not** test the separate question of an OS-restricted client domain that forbids unauthorized profile entry, cross-process injection or desktop-session relay.
 
 ## Architectural comparison — same accepted outcome
 
@@ -70,7 +89,7 @@ timeout 70 python3 research/process-ownership/manager_verified_executable_intent
 | Polkit user + exact action/target | Trusted action details, bounded user permission | Human intent or trusted code when policy allows all processes of user | **Insufficient alone**, useful layer (#123) |
 | Protected app service owner / separate OS principal | Reject direct target process manipulation by disallowed UIDs | Which same-UID *operator client* has valid rights | **Promising OS target component**, not full Manager (#123) |
 | **Root-owned/signed CLI executable attestation** | Code artifact provenance / expected process executable | Who launched it, who supplied arguments, whether untrusted code shares/injects process | **This experiment tests and should reject as sufficient authority** |
-| OS-enforced process isolation/labels + trusted client launch | Potentially make client code/process rights harder to forge or inject | Authorized human intention or browser actions without an independent trust boundary | **Parallel research candidate**, must test label spoofing, injection, relays and launch privileges |
+| OS-enforced process isolation/labels + trusted client launch | Real `SO_PEERSEC` separated labelled and unlabelled clients **with the same UID** in the executed AppArmor experiment | A process may enter a permissive profile itself; a **protected, non-forgeable entry policy and human intention** must be independently proven | **Promising only if label entry is OS-restricted**; naive permissive profile allowlisting failed the same-UID attack test |
 | Protected OS approval/consent broker + scoped operation authority | Potentially bind deliberate approval to exact mutation/registration/attempt and independently protected execution | Resistance to compromised same-user desktop UI, credential theft, phishing and unattended policies without real tests | **Leading research comparator**, not selected implementation |
 
 **Security invariant to specify:** the protected OS owner is the *only* authority to mutate application registration/executable/service ownership, and it must consume **protected operator authorization evidence bound to the exact action + target + launch/registration epoch**, not merely account identity, executable path/signature, user-readable token or browser origin. Treat the actual origin/approval and its revocation/replay protection as separate from executable provenance.
