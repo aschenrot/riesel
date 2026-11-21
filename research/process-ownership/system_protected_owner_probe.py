@@ -141,6 +141,27 @@ def attack(unit: str, pid: int, protected_path: str) -> None:
         raise AssertionError("untrusted caller modified protected file")
 
 
+def ambient_sudo_sibling(unit: str, expected_uid: int) -> None:
+    """Demonstrate that broad runner sudo is shared by *all* same-UID code.
+
+    This is a deliberately unsafe research role: it terminates only the
+    uniquely named disposable fixture, never a real installed system service.
+    """
+    if not NAME.fullmatch(unit):
+        raise AssertionError("refuse non-research unit")
+    if os.geteuid() != expected_uid or os.geteuid() == 0:
+        raise AssertionError("sibling did not retain the ordinary operator UID")
+    with open("/proc/self/status", encoding="utf-8") as info:
+        caps = next(line for line in info if line.startswith("CapEff:"))
+    if int(caps.split(":", 1)[1], 16):
+        raise AssertionError("sibling unexpectedly has effective capabilities")
+    # This separate, unprivileged process uses the identical runner-wide
+    # sudo right as the purported trusted operator; there is no client
+    # attestation or permission separation by code/process identity.
+    checked(sudo("systemctl", "--system", "--no-pager", "stop", unit))
+    print("RESEARCH_MANAGER_SUDO_ENABLED_SAME_UID_SIBLING_CAN_STOP", flush=True)
+
+
 def runner() -> None:
     if sys.platform != "linux" or os.geteuid() == 0:
         raise AssertionError("requires Linux unprivileged CI coordinator")
@@ -213,12 +234,19 @@ def runner() -> None:
             raise AssertionError("protected registration changed")
         print("RESEARCH_MANAGER_ROOT_OWNED_REGISTRY_UNMODIFIED", flush=True)
 
-        # Positive CONTROL is an OS-privileged coordinator, not proof of
-        # legitimate user authentication under CALLER_UID.
-        systemctl("stop", name)
+        # Negative AUTHENTICATION CONTROL: another independent process
+        # running under the original operator's *same non-root UID* can
+        # also call the CI account's ambient passwordless sudo. This is not
+        # an approved Manager caller-auth mechanism. It stops only our
+        # uniquely named disposable system service.
+        sibling = checked([PYTHON, str(script), "--ambient-sibling", name,
+                           str(os.geteuid())])
+        if "RESEARCH_MANAGER_SUDO_ENABLED_SAME_UID_SIBLING_CAN_STOP" not in sibling.stdout:
+            raise AssertionError(f"missing ambient sudo bypass marker: {sibling.stdout}")
         stopped = show(name)
         if stopped.get("ActiveState") != "inactive":
-            raise AssertionError(f"privileged stop not effective: {stopped}")
+            raise AssertionError(f"sudo-capable sibling stop not effective: {stopped}")
+        print("RESEARCH_MANAGER_SUDO_ENABLED_SAME_UID_SIBLING_CAN_STOP", flush=True)
         print("RESEARCH_MANAGER_PRIVILEGED_SYSTEM_OWNER_STOP_CONFIRMED", flush=True)
         print("RESEARCH_MANAGER_SYSTEM_OWNER_S1_DIFFERENTIAL_PASS", flush=True)
     finally:
@@ -240,5 +268,7 @@ if __name__ == "__main__":
         launch_and_crash(sys.argv[2])
     elif len(sys.argv) == 5 and sys.argv[1] == "--attack":
         attack(sys.argv[2], int(sys.argv[3]), sys.argv[4])
+    elif len(sys.argv) == 4 and sys.argv[1] == "--ambient-sibling":
+        ambient_sudo_sibling(sys.argv[2], int(sys.argv[3]))
     else:
         raise SystemExit("invalid probe mode")
