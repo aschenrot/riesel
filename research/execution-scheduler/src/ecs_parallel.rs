@@ -6,6 +6,9 @@ use std::hint::black_box;
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Engine { Bevy, Runen }
 
+#[derive(Debug, Clone, Copy)]
+pub enum DirectOp { Read, Write }
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Workload { Empty, Reads, IndependentWrites, ConflictingWrites }
 
@@ -52,6 +55,12 @@ impl Fixture {
         match self {
             Self::Bevy(f) => f.sums(),
             Self::Runen(f) => f.sums(),
+        }
+    }
+    pub fn run_direct(&mut self, operation: DirectOp) {
+        match self {
+            Self::Bevy(f) => f.run_direct(operation),
+            Self::Runen(f) => f.run_direct(operation),
         }
     }
 }
@@ -147,6 +156,27 @@ mod bevy {
 
         pub fn run(&mut self) {
             self.schedule.run(&mut self.world);
+        }
+
+        pub fn run_direct(&mut self, operation: DirectOp) {
+            // Intentionally include dynamic query construction in both engines.
+            // This is a World+query API probe, not a raw storage-layout microbenchmark.
+            match operation {
+                DirectOp::Read => {
+                    let mut q = self.world.query::<&C0>();
+                    let sum = q.iter(&self.world).fold(0u64, |acc, v| acc.wrapping_add(v.0));
+                    black_box(sum);
+                }
+                DirectOp::Write => {
+                    let mut q = self.world.query::<&mut C0>();
+                    let mut sum = 0u64;
+                    for mut v in q.iter_mut(&mut self.world) {
+                        v.0 = v.0.wrapping_add(1);
+                        sum = sum.wrapping_add(v.0);
+                    }
+                    black_box(sum);
+                }
+            }
         }
 
         pub fn sums(&mut self) -> [u64; 4] {
@@ -247,6 +277,25 @@ mod runen {
             }
         }
 
+        pub fn run_direct(&mut self, operation: DirectOp) {
+            match operation {
+                DirectOp::Read => {
+                    let q = self.world.query::<&C0>();
+                    let sum = q.iter(&self.world).fold(0u64, |acc, v| acc.wrapping_add(v.0));
+                    black_box(sum);
+                }
+                DirectOp::Write => {
+                    let q = self.world.query::<&mut C0>();
+                    let mut sum = 0u64;
+                    for v in q.iter(&mut self.world) {
+                        v.0 = v.0.wrapping_add(1);
+                        sum = sum.wrapping_add(v.0);
+                    }
+                    black_box(sum);
+                }
+            }
+        }
+
         pub fn sums(&mut self) -> [u64; 4] {
             [
                 self.world.query::<&C0>().iter(&self.world).map(|v| v.0).sum(),
@@ -272,6 +321,27 @@ pub fn expected_sums(case: Case, runs: u64) -> [u64; 4] {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn direct_world_queries_have_equivalent_read_and_mutation_effects() {
+        for entities in [0usize, 64, 512] {
+            for operation in [DirectOp::Read, DirectOp::Write] {
+                let case = Case { workload: Workload::Empty, entities, parallel: false };
+                let mut bevy = Fixture::new(Engine::Bevy, case);
+                let mut runen = Fixture::new(Engine::Runen, case);
+                for round in 1..=3 {
+                    bevy.run_direct(operation);
+                    runen.run_direct(operation);
+                    let mut expected = expected_sums(case, 0);
+                    if matches!(operation, DirectOp::Write) {
+                        expected[0] += entities as u64 * round;
+                    }
+                    assert_eq!(bevy.sums(), expected, "Bevy direct {operation:?}");
+                    assert_eq!(runen.sums(), expected, "Runen direct {operation:?}");
+                }
+            }
+        }
+    }
 
     #[test]
     fn serial_and_parallel_engines_observe_identical_effects_without_relying_on_order() {
