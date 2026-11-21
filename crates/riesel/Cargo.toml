@@ -30,5 +30,9 @@ riesel_storage = { workspace = true, optional = true }
 name = "execution_graph"
 required-features = ["async-tcp"]
 
+[[example]]
+name = "execution_fixed_step"
+required-features = ["async-tcp"]
+
 [dev-dependencies]
 tempfile = "3.23"
