@@ -77,13 +77,20 @@ pub(super) fn verify_two_process_facade() -> TaskResult {
         .parse()
         .map_err(|error| format!("invalid facade address: {error}"))?;
     if !address.ip().is_loopback() {
-        return Err(format!("facade host exposed a non-loopback address: {address}"));
+        return Err(format!(
+            "facade host exposed a non-loopback address: {address}"
+        ));
     }
 
     run_client(address, "first")?;
     // The headless app is still running after the first client OS process
     // exits. Second client sees state mutated by the first.
-    if host.0.try_wait().map_err(|error| error.to_string())?.is_some() {
+    if host
+        .0
+        .try_wait()
+        .map_err(|error| error.to_string())?
+        .is_some()
+    {
         return Err("facade host exited when first client disconnected".into());
     }
     run_client(address, "second")?;
@@ -96,7 +103,9 @@ pub(super) fn verify_two_process_facade() -> TaskResult {
         .map_err(|error| format!("cannot request facade host shutdown: {error}"))?;
     let status = wait_for(&mut host.0, Duration::from_secs(8))?;
     if !status.success() {
-        return Err(format!("research facade host failed to stop cleanly: {status}"));
+        return Err(format!(
+            "research facade host failed to stop cleanly: {status}"
+        ));
     }
     Ok(())
 }
