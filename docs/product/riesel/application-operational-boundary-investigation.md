@@ -206,6 +206,8 @@ Under a constrained first **single-trusted-user** local threat model, same-UID p
 
 **True ordering:** a generic CLI may research Cargo workflow independently of Manager/UI; native event-loop/renderer tests need no Manager; Manager UI design may proceed independently of native hosts. Any real **cross-process control, GUI attachment, or unified live inspection** must first agree compatible app/interface identity, readiness, authorization and generation semantics. #83's local scheduler/stepping study is independent; only authorized remote observation shares this boundary.
 
+**Verified lifecycle mismatch requiring a common meaning, not necessarily a common signal:** the managed provider host accepts advertised `RIESEL_SHUTDOWN` on stdin, while the Todo application HTTP host reacts to Ctrl-C. A foreground tool or Manager must not infer an application-level graceful-stop contract from a provider handshake. The owning launcher/OS service mechanism and the app runtime need an explicitly tested stop-to-session-drain mapping, including platform signals and escalation; the native GUI must not silently trigger app stop on window close.
+
 ### 11.5 Non-negotiable Gate B evidence before implementing a common public interface
 
 1. A real SDK-resolved app-facing capability across two processes **after session restart**, proving fresh generation, old descriptor rejection and no call to a revoked session; inject a lost mutation response and verify no automatic replay.
