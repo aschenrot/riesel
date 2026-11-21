@@ -266,6 +266,25 @@ test('capture desktop and mobile UI for visual review', async ({ page }) => {
     fullPage: true,
     animations: 'disabled'
   });
+  await page.setViewportSize({ width: 1280, height: 800 });
+  await title.fill('Dark visual feedback');
+  await page.getByRole('button', { name: 'Add task' }).click();
+  await expect(page.getByText('Dark visual feedback', { exact: true })).toBeVisible();
+  await expect(page.getByRole('status')).toContainText('Task created');
+  await page.screenshot({
+    path: 'test-results/visual-review/todo-dark-toast-1280.png',
+    fullPage: true,
+    animations: 'disabled'
+  });
+  await page.getByRole('button', { name: 'Dismiss notification' }).click();
+  await page.getByRole('button', { name: 'Actions for Dark visual feedback' }).click();
+  await expect(page.getByRole('button', { name: 'Edit task' })).toBeVisible();
+  await page.screenshot({
+    path: 'test-results/visual-review/todo-dark-action-menu-1280.png',
+    fullPage: true,
+    animations: 'disabled'
+  });
+  await page.keyboard.press('Escape');
 });
 
 test('refresh control stays at top-left, spins during GET and records successful checks', async ({ page }) => {
@@ -497,4 +516,61 @@ test('dark color scheme respects mobile widths without horizontal overflow', asy
   expect(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth + 1)).toBe(false);
   await page.setViewportSize({ width: 375, height: 812 });
   expect(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth + 1)).toBe(false);
+});
+
+test('system theme tokens meet sampled text and control boundary contrast in both schemes', async ({ page }) => {
+  for (const scheme of ['light', 'dark'] as const) {
+    await page.emulateMedia({ colorScheme: scheme });
+    await page.goto('/');
+    await expect(page.locator('.panel')).toBeVisible();
+    const colors = await page.evaluate(() => {
+      const style = getComputedStyle(document.documentElement);
+      const names = [
+        'canvas', 'surface', 'ink', 'muted', 'completed-ink', 'placeholder-ink',
+        'accent', 'primary-ink', 'button-ink', 'input-border', 'button-border',
+        'error', 'error-surface', 'success', 'success-surface'
+      ];
+      return Object.fromEntries(names.map((name) =>
+        [name, style.getPropertyValue('--' + name).trim()]
+      ));
+    });
+    const luminosity = (hex: string) => {
+      const values = [1, 3, 5].map((index) => parseInt(hex.slice(index, index + 2), 16) / 255);
+      const [r, g, b] = values.map((v) =>
+        v <= 0.04045 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4
+      );
+      return r * 0.2126 + g * 0.7152 + b * 0.0722;
+    };
+    const contrast = (a: string, b: string) => {
+      const first = luminosity(colors[a]);
+      const second = luminosity(colors[b]);
+      return (Math.max(first, second) + 0.05) / (Math.min(first, second) + 0.05);
+    };
+    for (const [foreground, background] of [
+      ['ink', 'canvas'], ['ink', 'surface'], ['muted', 'surface'],
+      ['completed-ink', 'surface'], ['placeholder-ink', 'surface'],
+      ['accent', 'surface'], ['button-ink', 'surface'],
+      ['primary-ink', 'accent'], ['error', 'error-surface'], ['success', 'success-surface']
+    ]) {
+      expect(contrast(foreground, background), scheme + ': ' + foreground + '/' + background)
+        .toBeGreaterThanOrEqual(4.5);
+    }
+    for (const border of ['input-border', 'button-border']) {
+      expect(contrast(border, 'surface'), scheme + ': ' + border + '/surface')
+        .toBeGreaterThanOrEqual(3);
+    }
+  }
+});
+
+test('forced-colors mode retains visible focus and native color adjustment', async ({ page }) => {
+  await page.emulateMedia({ colorScheme: 'dark', forcedColors: 'active' });
+  await page.goto('/');
+  const input = page.getByRole('textbox', { name: 'New task' });
+  await expect(input).toBeVisible();
+  await input.focus();
+  await expect(input).toHaveCSS('outline-style', 'solid');
+  const button = page.getByRole('button', { name: 'Add task' });
+  await button.focus();
+  await expect(button).toHaveCSS('outline-style', 'solid');
+  await expect(button).toHaveCSS('forced-color-adjust', 'auto');
 });
