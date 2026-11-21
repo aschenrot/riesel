@@ -9,8 +9,10 @@ import errno
 import os
 import select
 import signal
+import shutil
 import subprocess
 import sys
+import tempfile
 import time
 
 OWNER_UID = 60081
@@ -53,13 +55,22 @@ def attacker(pid):
 def run():
     if sys.platform != "linux":
         raise SystemExit("Linux-only research test")
-    script = os.path.abspath(__file__)
+    # Hosted runners may make checkout parent directories inaccessible to
+    # a disposable numeric UID. Copy *only this research script* into an
+    # explicitly world-traversable isolated temp directory; never weaken the
+    # permissions of the real checkout or application assets.
+    temp_root = tempfile.mkdtemp(prefix="riesel-manager-signal-")
+    os.chmod(temp_root, 0o755)
+    script = os.path.join(temp_root, "probe.py")
+    shutil.copyfile(os.path.abspath(__file__), script)
+    os.chmod(script, 0o644)
     worker = subprocess.Popen(
         as_user(OWNER_UID, sys.executable, "-u", script, "--victim"),
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
         text=True,
         start_new_session=True,
+        cwd="/tmp",
     )
     child_pid = None
     try:
@@ -69,7 +80,8 @@ def run():
         line = worker.stdout.readline().strip()
         parts = line.split()
         if len(parts) != 3 or parts[0] != "READY" or int(parts[2]) != OWNER_UID:
-            raise AssertionError(f"unexpected worker credentials: {line!r}")
+            failure_detail = worker.stderr.read() if worker.poll() is not None else "worker still running"
+            raise AssertionError(f"unexpected worker credentials: {line!r}, exit={worker.poll()}, stderr={failure_detail!r}")
         child_pid = int(parts[1])
         if child_pid <= 1:
             raise AssertionError("invalid child PID")
@@ -79,6 +91,7 @@ def run():
             result = subprocess.run(
                 as_user(uid, sys.executable, script, "--attack", str(child_pid)),
                 capture_output=True, text=True, timeout=8, check=False,
+                cwd="/tmp",
             )
             if result.returncode:
                 raise AssertionError(f"attacker failed: {result.stderr} / {result.stdout}")
@@ -110,6 +123,7 @@ def run():
         if worker.poll() is None:
             worker.kill()
         worker.communicate(timeout=8)
+        shutil.rmtree(temp_root)
 
 
 if __name__ == "__main__":
