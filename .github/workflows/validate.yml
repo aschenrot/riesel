@@ -41,6 +41,8 @@ jobs:
       # public Git commit and must be fetched at least once; normal workspace
       # validation and smoke gates above remain unchanged.
       - name: Execute Issue 83 isolated research probes
+        # Keep external research-only Git dependencies out of regular main/PR CI.
+        if: ${{ github.event_name == 'pull_request' && github.head_ref == 'chore/83-scheduler-research' }}
         run: cargo test --manifest-path research/execution-scheduler/Cargo.toml -- --nocapture
 
   windows:
