@@ -31,9 +31,13 @@ def unit_for_attempt():
     return owner.PREFIX + uuid.uuid4().hex[:12] + ".service"
 
 
-def start_real_app(unit: str, db: Path, log: Path):
+def require_research_unit(unit: str):
     if not re.fullmatch(r"riesel-research-59-[a-f0-9]{12}\.service", unit):
         raise AssertionError("refuse non-research unit")
+
+
+def start_real_app(unit: str, db: Path, log: Path):
+    require_research_unit(unit)
     return owner.run(
         "systemd-run", "--user", "--no-ask-password", "--unit", unit,
         "--property=Type=exec",
@@ -202,6 +206,7 @@ if __name__ == "__main__":
         start_real_app(sys.argv[2], Path(sys.argv[3]), Path(sys.argv[4]))
         os._exit(23)
     elif len(sys.argv) >= 2 and sys.argv[1] == "--stop":
+        require_research_unit(sys.argv[2])
         owner.run("systemctl", "--user", "--no-pager", "stop", sys.argv[2])
     else:
         unittest.main(verbosity=2)
