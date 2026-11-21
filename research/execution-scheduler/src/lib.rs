@@ -94,7 +94,7 @@ impl Plan {
         for node in &nodes {
             let mut used = HashSet::new();
             for dep in &node.depends_on {
-                if !ids.contains(dep) {
+                if !ids.contains(dep.as_str()) {
                     return Err(InvalidPlan::MissingDependency(dep.clone()));
                 }
                 if !used.insert(dep) {
@@ -107,7 +107,7 @@ impl Plan {
         loop {
             let before = seen.len();
             for node in &nodes {
-                if node.depends_on.iter().all(|dep| seen.contains(dep)) {
+                if node.depends_on.iter().all(|dep| seen.contains(dep.as_str())) {
                     seen.insert(node.id.as_str());
                 }
             }
