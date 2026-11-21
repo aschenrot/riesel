@@ -62,7 +62,7 @@ The reviewed Rust API alone is **not human approval**. The separate operator ent
 
 ### Application-authored operator CLI
 
-`run_operator_maintenance_cli(args, plan, limits, input, output)` is a reusable **offline** command surface. The application supplies a complete historical-to-current `ModelEvolution` from Rust-derived models; there is no second SQL/JSON schema file, process manager or startup migration. [The example entrypoint](examples/offline_evolution.rs) is for a specific sample task schema only, **not** a universal migrator for arbitrary databases.
+`run_operator_maintenance_cli(args, plan, limits, input, output)` is a reusable **offline** command surface. The application supplies a complete historical-to-current `ModelEvolution` from Rust-derived models; there is no second SQL/JSON schema file, process manager or startup migration. [The independent Rust-derived example](../../../examples/sqlite-maintenance/README.md) is for a specific sample task schema only, **not** a universal migrator for arbitrary databases.
 
 Commands: `preview DATABASE BACKUP_DESTINATION`, `execute DATABASE BACKUP_DESTINATION` and `restore DATABASE SOURCE_BACKUP RETAIN_CURRENT`. Preview reads/audits source records and planned transformations, prints changed model shapes, affected rows, projected JSON bytes, observed WAL/SHM size, declared database/backup ceilings and current free space on the involved volumes. It does **not** mutate source data or publish the backup. Available capacity is only observed, not reserved.
 

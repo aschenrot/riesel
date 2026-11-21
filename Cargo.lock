@@ -525,6 +525,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "riesel_sqlite_maintenance_example"
+version = "0.1.0"
+dependencies = [
+ "riesel",
+ "riesel_storage_sqlite",
+ "serde",
+]
+
+[[package]]
 name = "riesel_storage"
 version = "0.1.0"
 dependencies = [

@@ -1,44 +1,22 @@
-//! Application-authored operator entrypoint example. This sample only knows
-//! its two explicit Rust types; do NOT run it on unrelated SQLite files.
-//!
-//! cargo run -p riesel_storage_sqlite --example offline_evolution -- preview DB BACKUP
-//! cargo run -p riesel_storage_sqlite --example offline_evolution -- execute DB BACKUP
-//! cargo run -p riesel_storage_sqlite --example offline_evolution -- restore DB BACKUP RETAIN
-use riesel_schema::{ModelDefinition, RieselModel, TypeRef};
+//! Application-authored operator CLI using exactly one Rust schema source.
+use riesel::RieselModel;
 use riesel_storage_sqlite::{
     EvolutionLimits, ModelEvolution, SnapshotBudget, run_operator_maintenance_cli,
 };
 use serde::{Deserialize, Serialize};
 use std::{collections::BTreeMap, time::Duration};
 
-#[derive(Serialize, Deserialize)]
+#[derive(Serialize, Deserialize, RieselModel)]
+#[riesel(model = "task")]
 struct HistoricalTask {
     title: String,
 }
-impl RieselModel for HistoricalTask {
-    const MODEL_NAME: &'static str = "task";
-    fn model_definition() -> ModelDefinition {
-        ModelDefinition {
-            fields: BTreeMap::from([("title".into(), TypeRef::String)]),
-        }
-    }
-}
 
-#[derive(Serialize, Deserialize)]
+#[derive(Serialize, Deserialize, RieselModel)]
+#[riesel(model = "task")]
 struct CurrentTask {
     title: String,
     priority: i64,
-}
-impl RieselModel for CurrentTask {
-    const MODEL_NAME: &'static str = "task";
-    fn model_definition() -> ModelDefinition {
-        ModelDefinition {
-            fields: BTreeMap::from([
-                ("title".into(), TypeRef::String),
-                ("priority".into(), TypeRef::I64),
-            ]),
-        }
-    }
 }
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -59,8 +37,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         },
     )?;
 
-    // Example bounds only: the operator must choose sizes for the actual
-    // database and recovery filesystem before using a real migration plan.
+    // Demonstration-only bounds; adjust for the actual local volume, model
+    // count and worst-case retained snapshot before executing real changes.
     let limits = EvolutionLimits {
         snapshot: SnapshotBudget {
             max_records: 10_000,
@@ -71,7 +49,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         },
         max_elapsed: Duration::from_secs(120),
     };
-    let args: Vec<_> = std::env::args_os().skip(1).collect();
+    let args = std::env::args_os().skip(1).collect::<Vec<_>>();
     let mut input = std::io::stdin().lock();
     let mut output = std::io::stdout().lock();
     run_operator_maintenance_cli(&args, &plan, limits, &mut input, &mut output)?;

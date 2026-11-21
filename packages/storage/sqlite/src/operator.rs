@@ -14,7 +14,7 @@ use riesel_storage::StoreError;
 use std::{
     ffi::OsString,
     fs,
-    io::{BufRead, Write},
+    io::{BufRead, Read, Write},
     path::Path,
 };
 
@@ -130,10 +130,29 @@ fn require_confirmation(
     .map_err(failed)?;
     writeln!(output, "{phrase}").map_err(failed)?;
     output.flush().map_err(failed)?;
-    let mut reply = String::new();
-    if input.read_line(&mut reply).map_err(failed)? == 0 {
+    // Never accumulate an unbounded line while holding the exclusive owner
+    // and an exact copy of the previewed records in memory. A valid answer
+    // needs at most the displayed phrase plus CRLF.
+    let max_bytes = phrase
+        .len()
+        .checked_add(2)
+        .ok_or_else(|| denied("operator approval length overflow"))?;
+    let mut reply = Vec::new();
+    if input
+        .take(max_bytes as u64)
+        .read_until(b'\n', &mut reply)
+        .map_err(failed)?
+        == 0
+    {
         return Err(denied("operator approval missing; nothing was changed"));
     }
+    if reply.last() != Some(&b'\n') {
+        return Err(denied(
+            "operator approval must be a complete, bounded line; nothing was changed",
+        ));
+    }
+    let reply = std::str::from_utf8(&reply)
+        .map_err(|_| denied("operator approval is not UTF-8; nothing was changed"))?;
     if reply.trim_end_matches(['\r', '\n']) != phrase {
         return Err(denied(
             "operator approval did not match; nothing was changed",

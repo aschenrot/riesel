@@ -4,12 +4,12 @@
 
 ## Build the application-specific maintenance entrypoint
 
-Author historical and current `RieselModel` Rust types with the same persistent model name. Construct the complete `ModelEvolution` with deliberate typed transforms and, where necessary, registered cross-model invariants. Supply a finite `EvolutionLimits` reflecting the actual deployment to `run_operator_maintenance_cli`. Do not introduce an independent schema file. The reusable [example](../../../packages/storage/sqlite/examples/offline_evolution.rs) demonstrates the command wiring for a **sample** task model, not arbitrary SQLite databases.
+Author historical and current `RieselModel` Rust types with the same persistent model name. Construct the complete `ModelEvolution` with deliberate typed transforms and, where necessary, registered cross-model invariants. Supply a finite `EvolutionLimits` reflecting the actual deployment to `run_operator_maintenance_cli`. Do not introduce an independent schema file. The reusable [independent Rust-derived example](../../../examples/sqlite-maintenance/README.md) demonstrates the command wiring for a **sample** task model, not arbitrary SQLite databases.
 
 ```sh
-cargo run -p riesel_storage_sqlite --example offline_evolution -- preview /trusted/app.db /trusted/source-backup.db
-cargo run -p riesel_storage_sqlite --example offline_evolution -- execute /trusted/app.db /trusted/source-backup.db
-cargo run -p riesel_storage_sqlite --example offline_evolution -- restore /trusted/app.db /trusted/source-backup.db /trusted/pre-restore.db
+cargo run -p riesel_sqlite_maintenance_example -- preview /trusted/app.db /trusted/source-backup.db
+cargo run -p riesel_sqlite_maintenance_example -- execute /trusted/app.db /trusted/source-backup.db
+cargo run -p riesel_sqlite_maintenance_example -- restore /trusted/app.db /trusted/source-backup.db /trusted/pre-restore.db
 ```
 
 These paths are illustrative. The database must already exist with **exact historical metadata** for preview/execute. Restore requires an existing **healthy, evolved target database** and the verified historical archive. Use a project-specific executable with its *actual* historical/current models; do not apply the sample plan to unrelated files.
@@ -26,7 +26,7 @@ These paths are illustrative. The database must already exist with **exact histo
 
 Run `preview DATABASE BACKUP` first. It acquires cooperative offline ownership, audits every stored source record and exact historical model set, evaluates typed transforms and prints changed Rust-derived model shapes, affected record counts and physical capacity observations. It makes no source-record mutation or completed backup artifact. Application-level invariants that must inspect the *resulting* database are not certified by read-only preview.
 
-Run `execute DATABASE BACKUP` **only after reviewing** the output and confirming that legacy process shutdown and restart blocking are active. The command re-previews and requires typing the exact `MIGRATE <canonical database path> BACKUP <canonical backup destination>` phrase displayed. Missing, incorrect or truncated consent fails without migration or backup publication. There is deliberately no `--yes` flag. An operator must control the invoking terminal; this is not authenticated identity.
+Run `execute DATABASE BACKUP` **only after reviewing** the output and confirming that legacy process shutdown and restart blocking are active. The command re-previews and requires typing the exact `MIGRATE <canonical database path> BACKUP <canonical backup destination>` phrase displayed. Missing, incorrect, non-UTF-8, overlong or truncated consent fails without migration or backup publication. Confirmation consumes only one complete newline-terminated line and bounds the accepted input to the exact displayed phrase plus LF/CRLF; no unbounded input is accumulated while holding the database owner. The terminal prompt itself can wait indefinitely while retaining cooperative ownership; elapsed-time budgets apply to SQLite audit, backup and execution stages, not to a blocked human input operation. Cancel the command if approval is no longer intended; no migration occurs without the complete phrase. There is deliberately no `--yes` flag. An operator must control the invoking terminal; this is not authenticated identity.
 
 Within the same in-process reviewed session, Riesel takes and verifies an independent retained `VACUUM INTO` recovery snapshot. It re-audits complete source metadata and checks exact previewed UUID/revision/JSON bytes **inside one SQLite IMMEDIATE transaction before any writes**. Byte-neutral direct modifications and inserted rows cause a failure, even if aggregate counts and model metadata still appear compatible. A rejected drift may leave a verified backup of the newer source; it must not be mistaken for the operator-approved preimage.
 
@@ -38,10 +38,12 @@ Run `restore DATABASE HISTORICAL_BACKUP RETAIN_CURRENT` only after separately ch
 
 After a successful restore, verify historical models open, current models reject startup and the newer pre-restore copy is preserved. The restore API does not repair an unreadable/physically corrupt destination. A post-copy restore failure may leave the state uncertain.
 
-**Error handling:** a migration error before SQLite COMMIT rolls back all row/schema writes; the completed preimage can remain retained. An error **after** COMMIT may occur even though the new schema has already been installed. Never automatically retry or restore solely from an error status. Stop writers, inspect which Rust model opens and verify retained artifacts before another separately approved operation.
+**Partial backup handling:** Riesel first writes to a unique `BACKUP.riesel-pending-<uuid>` path, audits the entire snapshot and only then publishes the requested backup destination. It attempts to remove pending files on normal failures and does not overwrite occupied destinations. An abrupt process kill or cleanup failure can still leave a pending file: do **not** treat a pending filename as verified recovery data. Inspect the database and requested completed backup, then handle orphan pending files under trusted operator control without touching the persistent owner lock. Failed migrations may retain an already verified backup, including a post-drift source image that is not the operator-approved preimage.
+
+**Error handling:** a migration error before SQLite COMMIT rolls back all row/schema writes; the completed preimage can remain retained. An error **after** COMMIT may occur even though the new schema has already been installed. Never automatically retry or restore solely from an error status. Even a **console output error after a successful commit** makes the CLI return an error although migration data has already changed. Stop writers, inspect which Rust model opens and verify retained artifacts before another separately approved operation.
 
 ## Tested scope and exclusions
 
 Linux CI covers typed execution and restore, explicit consent/refusal, preview/source drift detection, corrupt data, backup validity and preflight budgets. This is not a guarantee against true filesystem-wide ENOSPC after preflight, blocked OS IO deadlines, device/host power loss, malicious same-user tampering, uncooperative legacy writers, remote/online migrations or Windows release parity. Windows remains a separate manual pre-release validation gate.
 
-Accepted contract: [SQLite offline migration architecture](sqlite-offline-migration-architecture.md). Outstanding operator-workflow acceptance and fault cases: [#51](https://github.com/aschenrot/riesel/issues/51).
+Accepted contract: [SQLite offline migration architecture](sqlite-offline-migration-architecture.md). The first supported operator-workflow acceptance evidence and remaining release exclusions are recorded in [#51](https://github.com/aschenrot/riesel/issues/51); completion of this workflow is not complete Stage 6 production certification.
