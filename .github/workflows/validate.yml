@@ -44,6 +44,12 @@ jobs:
         # Keep external research-only Git dependencies out of regular main/PR CI.
         if: ${{ github.event_name == 'pull_request' && github.head_ref == 'chore/83-scheduler-research' }}
         run: cargo test --manifest-path research/execution-scheduler/Cargo.toml -- --nocapture
+      - name: Compare Issue 83 ECS release-profile performance (exploratory)
+        if: ${{ github.event_name == 'pull_request' && github.head_ref == 'chore/83-scheduler-research' }}
+        run: |
+          rustc --version
+          cargo bench --manifest-path research/execution-scheduler/Cargo.toml --bench ecs_scaling
+
 
   windows:
     if: ${{ github.event_name == 'workflow_dispatch' && inputs.windows }}
