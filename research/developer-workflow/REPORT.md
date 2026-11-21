@@ -148,3 +148,19 @@ Passing a research runner **does not** mean the unimplemented tool passes these 
 **Research recommendation:** accept the **two-layer responsibility split** (thin optional Cargo-aware orchestrator + shared SDK/runtime operational participation), but **do not accept permanent CLI commands, public hooks, new manifests or a daemon yet**. The accepted product need is already in #68. #75 semantics must be reused where actually needed; Manager, GUI and scheduler implementation completion are not blanket blockers.
 
 **Delivery discipline:** This PR is a reviewable research proposal. Do not merge, close #68, create implementation work, change the roadmap or milestones before explicit technical specification acceptance.
+
+## 8. Executed initial Linux evidence and Cargo boundary refinement
+
+The first focused run [44877339776](https://github.com/aschenrot/riesel/actions/runs/44877339776) at head 6a7fa4ba5cc89cdfb57436c5c527e6c741b35f39 **passed**. The standard Linux [Validate run 44877339793](https://github.com/aschenrot/riesel/actions/runs/44877339793) on the same head also **passed**, including cargo validate --check and cargo smoke; Windows was skipped per policy. After this report update, check the **newer exact head** again before claiming review readiness.
+
+Observed at the initial research head:
+
+- The external headless fixture built from its own temporary Cargo workspace and SDK path dependency, had no copied xtask, and launched successfully; SDK inspection executed setup but did not enter the handler.
+- App-defined stdin stop completed normally; an independent headless SIGINT terminated by **signal SIGINT**, not by a demonstrated portable graceful-stop method.
+- A genuine static Todo browser opened and closed under Chromium while the Rust backend remained available. The app was restarted against the **same explicit SQLite file**, and a created record was observed after restart.
+- A simultaneous second Todo start using the same SQLite path failed **before readiness** with the existing provider's error: “SQLite ownership denied: database is already owned by a cooperating process”. This is cooperative local database exclusion, not generic process/authorization identity. See [owner guard](../../packages/storage/sqlite/src/owner.rs).
+- Invalid DB/assets, occupied port, absent frontend dependencies (raw npm baseline) and synthesized early-exit/timeout/oversized/false-readiness cases failed or were rejected as expected. Synthetic negatives demonstrate the research harness's verification, not an unimplemented platform CLI.
+
+**Additional architectural observation:** Official [Cargo external-tool documentation](https://doc.rust-lang.org/cargo/reference/external-tools.html) provides a versioned metadata format, JSON build diagnostics and a compiler-artifact executable path. A reusable tool should **build separately, select the exact compiler-artifact executable, then directly own that application child**. Do not infer target/debug paths or accidentally make a cargo run wrapper the only OS process owner; honor Cargo target/profile/feature selection and ambiguous multi-bin failures. Cargo external-subcommand dispatch is a packaging/invocation choice: a standalone executable and a cargo subcommand may share the same orchestration/ownership logic. Cargo build is itself trusted source execution (build scripts/procedural macros); permission to compile unfamiliar source is not equivalent to passive metadata inspection.
+
+The research fixture was revised to exercise JSON compiler-artifact selection directly and the dedicated workflow was extended to rerun the existing Chromium browser E2E suite. Those additions require a **new PR-head Linux result**; earlier passing logs are not transferred to later revisions. No Windows result, authenticated app session, universal duplicate-session policy, orphan-free process tree or shipped CLI is implied.

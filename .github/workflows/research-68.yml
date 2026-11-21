@@ -41,3 +41,6 @@ jobs:
         run: npx playwright install --with-deps --only-shell chromium
       - name: Run bounded independent Cargo and Todo lifetime probes
         run: node research/developer-workflow/probe.mjs
+      - name: Existing full Todo browser end-to-end regression suite
+        working-directory: examples/todo/web
+        run: npm run test:e2e

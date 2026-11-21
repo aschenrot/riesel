@@ -95,10 +95,12 @@ async function stopOwned(child, mode = 'signal') {
   );
   if (mode === 'stdin') child.stdin.write('stop\n');
   else child.kill('SIGINT');
-  const result = await Promise.race([
-    completed,
-    new Promise(resolve => setTimeout(() => resolve(null), 8000))
-  ]);
+  let timer;
+  const deadline = new Promise(resolve => {
+    timer = setTimeout(() => resolve(null), 8000);
+  });
+  const result = await Promise.race([completed, deadline]);
+  clearTimeout(timer);
   if (result) return result;
   child.kill('SIGKILL');
   await completed;
@@ -152,11 +154,18 @@ async function verifyHeadless() {
   assert(!parsed.packages.some(pkg => pkg.name === 'xtask'));
   console.log('PASS external Cargo metadata: own workspace, no copied xtask');
 
-  const build = execChecked('cargo', ['build', '--offline', '--manifest-path', manifest],
-    { cwd: outside, env });
+  const build = execChecked('cargo', ['build', '--offline', '--message-format=json',
+    '--manifest-path', manifest], { cwd: outside, env });
   assert.equal(build.status, 0, build.stderr);
-  const bin = path.join(target, 'debug', 'riesel-developer-workflow-headless-probe' + exeSuffix);
+  const executableArtifacts = build.stdout.trim().split('\n').map(line => JSON.parse(line))
+    .filter(message => message.reason === 'compiler-artifact' &&
+      message.target?.name === 'riesel-developer-workflow-headless-probe' &&
+      typeof message.executable === 'string');
+  assert.equal(executableArtifacts.length, 1,
+    'Cargo must report exactly one selected headless executable');
+  const bin = executableArtifacts[0].executable;
   await access(bin);
+  console.log('PASS executable discovered from Cargo JSON compiler-artifact');
   const setup = path.join(scratch, 'setup.marker');
   const handler = path.join(scratch, 'handler.marker');
   const markers = { ...env, DEV68_SETUP_MARKER: setup, DEV68_HANDLER_MARKER: handler };
@@ -288,7 +297,9 @@ async function verifyTodo() {
     duplicate = 'second process became ready at ' + authority;
     await stopOwned(second);
   } catch (error) {
-    duplicate = 'second start rejected or unresolved: ' + error.message;
+    duplicate = error.message.includes('SQLite ownership denied: database is already owned')
+      ? 'explicit cooperative SQLite ownership rejection'
+      : 'second start rejected or unresolved: ' + error.message;
     if (second.exitCode === null && second.signalCode === null) {
       await stopOwned(second);
     }
