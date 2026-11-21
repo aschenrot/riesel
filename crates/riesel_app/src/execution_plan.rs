@@ -330,7 +330,7 @@ impl ExecutionPlanDraft {
 /// Immutable semantic revision, validated for identity, dependency shape and
 /// declared constraints. Binding is checked separately against actual Rust
 /// handlers; no operation can run simply by deserializing metadata.
-#[derive(Clone)]
+#[derive(Debug, Clone)]
 pub struct ValidatedExecutionPlan {
     description: Arc<ExecutionPlanDescription>,
     order: Vec<usize>,
@@ -407,6 +407,15 @@ impl<H: ?Sized> OperationRegistry<H> {
 pub struct BoundExecutionPlan<H: ?Sized> {
     plan: ValidatedExecutionPlan,
     handlers: BTreeMap<String, Arc<H>>,
+}
+
+impl<H: ?Sized> std::fmt::Debug for BoundExecutionPlan<H> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("BoundExecutionPlan")
+            .field("plan", &self.plan.description)
+            .field("bound_nodes", &self.handlers.keys().collect::<Vec<_>>())
+            .finish()
+    }
 }
 
 impl<H: ?Sized> BoundExecutionPlan<H> {
