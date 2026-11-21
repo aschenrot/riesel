@@ -233,6 +233,8 @@ def main() -> None:
             legit = spawn("OPERATOR")
             hostile = spawn("HOSTILE_SAME_UID")
             foreign = spawn("FOREIGN_UID", other=True)
+            print("RESEARCH_M59_POLKIT_UNTRUSTED_DIRECT_DETAILS_REJECTED",
+                  flush=True)
             if legit == hostile:
                 raise AssertionError("subject identities must differ")
             if legit.split(",")[2] != hostile.split(",")[2]:
@@ -272,9 +274,19 @@ def main() -> None:
     finally:
         # Remove exact random files only; never wildcard policy actions or
         # change systemd units, admins, sudoers, or other polkit rules.
+        errors = []
         for p in reversed(installed):
-            sudo("rm", "-f", "--", str(p))
+            result = sudo("rm", "-f", "--", str(p))
+            if result.returncode != 0:
+                errors.append(f"unable to remove {p.name}: {result.stderr}")
+            check = sudo("test", "!", "-e", str(p))
+            if check.returncode != 0:
+                errors.append(f"temporary policy still exists: {p.name}")
         shutil.rmtree(root)
+        if errors:
+            raise AssertionError("research policy cleanup failed: " +
+                                 "; ".join(errors))
+        print("RESEARCH_M59_POLKIT_TEMP_ACTION_AND_RULE_REMOVED", flush=True)
 
 
 if __name__ == "__main__":
