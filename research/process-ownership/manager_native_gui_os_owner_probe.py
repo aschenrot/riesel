@@ -279,6 +279,23 @@ def main(repo_root: Path):
         assert_target_unchanged(unit, pid, baseline)
         print("RESEARCH_M59_UNAUTHENTICATED_SAME_UID_GUI_CAN_MUTATE_COUNTER",
               flush=True)
+
+        # Positive OS-owner stop control: verify the exact recorded service
+        # transitions to inactive and the actual Riesel app exits. This is
+        # NOT a graceful-drain proof: the pinned host's STOP-on-stdin path
+        # is not reached by a systemd cgroup stop in this fixture.
+        os_service(unit, "stop")
+        after_stop = observed_service(unit)
+        if after_stop.get("ActiveState") != "inactive":
+            raise AssertionError(f"privileged stop not effective: {after_stop}")
+        for _ in range(20):
+            if not Path(f"/proc/{pid}").exists():
+                break
+            time.sleep(0.1)
+        else:
+            raise AssertionError("actual Riesel Counter process survived OS service stop")
+        print("RESEARCH_M59_OS_OWNER_POSITIVE_STOP_ACTUAL_RIESEL_APP_PASS",
+              flush=True)
         print("RESEARCH_M59_PROTECTED_SYSTEM_APP_NATIVE_GUI_INTEGRATION_PASS",
               flush=True)
     finally:
