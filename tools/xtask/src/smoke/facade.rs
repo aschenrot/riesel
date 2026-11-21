@@ -94,12 +94,12 @@ fn start_facade_host(
             "facade host exposed a non-loopback address: {address}"
         ));
     }
-    if let Some(expected) = bind_address {
-        if address != expected {
-            return Err(format!(
-                "research restarted host changed address: expected {expected}, actual {address}"
-            ));
-        }
+    if let Some(expected) = bind_address
+        && address != expected
+    {
+        return Err(format!(
+            "research restarted host changed address: expected {expected}, actual {address}"
+        ));
     }
     Ok((host, address))
 }
