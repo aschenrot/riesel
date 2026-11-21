@@ -105,7 +105,7 @@ def owner_state(unit: str, marker: Path):
 
 
 def start(unit: str, marker: Path, check: bool = True):
-    if not re.fullmatch(r"riesel-research-59-[a-f0-9]{12}\\.service", unit):
+    if not re.fullmatch(r"riesel-research-59-[a-f0-9]{12}\.service", unit):
         raise AssertionError("refusing to control an unscoped unit")
     return run(
         "systemd-run", "--user", "--no-ask-password",
