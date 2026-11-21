@@ -6,6 +6,8 @@ mod component;
 mod deployment;
 mod execution_plan;
 #[cfg(feature = "async-tcp")]
+mod execution_observation;
+#[cfg(feature = "async-tcp")]
 mod execution_runner;
 mod fixed_step;
 mod plan;
@@ -21,6 +23,12 @@ pub use async_tasks::AsyncTasks;
 pub use catalog::{CatalogError, ProviderCatalog, ProviderSelectionConfig};
 pub use component::{ComponentDefinition, DeclarativeComponent};
 pub use deployment::{DeploymentConfig, DeploymentError, ServiceEndpoint};
+#[cfg(feature = "async-tcp")]
+pub use execution_observation::{
+    GraphObservationError, GraphObservedOperation, GraphRunChange, GraphRunIdentity,
+    GraphRunObserver, GraphRunPhase, GraphRunSnapshot, GraphRunTransition, GraphRunTransitions,
+    MAX_GRAPH_TRANSITIONS,
+};
 pub use execution_plan::{
     AccessMode, BoundExecutionPlan, DomainAdmissionMode, DomainBoundary, ExecutionPlanDescription,
     ExecutionPlanDraft, ExecutionPlanError, OperationKey, OperationNode, OperationRegistry,
