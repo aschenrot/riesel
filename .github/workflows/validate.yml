@@ -37,8 +37,11 @@ jobs:
         run: cargo validate --check
       - name: Smoke test runtime and managed providers
         run: cargo smoke
+      # The isolated research-only RunenECS dependency is pinned to an exact
+      # public Git commit and must be fetched at least once; normal workspace
+      # validation and smoke gates above remain unchanged.
       - name: Execute Issue 83 isolated research probes
-        run: cargo test --manifest-path research/execution-scheduler/Cargo.toml --offline -- --nocapture
+        run: cargo test --manifest-path research/execution-scheduler/Cargo.toml -- --nocapture
 
   windows:
     if: ${{ github.event_name == 'workflow_dispatch' && inputs.windows }}
