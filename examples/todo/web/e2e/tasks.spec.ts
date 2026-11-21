@@ -423,6 +423,9 @@ test('system light and dark themes track live browser preference with readable s
   await page.emulateMedia({ colorScheme: 'light' });
   await page.goto('/');
   const panel = page.locator('.panel');
+  // Static SvelteKit bootstraps client-side; wait for the rendered app first.
+  await expect(panel).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Add task' })).toBeVisible();
   const colors = async () => await page.evaluate(() => {
     const style = (selector: string) => getComputedStyle(document.querySelector(selector)!);
     return {
