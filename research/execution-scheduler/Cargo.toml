@@ -19,3 +19,7 @@ riesel_counter_component = { path = "../../examples/counter/component", features
 # Research-only external ECS reference, exact pinned public repository revision.
 # GPL-3.0-only: no Riesel production adoption or redistribution is authorized.
 runen_ecs = { package = "runen-ecs", git = "https://github.com/dornglut/runen-ecs", rev = "5d6af86bfa7c58f1ad26ec73635590a72e89ef37" }
+
+# Exact published standalone ECS; this does NOT pull in Bevy's app/renderer.
+# Serial reference and feature-gated system debugger are compared separately.
+bevy_ecs = { version = "=0.20.1", default-features = false, features = ["std", "bevy_debug_stepping", "multi_threaded"] }
