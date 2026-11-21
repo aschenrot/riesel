@@ -38,6 +38,7 @@ The application uses capabilities; components implement capabilities; Riesel res
 - Normal application authoring does not require handwritten transport clients, dispatch loops, or manually assigned ephemeral infrastructure IDs.
 - Ambiguous requirements, invalid definitions, and incompatible provider selection fail with actionable diagnostics rather than implicit fallback.
 - Ordinary custom Rust behavior remains possible without requiring a particular ECS, GUI, or transport implementation.
+- Independent Cargo workspaces shall have an **optional, reusable cross-project developer workflow** for build, inspection, foreground launch and stop; headless apps remain usable through ordinary Cargo without Manager or a UI toolchain. The command shape and SDK participation contract remain subject to [#68](https://github.com/aschenrot/riesel/issues/68).
 
 ### Execution and lifecycle
 
@@ -45,7 +46,8 @@ The application uses capabilities; components implement capabilities; Riesel res
 - Application, component, provider-instance, and process lifecycles are distinguished explicitly.
 - Startup ordering, shutdown, cancellation, and recovery respect declared dependencies and stated ownership boundaries.
 - Recovery never implies that ambiguous external side effects were not executed; individual commands are not silently replayed.
-- Independent native window hosts use separate operating-system processes, with lifecycles independent from application logic. This is an **accepted target requirement**, not a claim of current delivery.
+- Independent native window hosts use separate operating-system processes, with lifecycles independent from application logic. They attach to deliberately published app-facing interfaces; closing a GUI does not imply stopping the backend. The exporter/toolkit mechanism remains subject to [#60](https://github.com/aschenrot/riesel/issues/60). This is an **accepted target requirement**, not a claim of current delivery.
+- The Manager shall support explicitly registered local applications with inspectable status and authorized lifecycle control through consistent CLI/UI operations, with **one actual process owner per application**. Hybrid ownership is the target architecture candidate; its first OS adapter and crash/reconciliation guarantees require [#59](https://github.com/aschenrot/riesel/issues/59) acceptance.
 
 ### Contracts, identity, and interfaces
 
@@ -53,13 +55,14 @@ The application uses capabilities; components implement capabilities; Riesel res
 - Private identifiers can be derived by the framework; independently published contracts retain a deliberate stable external identity.
 - CLI and programmatic interfaces should expose comparable supported platform operations with consistent error semantics.
 - New capabilities and specialized execution integrations can be added without replacing the foundational application model.
+- CLI, Manager and independent GUI integrations shall share coherent application/interface identity, evidence-based readiness, session-generation, authorization and failure semantics, without requiring a central daemon or replacing the runtime's provider resolver. The concrete external contracts and trust guarantees remain subject to [#75](https://github.com/aschenrot/riesel/issues/75).
 
 ## Product interfaces and delivery boundaries
 
 | Interface | Intended role | Current boundary |
 | --- | --- | --- |
 | **Rust SDK** | Primary application and component authoring API | Experimental public `riesel` facade |
-| **Application CLI** | Deployment selection, inspection, and application-specific commands | App-scoped inspection and runtime arguments exist; a full platform CLI is not implied |
+| **Application CLI** | Deployment selection, inspection, and application-specific commands | App-scoped inspection and runtime arguments exist; the accepted cross-project workflow is not delivered |
 | **Riesel Manager** | Registration, discovery, process supervision, and coordination | Existing `riesel_manager` crate is a process-ownership primitive, not a completed user-facing manager |
 | **Manager UI** | Inspect and manage applications and infrastructure | Planned, not delivered |
 | **Native window hosts** | Independent interfaces attached to application logic | Planned, not delivered |
@@ -78,7 +81,7 @@ The in-memory reference Storage provider is ephemeral; a linked SQLite provider 
 - Authentication, authorization, and protected remote transport.
 - Operational visibility, configurable resource budgets, and reliable deployment management.
 - Standalone manager workflows and independently executed native interfaces.
-- Investigate coherent **cross-project developer tooling** and **shared application identity/readiness/interface semantics** without assuming one daemon, supervisor, public exporter or new configuration source ([developer tooling #68](https://github.com/aschenrot/riesel/issues/68), [operational boundary #75](https://github.com/aschenrot/riesel/issues/75), [Manager #59](https://github.com/aschenrot/riesel/issues/59), [native host #60](https://github.com/aschenrot/riesel/issues/60)). The architecture and expanded product scope remain subject to explicit acceptance.
+- Complete the technical specification gates for the **accepted operational product directions** ([decision boundary](operational-products-direction.md)): shared operational semantics [#75](https://github.com/aschenrot/riesel/issues/75), cross-project tooling [#68](https://github.com/aschenrot/riesel/issues/68), Manager [#59](https://github.com/aschenrot/riesel/issues/59) and native GUI [#60](https://github.com/aschenrot/riesel/issues/60). The product outcomes are approved for review; concrete APIs, trust/ownership guarantees, implementation milestones and releases are not.
 
 These outcomes require separate designs and acceptance criteria; they must not be treated as already implemented.
 
@@ -95,4 +98,4 @@ Game/ECS integrations, automatic multiplayer, subscription or messaging services
 5. Platform interfaces provide consistent operations where both interfaces are supported.
 6. Future application types can extend the platform through contracts or specialized integrations without altering its core composition model.
 
-A requirement is accepted when its specific implementation gate passes; broad product success criteria are not proof that every planned feature ships today.
+An accepted product requirement is an intended outcome, **not** an implementation claim. Delivery is verified only when its implementation acceptance gate passes; broad product success criteria do not prove that every planned feature ships today.
