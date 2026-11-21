@@ -169,8 +169,15 @@ button.small { min-height: 44px; padding: 8px 11px; font-size: 13px; }
   font-weight: 800;
   line-height: 1;
 }
+/* A focused selection checkbox must stay apparent for keyboard and
+   assistive-technology focus even when the browser omits :focus-visible. */
+.selection-checkbox:focus {
+  outline: 3px solid var(--focus);
+  outline-offset: 2px;
+}
 @media (forced-colors: active) {
   .selection-checkbox { appearance: auto; forced-color-adjust: auto; }
+  .selection-checkbox:focus { outline: 2px solid Highlight; outline-offset: 2px; }
 }
 .task-content { flex: 1; min-width: 0; }
 .task-title { font-size: 15px; line-height: 1.5; word-break: break-word; }
