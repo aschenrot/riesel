@@ -661,3 +661,129 @@ fn output_failure_after_commit_is_not_misreported_as_a_safe_rollback() {
     let old = SqliteStore::open(&archive, models::<Old>()).unwrap();
     assert_eq!(old.get("task", id).unwrap().unwrap().revision, 1);
 }
+
+
+struct ActionDuringConsent {
+    answer: Cursor<Vec<u8>>,
+    action: Option<Box<dyn FnMut() -> std::io::Result<()>>>,
+}
+
+impl std::io::Read for ActionDuringConsent {
+    fn read(&mut self, destination: &mut [u8]) -> std::io::Result<usize> {
+        std::io::Read::read(&mut self.answer, destination)
+    }
+}
+
+impl std::io::BufRead for ActionDuringConsent {
+    fn fill_buf(&mut self) -> std::io::Result<&[u8]> {
+        if let Some(mut action) = self.action.take() {
+            action()?;
+        }
+        std::io::BufRead::fill_buf(&mut self.answer)
+    }
+
+    fn consume(&mut self, count: usize) {
+        std::io::BufRead::consume(&mut self.answer, count);
+    }
+}
+
+#[test]
+fn direct_source_schema_drift_during_approval_refuses_before_backup_or_mutation() {
+    let dir = tempfile::tempdir().unwrap();
+    let db = dir.path().join("source.db");
+    let archive = dir.path().join("not-published.db");
+    fixture(&db);
+    let before: Vec<u8> = rusqlite::Connection::open(&db)
+        .unwrap()
+        .query_row(
+            "SELECT data FROM records WHERE model='task'",
+            [],
+            |row| row.get(0),
+        )
+        .unwrap();
+    let confirmation = format!(
+        "MIGRATE {} BACKUP {}\n",
+        db.canonicalize().unwrap().display(),
+        archive.display()
+    );
+    let path = db.clone();
+    let current_model_bytes = serde_json::to_vec(&New::model_definition()).unwrap();
+    let mut input = ActionDuringConsent {
+        answer: Cursor::new(confirmation.into_bytes()),
+        action: Some(Box::new(move || {
+            let conn = rusqlite::Connection::open(&path).map_err(std::io::Error::other)?;
+            conn.execute(
+                "UPDATE models SET definition=?1 WHERE name='task'",
+                rusqlite::params![current_model_bytes],
+            )
+            .map_err(std::io::Error::other)?;
+            Ok(())
+        })),
+    };
+    let error = run_operator_maintenance_cli(
+        &command("execute", &[&db, &archive]),
+        &plan(),
+        limits(),
+        &mut input,
+        &mut Vec::new(),
+    )
+    .unwrap_err();
+    assert!(
+        format!("{error}").contains("registration")
+            || format!("{error}").contains("model"),
+        "{error}"
+    );
+    assert!(!archive.exists(), "schema drift must reject before publication");
+    let connection = rusqlite::Connection::open(&db).unwrap();
+    let after: Vec<u8> = connection
+        .query_row(
+            "SELECT data FROM records WHERE model='task'",
+            [],
+            |row| row.get(0),
+        )
+        .unwrap();
+    assert_eq!(after, before);
+    assert!(SqliteStore::open(&db, models::<Old>()).is_err());
+}
+
+#[test]
+fn backup_destination_occupied_during_confirmation_remains_intact() {
+    let dir = tempfile::tempdir().unwrap();
+    let db = dir.path().join("source.db");
+    let archive = dir.path().join("created-during-confirmation.db");
+    let id = fixture(&db);
+    let confirmation = format!(
+        "MIGRATE {} BACKUP {}\n",
+        db.canonicalize().unwrap().display(),
+        archive.display()
+    );
+    let backup_path = archive.clone();
+    let mut input = ActionDuringConsent {
+        answer: Cursor::new(confirmation.into_bytes()),
+        action: Some(Box::new(move || {
+            std::fs::write(&backup_path, b"existing backup must not be overwritten")
+        })),
+    };
+    let error = run_operator_maintenance_cli(
+        &command("execute", &[&db, &archive]),
+        &plan(),
+        limits(),
+        &mut input,
+        &mut Vec::new(),
+    )
+    .unwrap_err();
+    assert!(format!("{error}").contains("already exists"), "{error}");
+    assert_eq!(
+        std::fs::read(&archive).unwrap(),
+        b"existing backup must not be overwritten"
+    );
+    assert!(
+        std::fs::read_dir(dir.path())
+            .unwrap()
+            .all(|item| !item.unwrap().file_name().to_string_lossy().contains(".riesel-pending-"))
+    );
+    let old = SqliteStore::open(&db, models::<Old>()).unwrap();
+    assert_eq!(old.get("task", id).unwrap().unwrap().revision, 1);
+    drop(old);
+    assert!(SqliteStore::open(&db, models::<New>()).is_err());
+}
