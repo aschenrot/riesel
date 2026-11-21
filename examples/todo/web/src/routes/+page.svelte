@@ -27,12 +27,18 @@
   let editingId = $state<string | null>(null);
   let editDraft = $state('');
   let editError = $state('');
-  let openMenuId = $state<string | null>(null);
   let confirmingDeleteId = $state<string | null>(null);
   let errorMessage = $state('');
   let conflicted = $state(false);
   let toastMessage = $state('');
   let toastId = $state(0);
+  let selectMode = $state(false);
+  let selectedIds = $state<string[]>([]);
+  let selectionAnchor = $state<string | null>(null);
+  let batchRunning = $state(false);
+  let batchProgress = $state('');
+  let batchSummary = $state('');
+  let batchFailures = $state<{ title: string; reason: string }[]>([]);
 
   // Counts and filters intentionally describe only fetched pages.
   const visible = $derived(
@@ -41,6 +47,7 @@
     )
   );
   const openCount = $derived(tasks.filter((task) => !task.completed).length);
+  const selectedVisible = $derived(visible.filter((task) => selectedIds.includes(task.id)));
   const lastCheckedLabel = $derived(
     lastCheckedAt === null
       ? 'Never'
@@ -55,6 +62,8 @@
     errorMessage = '';
     conflicted = false;
     toastMessage = '';
+    batchSummary = '';
+    batchFailures = [];
   }
 
   function notify(message: string) {
@@ -78,12 +87,11 @@
   async function refresh() {
     // Do not replace a list while a mutation/page request is in flight or
     // silently discard an unsaved edit. Error recovery may discard a stale edit.
-    if (refreshing || loadingMore || creating || actingId !== null ||
+    if (refreshing || loadingMore || creating || batchRunning || actingId !== null ||
       (editingId !== null && !conflicted)) return;
     refreshing = true;
     refreshNotice = 'Checking tasks';
     clearFeedback();
-    openMenuId = null;
     try {
       const page = await listPage();
       tasks = page.records;
@@ -92,6 +100,8 @@
       editingId = null;
       editError = '';
       confirmingDeleteId = null;
+      clearSelection();
+      selectMode = false;
       refreshNotice = 'Tasks checked';
     } catch (error) {
       refreshNotice = '';
@@ -104,7 +114,7 @@
   }
 
   async function loadMore() {
-    if (!nextCursor || loadingMore || refreshing || actingId !== null || creating) return;
+    if (!nextCursor || loadingMore || refreshing || batchRunning || actingId !== null || creating) return;
     loadingMore = true;
     clearFeedback();
     try {
@@ -120,7 +130,7 @@
   }
 
   async function add() {
-    if (creating || refreshing || loadingMore) return;
+    if (creating || refreshing || loadingMore || batchRunning) return;
     fieldError = '';
     if (!newTitle.trim()) {
       fieldError = 'Enter a task title.';
@@ -152,7 +162,6 @@
     editDraft = task.title;
     editError = '';
     confirmingDeleteId = null;
-    openMenuId = null;
     clearFeedback();
     await tick();
     document.getElementById('edit-' + task.id)?.focus();
@@ -162,11 +171,11 @@
     editingId = null;
     editError = '';
     await tick();
-    document.getElementById('actions-' + id)?.focus();
+    document.getElementById('edit-action-' + id)?.focus();
   }
 
   async function saveEdit(task: Task) {
-    if (actingId || refreshing || loadingMore) return;
+    if (actingId || refreshing || loadingMore || batchRunning) return;
     editError = '';
     if (!editDraft.trim()) {
       editError = 'Enter a task title.';
@@ -182,7 +191,7 @@
       actingId = null;
       notify('Task updated');
       await tick();
-      document.getElementById('actions-' + task.id)?.focus();
+      document.getElementById('edit-action-' + task.id)?.focus();
     } catch (error) {
       if (error instanceof ApiError && error.code === 'invalid_request') {
         editError = error.message;
@@ -195,7 +204,7 @@
   }
 
   async function toggle(task: Task) {
-    if (actingId || refreshing || loadingMore) return;
+    if (actingId || refreshing || loadingMore || batchRunning) return;
     actingId = task.id;
     clearFeedback();
     try {
@@ -210,7 +219,7 @@
   }
 
   async function remove(task: Task) {
-    if (actingId || refreshing || loadingMore) return;
+    if (actingId || refreshing || loadingMore || batchRunning) return;
     actingId = task.id;
     clearFeedback();
     try {
@@ -225,25 +234,130 @@
     }
   }
 
-  async function openActions(id: string) {
-    openMenuId = openMenuId === id ? null : id;
-    if (openMenuId) {
-      await tick();
-      document.getElementById('task-menu-' + id)?.querySelector('button')?.focus();
+  function clearSelection() {
+    selectedIds = [];
+    selectionAnchor = null;
+  }
+
+  function exitSelection() {
+    if (batchRunning) return;
+    selectMode = false;
+    clearSelection();
+    batchSummary = '';
+    batchFailures = [];
+  }
+
+  function enterSelection() {
+    if (batchRunning || refreshing || loadingMore || creating ||
+        actingId !== null || editingId !== null || confirmingDeleteId !== null) return;
+    selectMode = true;
+    clearSelection();
+    batchSummary = '';
+    batchFailures = [];
+  }
+
+  function changeFilter(next: Filter) {
+    if (batchRunning) return;
+    filter = next;
+    exitSelection();
+  }
+
+  function selectTask(id: string, range = false) {
+    if (batchRunning) return;
+    const ids = visible.map((task) => task.id);
+    const index = ids.indexOf(id);
+    if (index === -1) return;
+    if (range && selectionAnchor !== null && ids.includes(selectionAnchor)) {
+      const first = ids.indexOf(selectionAnchor);
+      const lo = Math.min(first, index);
+      const hi = Math.max(first, index);
+      selectedIds = [...new Set([...selectedIds, ...ids.slice(lo, hi + 1)])];
+    } else {
+      selectedIds = selectedIds.includes(id)
+        ? selectedIds.filter((selected) => selected !== id)
+        : [...selectedIds, id];
+      selectionAnchor = id;
+    }
+    batchSummary = '';
+    batchFailures = [];
+  }
+
+  function selectAllVisible() {
+    if (batchRunning) return;
+    selectedIds = visible.map((task) => task.id);
+    selectionAnchor = visible.length > 0 ? visible[0].id : null;
+    batchSummary = '';
+    batchFailures = [];
+  }
+
+  function onTaskTitle(event: MouseEvent, task: Task) {
+    if (selectMode) {
+      selectTask(task.id, event.shiftKey);
+    } else if (event.shiftKey || event.ctrlKey || event.metaKey) {
+      // Desktop modifier-click enters selection; ordinary title click edits.
+      enterSelection();
+      if (selectMode) selectTask(task.id);
+    } else {
+      void startEdit(task);
     }
   }
 
-  async function closeActions(restoreFocus = false) {
-    const id = openMenuId;
-    openMenuId = null;
-    if (restoreFocus && id) {
-      await tick();
-      document.getElementById('actions-' + id)?.focus();
+  async function setBatchCompletion(completed: boolean) {
+    if (!selectMode || batchRunning || actingId !== null || refreshing ||
+        loadingMore || creating || editingId !== null) return;
+    const snapshot = visible.filter((task) => selectedIds.includes(task.id));
+    if (snapshot.length === 0) return;
+
+    batchRunning = true;
+    clearFeedback();
+    let changed = 0;
+    let unchanged = 0;
+    const failedIds: string[] = [];
+    const failures: { title: string; reason: string }[] = [];
+    try {
+      for (let index = 0; index < snapshot.length; index++) {
+        const task = snapshot[index];
+        batchProgress = 'Updating ' + (index + 1) + ' of ' + snapshot.length + ' selected tasks…';
+        if (task.completed === completed) {
+          unchanged++;
+          continue;
+        }
+        try {
+          // Sequential, revision-checked commands: no atomic batch, no automatic retry.
+          const updated = await updateTask(task, { completed });
+          tasks = tasks.map((value) => value.id === updated.id ? updated : value);
+          changed++;
+        } catch (error) {
+          failedIds.push(task.id);
+          failures.push({
+            title: task.title,
+            reason: error instanceof ApiError ? error.message : 'Unexpected request failure'
+          });
+        }
+      }
+
+      if (failures.length > 0) {
+        selectedIds = failedIds;
+        selectionAnchor = failedIds[0] ?? null;
+        batchFailures = failures;
+        batchSummary = changed + ' changed, ' + unchanged + ' already ' +
+          (completed ? 'done' : 'open') + ', ' + failures.length +
+          ' failed. Failed tasks remain selected. Refresh before resolving stale revisions.';
+      } else {
+        selectMode = false;
+        clearSelection();
+        notify(changed === 0
+          ? 'Selected tasks already ' + (completed ? 'done' : 'open')
+          : changed + (changed === 1 ? ' task ' : ' tasks ') +
+            (completed ? 'marked done' : 'reopened'));
+      }
+    } finally {
+      batchProgress = '';
+      batchRunning = false;
     }
   }
 
   async function confirmDelete(id: string) {
-    openMenuId = null;
     confirmingDeleteId = id;
     await tick();
     document.getElementById('delete-confirm-' + id)?.focus();
@@ -252,27 +366,28 @@
   async function cancelDelete(id: string) {
     confirmingDeleteId = null;
     await tick();
-    document.getElementById('actions-' + id)?.focus();
-  }
-
-  function onWindowPointerDown(event: PointerEvent) {
-    if (openMenuId && event.target instanceof Element &&
-      !event.target.closest('.task-action-area')) {
-      openMenuId = null;
-    }
+    document.getElementById('delete-action-' + id)?.focus();
   }
 
   function onWindowKeydown(event: KeyboardEvent) {
-    if (event.key !== 'Escape') return;
-    if (openMenuId) {
+    if (batchRunning) return;
+    if (selectMode && (event.ctrlKey || event.metaKey) &&
+        event.key.toLowerCase() === 'a' &&
+        !(event.target instanceof Element && event.target.closest('input, textarea, [contenteditable="true"]'))) {
       event.preventDefault();
-      void closeActions(true);
-    } else if (confirmingDeleteId) {
+      selectAllVisible();
+      return;
+    }
+    if (event.key !== 'Escape') return;
+    if (confirmingDeleteId) {
       event.preventDefault();
       void cancelDelete(confirmingDeleteId);
     } else if (editingId) {
       event.preventDefault();
       void cancelEdit(editingId);
+    } else if (selectMode) {
+      event.preventDefault();
+      exitSelection();
     }
   }
 </script>
@@ -282,7 +397,7 @@
   <meta name="description" content="Manage tasks with the local Riesel Todo application." />
 </svelte:head>
 
-<svelte:window onpointerdown={onWindowPointerDown} onkeydown={onWindowKeydown} />
+<svelte:window onkeydown={onWindowKeydown} />
 
 <div class="app-shell">
   <header class="topbar">
@@ -318,7 +433,7 @@
             placeholder="What needs doing?"
             required
           />
-          <button type="submit" class="primary" disabled={creating || actingId !== null || refreshing || loadingMore}>
+          <button type="submit" class="primary" disabled={creating || actingId !== null || refreshing || loadingMore || batchRunning}>
             {creating ? 'Adding…' : 'Add task'}
           </button>
         </div>
@@ -335,7 +450,7 @@
             aria-label="Refresh tasks"
             title="Refresh tasks"
             disabled={refreshing || loading || loadingMore || creating ||
-              actingId !== null || (editingId !== null && !conflicted)}
+              actingId !== null || batchRunning || (editingId !== null && !conflicted)}
             onclick={() => void refresh()}
           >
             <svg
@@ -373,14 +488,58 @@
           <span class="sr-only" aria-live="polite">{refreshNotice}</span>
         </div>
         <div class="filters" role="group" aria-label="Filter loaded tasks">
-          <button type="button" class:active={filter === 'all'} aria-pressed={filter === 'all'} onclick={() => { filter = 'all'; }}>All</button>
-          <button type="button" class:active={filter === 'open'} aria-pressed={filter === 'open'} onclick={() => { filter = 'open'; }}>Open</button>
-          <button type="button" class:active={filter === 'done'} aria-pressed={filter === 'done'} onclick={() => { filter = 'done'; }}>Done</button>
+          <button type="button" class:active={filter === 'all'} aria-pressed={filter === 'all'} disabled={batchRunning} onclick={() => changeFilter('all')}>All</button>
+          <button type="button" class:active={filter === 'open'} aria-pressed={filter === 'open'} disabled={batchRunning} onclick={() => changeFilter('open')}>Open</button>
+          <button type="button" class:active={filter === 'done'} aria-pressed={filter === 'done'} disabled={batchRunning} onclick={() => changeFilter('done')}>Done</button>
         </div>
         <p class="count" aria-label={tasks.length + ' tasks loaded, ' + openCount + ' open in loaded tasks'}>
           {tasks.length} loaded <span aria-hidden="true">·</span> {openCount} open
         </p>
+        <button
+          type="button"
+          class="select-mode-trigger"
+          aria-pressed={selectMode}
+          disabled={loading || refreshing || loadingMore || creating || actingId !== null ||
+            batchRunning || editingId !== null || confirmingDeleteId !== null}
+          onclick={() => selectMode ? exitSelection() : enterSelection()}
+        >{selectMode ? 'Cancel selection' : 'Select tasks'}</button>
       </div>
+
+      {#if selectMode}
+        <div class="selection-bar" role="group" aria-label="Batch task actions">
+          <div class="selection-info">
+            <strong>{selectedVisible.length} selected</strong>
+            <span class="selection-scope">from {visible.length} displayed, loaded tasks</span>
+          </div>
+          <div class="selection-actions">
+            <button type="button" class="small" disabled={batchRunning || visible.length === 0}
+              onclick={selectAllVisible}>Select all loaded</button>
+            <button type="button" class="small" disabled={batchRunning || selectedVisible.length === 0}
+              onclick={clearSelection}>Clear</button>
+            <button type="button" class="small primary" disabled={batchRunning || selectedVisible.length === 0}
+              onclick={() => void setBatchCompletion(true)}>Mark done</button>
+            <button type="button" class="small" disabled={batchRunning || selectedVisible.length === 0}
+              onclick={() => void setBatchCompletion(false)}>Reopen</button>
+          </div>
+          {#if batchProgress}
+            <span class="selection-progress" role="status" aria-live="polite">{batchProgress}</span>
+          {/if}
+        </div>
+      {/if}
+
+      {#if batchSummary}
+        <div class="feedback error batch-result" role="alert">
+          <div>
+            <p>{batchSummary}</p>
+            <ul>
+              {#each batchFailures as failure}
+                <li>{failure.title}: {failure.reason}</li>
+              {/each}
+            </ul>
+          </div>
+          <button type="button" class="text-action" disabled={batchRunning} onclick={() => void refresh()}>Refresh tasks</button>
+        </div>
+      {/if}
 
       {#if errorMessage}
         <div class="feedback error" role="alert">
@@ -407,16 +566,27 @@
       {:else}
         <ul class="task-list" aria-label="Tasks">
           {#each visible as task (task.id)}
-            <li class="task" class:done={task.completed}>
+            <li class="task" class:done={task.completed} class:selected={selectMode && selectedIds.includes(task.id)}>
               <label class="task-check-control">
-                <input
-                  type="checkbox"
-                  class="task-checkbox"
-                  checked={task.completed}
-                  disabled={actingId !== null || refreshing || loadingMore}
-                  aria-label={'Mark ' + task.title + (task.completed ? ' incomplete' : ' complete')}
-                  onchange={() => void toggle(task)}
-                />
+                {#if selectMode}
+                  <input
+                    type="checkbox"
+                    class="task-checkbox selection-checkbox"
+                    checked={selectedIds.includes(task.id)}
+                    disabled={batchRunning}
+                    aria-label={'Select ' + task.title}
+                    onclick={(event) => selectTask(task.id, event.shiftKey)}
+                  />
+                {:else}
+                  <input
+                    type="checkbox"
+                    class="task-checkbox"
+                    checked={task.completed}
+                    disabled={actingId !== null || refreshing || loadingMore || batchRunning}
+                    aria-label={'Mark ' + task.title + (task.completed ? ' incomplete' : ' complete')}
+                    onchange={() => void toggle(task)}
+                  />
+                {/if}
               </label>
 
               <div class="task-content">
@@ -432,48 +602,58 @@
                       aria-describedby={editError ? 'edit-error-' + task.id : undefined}
                       required
                     />
-                    <button type="submit" class="small primary" disabled={actingId !== null || refreshing || loadingMore}>Save</button>
+                    <button type="submit" class="small primary" disabled={actingId !== null || refreshing || loadingMore || batchRunning}>Save</button>
                     <button type="button" class="small" onclick={() => void cancelEdit(task.id)}>Cancel</button>
                     {#if editError}
                       <p class="field-error edit-error" id={'edit-error-' + task.id} role="alert">{editError}</p>
                     {/if}
                   </form>
                 {:else}
-                  <span class="task-title">{task.title}</span>
+                  <button
+                    type="button"
+                    class="task-title task-title-button"
+                    disabled={actingId !== null || refreshing || loadingMore || batchRunning}
+                    aria-label={selectMode ? 'Select ' + task.title + ' by title' : 'Edit ' + task.title + ' title'}
+                    onclick={(event) => onTaskTitle(event, task)}
+                  >{task.title}</button>
                 {/if}
               </div>
 
-              {#if editingId !== task.id}
+              {#if editingId !== task.id && !selectMode}
                 <div class="task-action-area">
                   {#if confirmingDeleteId === task.id}
-                    <div class="delete-confirm" role="group" aria-label={'Confirm removal of ' + task.title}>
-                      <span>Remove?</span>
+                    <div class="delete-confirm" role="group" aria-label={'Confirm permanent deletion of ' + task.title}>
+                      <span>Delete permanently?</span>
                       <button
                         id={'delete-confirm-' + task.id}
                         type="button"
                         class="small danger"
-                        disabled={actingId !== null || refreshing || loadingMore}
+                        disabled={actingId !== null || refreshing || loadingMore || batchRunning}
                         onclick={() => void remove(task)}
                       >Delete</button>
                       <button type="button" class="small" onclick={() => void cancelDelete(task.id)}>Cancel</button>
                     </div>
                   {:else}
-                    <button
-                      id={'actions-' + task.id}
-                      type="button"
-                      class="task-action-trigger"
-                      disabled={actingId !== null || refreshing || loadingMore}
-                      aria-label={'Actions for ' + task.title}
-                      aria-expanded={openMenuId === task.id}
-                      aria-controls={'task-menu-' + task.id}
-                      onclick={() => void openActions(task.id)}
-                    ><span aria-hidden="true">⋯</span></button>
-                    {#if openMenuId === task.id}
-                      <div class="task-menu" id={'task-menu-' + task.id} aria-label={'Actions for ' + task.title}>
-                        <button type="button" onclick={() => void startEdit(task)}>Edit task</button>
-                        <button type="button" class="menu-danger" onclick={() => void confirmDelete(task.id)}>Remove task</button>
-                      </div>
-                    {/if}
+                    <div class="row-actions">
+                      <button
+                        id={'edit-action-' + task.id}
+                        type="button"
+                        class="icon-action"
+                        disabled={actingId !== null || refreshing || loadingMore || batchRunning}
+                        aria-label={'Edit ' + task.title}
+                        title="Edit task"
+                        onclick={() => void startEdit(task)}
+                      ><svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"/><path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L9 17l-4 1 1-4 10.5-10.5Z"/></svg></button>
+                      <button
+                        id={'delete-action-' + task.id}
+                        type="button"
+                        class="icon-action danger-icon"
+                        disabled={actingId !== null || refreshing || loadingMore || batchRunning}
+                        aria-label={'Delete ' + task.title}
+                        title="Delete task permanently (confirmation required)"
+                        onclick={() => void confirmDelete(task.id)}
+                      ><svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18"/><path d="M8 6V4h8v2"/><path d="M5 6l1 15h12l1-15"/><path d="M10 10v7"/><path d="M14 10v7"/></svg></button>
+                    </div>
                   {/if}
                 </div>
               {/if}
@@ -484,7 +664,7 @@
 
       <div class="panel-footer">
         {#if nextCursor}
-          <button type="button" class="secondary" disabled={loadingMore || refreshing || actingId !== null || creating} onclick={() => void loadMore()}>
+          <button type="button" class="secondary" disabled={loadingMore || refreshing || actingId !== null || creating || batchRunning} onclick={() => void loadMore()}>
             {loadingMore ? 'Loading…' : 'Load more tasks'}
           </button>
         {:else if tasks.length > 0}

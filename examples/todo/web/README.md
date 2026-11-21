@@ -23,7 +23,7 @@ All mutations include the last observed task revision as a decimal string (not a
 
 ## Interface and accessibility
 
-Todo R2 uses a compact responsive task list, a keyboard/touch-accessible actions menu, inline create/edit validation and a reusable top-positioned success toast. The toast is a polite live-region announcement; it automatically dismisses after a short period, pauses on hover or focus, and can be dismissed manually. Revision conflicts and connectivity errors remain persistent, actionable in the task panel, and never trigger automatic command retries. Remove requires explicit confirmation; Undo is not offered.
+Todo R2 uses a compact responsive task list, direct, keyboard/touch-accessible edit and delete controls, inline create/edit validation and a reusable top-positioned success toast. The toast is a polite live-region announcement; it automatically dismisses after a short period, pauses on hover or focus, and can be dismissed manually. Revision conflicts and connectivity errors remain persistent, actionable in the task panel, and never trigger automatic command retries. The current Delete action is permanent and retains explicit confirmation; Undo and recoverable Trash are not yet delivered (see #119).
 
 The upper-left circular-arrow control checks for task changes on demand, spins during the GET request (except when reduced motion is preferred), and displays the browser-local time of the last successful list-page fetch as **Last checked**. Failed refreshes leave that timestamp unchanged and retain existing rows while showing an actionable error. The label deliberately does **not** claim continuous or bidirectional synchronization; manual refresh fetches the first page, and Load more fetches further pages. Editing a task cannot silently trigger a refresh that discards an unsaved draft.
 
@@ -34,3 +34,11 @@ Browser regressions include responsive overflow, keyboard actions, toast feedbac
 ## System appearance (first delivery, #105)
 
 Todo's browser interface follows the operating-system/browser `prefers-color-scheme` preference, with semantic light/dark colors and native `color-scheme` support. Light/dark switches take effect without reload. System is currently the **only** appearance policy: Todo does not yet expose a manual Light/Dark override or claim persistence of such a choice. That separate requirement is specified in [#106](https://github.com/aschenrot/riesel/issues/106) because `--port 0` may give the browser a different origin after a restart. Do not use per-origin `localStorage` as proof of durable cross-port settings. The completed-task section and status-aware paging remain separate research in [#107](https://github.com/aschenrot/riesel/issues/107).
+
+## Direct controls and loaded-task batch actions (#118)
+
+Task titles and pencil icons open inline editing. The trash icon opens an explicit confirmation for **permanent** deletion until the separate Trash specification is implemented. Completion remains a dedicated 44px checkbox target, never the whole row.
+
+The **Select tasks** control activates a distinct selection mode. Selection checkboxes replace completion checkboxes; Shift-click selects a range within the currently displayed/loaded tasks, Ctrl/Cmd-click on a title can enter selection, Escape cancels, and Ctrl/Cmd+A selects only visible, loaded tasks outside editable text fields. A filter change or successful refresh clears selection. A `Select all loaded` control does not select unseen cursor pages.
+
+Batch **Mark done / Reopen** uses sequential, revision-aware existing API PATCH requests. Each mutation may succeed independently; there is **no transaction** across selected tasks, no automatic retry after an uncertain result and no global `all matching tasks` command. A partial failure is explicitly reported and failed tasks remain selected. Reconcile another client's revision conflicts with a deliberate refresh before attempting a new operation. Batch Delete/Trash and Undo remain deferred pending #119.
