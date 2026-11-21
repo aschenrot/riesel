@@ -81,7 +81,7 @@ The in-memory reference Storage provider is ephemeral; a linked SQLite provider 
 - Authentication, authorization, and protected remote transport.
 - Operational visibility, configurable resource budgets, and reliable deployment management.
 - Standalone manager workflows and independently executed native interfaces.
-- Complete the technical specification gates for the **accepted operational product directions** ([decision boundary](operational-products-direction.md)): shared operational semantics [#75](https://github.com/aschenrot/riesel/issues/75), cross-project tooling [#68](https://github.com/aschenrot/riesel/issues/68), Manager [#59](https://github.com/aschenrot/riesel/issues/59) and native GUI [#60](https://github.com/aschenrot/riesel/issues/60). The product outcomes are approved for review; concrete APIs, trust/ownership guarantees, implementation milestones and releases are not.
+- Complete the technical specification gates for the **accepted operational product directions** ([decision boundary](operational-products-direction.md)): shared operational semantics [#75](https://github.com/aschenrot/riesel/issues/75), cross-project tooling [#68](https://github.com/aschenrot/riesel/issues/68), Manager [#59](https://github.com/aschenrot/riesel/issues/59) and native GUI [#60](https://github.com/aschenrot/riesel/issues/60). The product owner accepted these directions; review of this documentation change and acceptance of concrete APIs, trust/ownership guarantees, implementation milestones and releases remain separate decisions.
 
 These outcomes require separate designs and acceptance criteria; they must not be treated as already implemented.
 
