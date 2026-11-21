@@ -25,6 +25,8 @@ All mutations include the last observed task revision as a decimal string (not a
 
 Todo R2 uses a compact responsive task list, a keyboard/touch-accessible actions menu, inline create/edit validation and a reusable top-positioned success toast. The toast is a polite live-region announcement; it automatically dismisses after a short period, pauses on hover or focus, and can be dismissed manually. Revision conflicts and connectivity errors remain persistent, actionable in the task panel, and never trigger automatic command retries. Remove requires explicit confirmation; Undo is not offered.
 
+The upper-left circular-arrow control checks for task changes on demand, spins during the GET request (except when reduced motion is preferred), and displays the browser-local time of the last successful list-page fetch as **Last checked**. Failed refreshes leave that timestamp unchanged and retain existing rows while showing an actionable error. The label deliberately does **not** claim continuous or bidirectional synchronization; manual refresh fetches the first page, and Load more fetches further pages. Editing a task cannot silently trigger a refresh that discards an unsaved draft.
+
 The All/Open/Done filters and visible counts operate on **loaded cursor pages only**. Loading additional pages may change those totals; they are not a global task count. Todo does not claim creation-order sorting, real-time synchronization or an authorized remote UI.
 
 Browser regressions include responsive overflow, keyboard actions, toast feedback and the existing mutation/revision-conflict scenarios. Visual and screen-reader checks still require a human review of the rendered result.

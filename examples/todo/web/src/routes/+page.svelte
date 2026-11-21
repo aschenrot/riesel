@@ -15,6 +15,9 @@
   let tasks = $state<Task[]>([]);
   let nextCursor = $state<string | null>(null);
   let loading = $state(true);
+  let refreshing = $state(false);
+  let refreshNotice = $state('');
+  let lastCheckedAt = $state<Date | null>(null);
   let loadingMore = $state(false);
   let creating = $state(false);
   let actingId = $state<string | null>(null);
@@ -38,6 +41,11 @@
     )
   );
   const openCount = $derived(tasks.filter((task) => !task.completed).length);
+  const lastCheckedLabel = $derived(
+    lastCheckedAt === null
+      ? 'Never'
+      : lastCheckedAt.toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' })
+  );
 
   onMount(() => {
     void refresh();
@@ -68,28 +76,42 @@
   }
 
   async function refresh() {
-    loading = true;
+    // Do not replace a list while a mutation/page request is in flight or
+    // silently discard an unsaved edit. Error recovery may discard a stale edit.
+    if (refreshing || loadingMore || creating || actingId !== null ||
+      (editingId !== null && !errorMessage)) return;
+    refreshing = true;
+    refreshNotice = 'Checking tasks';
     clearFeedback();
     openMenuId = null;
     try {
       const page = await listPage();
       tasks = page.records;
       nextCursor = page.next_cursor;
+      lastCheckedAt = new Date();
+      editingId = null;
+      editError = '';
+      confirmingDeleteId = null;
+      refreshNotice = 'Tasks checked';
     } catch (error) {
+      refreshNotice = '';
       report(error);
     } finally {
+      // Keep existing rows visible while manually checking for changes.
       loading = false;
+      refreshing = false;
     }
   }
 
   async function loadMore() {
-    if (!nextCursor || loadingMore) return;
+    if (!nextCursor || loadingMore || refreshing || actingId !== null || creating) return;
     loadingMore = true;
     clearFeedback();
     try {
       const page = await listPage(nextCursor);
       tasks = sortedUnique([...tasks, ...page.records]);
       nextCursor = page.next_cursor;
+      lastCheckedAt = new Date();
     } catch (error) {
       report(error);
     } finally {
@@ -98,7 +120,7 @@
   }
 
   async function add() {
-    if (creating) return;
+    if (creating || refreshing || loadingMore) return;
     fieldError = '';
     if (!newTitle.trim()) {
       fieldError = 'Enter a task title.';
@@ -141,7 +163,7 @@
   }
 
   async function saveEdit(task: Task) {
-    if (actingId) return;
+    if (actingId || refreshing || loadingMore) return;
     editError = '';
     if (!editDraft.trim()) {
       editError = 'Enter a task title.';
@@ -170,7 +192,7 @@
   }
 
   async function toggle(task: Task) {
-    if (actingId) return;
+    if (actingId || refreshing || loadingMore) return;
     actingId = task.id;
     clearFeedback();
     try {
@@ -185,7 +207,7 @@
   }
 
   async function remove(task: Task) {
-    if (actingId) return;
+    if (actingId || refreshing || loadingMore) return;
     actingId = task.id;
     clearFeedback();
     try {
@@ -294,7 +316,7 @@
             placeholder="What needs doing?"
             required
           />
-          <button type="submit" class="primary" disabled={creating || actingId !== null}>
+          <button type="submit" class="primary" disabled={creating || actingId !== null || refreshing || loadingMore}>
             {creating ? 'Adding…' : 'Add task'}
           </button>
         </div>
@@ -304,6 +326,50 @@
       </form>
 
       <div class="toolbar">
+        <div class="refresh-group">
+          <button
+            type="button"
+            class="refresh-trigger"
+            aria-label="Refresh tasks"
+            title="Refresh tasks"
+            disabled={refreshing || loading || loadingMore || creating ||
+              actingId !== null || (editingId !== null && !errorMessage)}
+            onclick={() => void refresh()}
+          >
+            <svg
+              class="refresh-icon"
+              class:spinning={refreshing}
+              xmlns="http://www.w3.org/2000/svg"
+              width="20"
+              height="20"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="2"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+              aria-hidden="true"
+            >
+              <path d="M3 12a9 9 0 0 1 9-9 9.75 9.75 0 0 1 6.74 2.74L21 8"/>
+              <path d="M21 3v5h-5"/>
+              <path d="M21 12a9 9 0 0 1-9 9 9.75 9.75 0 0 1-6.74-2.74L3 16"/>
+              <path d="M8 16H3v5"/>
+            </svg>
+          </button>
+          <div class="refresh-details">
+            <span class="refresh-caption">{refreshing ? 'Checking…' : 'Last checked'}</span>
+            {#if lastCheckedAt}
+              <time
+                class="refresh-time"
+                datetime={lastCheckedAt.toISOString()}
+                title={lastCheckedAt.toLocaleString()}
+              >{lastCheckedLabel}</time>
+            {:else}
+              <span class="refresh-time">Never</span>
+            {/if}
+          </div>
+          <span class="sr-only" aria-live="polite">{refreshNotice}</span>
+        </div>
         <div class="filters" role="group" aria-label="Filter loaded tasks">
           <button type="button" class:active={filter === 'all'} aria-pressed={filter === 'all'} onclick={() => { filter = 'all'; }}>All</button>
           <button type="button" class:active={filter === 'open'} aria-pressed={filter === 'open'} onclick={() => { filter = 'open'; }}>Open</button>
@@ -339,7 +405,7 @@
                   type="checkbox"
                   class="task-checkbox"
                   checked={task.completed}
-                  disabled={actingId !== null}
+                  disabled={actingId !== null || refreshing || loadingMore}
                   aria-label={'Mark ' + task.title + (task.completed ? ' incomplete' : ' complete')}
                   onchange={() => void toggle(task)}
                 />
@@ -358,7 +424,7 @@
                       aria-describedby={editError ? 'edit-error-' + task.id : undefined}
                       required
                     />
-                    <button type="submit" class="small primary" disabled={actingId !== null}>Save</button>
+                    <button type="submit" class="small primary" disabled={actingId !== null || refreshing || loadingMore}>Save</button>
                     <button type="button" class="small" onclick={() => void cancelEdit(task.id)}>Cancel</button>
                     {#if editError}
                       <p class="field-error edit-error" id={'edit-error-' + task.id} role="alert">{editError}</p>
@@ -378,7 +444,7 @@
                         id={'delete-confirm-' + task.id}
                         type="button"
                         class="small danger"
-                        disabled={actingId !== null}
+                        disabled={actingId !== null || refreshing || loadingMore}
                         onclick={() => void remove(task)}
                       >Delete</button>
                       <button type="button" class="small" onclick={() => void cancelDelete(task.id)}>Cancel</button>
@@ -388,7 +454,7 @@
                       id={'actions-' + task.id}
                       type="button"
                       class="task-action-trigger"
-                      disabled={actingId !== null}
+                      disabled={actingId !== null || refreshing || loadingMore}
                       aria-label={'Actions for ' + task.title}
                       aria-expanded={openMenuId === task.id}
                       aria-controls={'task-menu-' + task.id}
@@ -410,15 +476,12 @@
 
       <div class="panel-footer">
         {#if nextCursor}
-          <button type="button" class="secondary" disabled={loadingMore} onclick={() => void loadMore()}>
+          <button type="button" class="secondary" disabled={loadingMore || refreshing || actingId !== null || creating} onclick={() => void loadMore()}>
             {loadingMore ? 'Loading…' : 'Load more tasks'}
           </button>
         {:else if tasks.length > 0}
           <span>All tasks loaded</span>
         {/if}
-        <button type="button" class="refresh" disabled={loading} onclick={() => void refresh()}>
-          Refresh tasks
-        </button>
       </div>
     </section>
     <p class="footnote">Tasks are stored locally. Changes from other clients appear after refresh.</p>

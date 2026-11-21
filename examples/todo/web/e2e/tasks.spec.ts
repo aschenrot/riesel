@@ -251,3 +251,59 @@ test('capture desktop and mobile UI for visual review', async ({ page }) => {
     animations: 'disabled'
   });
 });
+
+test('refresh control stays at top-left, spins during GET and records successful checks', async ({ page }) => {
+  await page.goto('/');
+  await expect(page.locator('.refresh-details time')).toHaveAttribute('datetime', /\\d{4}-\\d{2}-\\d{2}T/);
+  await page.getByRole('textbox', { name: 'New task' }).fill('Keep visible');
+  await page.getByRole('button', { name: 'Add task' }).click();
+  const refresh = page.getByRole('button', { name: 'Refresh tasks' });
+  const toolbar = page.locator('.toolbar');
+  const icon = refresh.locator('svg');
+  expect(await toolbar.evaluate((node) =>
+    node.querySelector('.refresh-group') === node.firstElementChild)).toBe(true);
+
+  await page.route('**/api/v1/tasks*', async (route) => {
+    if (route.request().method() === 'GET') {
+      await new Promise((resolve) => setTimeout(resolve, 900));
+    }
+    await route.continue();
+  });
+  await refresh.click();
+  await expect(refresh).toBeDisabled();
+  await expect(page.getByText('Checking…')).toBeVisible();
+  await expect(icon).toHaveClass(/spinning/);
+  await expect(page.getByText('Keep visible', { exact: true })).toBeVisible();
+  await expect(refresh).toBeEnabled();
+  await expect(icon).not.toHaveClass(/spinning/);
+  await expect(page.locator('.refresh-details time')).toHaveAttribute('datetime', /\\d{4}-\\d{2}-\\d{2}T/);
+});
+
+test('failed refresh does not falsely advance last checked timestamp', async ({ page }) => {
+  await page.goto('/');
+  await expect(page.locator('.refresh-details time')).toHaveAttribute('datetime', /\\d{4}-\\d{2}-\\d{2}T/);
+  const previous = await page.locator('.refresh-details time').getAttribute('datetime');
+  await page.route('**/api/v1/tasks*', (route) => route.abort());
+  await page.getByRole('button', { name: 'Refresh tasks' }).click();
+  await expect(page.getByRole('alert')).toContainText('Cannot connect to the Todo backend.');
+  await expect(page.locator('.refresh-details time')).toHaveAttribute('datetime', previous!);
+  await page.unroute('**/api/v1/tasks*');
+  await page.getByRole('button', { name: 'Try again' }).click();
+  await expect(page.getByRole('alert')).toHaveCount(0);
+  await expect(page.locator('.refresh-details time')).toHaveAttribute('datetime', /\\d{4}-\\d{2}-\\d{2}T/);
+});
+
+test('reduced motion preference disables refresh spin while keeping the state clear', async ({ page }) => {
+  await page.emulateMedia({ reducedMotion: 'reduce' });
+  await page.goto('/');
+  await page.route('**/api/v1/tasks*', async (route) => {
+    if (route.request().method() === 'GET') {
+      await new Promise((resolve) => setTimeout(resolve, 900));
+    }
+    await route.continue();
+  });
+  await page.getByRole('button', { name: 'Refresh tasks' }).click();
+  await expect(page.locator('.refresh-icon')).toHaveClass(/spinning/);
+  await expect(page.locator('.refresh-icon')).toHaveCSS('animation-name', 'none');
+  await expect(page.getByText('Checking…')).toBeVisible();
+});
