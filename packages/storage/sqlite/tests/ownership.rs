@@ -67,7 +67,10 @@ fn parent_symlink_aliases_share_the_same_owner_identity() {
         Err(StoreError::Failed(_))
     ));
     drop(store);
-    assert!(SqliteStore::open(alias.join("records.db"), models()).is_ok());
+    // Preserve the reason if the released owner remains unexpectedly locked.
+    if let Err(error) = SqliteStore::open(alias.join("records.db"), models()) {
+        panic!("reopening the released parent-directory alias failed: {error:?}");
+    }
 }
 
 #[cfg(unix)]

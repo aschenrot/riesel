@@ -158,12 +158,71 @@ impl OwnerGuard {
     }
 }
 
+// A child process can briefly inherit a locked file description across fork,
+// even when a descriptor is close-on-exec. Merely closing this File releases a
+// flock only after the *last* inherited/duplicated descriptor is closed.
+// Explicitly unlock when the authoritative owner is dropped so an inherited
+// observer cannot extend the cooperative ownership lease after shutdown.
+// This does not change live-owner exclusivity or the tamper-resistance scope.
+impl Drop for OwnerGuard {
+    fn drop(&mut self) {
+        // Drop has no error channel. Normal file close remains the fallback if
+        // this best-effort unlock reports an unexpected OS error.
+        let _ = self.lock_file.unlock();
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::OwnerGuard;
     use crate::SqliteStore;
     use riesel_schema::{ModelDefinition, TypeRef};
     use std::collections::BTreeMap;
+
+    /// A child retaining a duplicated locked fd must not extend ownership
+    /// past the original provider's lifetime. This is a deterministic
+    /// reproduction of the otherwise timing-dependent fork/exec window.
+    #[cfg(unix)]
+    #[test]
+    fn inherited_lock_descriptor_does_not_outlive_explicit_owner_shutdown() {
+        use std::process::{Command, Stdio};
+
+        let temporary = tempfile::tempdir().unwrap();
+        let db = temporary.path().join("records.db");
+        let guard = OwnerGuard::acquire(&db).unwrap();
+        assert!(
+            OwnerGuard::acquire(&db).is_err(),
+            "live owner must exclude a second"
+        );
+
+        // stderr is a clone of the same open file description. The shell waits
+        // on a parent-held stdin pipe so the inherited descriptor remains open.
+        let inherited = guard.lock_file.try_clone().unwrap();
+        let mut child = Command::new("sh")
+            .arg("-c")
+            .arg("read _")
+            .stdin(Stdio::piped())
+            .stdout(Stdio::null())
+            .stderr(Stdio::from(inherited))
+            .spawn()
+            .unwrap();
+        assert!(
+            child.try_wait().unwrap().is_none(),
+            "child must still hold the inherited fd"
+        );
+
+        drop(guard);
+        let replacement = OwnerGuard::acquire(&db)
+            .expect("owner shutdown must release lock even while a child holds a cloned fd");
+        replacement.verify().unwrap();
+        drop(replacement);
+
+        drop(child.stdin.take());
+        assert!(
+            child.wait().is_ok(),
+            "child should terminate after stdin is closed"
+        );
+    }
 
     #[test]
     fn maintenance_owner_cannot_enter_a_running_database() {
