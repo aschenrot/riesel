@@ -15,13 +15,107 @@ use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::future::Future;
 use std::num::NonZeroUsize;
 use std::pin::Pin;
-use std::sync::Arc;
+use std::sync::{Arc, Mutex, PoisonError};
 use thiserror::Error;
-use tokio::sync::mpsc;
+use tokio::sync::{Notify, mpsc};
 use tokio::task::{Id, JoinSet};
 
 const MAX_PARALLEL_OPERATIONS: usize = 32;
+const MAX_SESSION_PARALLEL_OPERATIONS: usize = 32;
+const MAX_SESSION_RUNS: usize = 16;
 const MAX_PENDING_SIGNALS: usize = 64;
+
+/// One shared admission authority belongs to the existing RunningApp session.
+/// Separate runs must not each claim their own 32-operation budget or run
+/// conflicting declared accesses without coordination.
+#[derive(Default)]
+pub(crate) struct SessionGraphAdmission {
+    state: Mutex<SessionGraphState>,
+    changed: Notify,
+}
+
+#[derive(Default)]
+struct SessionGraphState {
+    live_runs: usize,
+    next_ticket: u64,
+    operations: BTreeMap<u64, Vec<ResourceAccess>>,
+}
+
+struct GraphRunLease {
+    session: Arc<SessionGraphAdmission>,
+}
+
+impl Drop for GraphRunLease {
+    fn drop(&mut self) {
+        let mut state = self
+            .session
+            .state
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner);
+        debug_assert!(state.live_runs > 0);
+        state.live_runs -= 1;
+    }
+}
+
+/// A drop guard survives even if the run future is cancelled or an operation
+/// panics. Release first, then wake other runs without holding the mutex.
+struct GraphOperationLease {
+    session: Arc<SessionGraphAdmission>,
+    ticket: u64,
+}
+
+impl Drop for GraphOperationLease {
+    fn drop(&mut self) {
+        let mut state = self
+            .session
+            .state
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner);
+        let removed = state.operations.remove(&self.ticket);
+        debug_assert!(removed.is_some());
+        drop(state);
+        self.session.changed.notify_waiters();
+    }
+}
+
+impl SessionGraphAdmission {
+    fn claim_run(self: &Arc<Self>) -> Result<GraphRunLease, GraphRunError> {
+        let mut state = self.state.lock().unwrap_or_else(PoisonError::into_inner);
+        if state.live_runs >= MAX_SESSION_RUNS {
+            return Err(GraphRunError::SessionRunLimitExceeded {
+                limit: MAX_SESSION_RUNS,
+            });
+        }
+        state.live_runs += 1;
+        Ok(GraphRunLease {
+            session: Arc::clone(self),
+        })
+    }
+
+    fn reserve(self: &Arc<Self>, accesses: &[ResourceAccess]) -> Option<GraphOperationLease> {
+        let mut state = self.state.lock().unwrap_or_else(PoisonError::into_inner);
+        if state.operations.len() >= MAX_SESSION_PARALLEL_OPERATIONS
+            || state
+                .operations
+                .values()
+                .any(|active| conflicts(active, accesses))
+        {
+            return None;
+        }
+        // Wraparound must not reuse the identity of a live reservation.
+        while state.operations.contains_key(&state.next_ticket) {
+            state.next_ticket = state.next_ticket.wrapping_add(1);
+        }
+        let ticket = state.next_ticket;
+        state.next_ticket = ticket.wrapping_add(1);
+        state.operations.insert(ticket, accesses.to_vec());
+        Some(GraphOperationLease {
+            session: Arc::clone(self),
+            ticket,
+        })
+    }
+}
+
 
 /// A registered operation does not own a Tokio runtime or an ECS world.
 /// Delegated thread-affine work must remain in its domain-owned executor.
@@ -66,6 +160,8 @@ pub enum GraphRunError {
     SessionExpired,
     #[error("requested {requested} concurrent operations exceeds limit {maximum}")]
     InvalidParallelism { requested: usize, maximum: usize },
+    #[error("the application session already has {limit} outstanding graph runs")]
+    SessionRunLimitExceeded { limit: usize },
     #[error("plan does not declare signal {name:?}")]
     UnknownSignal { name: String },
     #[error("the bounded signal queue is full")]
@@ -130,6 +226,8 @@ impl GraphRunReport {
 pub struct ExecutionGraphRunner {
     plan: BoundExecutionPlan<AsyncOperation>,
     session: SessionToken,
+    admission: Arc<SessionGraphAdmission>,
+    _run_lease: GraphRunLease,
     index: BTreeMap<String, usize>,
     states: Vec<OperationState>,
     fired: BTreeSet<String>,
@@ -146,6 +244,7 @@ impl ExecutionGraphRunner {
     pub(crate) fn new(
         plan: BoundExecutionPlan<AsyncOperation>,
         session: SessionToken,
+        admission: Arc<SessionGraphAdmission>,
         max_in_flight: NonZeroUsize,
     ) -> Result<Self, GraphRunError> {
         if !session.is_active() {
@@ -157,6 +256,7 @@ impl ExecutionGraphRunner {
                 maximum: MAX_PARALLEL_OPERATIONS,
             });
         }
+        let run_lease = admission.claim_run()?;
         let operations = plan.plan().description().operations();
         let index = operations
             .iter()
@@ -175,6 +275,8 @@ impl ExecutionGraphRunner {
             states: vec![OperationState::Pending; operations.len()],
             plan,
             session: session.clone(),
+            admission,
+            _run_lease: run_lease,
             index,
             fired: BTreeSet::new(),
             signal_rx,
@@ -203,6 +305,12 @@ impl ExecutionGraphRunner {
         let mut session_expired = false;
 
         loop {
+            // Register for a release notification before examining capacity.
+            // No other run can free a slot between our failed admission and
+            // our waiter becoming visible.
+            let admission = Arc::clone(&self.admission);
+            let mut admission_changed = std::pin::pin!(admission.changed.notified());
+            admission_changed.as_mut().enable();
             while let Ok(signal) = self.signal_rx.try_recv() {
                 self.fired.insert(signal);
             }
@@ -227,6 +335,7 @@ impl ExecutionGraphRunner {
                 &mut self.signal_rx,
                 &mut jobs,
                 !active.is_empty(),
+                admission_changed,
             )
             .await
             {
@@ -237,6 +346,7 @@ impl ExecutionGraphRunner {
                 Wake::Signal(signal) => {
                     self.fired.insert(signal);
                 }
+                Wake::AdmissionReleased => {}
                 Wake::Completed(result) => match result {
                     Ok((id, (index, outcome))) => {
                         let owned = active.remove(&id);
@@ -322,6 +432,9 @@ impl ExecutionGraphRunner {
             {
                 continue;
             }
+            let Some(lease) = self.admission.reserve(node.resources()) else {
+                continue;
+            };
             let handler = Arc::clone(
                 self.plan
                     .handler(node.id())
@@ -329,6 +442,7 @@ impl ExecutionGraphRunner {
             );
             let session = self.session.clone();
             let handle = jobs.spawn(async move {
+                let _lease = lease;
                 if !session.is_active() {
                     (index, OperationOutcome::Cancelled)
                 } else {
@@ -374,6 +488,7 @@ impl ExecutionGraphRunner {
 enum Wake {
     Expired,
     Signal(String),
+    AdmissionReleased,
     Completed(Result<(Id, (usize, OperationOutcome)), tokio::task::JoinError>),
 }
 
@@ -381,17 +496,19 @@ enum Wake {
 /// not require Tokio's optional macros feature. Recreate neither Notify
 /// subscription nor the join future on every poll. Finished operations are
 /// polled before the signal queue, so a busy producer cannot starve cleanup.
-async fn wait_for_work(
+async fn wait_for_work<F: Future<Output = ()>>(
     session: &SessionToken,
     signals: &mut mpsc::Receiver<String>,
     jobs: &mut JoinSet<(usize, OperationOutcome)>,
     has_jobs: bool,
+    changed: F,
 ) -> Wake {
     use std::task::Poll;
 
     let mut expired = std::pin::pin!(session.cancelled());
     let mut incoming = std::pin::pin!(signals.recv());
     let mut completed = std::pin::pin!(jobs.join_next_with_id());
+    let mut changed = std::pin::pin!(changed);
     std::future::poll_fn(|cx| {
         if expired.as_mut().poll(cx).is_ready() {
             return Poll::Ready(Wake::Expired);
@@ -401,6 +518,9 @@ async fn wait_for_work(
         }
         if let Poll::Ready(Some(signal)) = incoming.as_mut().poll(cx) {
             return Poll::Ready(Wake::Signal(signal));
+        }
+        if changed.as_mut().poll(cx).is_ready() {
+            return Poll::Ready(Wake::AdmissionReleased);
         }
         Poll::Pending
     })
@@ -424,6 +544,11 @@ impl RunningApp {
         plan: BoundExecutionPlan<AsyncOperation>,
         max_in_flight: NonZeroUsize,
     ) -> Result<ExecutionGraphRunner, GraphRunError> {
-        ExecutionGraphRunner::new(plan, self.session_token(), max_in_flight)
+        ExecutionGraphRunner::new(
+            plan,
+            self.session_token(),
+            Arc::clone(&self.graph_admission),
+            max_in_flight,
+        )
     }
 }
