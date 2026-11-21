@@ -483,3 +483,7 @@ async fn slow_domain_observer_cannot_stall_tick_execution() {
 // Gate H: a discriminating mixed-domain central-vs-domain admission probe.
 #[cfg(test)]
 mod admission_policy;
+
+// Gate I: typed result envelope, plan/run association and boundary owner proof.
+#[cfg(test)]
+mod outcome_contract;
