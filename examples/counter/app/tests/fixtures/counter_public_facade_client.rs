@@ -68,6 +68,18 @@ fn main() -> Result<(), Box<dyn Error + Send + Sync>> {
                 assert_eq!(public.add(2).await?, 5);
                 assert_eq!(public.label("count").await?, "count: 5");
             }
+            "lost-reply" => {
+                // A remote handler applies add(3) but intentionally never
+                // returns its response. A transport timeout does not prove
+                // that a mutation failed, and must not trigger retry.
+                assert_eq!(public.value().await?, 0);
+                assert!(matches!(
+                    public.add(3).await,
+                    Err(CallError::Rpc(RpcError::Transport(_)))
+                ));
+                assert_eq!(public.value().await?, 3);
+                assert_eq!(public.add(2).await?, 5);
+            }
             "stale" => {
                 // Deliberate NEGATIVE research: keep this same generated
                 // client/binding alive while the entire app-host OS process
