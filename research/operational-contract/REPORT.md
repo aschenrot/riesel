@@ -29,25 +29,26 @@ Run from repository root after the existing smoke gate:
     cargo validate --check
     cargo smoke
     python3 research/operational-contract/probe.py --real
+    python3 research/operational-contract/same_pid_probe.py
 
 Or verify only Python harness logic when Rust is unavailable:
 
     python3 research/operational-contract/probe.py --model
 
-The new PR's CI runs the **real** variant after smoke and must report its exact head SHA, not just the earlier #87 run. The local model-only execution produced:
+**Verified exact CI evidence:** on research head `d62827da94ad76b66e5df6b7e91da7a8d5884782`, [Linux workflow 44878277483, attempt 2](https://github.com/aschenrot/riesel/actions/runs/44878277483) passed `cargo validate --check`, `cargo smoke` and **both real research probes**; Windows skipped under the manual pre-release policy. Attempt 1 of this run failed in unchanged `packages/storage/sqlite/tests/restore.rs::incomplete_native_backup_copy_does_not_publish_a_partial_restore` with a cooperative SQLite owner conflict; the same exact revision passed on rerun. That intermittent baseline failure is not explained by these research changes and is not silently treated as resolved. Earlier research head `3c697beb136b7041a025b414e42b2c4868ae92e9` also passed all corresponding initial probe gates in [run 44877324774](https://github.com/aschenrot/riesel/actions/runs/44877324774). The local model-only execution produced:
 
     RESEARCH_MODEL_GATE_REPLACEMENT_PASS
     RESEARCH_GATE_SAME_PID_ROTATION_MODEL_ONLY (NOT Riesel recovery)
     RESEARCH_GATE_UNKNOWN_OUTCOME_NO_RETRY_PASS
     RESEARCH_SAME_UID_0600_SECRET_READABLE (no strong same-UID isolation)
 
-These observations prove only the local test apparatus and same-UID file-permission limitation. They do **not** yet constitute real-backend CI evidence.
+**Separate real-backend observations:** the successful Linux logs contain `RESEARCH_REAL_RESOLVED_COUNTER_GATE_REPLACEMENT_PASS`, `RESEARCH_GATE_UNKNOWN_OUTCOME_NO_RETRY_PASS`, `RESEARCH_SAME_UID_0600_SECRET_READABLE`, and `RESEARCH_REAL_RIESEL_SAME_PID_RECOVERY_EXTERNAL_STALE_REJECT_PASS`. The second probe [same_pid_probe.py](same_pid_probe.py) runs a purpose-built *Rust application* [fixture](../../../examples/counter/app/tests/fixtures/counter_same_pid_recovery.rs) through actual `Application::run_from_env`, a managed Counter crash and `restart_application` with **one unchanged application PID** and a listener surviving the restart. It retains an old external attachment, rejects that stale attachment before `add(2)` dispatch, confirms fresh replacement state 0, and permits a newly attached client to call `add(5)`. However, the test app callback (not the SDK runtime) mints each externally represented epoch and the proofs are insecure fixed research strings. These experiments establish a viable **adapter behavior**, not runtime-issued external generation or protected local authorization.
 
 | Required test | New adapter observation / reused real evidence | Limitation |
 | --- | --- | --- |
 | SDK-resolved capability across independent processes | Real Counter host from main, already verified #82/#87; real-mode gateway sends actual RPC to it | Gateway not SDK-native |
 | Old attachment rejected after app **OS process replacement** | Gateway's stable endpoint retains old attachment; swapping real backend and rotating gateway epoch denies add before dispatch; backend stays 0 | Epoch artificially issued by gateway, not runtime |
-| Old attachment rejected on **same-PID whole-session recovery** | Gateway can rotate in place and revoke; existing Riesel recovery tests revoke in-process handles | **OPEN:** no real SDK exported interface spanning a same-Riesel-PID whole-session restart; no runtime-owned external generation |
+| Old attachment rejected on **same-PID whole-session recovery** | **Real Riesel managed-child crash and whole-session retry**, unchanged app PID and external listener, old client fails before backend mutation, fresh client adds 5; verified 44878277483 | Externally conveyed epoch issued by the research app callback, not a runtime-owned published SDK interface; fixed mock proof insecure |
 | Freshly authorized reattachment | New gateway-issued attachment after rotation permits read/add | Mock credential delivery not a security guarantee |
 | Unauthorized, wrong-app, wrong-interface/version requests | Gateway refuses missing attachment, read-only mutations and mismatched app/interface/version before forwarding; mutation leaves backend unchanged | No proof against hostile same-UID secret theft or impersonation |
 | Listener-bound vs app-verified vs callable interface | Gateway reports bound before backend; backend query makes app operation reachable; only authorized value call marks an attachment callable | Not a Riesel-issued ready attestation, nor full app health |
@@ -91,7 +92,7 @@ Credible principal separations to evaluate: different OS identities plus verifie
 
 ## Blockers and acceptance decisions
 
-**S1 (runtime external generation) unverified:** require a research-only fixture that uses actual whole-session recovery inside **one unchanged Riesel OS process** while an independent client remains attached. The old attachment must fail server-side before mutation, and a freshly trusted attached client must succeed. The source of generation and admission/revocation race must be observable.
+**S1 (runtime external generation) partially verified:** the new same-PID Rust fixture proves that after actual Riesel whole-session recovery an **app-authored** local listener can revoke an external attachment before mutation and admit a fresh one. It does **not** establish runtime-**issued** external generation, verified publisher identity, atomic revocation/admission under concurrent in-flight calls, or the eventual SDK exporter. The remaining acceptance gate must bind epoch issuance/withdrawal to authoritative Riesel session ownership and test the revocation race.
 
 **S2 (same-UID trust) unverified:** identify and *attack-test* a credible Linux principal boundary/credential issuer and platform portability policy. 0600 same-UID files, loopback and provider metadata explicitly fail. Secure readiness requires trusted server identity too.
 
@@ -103,10 +104,10 @@ Credible principal separations to evaluate: different OS identities plus verifie
 
 ## Independently verifiable future slices (not implementation authorization)
 
-1. **Runtime-owned epoch and publish/withdraw semantics:** exact same-PID recovery, crash, revocation-race, wrong-generation tests. Requires owner decision on identity and runtime authority.
+1. **Runtime-owned epoch and publish/withdraw semantics:** build on the tested same-PID app-authored adapter; prove the runtime itself issues/withdraws authenticated external generations, with revocation-race and wrong-generation dispatch tests. Requires owner decision on identity and runtime authority.
 2. **Trust/authorization adapter:** cross-process principal separation and operation rights tested against hostile same-UID caller; fail-closed on unsupported deployments. Requires accepted local threat model and trusted-issuer choice.
 3. **Callability/provenance observations:** authenticated interface readiness separate from plan/provider/socket and ownership states. Depends on the trusted identity/epoch boundary for authenticated claims; ordinary local status research is independent.
 4. **Uncertain mutation and resynchronization:** error classification, no automatic replay, explicit refetch; durable idempotency only if separately accepted.
 5. **Product proofs:** one independent #60 native event loop using actual app-owned published capability and lifecycle, then product-specific #68/#59 adapters. Native GUI toolkit and Manager service ownership do not belong in #75.
 
-**Conclusion:** the research strengthens the case for shared invariants but **does not pass #75's full S1/S2 acceptance gate**. The same-PID **Riesel** recovery and strong hostile-same-UID authorization remain blockers. Keep #75 open. No production API/new crate, milestone change, merge or implementation is authorized by this branch.
+**Conclusion:** the tested research adapters demonstrate server-side stale rejection after **both new-OS-process replacement and actual same-PID Riesel whole-session recovery**, fresh attachment, scoped operation policy, callable-readiness distinctions and unknown mutations without replay. This **does not pass #75's full S1/S2 acceptance gate**: runtime-owned external identity/generation and strong hostile-same-UID authorization remain unverified, as do true secure readiness and a public exporter. Keep #75 open. No production API/new crate, milestone change, merge or implementation is authorized by this branch.
