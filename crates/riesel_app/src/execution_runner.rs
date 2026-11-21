@@ -143,7 +143,7 @@ pub struct ExecutionGraphRunner {
 impl ExecutionGraphRunner {
     /// Bind an existing session to an already-validated and registered plan.
     /// No extra Tokio runtime or provider instance is created.
-    pub fn new(
+    pub(crate) fn new(
         plan: BoundExecutionPlan<AsyncOperation>,
         session: SessionToken,
         max_in_flight: NonZeroUsize,
