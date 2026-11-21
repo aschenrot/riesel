@@ -1,3 +1,4 @@
+import { mkdir } from 'node:fs/promises';
 import { test, expect, type APIRequestContext } from '@playwright/test';
 
 const api = '/api/v1/tasks';
@@ -210,4 +211,30 @@ test('inline title validation keeps the invalid input in place', async ({ page }
   await page.getByRole('button', { name: 'Add task' }).click();
   await expect(page.locator('#new-title-error')).toHaveText('Enter a task title.');
   await expect(page.getByText('No tasks yet')).toBeVisible();
+});
+
+test('capture desktop and mobile UI for visual review', async ({ page }) => {
+  await page.setViewportSize({ width: 1280, height: 800 });
+  await page.goto('/');
+  const title = page.getByRole('textbox', { name: 'New task' });
+  for (const text of ['Review architecture', 'Refine Todo layout', 'Verify accessibility']) {
+    await title.fill(text);
+    await page.getByRole('button', { name: 'Add task' }).click();
+  }
+  await page.getByRole('checkbox', { name: 'Mark Verify accessibility complete' }).check();
+  await page.getByRole('button', { name: 'Dismiss notification' }).click();
+  await mkdir('test-results/visual-review', { recursive: true });
+  await page.screenshot({
+    path: 'test-results/visual-review/todo-desktop-1280.png',
+    fullPage: true,
+    animations: 'disabled'
+  });
+  await page.setViewportSize({ width: 375, height: 812 });
+  await expect(page.getByRole('heading', { name: 'Tasks' })).toBeVisible();
+  expect(await page.evaluate(() => document.documentElement.scrollWidth > window.innerWidth + 1)).toBe(false);
+  await page.screenshot({
+    path: 'test-results/visual-review/todo-mobile-375.png',
+    fullPage: true,
+    animations: 'disabled'
+  });
 });

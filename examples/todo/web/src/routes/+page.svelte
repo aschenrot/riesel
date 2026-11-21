@@ -153,6 +153,8 @@
       const updated = await updateTask(task, { title: editDraft });
       tasks = tasks.map((value) => value.id === updated.id ? updated : value);
       editingId = null;
+      // Re-enable the action trigger before restoring keyboard focus.
+      actingId = null;
       notify('Task updated');
       await tick();
       document.getElementById('actions-' + task.id)?.focus();
