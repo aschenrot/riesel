@@ -46,6 +46,16 @@ pub enum ExecutionPlanError {
     InvalidResource { node: String, resource: String },
     #[error("operation {node} repeats resource {resource}")]
     DuplicateResource { node: String, resource: String },
+    #[error("invalid domain boundary for operation {node}: {domain:?}")]
+    InvalidDomainBoundary { node: String, domain: String },
+    #[error(
+        "domain {domain} has conflicting admission owners in one immutable plan: {first:?} versus {second:?}"
+    )]
+    ConflictingDomainAuthority {
+        domain: String,
+        first: DomainAdmissionMode,
+        second: DomainAdmissionMode,
+    },
     #[error("invalid registered operation key {name:?} at version {version}")]
     InvalidOperationKey { name: String, version: u32 },
     #[error("operation {name} version {version} is already registered")]
@@ -127,6 +137,39 @@ impl ResourceAccess {
     }
 }
 
+/// A declaration of which coordinator owns the admission boundary.
+///
+/// `RieselTick` means the outer graph admits each declared tick as a
+/// separate operation. `DelegatedFrame` means the graph admits a frame
+/// operation while the domain coordinator retains authority for *internal*
+/// ticks and systems. Neither mode selects a wall clock, makes callbacks
+/// thread-safe or grants a remote client the right to control a domain.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum DomainAdmissionMode {
+    RieselTick,
+    DelegatedFrame,
+}
+
+/// Names the domain whose outer admission boundary is declared. Multiple
+/// nodes with this domain name coordinate through one session-wide slot,
+/// independent of manually declared resource keys.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct DomainBoundary {
+    domain: String,
+    mode: DomainAdmissionMode,
+}
+
+impl DomainBoundary {
+    pub fn domain(&self) -> &str {
+        &self.domain
+    }
+
+    pub fn mode(&self) -> DomainAdmissionMode {
+        self.mode
+    }
+}
+
 /// A draft operation; dependencies are application-operation IDs, not
 /// capability requirements, processes, provider instances or ECS systems.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
@@ -138,6 +181,8 @@ pub struct OperationNode {
     trigger: OperationTrigger,
     #[serde(skip_serializing_if = "Vec::is_empty")]
     access: Vec<ResourceAccess>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    domain_boundary: Option<DomainBoundary>,
 }
 
 impl OperationNode {
@@ -148,6 +193,7 @@ impl OperationNode {
             depends_on: Vec::new(),
             trigger: OperationTrigger::Immediate,
             access: Vec::new(),
+            domain_boundary: None,
         }
     }
 
@@ -163,6 +209,27 @@ impl OperationNode {
 
     pub fn access(mut self, resource: impl Into<String>, mode: AccessMode) -> Self {
         self.access.push(ResourceAccess::new(resource, mode));
+        self
+    }
+
+    /// Declare that this graph operation is one Riesel-admitted outer tick.
+    /// An application-provided tick source must explicitly release it, e.g.
+    /// through the existing `on_signal` trigger. This is not a fixed-rate clock.
+    pub fn domain_tick(mut self, domain: impl Into<String>) -> Self {
+        self.domain_boundary = Some(DomainBoundary {
+            domain: domain.into(),
+            mode: DomainAdmissionMode::RieselTick,
+        });
+        self
+    }
+
+    /// Admit a single outer frame operation, leaving all internal domain
+    /// ticks/system scheduling under that domain's coordinator.
+    pub fn delegated_frame(mut self, domain: impl Into<String>) -> Self {
+        self.domain_boundary = Some(DomainBoundary {
+            domain: domain.into(),
+            mode: DomainAdmissionMode::DelegatedFrame,
+        });
         self
     }
 
@@ -184,6 +251,10 @@ impl OperationNode {
 
     pub fn resources(&self) -> &[ResourceAccess] {
         &self.access
+    }
+
+    pub fn domain_boundary(&self) -> Option<&DomainBoundary> {
+        self.domain_boundary.as_ref()
     }
 }
 
@@ -263,7 +334,25 @@ impl ExecutionPlanDraft {
 
         let mut indegrees = vec![0usize; description.operations.len()];
         let mut dependents = vec![Vec::<usize>::new(); description.operations.len()];
+        let mut domain_modes = BTreeMap::<&str, DomainAdmissionMode>::new();
         for (index, operation) in description.operations.iter().enumerate() {
+            if let Some(boundary) = &operation.domain_boundary {
+                if !valid_name(boundary.domain()) {
+                    return Err(ExecutionPlanError::InvalidDomainBoundary {
+                        node: operation.id.clone(),
+                        domain: boundary.domain.clone(),
+                    });
+                }
+                if let Some(existing) = domain_modes.insert(boundary.domain(), boundary.mode())
+                    && existing != boundary.mode()
+                {
+                    return Err(ExecutionPlanError::ConflictingDomainAuthority {
+                        domain: boundary.domain.clone(),
+                        first: existing,
+                        second: boundary.mode(),
+                    });
+                }
+            }
             if let OperationTrigger::Signal(signal) = &operation.trigger
                 && !valid_name(signal)
             {
@@ -588,6 +677,70 @@ mod tests {
             draft.validate(),
             Err(ExecutionPlanError::Cycle { .. })
         ));
+    }
+
+    #[test]
+    fn domain_boundary_is_inspectable_without_executing_or_claiming_internal_steps() {
+        let plan = ExecutionPlanDraft::new("domain", 1)
+            .operation(
+                OperationNode::new("one", key("tick", 1))
+                    .domain_tick("world")
+                    .on_signal("tick.one"),
+            )
+            .operation(
+                OperationNode::new("two", key("tick", 1))
+                    .after("one")
+                    .domain_tick("world")
+                    .on_signal("tick.two"),
+            )
+            .validate()
+            .unwrap();
+        let first = &plan.description().operations()[0];
+        let boundary = first.domain_boundary().unwrap();
+        assert_eq!(boundary.domain(), "world");
+        assert_eq!(boundary.mode(), DomainAdmissionMode::RieselTick);
+        let projected = serde_json::to_value(plan.description()).unwrap();
+        assert_eq!(projected["operations"][0]["domain_boundary"]["domain"], "world");
+        assert_eq!(projected["operations"][0]["domain_boundary"]["mode"], "riesel_tick");
+        assert!(projected["operations"][0].get("internal_systems").is_none());
+    }
+
+    #[test]
+    fn invalid_or_mixed_domain_admission_is_rejected_before_binding() {
+        let invalid = ExecutionPlanDraft::new("domain", 1)
+            .operation(OperationNode::new("tick", key("op", 1)).domain_tick("bad domain"))
+            .validate();
+        assert!(matches!(
+            invalid,
+            Err(ExecutionPlanError::InvalidDomainBoundary { node, domain })
+                if node == "tick" && domain == "bad domain"
+        ));
+        let mixed = ExecutionPlanDraft::new("domain", 1)
+            .operation(OperationNode::new("tick", key("op", 1)).domain_tick("world"))
+            .operation(
+                OperationNode::new("frame", key("op", 1))
+                    .after("tick")
+                    .delegated_frame("world"),
+            )
+            .validate();
+        assert!(matches!(
+            mixed,
+            Err(ExecutionPlanError::ConflictingDomainAuthority {
+                domain,
+                first: DomainAdmissionMode::RieselTick,
+                second: DomainAdmissionMode::DelegatedFrame,
+            }) if domain == "world"
+        ));
+        // Independent domains may select different owners in a single plan.
+        assert!(
+            ExecutionPlanDraft::new("independent", 1)
+                .operation(OperationNode::new("tick", key("op", 1)).domain_tick("world-a"))
+                .operation(
+                    OperationNode::new("frame", key("op", 1)).delegated_frame("world-b")
+                )
+                .validate()
+                .is_ok()
+        );
     }
 
     #[test]
