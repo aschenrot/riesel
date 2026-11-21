@@ -21,6 +21,14 @@
 
 Commands are bounded and clean up only the randomly named research unit; no service or unit belonging to a real Riesel installation is touched. Ordinary Riesel workspace validation is an independent CI gate.
 
+## Added negative stale-stop experiment
+
+A second, deliberately unsafe *research-only* case retains one stable transient unit name while a competing controller restarts it from incarnation **A** to **B**. The original controller then issues a normal name-only `systemctl --user stop UNIT` based on its old observation of A. The test asserts the stop **kills the newer incarnation B**, even though `InvocationID` changed.
+
+This does **not** demonstrate an exploit against an implemented Riesel Manager: no production Manager exists. It directly tests a failure mode of **using an unguarded systemd StopUnit against a reused unit name**. The previous `stop_if_current` fixture refuses a stale ID when the change happens **before its comparison**, but that check remains non-atomic. A race-safe admission strategy must remove or constrain the interval between proof of ownership and OS effects.
+
+The second case is added to the same dedicated real-systemd workflow; verify the current branch's exact SHA and `RESEARCH_SYSTEMD_UNFENCED_STALE_STOP_KILLS_REPLACEMENT` marker before treating it as executed evidence.
+
 ## Architecture implications
 
 The [previous #59 report](../../docs/product/riesel/manager-control-plane-investigation.md) compared direct-child, OS-owned user services and one-owner hybrid. This real experiment **supports** a systemd user `.service` as a credible first *installed Linux* owner, provided the Manager is an **authorized observer/controller** while systemd is the **actual process owner**. It does **not** establish that this mode has been technically accepted.
