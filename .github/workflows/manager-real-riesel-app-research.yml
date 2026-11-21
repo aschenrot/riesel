@@ -1,0 +1,43 @@
+name: Research #59 — real Riesel application with systemd owner
+
+permissions:
+  contents: read
+
+on:
+  pull_request:
+    branches:
+      - main
+      - research/59-systemd-user-owner-probe
+    paths:
+      - "research/process-ownership/manager_riesel_todo_probe.py"
+      - "research/process-ownership/REAL-RIESEL-OWNER.md"
+      - ".github/workflows/manager-real-riesel-app-research.yml"
+  workflow_dispatch:
+
+jobs:
+  linux-real-app:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install pinned Rust 1.100.0
+        run: |
+          rustup toolchain install 1.100.0 --profile minimal --component rustfmt --component clippy
+          rustup default 1.100.0
+      # Run the decision-critical real-app experiment before unrelated
+      # workspace-wide tests. An intermittent separate SQLite ownership test
+      # must not conceal whether this actual systemd/Todo proof ran. All
+      # validation still remains a required independent, non-skipped gate.
+      - name: Build genuine linked-SQLite Riesel Todo HTTP application
+        run: cargo build --locked -p todo --features http --bin todo_http
+      - name: Verify real OS owner and app-specific graceful stop semantics
+        run: |
+          set -euo pipefail
+          test "$(ps -p 1 -o comm=)" = systemd
+          systemctl --user show-environment >/dev/null
+          python3 -m py_compile research/process-ownership/manager_riesel_todo_probe.py
+          timeout 95 python3 research/process-ownership/manager_riesel_todo_probe.py
+      - name: Validate unchanged Riesel workspace (independent quality gate)
+        run: |
+          cargo validate --check
+          cargo smoke
