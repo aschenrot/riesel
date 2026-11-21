@@ -9,7 +9,20 @@ use std::sync::{
 use std::time::Duration;
 
 pub async fn serve(handler: Arc<dyn AsyncRpcHandler>) -> io::Result<()> {
-    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await?;
+    // Research-only fixed-address restart probe. Default fixtures still use
+    // an OS-assigned loopback port; no application discovery policy is implied.
+    let bind_address = std::env::var("RIESEL_RESEARCH_FACADE_BIND")
+        .unwrap_or_else(|_| "127.0.0.1:0".to_owned());
+    let requested: std::net::SocketAddr = bind_address
+        .parse()
+        .map_err(|error| io::Error::new(io::ErrorKind::InvalidInput, error))?;
+    if !requested.ip().is_loopback() {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidInput,
+            "research facade may only bind to loopback",
+        ));
+    }
+    let listener = tokio::net::TcpListener::bind(requested).await?;
     let address = listener.local_addr()?;
     handler.validate_host().map_err(io::Error::other)?;
     let stopping = Arc::new(AtomicBool::new(false));
