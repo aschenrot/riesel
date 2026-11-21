@@ -12,6 +12,7 @@ The workspace uses Rust 1.100.0. From the repository root:
 cargo run -p riesel_hello_example
 cargo run -p riesel --example execution_plan  # headless plan inspection, not scheduling
 cargo run -p riesel --features async-tcp --example execution_graph  # headless, session-owned execution
+cargo run -p riesel --features async-tcp --example execution_fixed_step  # bounded external-clock tick proposals
 cargo run -p todo --bin todo
 cargo run -p todo --bin todo -- --print-definition
 

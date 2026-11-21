@@ -7,8 +7,9 @@
 #![cfg(feature = "async-tcp")]
 use riesel::{
     AccessMode, App, AsyncOperation, ConnectorRegistry, DeploymentConfig, ExecutionPlanDraft,
-    GraphRunReport, OperationKey, OperationNode, OperationOutcome, OperationRegistry,
-    OperationState, RunningApp, async_operation,
+    FixedStepAdmission, FixedStepBacklog, FixedStepPolicy, GraphRunReport, OperationKey,
+    OperationNode, OperationOutcome, OperationRegistry, OperationState, RunningApp,
+    async_operation,
 };
 use std::cell::Cell;
 use std::num::NonZeroUsize;
@@ -25,6 +26,20 @@ use tokio::sync::{Barrier, mpsc as async_mpsc, oneshot};
 const SESSION_EPOCH: u64 = 71;
 const PROPOSED_TICKS: usize = 4;
 const CATCH_UP_CAP: usize = 2;
+const TICK_INTERVAL: Duration = Duration::from_millis(10);
+
+fn policy() -> FixedStepPolicy {
+    FixedStepPolicy::new(
+        TICK_INTERVAL,
+        NonZeroUsize::new(CATCH_UP_CAP).unwrap(),
+        FixedStepBacklog::DiscardExcess,
+    )
+    .unwrap()
+}
+
+fn delayed_frame() -> Duration {
+    TICK_INTERVAL * PROPOSED_TICKS as u32
+}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum TickOwner {
@@ -79,6 +94,7 @@ enum DomainCommand {
     },
     Frame {
         requested: TickOwner,
+        elapsed: Duration,
         permits: Receiver<Permit>,
         snapshots: async_mpsc::Sender<Snapshot>,
         response: oneshot::Sender<Result<FrameOutcome, &'static str>>,
@@ -98,6 +114,9 @@ impl DomainActor {
             // Construct the non-Send world on its own thread. No Riesel async
             // callback can move Rc<Cell<...>> into a Tokio worker.
             let world = Rc::new(Cell::new(Snapshot::initial()));
+            // Only the domain-owned frame branch uses this local clock
+            // accounting. It lives on the same !Send owner thread as world.
+            let mut frame_admission = FixedStepAdmission::new(policy());
             while let Ok(command) = receiver.recv() {
                 match command {
                     DomainCommand::Tick {
@@ -115,6 +134,7 @@ impl DomainActor {
                     }
                     DomainCommand::Frame {
                         requested,
+                        elapsed,
                         permits,
                         snapshots,
                         response,
@@ -123,16 +143,21 @@ impl DomainActor {
                             let _ = response.send(Err("frame admission authority mismatch"));
                             continue;
                         }
+                        let frame = frame_admission.advance_frame(elapsed);
                         let mut committed_ticks = 0;
                         let mut cancelled = false;
                         let mut failed = None;
-                        while committed_ticks < PROPOSED_TICKS.min(CATCH_UP_CAP) {
+                        while committed_ticks < frame.eligible {
                             match permits.recv_timeout(Duration::from_secs(3)) {
                                 Ok(Permit::Advance { epoch, response }) => {
                                     if epoch != SESSION_EPOCH {
                                         let _ = response.send(false);
                                         continue;
                                     }
+                                    // Claim only when the domain actually
+                                    // admits a tick. A cancelled partial frame
+                                    // cannot turn the remainder into success.
+                                    assert_eq!(frame_admission.claim(1), 1);
                                     let next = world.get().next();
                                     world.set(next);
                                     committed_ticks += 1;
@@ -328,10 +353,16 @@ async fn central_policy() -> (Vec<Snapshot>, GraphRunReport) {
         .unwrap();
     let signals = runner.signal_sender();
     let task = tokio::spawn(runner.execute());
+    // This is the *central* outer tick owner, not the ECS actor.
+    let mut admission = FixedStepAdmission::new(policy());
+    let frame = admission.advance_frame(delayed_frame());
+    assert_eq!(frame.eligible, CATCH_UP_CAP);
+    assert_eq!(frame.discarded, (PROPOSED_TICKS - CATCH_UP_CAP) as u128);
     wait_for_count(&joined, 2).await;
     assert!(snapshots.lock().unwrap().is_empty());
     assert!(!task.is_finished());
 
+    assert_eq!(admission.claim(1), 1);
     signals.fire("tick.one").unwrap();
     tokio::time::timeout(Duration::from_secs(3), async {
         while snapshots.lock().unwrap().is_empty() {
@@ -343,6 +374,8 @@ async fn central_policy() -> (Vec<Snapshot>, GraphRunReport) {
     assert_eq!(snapshots.lock().unwrap()[0].tick, 1);
     assert!(!task.is_finished());
 
+    assert_eq!(admission.claim(1), 1);
+    assert_eq!(admission.available(), 0);
     signals.fire("tick.two").unwrap();
     let report = tokio::time::timeout(Duration::from_secs(3), task)
         .await
@@ -391,6 +424,7 @@ async fn delegated_policy(
                         if commands
                             .try_send(DomainCommand::Frame {
                                 requested: TickOwner::Domain,
+                                elapsed: delayed_frame(),
                                 permits,
                                 snapshots: observation_tx,
                                 response,
@@ -613,6 +647,7 @@ fn mismatched_domain_admission_owner_rejects_before_world_mutation() {
             .commands
             .try_send(DomainCommand::Frame {
                 requested: TickOwner::Domain,
+                elapsed: delayed_frame(),
                 permits,
                 snapshots: observed,
                 response,

@@ -159,6 +159,19 @@ pub fn run(mode: FormatMode) -> TaskResult {
             ],
         ),
         (
+            "Runnable bounded fixed-step execution example",
+            &[
+                "run",
+                "--locked",
+                "-p",
+                "riesel",
+                "--features",
+                "async-tcp",
+                "--example",
+                "execution_fixed_step",
+            ],
+        ),
+        (
             "Explicit fixed-tick domain authority comparison",
             &[
                 "test",
