@@ -29,6 +29,19 @@ This does **not** demonstrate an exploit against an implemented Riesel Manager: 
 
 The second case is added to the same dedicated real-systemd workflow; verify the current branch's exact SHA and `RESEARCH_SYSTEMD_UNFENCED_STALE_STOP_KILLS_REPLACEMENT` marker before treating it as executed evidence.
 
+## Alternative experiment: unique unit identity for each attempt
+
+A third test compares a different systemd namespace policy. Two transient services with **distinct attempt-specific unit names** start the same research executable and remain active simultaneously. Stopping attempt A by its immutable unit name leaves attempt B alive.
+
+This provides two concrete, opposing observations:
+
+- **Benefit:** an old attempt-specific unit name cannot directly name a replacement attempt, even if the old caller issues its stop after B starts.
+- **Cost:** distinct unit names permit duplicate instances of the same intended registered application. Systemd alone has no shared registration-level uniqueness constraint across the distinct names.
+
+The research therefore does **not** establish that either a reused unit name with a non-atomic invocation check or uncoordinated unique-attempt units is a complete Manager owner. A robust design needs a **fenced, authoritative registration-to-owner/attempt admission rule** as well as exact OS unit control. Define its crash/restart durability and out-of-band controller threat model before making M2 guarantees.
+
+The added isolated test prints `RESEARCH_SYSTEMD_UNIQUE_ATTEMPT_NAMES_ALLOW_DUPLICATES` and `RESEARCH_SYSTEMD_ATTEMPT_NAMES_ISOLATE_OLD_STOP`. Confirm both in exact-head Linux CI before treating these outcomes as executed.
+
 ## Architecture implications
 
 The [previous #59 report](../../docs/product/riesel/manager-control-plane-investigation.md) compared direct-child, OS-owned user services and one-owner hybrid. This real experiment **supports** a systemd user `.service` as a credible first *installed Linux* owner, provided the Manager is an **authorized observer/controller** while systemd is the **actual process owner**. It does **not** establish that this mode has been technically accepted.
