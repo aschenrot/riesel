@@ -26,7 +26,7 @@ jobs:
           test "$(ps -p 1 -o comm=)" = systemd
           command -v setpriv
           sudo -n true
-          sudo -n systemctl --system is-system-running --wait >/dev/null || true
+          timeout 6 sudo -n systemctl --system show --property=Version --value >/dev/null
       - name: Execute isolated protected OS process-owner experiment
         run: |
           set -euo pipefail
