@@ -70,7 +70,7 @@ fn perform_ecs_tick(world: &mut World, runtime: &mut Runtime, input: i32)
     runtime.run_schedule::<Simulation>(world)
         .map_err(|_| "RunenECS schedule failed")?;
     let mut positions: Vec<_> = world.query::<&Position>()
-        .iter(world).map(|position| position.0).collect();
+        .iter(&*world).map(|position| position.0).collect();
     positions.sort_unstable();
     Ok(EcsSnapshot {
         tick: world.resource::<TickCount>().unwrap().0,
