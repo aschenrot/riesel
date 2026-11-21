@@ -61,6 +61,39 @@ The SQLite scratch-index test used the database *seeded through the real linked 
 
 **No architecture is accepted by these experiments.** They identify the UX guarantee and rule out misleading empty states; owner review is still required before changing a public query contract, physical index or persistent task model.
 
+## Shared provider-instance selection research (2026-11-21)
+
+The accepted component model and Counter/Observer implementation already
+demonstrate that separate versioned contracts *can* share one state instance.
+However, the provider resolver binds requirements independently. An identical
+provider **definition** does not imply that two requirements target the same
+**running instance**.
+
+The research test in \`examples/counter/app/src/tests.rs\` constructs one
+two-capability application and two preflight plans, each with identical pinned
+provider metadata. In the first, writer/query use **different named managed
+instances**; in the second, both use the **same named managed instance**. It
+asserts that the existing planner accepts and distinguishes the two selections
+rather than requiring co-location automatically. It does not launch an
+executable, prove runtime shared state in the split case, or test hostile
+operator-owned TCP services. Existing Counter tests separately exercise
+write-through-observer on one local component and one managed instance.
+
+This is an important constraint for an additive query capability: merely
+exposing \`RecordStoreContract\` and \`RecordQueryContract\` from one component
+type is **insufficient** if the application can select them independently.
+Any accepted query+write co-location guarantee needs explicit preflight
+validation of authoritative **instance identity** (including named managed
+instance keys), consistent provider/contract pins and a refusal to continue
+when they differ. Do not infer authenticated peer identity from a remote TCP
+address alone. A single versioned Storage contract avoids this particular
+cross-capability pairing constraint, but imposes its own compatibility and
+migration costs.
+
+**No pairing enforcement API is authorized by this test.** The owner must
+accept whether the contract is a separately versioned query interface plus
+verified same-instance selection, or an updated unified Storage contract.
+
 ## Decision gate
 
 Before implementing UX groups, choose one complete semantic model:
