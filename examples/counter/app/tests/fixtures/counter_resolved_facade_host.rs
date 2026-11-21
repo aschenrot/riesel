@@ -92,3 +92,18 @@ fn main() -> riesel::Result<()> {
         .component::<AsyncMemoryCounter>()?
         .run()
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn adapter_keeps_session_failure_distinct_from_domain_error() {
+        let expired = encode::<u64>(Err(CallError::Rpc(RpcError::SessionExpired)));
+        assert!(matches!(expired, Err(RpcError::SessionExpired)));
+
+        let domain = encode::<u64>(Err(CallError::Domain(CounterError::ZeroIncrement))).unwrap();
+        let decoded: Result<u64, CounterError> = serde_json::from_value(domain).unwrap();
+        assert!(matches!(decoded, Err(CounterError::ZeroIncrement)));
+    }
+}
