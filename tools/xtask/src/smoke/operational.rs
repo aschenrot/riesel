@@ -9,7 +9,12 @@ impl Drop for ProbeDirectory {
     }
 }
 
-fn run_fixture(binary: &Path, setup: &Path, handler: &Path, args: &[&str]) -> Result<std::process::Output, String> {
+fn run_fixture(
+    binary: &Path,
+    setup: &Path,
+    handler: &Path,
+    args: &[&str],
+) -> Result<std::process::Output, String> {
     let child = Command::new(binary)
         .args(args)
         .env("RIESEL_PROBE_SETUP_MARKER", setup)
@@ -57,7 +62,9 @@ pub(super) fn verify_independent_inspection() -> TaskResult {
         .status()
         .map_err(|error| format!("cannot build independent app: {error}"))?;
     if !status.success() {
-        return Err(format!("independent Cargo workspace build failed: {status}"));
+        return Err(format!(
+            "independent Cargo workspace build failed: {status}"
+        ));
     }
 
     let scratch = env::temp_dir().join(format!(
@@ -78,9 +85,7 @@ pub(super) fn verify_independent_inspection() -> TaskResult {
         return Err(format!("unexpected inspected app schema: {schema}"));
     }
     if !setup.exists() || handler.exists() {
-        return Err(
-            "executable inspection must execute app setup but not the handler".to_owned(),
-        );
+        return Err("executable inspection must execute app setup but not the handler".to_owned());
     }
 
     // Reading saved metadata has no execution side effect, but its provenance
@@ -104,7 +109,12 @@ pub(super) fn verify_independent_inspection() -> TaskResult {
     }
 
     fs::remove_file(&setup).map_err(|error| error.to_string())?;
-    let bad_args = run_fixture(&probe, &setup, &handler, &["--unsupported-infrastructure-flag"])?;
+    let bad_args = run_fixture(
+        &probe,
+        &setup,
+        &handler,
+        &["--unsupported-infrastructure-flag"],
+    )?;
     if bad_args.status.success() || !setup.exists() || handler.exists() {
         return Err("invalid app flags did not preserve setup/handler distinction".into());
     }
