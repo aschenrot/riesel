@@ -81,6 +81,19 @@ pub fn run(mode: FormatMode) -> TaskResult {
             ],
         ),
         (
+            "Foreign graph task scope is rejected before admission",
+            &[
+                "test",
+                "--locked",
+                "-p",
+                "riesel_app",
+                "--features",
+                "async-tcp",
+                "--lib",
+                "graph_from_another_app_session_cannot_enter_our_task_scope",
+            ],
+        ),
+        (
             "Revoked session retains original graph failure attribution",
             &[
                 "test",
