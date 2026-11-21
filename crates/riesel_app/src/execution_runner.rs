@@ -8,7 +8,10 @@
 //! This first increment admits one-shot operations, explicit signals and
 //! declarative resource conflicts. Authoritative run identity, committed-effect
 //! ledgers and cooperative step controls belong to Issue #113.
-use crate::execution_plan::{AccessMode, BoundExecutionPlan, OperationTrigger, ResourceAccess};
+use crate::execution_plan::{
+    AccessMode, BoundExecutionPlan, DomainAdmissionMode, DomainBoundary, OperationTrigger,
+    ResourceAccess,
+};
 use crate::runtime::RunningApp;
 use riesel_protocol::SessionToken;
 use std::collections::{BTreeMap, BTreeSet, HashMap};
@@ -38,11 +41,20 @@ pub(crate) struct SessionGraphAdmission {
 struct SessionGraphState {
     live_runs: usize,
     next_ticket: u64,
-    operations: BTreeMap<u64, Vec<ResourceAccess>>,
+    operations: BTreeMap<u64, OperationReservation>,
+    // One declared outer admission authority per named domain while any run
+    // that uses it is outstanding. Not a credential or an ECS-system owner.
+    domains: BTreeMap<String, (DomainAdmissionMode, usize)>,
+}
+
+struct OperationReservation {
+    accesses: Vec<ResourceAccess>,
+    domain: Option<String>,
 }
 
 struct GraphRunLease {
     session: Arc<SessionGraphAdmission>,
+    domains: BTreeMap<String, DomainAdmissionMode>,
 }
 
 impl Drop for GraphRunLease {
@@ -54,6 +66,21 @@ impl Drop for GraphRunLease {
             .unwrap_or_else(PoisonError::into_inner);
         debug_assert!(state.live_runs > 0);
         state.live_runs -= 1;
+        for (domain, mode) in &self.domains {
+            let remove = {
+                let (registered_mode, count) = state
+                    .domains
+                    .get_mut(domain)
+                    .expect("claimed domain has a retained authority");
+                debug_assert_eq!(registered_mode, mode);
+                debug_assert!(*count > 0);
+                *count -= 1;
+                *count == 0
+            };
+            if remove {
+                state.domains.remove(domain);
+            }
+        }
     }
 }
 
@@ -79,26 +106,64 @@ impl Drop for GraphOperationLease {
 }
 
 impl SessionGraphAdmission {
-    fn claim_run(self: &Arc<Self>) -> Result<GraphRunLease, GraphRunError> {
+    fn claim_run(
+        self: &Arc<Self>,
+        plan: &BoundExecutionPlan<AsyncOperation>,
+    ) -> Result<GraphRunLease, GraphRunError> {
+        // A validated plan has exactly one mode for every declared domain.
+        // Claim the complete plan's authorities atomically before allowing
+        // any operation to run, not one prefix at a time.
+        let domains: BTreeMap<_, _> = plan
+            .plan()
+            .description()
+            .operations()
+            .iter()
+            .filter_map(|node| {
+                node.domain_boundary()
+                    .map(|boundary| (boundary.domain().to_owned(), boundary.mode()))
+            })
+            .collect();
         let mut state = self.state.lock().unwrap_or_else(PoisonError::into_inner);
         if state.live_runs >= MAX_SESSION_RUNS {
             return Err(GraphRunError::SessionRunLimitExceeded {
                 limit: MAX_SESSION_RUNS,
             });
         }
+        for (domain, requested) in &domains {
+            if let Some((existing, _)) = state.domains.get(domain)
+                && existing != requested
+            {
+                return Err(GraphRunError::ConflictingDomainAuthority {
+                    domain: domain.clone(),
+                    existing: *existing,
+                    requested: *requested,
+                });
+            }
+        }
+        for (domain, mode) in &domains {
+            let (_, owners) = state.domains.entry(domain.clone()).or_insert((*mode, 0));
+            *owners += 1;
+        }
         state.live_runs += 1;
         Ok(GraphRunLease {
             session: Arc::clone(self),
+            domains,
         })
     }
 
-    fn reserve(self: &Arc<Self>, accesses: &[ResourceAccess]) -> Option<GraphOperationLease> {
+    fn reserve(
+        self: &Arc<Self>,
+        accesses: &[ResourceAccess],
+        domain: Option<&DomainBoundary>,
+    ) -> Option<GraphOperationLease> {
         let mut state = self.state.lock().unwrap_or_else(PoisonError::into_inner);
         if state.operations.len() >= MAX_SESSION_PARALLEL_OPERATIONS
-            || state
-                .operations
-                .values()
-                .any(|active| conflicts(active, accesses))
+            || state.operations.values().any(|active| {
+                conflicts(&active.accesses, accesses)
+                    || domain.is_some_and(|boundary| {
+                        active.domain.as_deref() == Some(boundary.domain())
+                    })
+            })
         {
             return None;
         }
@@ -108,7 +173,13 @@ impl SessionGraphAdmission {
         }
         let ticket = state.next_ticket;
         state.next_ticket = ticket.wrapping_add(1);
-        state.operations.insert(ticket, accesses.to_vec());
+        state.operations.insert(
+            ticket,
+            OperationReservation {
+                accesses: accesses.to_vec(),
+                domain: domain.map(|boundary| boundary.domain().to_owned()),
+            },
+        );
         Some(GraphOperationLease {
             session: Arc::clone(self),
             ticket,
@@ -161,6 +232,14 @@ pub enum GraphRunError {
     InvalidParallelism { requested: usize, maximum: usize },
     #[error("the application session already has {limit} outstanding graph runs")]
     SessionRunLimitExceeded { limit: usize },
+    #[error(
+        "domain {domain} already has {existing:?} admission authority; cannot also claim {requested:?}"
+    )]
+    ConflictingDomainAuthority {
+        domain: String,
+        existing: DomainAdmissionMode,
+        requested: DomainAdmissionMode,
+    },
     #[error("plan does not declare signal {name:?}")]
     UnknownSignal { name: String },
     #[error("the bounded signal queue is full")]
@@ -263,7 +342,7 @@ impl ExecutionGraphRunner {
                 maximum: MAX_PARALLEL_OPERATIONS,
             });
         }
-        let run_lease = admission.claim_run()?;
+        let run_lease = admission.claim_run(&plan)?;
         let operations = plan.plan().description().operations();
         let index = operations
             .iter()
@@ -464,7 +543,10 @@ impl ExecutionGraphRunner {
             }
             // The one session-level admission table enforces conflicts for
             // both this run and every other run in the same application.
-            let Some(lease) = self.admission.reserve(node.resources()) else {
+            let Some(lease) = self
+                .admission
+                .reserve(node.resources(), node.domain_boundary())
+            else {
                 continue;
             };
             let handler = Arc::clone(
