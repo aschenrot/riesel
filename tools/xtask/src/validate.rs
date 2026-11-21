@@ -62,7 +62,7 @@ pub fn run(mode: FormatMode) -> TaskResult {
                 "-p",
                 "riesel_app",
                 "--features",
-                "async-tcp",
+                "async-tcp,test-fixtures",
                 "--test",
                 "managed_graph_lifecycle",
             ],

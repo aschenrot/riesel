@@ -1,7 +1,7 @@
 //! Real OS managed-child exit while a Riesel session-owned graph runs.
 //! The compact TCP verbs in this fixture are not capability RPC; startup,
 //! process ownership, session revocation and graph scheduling are production.
-#![cfg(feature = "async-tcp")]
+#![cfg(all(feature = "async-tcp", feature = "test-fixtures"))]
 
 use riesel_app::{
     App, AsyncOperation, BoundExecutionPlan, CapabilityConnector, ConnectedProvider,
