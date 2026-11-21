@@ -4,6 +4,8 @@
 **Specification:** [#75](https://github.com/aschenrot/riesel/issues/75) · **Reviewed:** 2026-11-20 · **Repository starting point:** `main` at `7456dbce`.  
 This report compares common semantics relevant to [developer tooling #68](https://github.com/aschenrot/riesel/issues/68), [Manager #59](https://github.com/aschenrot/riesel/issues/59), and [native GUI #60](https://github.com/aschenrot/riesel/issues/60). **Each product retains its own Gate B decision.** The [delivery workflow](../../project/delivery.md) prefers architecture-first investment when it improves credible cross-product reuse; it does not preselect shared infrastructure.
 
+**S1/S2 follow-up (research only):** [isolated operational identity, session-fence and same-UID threat probe](../../../research/operational-contract/REPORT.md) compares a test-only server-side gate against the real SDK-resolved Counter and identifies unverified **Riesel-owned same-process recovery** and **strong same-UID authorization**. It neither accepts a public exporter nor duplicates the unmerged #87 negative fixtures.
+
 ## 1. Product requirement and implementation evidence
 
 **Proposed shared outcome:** independently developed applications can be built, observed, controlled where authorized and connected to optional interfaces through coherent, versioned operational semantics, without each tool inventing a conflicting application identity, session epoch or readiness convention.
