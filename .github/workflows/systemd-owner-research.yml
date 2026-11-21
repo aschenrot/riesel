@@ -8,6 +8,7 @@ on:
     branches: [main]
     paths:
       - "research/process-ownership/systemd_user_service_probe.py"
+      - "research/process-ownership/systemd-user-service-report.md"
       - ".github/workflows/systemd-owner-research.yml"
   workflow_dispatch:
 
