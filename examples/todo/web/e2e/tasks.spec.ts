@@ -307,3 +307,12 @@ test('reduced motion preference disables refresh spin while keeping the state cl
   await expect(page.locator('.refresh-icon')).toHaveCSS('animation-name', 'none');
   await expect(page.getByText('Checking…')).toBeVisible();
 });
+
+test('narrow 320px viewport keeps refresh and filters accessible', async ({ page }) => {
+  await page.setViewportSize({ width: 320, height: 740 });
+  await page.goto('/');
+  await expect(page.getByRole('button', { name: 'Refresh tasks' })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Done', exact: true })).toBeVisible();
+  expect(await page.evaluate(() =>
+    document.documentElement.scrollWidth > window.innerWidth + 1)).toBe(false);
+});

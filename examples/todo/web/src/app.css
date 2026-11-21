@@ -149,7 +149,10 @@ button.small { min-height: 44px; padding: 8px 11px; font-size: 13px; }
 }
 
 @media (max-width: 350px) {
-  .count { font-size: 10px; }
+  .toolbar { grid-template-columns: minmax(0, 1fr); }
+  .refresh-group { grid-column: 1; grid-row: 1; }
+  .count { grid-column: 1; grid-row: 2; justify-self: start; font-size: 11px; }
+  .filters { grid-column: 1; grid-row: 3; }
 }
 
 @media (prefers-reduced-motion: reduce) {
