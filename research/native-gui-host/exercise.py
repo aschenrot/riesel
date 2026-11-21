@@ -104,7 +104,8 @@ def key(*keys):
 
 
 def close(client, window):
-    xdotool("windowclose", window)
+    focus(window)
+    key("ctrl+q")
     client.until("GUI_CLOSED_WITHOUT_BACKEND_STOP", 15)
     client.finish()
 
