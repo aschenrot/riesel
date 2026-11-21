@@ -112,7 +112,10 @@ pub struct ResourceAccess {
 
 impl ResourceAccess {
     pub fn new(resource: impl Into<String>, mode: AccessMode) -> Self {
-        Self { resource: resource.into(), mode }
+        Self {
+            resource: resource.into(),
+            mode,
+        }
     }
 
     pub fn resource(&self) -> &str {
@@ -247,10 +250,14 @@ impl ExecutionPlanDraft {
         let mut ids = BTreeMap::new();
         for (index, operation) in description.operations.iter().enumerate() {
             if !valid_name(&operation.id) {
-                return Err(ExecutionPlanError::InvalidNodeId { id: operation.id.clone() });
+                return Err(ExecutionPlanError::InvalidNodeId {
+                    id: operation.id.clone(),
+                });
             }
             if ids.insert(operation.id.as_str(), index).is_some() {
-                return Err(ExecutionPlanError::DuplicateNode { id: operation.id.clone() });
+                return Err(ExecutionPlanError::DuplicateNode {
+                    id: operation.id.clone(),
+                });
             }
         }
 
@@ -260,7 +267,8 @@ impl ExecutionPlanDraft {
             if let OperationTrigger::Signal(signal) = &operation.trigger {
                 if !valid_name(signal) {
                     return Err(ExecutionPlanError::InvalidSignal {
-                        node: operation.id.clone(), signal: signal.clone(),
+                        node: operation.id.clone(),
+                        signal: signal.clone(),
                     });
                 }
             }
@@ -282,16 +290,20 @@ impl ExecutionPlanDraft {
             let mut visited = BTreeSet::new();
             for prerequisite in &operation.depends_on {
                 if prerequisite == &operation.id {
-                    return Err(ExecutionPlanError::SelfDependency { node: operation.id.clone() });
+                    return Err(ExecutionPlanError::SelfDependency {
+                        node: operation.id.clone(),
+                    });
                 }
                 let Some(&dep) = ids.get(prerequisite.as_str()) else {
                     return Err(ExecutionPlanError::UnknownDependency {
-                        node: operation.id.clone(), dependency: prerequisite.clone(),
+                        node: operation.id.clone(),
+                        dependency: prerequisite.clone(),
                     });
                 };
                 if !visited.insert(prerequisite) {
                     return Err(ExecutionPlanError::DuplicateDependency {
-                        node: operation.id.clone(), dependency: prerequisite.clone(),
+                        node: operation.id.clone(),
+                        dependency: prerequisite.clone(),
                     });
                 }
                 indegrees[index] += 1;
@@ -299,8 +311,11 @@ impl ExecutionPlanDraft {
             }
         }
 
-        let mut eligible: BTreeSet<usize> = indegrees.iter().enumerate()
-            .filter_map(|(i, &n)| (n == 0).then_some(i)).collect();
+        let mut eligible: BTreeSet<usize> = indegrees
+            .iter()
+            .enumerate()
+            .filter_map(|(i, &n)| (n == 0).then_some(i))
+            .collect();
         let mut order = Vec::with_capacity(description.operations.len());
         while let Some(&next) = eligible.first() {
             eligible.remove(&next);
@@ -314,7 +329,10 @@ impl ExecutionPlanDraft {
         }
         if order.len() != description.operations.len() {
             return Err(ExecutionPlanError::Cycle {
-                nodes: description.operations.iter().enumerate()
+                nodes: description
+                    .operations
+                    .iter()
+                    .enumerate()
                     .filter_map(|(i, node)| (indegrees[i] != 0).then(|| node.id.clone()))
                     .collect(),
             });
@@ -363,7 +381,10 @@ impl ValidatedExecutionPlan {
             };
             handlers.insert(node.id.clone(), Arc::clone(handler));
         }
-        Ok(BoundExecutionPlan { plan: self.clone(), handlers })
+        Ok(BoundExecutionPlan {
+            plan: self.clone(),
+            handlers,
+        })
     }
 }
 
@@ -376,7 +397,9 @@ pub struct OperationRegistry<H: ?Sized> {
 
 impl<H: ?Sized> Default for OperationRegistry<H> {
     fn default() -> Self {
-        Self { handlers: BTreeMap::new() }
+        Self {
+            handlers: BTreeMap::new(),
+        }
     }
 }
 
@@ -386,11 +409,14 @@ impl<H: ?Sized> OperationRegistry<H> {
     }
 
     pub fn register(
-        &mut self, key: OperationKey, handler: Arc<H>,
+        &mut self,
+        key: OperationKey,
+        handler: Arc<H>,
     ) -> Result<(), ExecutionPlanError> {
         if self.handlers.contains_key(&key) {
             return Err(ExecutionPlanError::DuplicateRegistration {
-                name: key.name, version: key.version,
+                name: key.name,
+                version: key.version,
             });
         }
         self.handlers.insert(key, handler);
@@ -447,7 +473,8 @@ impl PlanRevisionCatalog {
         let key = (plan.description.id.clone(), plan.description.revision);
         if self.revisions.contains_key(&key) {
             return Err(ExecutionPlanError::DuplicatePlanRevision {
-                id: key.0, revision: key.1,
+                id: key.0,
+                revision: key.1,
             });
         }
         let plan = Arc::new(plan);
@@ -471,11 +498,16 @@ mod tests {
 
     fn make_plan() -> ValidatedExecutionPlan {
         ExecutionPlanDraft::new("example.process", 4)
-            .operation(OperationNode::new("join", key("join", 1)).after("left").after("right"))
+            .operation(
+                OperationNode::new("join", key("join", 1))
+                    .after("left")
+                    .after("right"),
+            )
             .operation(OperationNode::new("right", key("handler", 2)).after("input"))
             .operation(OperationNode::new("input", key("handler", 2)).on_signal("message"))
             .operation(OperationNode::new("left", key("handler", 2)).after("input"))
-            .validate().unwrap()
+            .validate()
+            .unwrap()
     }
 
     #[test]
@@ -501,12 +533,14 @@ mod tests {
         ));
         assert!(matches!(
             ExecutionPlanDraft::new("bad name", 1)
-                .operation(OperationNode::new("one", key("op", 1))).validate(),
+                .operation(OperationNode::new("one", key("op", 1)))
+                .validate(),
             Err(ExecutionPlanError::InvalidPlanId { .. })
         ));
         assert!(matches!(
             ExecutionPlanDraft::new("example", 0)
-                .operation(OperationNode::new("one", key("op", 1))).validate(),
+                .operation(OperationNode::new("one", key("op", 1)))
+                .validate(),
             Err(ExecutionPlanError::InvalidRevision)
         ));
         assert!(OperationKey::new("bad name", 1).is_err());
@@ -519,25 +553,40 @@ mod tests {
         let draft = ExecutionPlanDraft::new("example", 1)
             .operation(OperationNode::new("x", op.clone()))
             .operation(OperationNode::new("x", op.clone()));
-        assert!(matches!(draft.validate(), Err(ExecutionPlanError::DuplicateNode { .. })));
+        assert!(matches!(
+            draft.validate(),
+            Err(ExecutionPlanError::DuplicateNode { .. })
+        ));
 
         let draft = ExecutionPlanDraft::new("example", 1)
             .operation(OperationNode::new("x", op.clone()).after("missing"));
-        assert!(matches!(draft.validate(), Err(ExecutionPlanError::UnknownDependency { .. })));
+        assert!(matches!(
+            draft.validate(),
+            Err(ExecutionPlanError::UnknownDependency { .. })
+        ));
 
         let draft = ExecutionPlanDraft::new("example", 1)
             .operation(OperationNode::new("x", op.clone()).after("x"));
-        assert!(matches!(draft.validate(), Err(ExecutionPlanError::SelfDependency { .. })));
+        assert!(matches!(
+            draft.validate(),
+            Err(ExecutionPlanError::SelfDependency { .. })
+        ));
 
         let draft = ExecutionPlanDraft::new("example", 1)
             .operation(OperationNode::new("x", op.clone()).after("y").after("y"))
             .operation(OperationNode::new("y", op.clone()));
-        assert!(matches!(draft.validate(), Err(ExecutionPlanError::DuplicateDependency { .. })));
+        assert!(matches!(
+            draft.validate(),
+            Err(ExecutionPlanError::DuplicateDependency { .. })
+        ));
 
         let draft = ExecutionPlanDraft::new("example", 1)
             .operation(OperationNode::new("x", op.clone()).after("y"))
             .operation(OperationNode::new("y", op).after("x"));
-        assert!(matches!(draft.validate(), Err(ExecutionPlanError::Cycle { .. })));
+        assert!(matches!(
+            draft.validate(),
+            Err(ExecutionPlanError::Cycle { .. })
+        ));
     }
 
     #[test]
@@ -545,22 +594,37 @@ mod tests {
         let op = key("op", 1);
         let bad_signal = ExecutionPlanDraft::new("example", 1)
             .operation(OperationNode::new("x", op.clone()).on_signal(""));
-        assert!(matches!(bad_signal.validate(), Err(ExecutionPlanError::InvalidSignal { .. })));
+        assert!(matches!(
+            bad_signal.validate(),
+            Err(ExecutionPlanError::InvalidSignal { .. })
+        ));
 
-        let invalid_resource = ExecutionPlanDraft::new("example", 1)
-            .operation(OperationNode::new("x", op.clone()).access("bad resource", AccessMode::Read));
-        assert!(matches!(invalid_resource.validate(), Err(ExecutionPlanError::InvalidResource { .. })));
+        let invalid_resource = ExecutionPlanDraft::new("example", 1).operation(
+            OperationNode::new("x", op.clone()).access("bad resource", AccessMode::Read),
+        );
+        assert!(matches!(
+            invalid_resource.validate(),
+            Err(ExecutionPlanError::InvalidResource { .. })
+        ));
 
-        let duplicate = ExecutionPlanDraft::new("example", 1)
-            .operation(OperationNode::new("x", op.clone())
-                .access("world", AccessMode::Read).access("world", AccessMode::Write));
-        assert!(matches!(duplicate.validate(), Err(ExecutionPlanError::DuplicateResource { .. })));
+        let duplicate = ExecutionPlanDraft::new("example", 1).operation(
+            OperationNode::new("x", op.clone())
+                .access("world", AccessMode::Read)
+                .access("world", AccessMode::Write),
+        );
+        assert!(matches!(
+            duplicate.validate(),
+            Err(ExecutionPlanError::DuplicateResource { .. })
+        ));
 
         let valid = ExecutionPlanDraft::new("example", 1)
             .operation(OperationNode::new("x", op).access("world", AccessMode::Write))
-            .validate().unwrap();
-        assert_eq!(valid.description().operations()[0].resources()[0].mode(),
-            AccessMode::Write);
+            .validate()
+            .unwrap();
+        assert_eq!(
+            valid.description().operations()[0].resources()[0].mode(),
+            AccessMode::Write
+        );
     }
 
     #[test]
@@ -568,28 +632,40 @@ mod tests {
         let counter = Arc::new(AtomicUsize::new(0));
         let counter_for_handler = Arc::clone(&counter);
         let mut registry = OperationRegistry::<dyn Fn() + Send + Sync>::new();
-        registry.register(
-            key("handler", 2),
-            Arc::new(move || { counter_for_handler.fetch_add(1, Ordering::SeqCst); }),
-        ).unwrap();
+        registry
+            .register(
+                key("handler", 2),
+                Arc::new(move || {
+                    counter_for_handler.fetch_add(1, Ordering::SeqCst);
+                }),
+            )
+            .unwrap();
         registry.register(key("join", 1), Arc::new(|| {})).unwrap();
 
         let plan = make_plan();
         assert_eq!(counter.load(Ordering::SeqCst), 0);
         let bound = plan.bind(&registry).unwrap();
-        assert_eq!(counter.load(Ordering::SeqCst), 0,
-            "plan validation and binding must not execute application code");
+        assert_eq!(
+            counter.load(Ordering::SeqCst),
+            0,
+            "plan validation and binding must not execute application code"
+        );
         assert!(bound.handler("not_a_node").is_none());
         assert!(bound.handler("input").is_some());
         assert_eq!(bound.plan().description().revision(), 4);
 
         let mismatched = ExecutionPlanDraft::new("example", 5)
             .operation(OperationNode::new("x", key("handler", 3)))
-            .validate().unwrap();
-        assert!(matches!(mismatched.bind(&registry),
-            Err(ExecutionPlanError::MissingBinding { version: 3, .. })));
-        assert!(matches!(registry.register(key("handler", 2), Arc::new(|| {})),
-            Err(ExecutionPlanError::DuplicateRegistration { .. })));
+            .validate()
+            .unwrap();
+        assert!(matches!(
+            mismatched.bind(&registry),
+            Err(ExecutionPlanError::MissingBinding { version: 3, .. })
+        ));
+        assert!(matches!(
+            registry.register(key("handler", 2), Arc::new(|| {})),
+            Err(ExecutionPlanError::DuplicateRegistration { .. })
+        ));
     }
 
     #[test]
@@ -597,17 +673,27 @@ mod tests {
         let mut catalog = PlanRevisionCatalog::new();
         let first = catalog.publish(make_plan()).unwrap();
         let duplicate = make_plan();
-        assert!(matches!(catalog.publish(duplicate),
-            Err(ExecutionPlanError::DuplicatePlanRevision { revision: 4, .. })));
+        assert!(matches!(
+            catalog.publish(duplicate),
+            Err(ExecutionPlanError::DuplicatePlanRevision { revision: 4, .. })
+        ));
 
         let edited = ExecutionPlanDraft::new("example.process", 5)
             .operation(OperationNode::new("different", key("other", 7)))
-            .validate().unwrap();
+            .validate()
+            .unwrap();
         let changed = catalog.publish(edited).unwrap();
         assert_eq!(first.description().revision(), 4);
         assert_eq!(first.description().operations().len(), 4);
         assert_eq!(changed.description().revision(), 5);
-        assert_eq!(catalog.get("example.process", 4).unwrap().description().revision(), 4);
+        assert_eq!(
+            catalog
+                .get("example.process", 4)
+                .unwrap()
+                .description()
+                .revision(),
+            4
+        );
         assert!(catalog.get("example.process", 6).is_none());
     }
 }
