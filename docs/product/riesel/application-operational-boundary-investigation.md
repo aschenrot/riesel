@@ -154,3 +154,65 @@ The Rust application handler explicitly creates an `AsyncMemoryCounter` implemen
 **Recommend a comparative Gate B**, evaluating B as an important reusable-foundation candidate alongside A and C under the same product-wide outcomes, integration tests and growth costs. **Do not accept any mechanism** before its concrete identity, readiness, trust and lifecycle semantics are compared. Product-owner acceptance is required for any shared public app/operational contract, implementation Issue, crate boundary, daemon or protocol.
 
 The research issue [#75](https://github.com/aschenrot/riesel/issues/75) owns the checklist and final accept/revise/defer/reject decision. [#68](https://github.com/aschenrot/riesel/issues/68), [#59](https://github.com/aschenrot/riesel/issues/59) and [#60](https://github.com/aschenrot/riesel/issues/60) retain independent product outcome decisions. The already accepted Storage and Todo HTTP contracts are unchanged. No roadmap stage is created merely by adding this investigation.
+
+
+## 11. Coordinated decision packet — 2026-11-21 (main \`0798a6fb\`, proposal)
+
+This section **updates the research recommendation**, not the accepted application contract. It incorporates the independent Cargo executable-inspection test [#79](https://github.com/aschenrot/riesel/pull/79), the generated facade comparator [#81](https://github.com/aschenrot/riesel/pull/81) and SDK-resolved handle forwarding [#82](https://github.com/aschenrot/riesel/pull/82). The latter two prove cross-process typed calls and retained app-owned state. They do **not** prove externally fenced sessions, authorization, readiness or a native event loop. Older statements in this investigation that a resolved application facade has not been exercised are superseded by section 9 and this packet.
+
+### 11.1 Proposed shared meanings, not shared control ownership
+
+| Concept | Authoritative issuer/owner | Stable scope and invalidation | Consumer |
+| --- | --- | --- | --- |
+| Application definition identity | Application author/publisher; explicit external identity must be distinguished from a display name and checked against versioned derived SDK definition | Stable across ordinary launches; any publication/version policy requires acceptance | CLI, Manager, GUI |
+| Manager registration identity | Trusted operator/Manager registry | Stable within the registry, **not** a substitute for publisher identity or process ownership | Manager/UI |
+| Artifact/build identity | Builder and verified installed-artifact source | A particular executable/build, not automatically the definition identity; do not trust a self-reported digest as remote proof | CLI/Manager |
+| Launch attempt ID | The **actual process owner**: foreground tool, Manager or OS unit controller | New for every OS start attempt; PID is diagnostic only; one authority at a time | Tool/Manager |
+| Application runtime generation | Current Riesel application session, mapped to an externally represented unpredictable generation only by an explicit app-owned interface | New after every whole-session recovery, including within an unchanged OS process; old generation cannot authorize new operations | GUI, authorized observers |
+| Provider instance identity | Existing application provider runtime | Provider-scoped, may change independently of launch attempt; not a user-facing application ID | Application/runtime and observations |
+| Public interface identity | Explicit publishing application, referencing versioned capability contract(s) and a particular session | A separately published surface, not all internal provider requirements; unavailable after session revocation | GUI/other authorized clients |
+| Client attachment identity | Trusted connection/authorization layer | One attachment, revocable and not interchangeable with application session or registration | Export endpoint |
+| Management command ID | Authoritative Manager command coordinator | A recorded request/result **within the coordinator's advertised retention epoch**; does not survive an unjournaled Manager crash by magic | CLI/UI |
+
+A descriptive name, TCP port, PID, \`ProcessKey\`, in-process \`SessionToken\` or arbitrary provider metadata **must not** act as the public authentication credential, stable application identity, or cross-process session generation. No new Rust type names, canonical JSON schema, serialization or storage location are accepted here.
+
+### 11.2 Observation is a set of independently evidenced facts
+
+Report **definition known**, **plan validated**, **OS launch accepted/spawned**, **process observed alive**, **providers ready**, **application handler active**, **specific public interface bound**, **specific interface verified callable**, and **terminal/failed/unknown** independently; do not collapse these into one boolean \`ready\`. Every observation should carry an authority/source and observed generation; stale observations must not masquerade as current state. A successful bind/readiness line is not a complete end-to-end authenticated call. A stopped application cannot self-report fresh live readiness; missing telemetry is \`unknown\`, not \`healthy\`.
+
+- **Passive inspection:** read already generated/cached metadata with its provenance and freshness caveat; no untrusted application execution.
+- **Executable inspection:** deliberately run a **trusted** binary; #79 demonstrates user Rust setup runs before \`--print-definition\`. Label and authorize this as code execution, not passive inspection.
+- **Live inspection:** authorize against a specific app/interface session and report disconnect/timeout without fabricating negative or healthy state.
+- **Failure envelope:** preserve origin (build/tool, process owner, application startup, provider, interface, client transport), actionable details and whether the command's effect is known. Avoid exposing credentials in error/log output.
+
+### 11.3 Contract candidate B, bounded and transport-neutral
+
+**Recommendation for maintainer decision:** prefer a **small shared semantic contract** for identity, readiness/observations, deliberate public capability exposure, generation fencing and common error meaning, implemented by product-specific adapters. It is **not** a daemon, service manager, protocol, manifest or replacement provider resolver. Compare it in an executable design slice against (A) adapters with independent conventions and (C) a universal control service before acceptance.
+
+A proposed interface attachment handshake verifies all of: (1) expected application and artifact/provenance where applicable, (2) explicitly exported contract identity/version, (3) active session generation, and (4) the separately authenticated/authorized client principal and permitted operations. **Version agreement and generation matching are not authorization.** The export belongs to the session; shutdown and whole-session restart revoke the previous export before any successor is treated as ready. On reconnect, obtain a fresh authorized binding, re-read authoritative state, and never replay uncertain mutations. A lost reply is *outcome unknown* unless a separate durable operation-status/idempotency mechanism is accepted and verified. Read-only requests may be retried only under an explicit operation-level policy; do not infer safety from HTTP or RPC method naming.
+
+Under a constrained first **single-trusted-user** local threat model, same-UID processes may still be hostile. Unix peer UID, private socket directory, loopback binding and browser Host/Origin checks have different roles and do not together prove caller authorization. Either explicitly exclude adversarial same-UID code, or design a stronger principal/credential isolation policy and test it before exposing privileged commands. Remote and cross-user support require separate authorization evidence.
+
+### 11.4 Cross-product ownership and actual prerequisite edges
+
+| Owner | May do | Must not silently do |
+| --- | --- | --- |
+| Cargo/developer CLI #68 | Select/build project, own foreground launch attempt, inspect trusted artifacts, optionally open UI | Become provider resolver, app session restart controller, Manager or privileged global registry |
+| Riesel runtime | Validate provider selection, own providers and session-specific tasks, revoke session handles, own public app export lifecycle **if adopted** | Own OS deployment/installed service policy, accept external control on provider metadata alone |
+| Manager #59 | Own registry, authorize operations, reconcile its **actual process-owner mechanism**, expose operator status | Resolve application's internal providers, adopt an unknown PID or claim transitive process-tree containment without evidence |
+| Native GUI #60 | Own OS window, renderer, UI event loop and presentation state; attach by deliberate app-facing contract | Own backend domain/provider state or terminate app on window close |
+| OS owner | Own process/service/scope/job according to explicit deployment policy | Be reported as a working application interface solely because a unit is active |
+| Execution research #83 | Investigate plan/trace/tick/step semantics within domain ownership | Imply a shared scheduler, global task control or node grammar in this operational contract |
+
+**True ordering:** a generic CLI may research Cargo workflow independently of Manager/UI; native event-loop/renderer tests need no Manager; Manager UI design may proceed independently of native hosts. Any real **cross-process control, GUI attachment, or unified live inspection** must first agree compatible app/interface identity, readiness, authorization and generation semantics. #83's local scheduler/stepping study is independent; only authorized remote observation shares this boundary.
+
+### 11.5 Non-negotiable Gate B evidence before implementing a common public interface
+
+1. A real SDK-resolved app-facing capability across two processes **after session restart**, proving fresh generation, old descriptor rejection and no call to a revoked session; inject a lost mutation response and verify no automatic replay.
+2. Authorized and unauthorized local clients: wrong app/interface/version, different Unix UID where testable, an explicitly excluded or addressed same-UID attacker, malformed and over-budget requests; no mutation before verified authorization.
+3. App interface readiness measured *after* listener bind and authenticated typed operation; prove process spawn and provider handshake alone cannot set it.
+4. Compare author code duplication in Todo and **another independently authored app** for (A) generated facade, (B) manual HTTP/adapter and (C) bounded reusable exporter, including listener lifecycle, error translation, reconnect and security.
+5. Manager process-owner/restart scenario with real OS-group/service mechanism; distinguish top-level process exit from contained descendant cleanup.
+6. Record transport/version compatibility and metadata provenance choices; fail closed on unknown versions rather than silently accepting a different contract.
+
+Existing #79/#81/#82 evidence establishes only the indicated subsets. The new [POSIX process probe](../../../research/process-ownership/process_tree_probe.py) is a research comparator, **not** Riesel or systemd validation. Keep #75 OPEN and request maintainer **ACCEPT / REVISE / DEFER / REJECT** for the *shared semantic invariant*, separately from any particular exporter/daemon or implementation milestone.
