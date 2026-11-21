@@ -13,9 +13,14 @@ fn headless_sdk_authoring_inspects_before_running_any_rust_handler() {
     let binding = OperationKey::new("example.record", 1).unwrap();
 
     let mut registered = OperationRegistry::<dyn Fn() + Send + Sync>::new();
-    registered.register(binding.clone(), Arc::new(move || {
-        counter.fetch_add(1, Ordering::SeqCst);
-    })).unwrap();
+    registered
+        .register(
+            binding.clone(),
+            Arc::new(move || {
+                counter.fetch_add(1, Ordering::SeqCst);
+            }),
+        )
+        .unwrap();
 
     let plan = ExecutionPlanDraft::new("example.headless", 1)
         .operation(OperationNode::new("record", binding))
