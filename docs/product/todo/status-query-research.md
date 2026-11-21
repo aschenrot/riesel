@@ -110,3 +110,127 @@ Before implementing UX groups, choose one complete semantic model:
 - How will lifecycle state for future Trash (#119) extend filtering without double-maintained identity or an unsafe storage migration?
 
 No generic `RecordStore` contract, SQLite physical index, model evolution or Open/Completed UI is authorized by this investigation. Status-query specification remains in [#107](https://github.com/aschenrot/riesel/issues/107), and accepted architecture belongs in the product/contract docs after owner review.
+
+
+## Decision-ready interface comparison and preflight research (2026-11-22)
+
+This section is an **architecture recommendation for maintainer review**, not
+an accepted platform contract. The decision is against the **same Todo and
+future-app outcome**: reliable filtered reads of authoritative, revisioned
+records on linked and supported managed providers, with a credible path to
+future lifecycle/Trash predicates and read-only clients.
+
+| Alternative | Correct sparse filtering / growth | Provider ownership | Compatibility and evolution | Disposition |
+| --- | --- | --- | --- | --- |
+| Client grouping of 32-item UUID pages | Cannot ensure an Open task is visible; false global empty states possible | No new selection | No migration, but UX outcome fails | Reject as final grouped design |
+| Todo-owned bounded continuation over v2 | Can be honest but may require 313 pages to find one 10k-record match; no snapshot | Uses existing record handle | Smallest initial change, continued read amplification | Fallback only for bounded partial views |
+| Todo-owned direct SQLite filter/sidecar | Fast for local SQLite; bypasses portable model/provider boundary or needs synchronized index writes | Must prove same SQLite owner and atomicity | Coupled to Todo/SQLite, difficult managed or memory parity | Do not use as implicit shortcut |
+| Unified RecordStore v3 with filtered reads | Native provider query; stable cursor possible | Query/write pairing intrinsic **when all operations use this one handle** | Requires v3 client/provider adoption and a plan to retain v2; read-only query clients also receive a write-capable interface | Valid competing architecture |
+| Separate versioned Record Query capability co-exposed with v2 | Native provider query; stable cursor possible | Requires explicit same-authoritative-instance constraint for query+write applications | Retains v2 callers; query-only requirements are independently versioned, with extra pairing/hosting tests | **Preferred if pairing is enforceable** |
+
+Do not misstate v3 as necessarily breaking all v2 clients: a provider could
+expose both versions. Conversely, an additive query capability is not free:
+one additional published interface, validation relation and provider tests
+are long-lived maintenance obligations.
+
+### Proposed first supported semantics (not frozen API names)
+
+1. Filter a registered Rust-derived model by a bounded conjunction of typed,
+   schema-validated **equality predicates** on supported scalar fields.
+   Reject unknown model, field, unsupported field type, wrong value type,
+   invalid predicate shape or excessive predicate count before querying.
+   Neither a general SQL/JSONPath expression nor arbitrary client-provided
+   SQL is included. Support `completed: bool` initially and an independent
+   future Todo lifecycle field without changing the query principle.
+2. Return 1–32 matching records per request, in ascending immutable UUID/ID
+   order, with original record identity, revision and validated value.
+   **A zero-match first page must not mean “no matching tasks” if a
+   continuation still exists.** Prefer native bounded match pages rather
+   than a chain of empty filtered views.
+3. Treat the cursor as an opaque token associated with model, canonical
+   predicate, ID ordering and an authoritative query session/instance
+   generation. Reject wrong-filter, malformed and stale-generation tokens.
+   It is a continuation position, **not** a transaction snapshot. Changing
+   status behind the cursor may require full refresh/reconciliation.
+4. Preserve Riesel's revision fencing and uncertain-outcome rules; neither
+   a query response nor a failed HTTP reply permits blind write replay.
+   Do not promise exact global totals or chronology. The UI can identify
+   loaded matches and true current-page exhaustion, not a permanent
+   all-time count.
+5. Provide behavioral parity for Memory and linked SQLite; no second task
+   database, independent sidecar, or unreviewed on-startup index migration.
+   Start with provider-native SQLite filtering without a new physical index
+   if **integrated** latency/resource tests pass. Any later provider-managed
+   index requires migration, rollback and write-atomicity verification.
+6. Initial hosting should match synchronous Storage v2 when co-hosted on one
+   managed endpoint. Do not disguise a blocking SQLite call as native async.
+   The first verified scope may explicitly limit SQLite to linked mode;
+   managed SQLite parity must not be claimed without actual tests.
+
+### Required query/write ownership relation
+
+An application binding both a writer and a query for the **same data source**
+must explicitly declare *same authoritative instance* as a constraint
+independent from startup dependency ordering. It must be checked after
+provider selection but **before** creating a local factory or starting a
+managed child:
+
+- **Linked:** same registered local component/provider identity is eligible.
+- **Managed:** only an explicitly shared instance name and compatible
+  pinned provider definition/launch configuration are eligible at preflight;
+  subsequently verify actual startup/session and both interfaces on that
+  child. Unnamed aliases or split names are not shared.
+- **External TCP:** advertised provider metadata or the same loopback
+  address cannot authenticate server or instance identity; fail closed for
+  an authoritative pairing claim until a separately accepted #75 trust
+  mechanism exists.
+
+A query-only consumer need not declare a writer pairing. Do not impose
+read/write privileges on a read-only client merely because the provider
+implementation supports both. The pairing invariant must also cover
+multiple model-to-storage aliases and recovery after whole-session restart,
+not just one hardcoded Todo example.
+
+A new research-only test in
+`examples/todo/tests/query_capability_research.rs` exercises a **candidate**
+plan validator for shared/split/unnamed managed requirements and shared
+linked providers. This is not a public runtime enforcement mechanism, does
+not launch an actual managed query provider, and does not authenticate a
+remote process. Its exact-head CI status must be checked separately.
+
+### Acceptance tests to require before production integration
+
+- Reject a split/mismatched query+writer plan before either factory/child
+  starts, including named-instance and provider-pin mismatches. Prove
+  successful real managed co-host startup and read-your-writes, then reject
+  stale session bindings after managed crash/restart.
+- Exercise invalid schema/type/predicate, wrong-filter or malformed cursor,
+  stale generation and page bounds on Memory and SQLite with equivalent
+  results and error classes.
+- Exercise 33, 100, 10,000 sparse records, changes behind the cursor,
+  concurrent conflicting revisions, index-free latency, and repeated
+  completion/reopening without a false global-empty state.
+- Verify Todo HTTP first/middle/exhausted pages, separate Open/Completed
+  cursors, accessible collapse/focus transitions, Undo and loaded-only
+  multi-selection; refresh after cross-client changes. Preserve R0/R1 CLI.
+- Test clean upgrade with existing SQLite files **without** physical
+  mutation. If an index is later selected, test explicit migration,
+  backup/rollback, interrupted writes and schema compatibility under
+  established offline ownership rules.
+- Prove that future Trash can be filtered independently from completion
+  without turning permanent deletion into a browser-only delayed remove.
+
+### Decision / delivery boundary
+
+**Recommend:** additive typed Record Query capability, with declarative
+same-instance pairing and fail-closed supported targets, subject to the
+above guarantees. **Fallback:** unified opt-in v3 Storage contract if
+declarative pairing cannot be made simpler and more reliable than versioned
+migration/authorization costs.
+
+The specification owner must explicitly accept or revise that trade-off;
+the research PR must remain draft until then. Upon acceptance, record
+invariants in the authoritative product/architecture documents and split
+implementation along independently testable boundaries: provider/query
+contract + pairing; Todo domain/HTTP adapter; Open/Completed UI. Do not
+merge research-only types as production APIs.
