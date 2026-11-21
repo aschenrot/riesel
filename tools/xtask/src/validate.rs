@@ -81,6 +81,19 @@ pub fn run(mode: FormatMode) -> TaskResult {
             ],
         ),
         (
+            "Revoked session retains original graph failure attribution",
+            &[
+                "test",
+                "--locked",
+                "-p",
+                "riesel_app",
+                "--features",
+                "async-tcp",
+                "--lib",
+                "revoked_session_does_not_invent_secondary_background_graph_failure",
+            ],
+        ),
+        (
             "Real application-session graph/domain ownership regression",
             &[
                 "test",
