@@ -4,8 +4,8 @@
 #![cfg(feature = "async-tcp")]
 use riesel::{
     AccessMode, App, AsyncOperation, ConnectorRegistry, DeploymentConfig, ExecutionPlanDraft,
-    GraphRunError, OperationKey, OperationNode, OperationOutcome, OperationRegistry, OperationState,
-    RunningApp, async_operation,
+    GraphRunError, OperationKey, OperationNode, OperationOutcome, OperationRegistry,
+    OperationState, RunningApp, async_operation,
 };
 use std::num::NonZeroUsize;
 use std::sync::{
@@ -25,7 +25,6 @@ fn runtime() -> tokio::runtime::Runtime {
         .unwrap()
 }
 
-
 /// Each public SDK test enters a real validated application session, rather
 /// than supplying a self-minted session token to the graph constructor.
 fn application_session() -> RunningApp {
@@ -33,8 +32,11 @@ fn application_session() -> RunningApp {
         r#"{"version":1,"app":{"name":"GraphFixture"},"models":{},"requires":[]}"#,
     )
     .unwrap();
-    app.start(&DeploymentConfig::new(Default::default()), &ConnectorRegistry::new())
-        .unwrap()
+    app.start(
+        &DeploymentConfig::new(Default::default()),
+        &ConnectorRegistry::new(),
+    )
+    .unwrap()
 }
 
 #[test]
@@ -81,7 +83,9 @@ fn parallel_branches_complete_before_a_join() {
             .bind(&registry)
             .unwrap();
         let owner = application_session();
-        let runner = owner.execution_graph(plan, NonZeroUsize::new(2).unwrap()).unwrap();
+        let runner = owner
+            .execution_graph(plan, NonZeroUsize::new(2).unwrap())
+            .unwrap();
         let report = tokio::time::timeout(Duration::from_secs(3), runner.execute())
             .await
             .unwrap();
@@ -126,7 +130,9 @@ fn signal_gates_only_its_own_branch_without_blocking_independent_work() {
             .bind(&registry)
             .unwrap();
         let owner = application_session();
-        let runner = owner.execution_graph(plan, NonZeroUsize::new(2).unwrap()).unwrap();
+        let runner = owner
+            .execution_graph(plan, NonZeroUsize::new(2).unwrap())
+            .unwrap();
         let signals = runner.signal_sender();
         assert!(matches!(
             signals.fire("undeclared"),
@@ -259,7 +265,9 @@ fn expired_session_aborts_work_conservatively_and_rejects_stale_signals() {
             .unwrap();
         let owner = application_session();
         let session = owner.session_token();
-        let runner = owner.execution_graph(plan, NonZeroUsize::new(2).unwrap()).unwrap();
+        let runner = owner
+            .execution_graph(plan, NonZeroUsize::new(2).unwrap())
+            .unwrap();
         let signal = runner.signal_sender();
         let run = tokio::spawn(runner.execute());
         tokio::time::timeout(Duration::from_secs(3), started_rx)
