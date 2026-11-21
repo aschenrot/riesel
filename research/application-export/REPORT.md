@@ -43,11 +43,29 @@ Rerun exact sources, isolated tests and a source-only non-comment LOC/operation-
 
 **Measured and not measured:** `measure.py` computes nonblank/non-comment source LOC per comparator and the exact number of selected method match arms and HTTP route handlers from this branch. The Counter-generated/manual pair is closely comparable as a narrow 3-operation interface; the existing Todo HTTP API and the Todo 2-operation export are *not functionally equivalent*. There is no valid percentage boilerplate reduction, throughput/latency number or full two-application production cost claim yet. The main measurable result is **one shared policy wrapper for two distinct SDK dependency shapes** while retaining app-authored domain API and Counter manual dispatch.
 
+### Reproducible source counts (first green test head `e161aaa8`, Actions 44877456827)
+
+The [CI metrics step](https://github.com/aschenrot/riesel/actions/runs/44877456827) counted nonblank/non-`//` lines from exactly named source files (the report script is the counting definition):
+
+| Source fixture | Count | What it does / does not measure |
+| --- | ---: | --- |
+| Counter generated facade host | 16 | Only app handler/host invocation; generated adapter and helper not counted here |
+| Counter manually forwarded SDK-resolved facade | 89 | Three operation dispatch arms, error conversion and app setup; listener helper separate |
+| Shared experimental Counter listener helper | 36 | Existing bound address, host startup and shutdown, not authentication |
+| Todo HTTP routes | 242 | Five authored HTTP route handlers, HTTP/domain status/payload semantics |
+| Todo HTTP server and worker | 172 | Server and owned blocking-worker plumbing; includes app-specific HTTP behavior |
+| Shared research gateway policy | 197 | New reusable policy source, not production listener/auth implementation |
+| New Counter/Todo adapters and their tests | 265 | Test harness + two distinct app-facing adapters; not pure authoring boilerplate |
+
+The manual Counter adapter and the prototype each have **3/3 manually mapped operations**; the exporter did **not** eliminate per-operation dispatch. Todo has 5/5 app-authored HTTP route handlers; this is not an equivalent operation set to the research create/count capability. These metrics are source inventory evidence only: not a normalized LOC reduction, user-effort benchmark, latency measurement or proof of financial payoff.
+
 ## 5. Responsibilities — the proposed bounded exporter
 
 **Exporter should own (if accepted):** opt-in mapping from named app-facing interface to a contract + SDK-resolved service or explicit domain facade; validation of exported contract/API shape and allowed operations; scope-bound listener, owned connection/request budgets, shutdown/drain and diagnostic provenance; per-session external descriptor and pre-dispatch validation; adapters for approved local transport(s); explicit caller authentication hook and fine-grained policy enforcement; consistent transport/policy/domain/unknown-outcome error envelope; readiness evidence that *this* interface is authorized and callable; no mutation replay.
 
 **Application code keeps:** defining a deliberate public facade and its behavior; choosing which operations/principals are allowed; handling domain validation/business authorization and revisions; ownership of persistent state, snapshots and mutation side effects; existing provider selection and lifecycle; opt-in exposure/start policy; browser-specific HTTP semantics and GUI rendering when chosen. The exported facade is **not necessarily identical to the internal provider contract**. Component provider identity or the discovery address is never promoted to public application identity.
+
+**Critical admission impedance, not solved by the existing RPC host:** `AsyncRpcHandler::dispatch` receives only operation+arguments and `dispatch_for` receives capability+operation+arguments. Neither carries a verified principal, externally issued runtime epoch, or attach state. Simply implementing `AsyncRpcHandler` around `ResearchExport` and using today's `serve_async_tcp_rpc_host` would be **unauthorized**: caller-provided strings are forgeable. An accepted exporter needs a transport/connection-level authorization gate or explicitly versioned request envelope **before** dispatch, without silently changing the internal provider RPC contract. It also needs actual expected interface-shape/build binding rather than treating a capability ID/version alone as a cryptographic identity.
 
 **#75 owns shared invariants, not the exporter implementation:** an externally verifiable app identity/build provenance; unique non-reusable session generation bound to real runtime lifetime; authoritative interface publication/attach; authenticated principal and authorization rules including same-UID local adversaries; callable-readiness state; operation error categories/unknown effect policy; correlation between runtime teardown and externally observable session expiry. None can be substituted by a serialized `SessionToken`, self-reported principal string, PID, port, provider metadata or `RIESEL_READY`.
 
