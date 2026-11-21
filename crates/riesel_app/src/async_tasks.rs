@@ -117,6 +117,9 @@ impl AsyncTasks {
         name: impl Into<String>,
         runner: crate::execution_runner::ExecutionGraphRunner,
     ) -> Result<(), RuntimeError> {
+        if !runner.belongs_to_session(&self.inner.session) {
+            return Err(RuntimeError::GraphSessionMismatch);
+        }
         let name = name.into();
         let (mut state, executor) = self.reserve(&name)?;
         let stopping = Arc::clone(&self.inner);
