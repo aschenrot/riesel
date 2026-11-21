@@ -8,6 +8,7 @@ on:
     branches: [main]
     paths:
       - "research/process-ownership/manager_verified_executable_intent_probe.py"
+      - "research/process-ownership/manager_apparmor_label_probe.py"
       - "research/process-ownership/VERIFIED-CLIENT-INTENT.md"
       - ".github/workflows/manager-verified-client-intent-research.yml"
   workflow_dispatch:
@@ -32,6 +33,13 @@ jobs:
           set -euo pipefail
           python3 -m py_compile research/process-ownership/manager_verified_executable_intent_probe.py
           timeout 70 python3 research/process-ownership/manager_verified_executable_intent_probe.py
+      - name: Test actual AppArmor same-user peer labels and self-transition
+        run: |
+          set -euo pipefail
+          command -v aa-exec
+          command -v apparmor_parser
+          python3 -m py_compile research/process-ownership/manager_apparmor_label_probe.py
+          timeout 80 python3 research/process-ownership/manager_apparmor_label_probe.py
       - name: Record availability of optional OS-enforced process labels (non-acceptance)
         run: |
           set -euo pipefail
