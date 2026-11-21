@@ -449,7 +449,7 @@ test('system light and dark themes track live browser preference with readable s
   expect(dark.errorSurface).not.toEqual(light.errorSurface);
 
   const contrast = (text: string, background: string): number => {
-    const channels = (rgb: string) => rgb.match(/[\\d.]+/g)!.slice(0, 3).map(Number).map((x) => {
+    const channels = (rgb: string) => rgb.match(/[\d.]+/g)!.slice(0, 3).map(Number).map((x) => {
       const c = x / 255;
       return c <= 0.04045 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4;
     });
