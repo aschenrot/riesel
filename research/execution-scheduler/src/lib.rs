@@ -311,3 +311,6 @@ mod live_control;
 
 #[cfg(test)]
 mod bevy_comparator;
+
+#[cfg(test)]
+mod ecs_parallel;
