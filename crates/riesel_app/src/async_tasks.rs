@@ -691,15 +691,14 @@ mod tests {
                 while !started.load(Ordering::Acquire) {
                     tokio::task::yield_now().await;
                 }
-                while tasks
-                    .inner
-                    .state
-                    .lock()
-                    .unwrap()
-                    .handles
-                    .iter()
-                    .any(|(_, watcher)| !watcher.is_finished())
-                {
+                loop {
+                    let has_pending_watchers = {
+                        let state = tasks.inner.state.lock().unwrap();
+                        state.handles.iter().any(|(_, watcher)| !watcher.is_finished())
+                    };
+                    if !has_pending_watchers {
+                        break;
+                    }
                     tokio::task::yield_now().await;
                 }
             })
