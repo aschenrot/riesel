@@ -110,6 +110,10 @@ mod bevy_fixture {
         let mut world = World::new();
         world.insert_resource(StepLog::default());
         world.insert_resource(Stepping::new());
+        // An initialized Bevy Schedule is bound to its original WorldId.
+        // Build an independent frame schedule for this new World.
+        let mut begin_frame = Schedule::default();
+        begin_frame.add_systems(Stepping::begin_frame);
         world.resource_mut::<Stepping>()
             .add_schedule(StepLab).enable()
             .set_breakpoint(StepLab, mark_b)
