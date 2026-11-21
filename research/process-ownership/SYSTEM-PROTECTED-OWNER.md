@@ -1,0 +1,107 @@
+# #59 — Linux protected **system** owner vs same-user OS bypass
+
+**Date:** 2026-11-21  
+**Status:** isolated, reproducible **research only**. The experiment is **not** a production Riesel Manager, a new system daemon, an accepted OS backend, an authorized browser/CLI channel, or Windows/macOS evidence.  
+**Baseline:** `main` at branch creation `8276e11b7a7d4024353f96ec7ff6955e37bde9f1`. Parent [#59](https://github.com/aschenrot/riesel/issues/59), identity/security coordination [#75](https://github.com/aschenrot/riesel/issues/75).
+
+## Original requirement and why this experiment matters
+
+The owner requires the first installed Manager release to manage **user-session applications and machine background services** on Linux/Windows/macOS, with Manager-controller crash independence, durable exact-attempt reconciliation and rejection of untrusted same-OS-user management commands. A single protected command broker alone is insufficient when the running app is an ordinary target which a hostile same-UID process can terminate directly.
+
+- [#116](https://github.com/aschenrot/riesel/pull/116) **executed** actual Linux `SIGTERM`: a same-UID unprivileged process could terminate a same-user target, while a different unprivileged UID was denied.
+- [#96](https://github.com/aschenrot/riesel/pull/96) **executed** `SO_PEERCRED` and isolated-owner authentication research: a distinct server UID protects server secrets but cannot distinguish two clients with one allowed UID.
+- [#94](https://github.com/aschenrot/riesel/pull/94) and [#99](https://github.com/aschenrot/riesel/pull/99) exercised **user** systemd services, bounded controller survival/attempts and real Todo behavior; their same-user user manager is **not** a hostile-same-UID protected process owner. #99 does **not** prove generic graceful app drain.
+
+This research now tests the contrasting **system** service with a **separate app OS principal**, not just a system service wrapping an app still owned by the hostile desktop account.
+
+## Scope and real OS fixture
+
+[Script](system_protected_owner_probe.py), executed on an ephemeral Ubuntu 24.04 runner with actual systemd PID 1:
+
+1. An unprivileged CI coordinator uses disposable runner-only `sudo -n` to submit an actual `systemd-run --system` **transient Type=exec unit**. The unit runs `/usr/bin/sleep 100` under **a distinct systemd-assigned temporary service UID (`DynamicUser=yes`)**. No permanent service or OS account is installed. Its unit name includes a random 12-digit hex attempt identifier under an exact test prefix.
+2. The initiating controller calls `os._exit(23)`. A separate controller subsequently observes systemd's `MainPID`, `InvocationID`, `ActiveState`, and kernel-reported process UID.
+3. **Two independent untrusted clients running under the same numeric UID/GID 60090**, each with zero effective capabilities and no passwordless sudo, try: direct `SIGTERM` to that exact PID, actual **system-manager** `systemctl stop/restart/kill` without interactive password prompting, and writes to an explicitly protected **root-owned 0700/0600 temporary registration**.
+4. Every forbidden effect must be denied; confirm the exact PID, `InvocationID` and liveness **remain unchanged** after *each* client. This must not depend solely on nonzero return codes.
+5. **Negative client-authorization control:** an independent unprivileged *sibling process* under the **CI operator's own UID**, with zero effective capabilities, invokes that operator account's ambient `sudo -n systemctl --system stop`. It **succeeds** and the process/unit becomes inactive. This both exercises the privileged owner and proves **broad NOPASSWD sudo shared by an OS user is not per-client authorization**. It is not a protected legitimate operator workflow.
+6. `finally` stops/resets **only** the named test unit and deletes **only** its temporary root-owned registration fixture. No service files, user accounts, real app assets, root application code, or persistent Manager installation.
+
+Reproduce only in a throwaway Ubuntu/Linux machine with real systemd, `setpriv` and `sudo -n` for the CI coordinator:
+
+```sh
+python3 -m py_compile research/process-ownership/system_protected_owner_probe.py
+python3 research/process-ownership/system_protected_owner_probe.py
+```
+
+The [path-scoped research workflow](../../.github/workflows/manager-system-protected-owner-research.yml) runs this one experiment under a time limit. Normal Linux `cargo validate --check` and `cargo smoke` remain separate required PR checks. **Executed evidence:** real Ubuntu 24.04/systemd runner [dedicated workflow 44912399143](https://github.com/aschenrot/riesel/actions/runs/44912399143) **PASSED** at revised code SHA `1ca07461def4b5417137c7d9c84e633bb4995867`, including the explicit *ambient-sudo same-UID bypass* control. The preceding target-isolation-only revision `79e268155699c5fa2ef87f366a542cf73d30d711` had **both** [research 44912045311](https://github.com/aschenrot/riesel/actions/runs/44912045311) **and** [normal Linux Validate/smoke 44912045317](https://github.com/aschenrot/riesel/actions/runs/44912045317) **PASS** on that exact earlier head. The revised `1ca07461` standard validation is a separate required check; verify the latest final PR head CI before claiming comprehensive revised-head validation.
+
+Observed exact-head research markers (not evidence of complete Manager security):
+
+- `RESEARCH_MANAGER_SYSTEM_OWNER_SURVIVES_CONTROLLER_EXIT`
+- `RESEARCH_MANAGER_SYSTEM_OWNER_DENIES_SAME_UID_UNTRUSTED_CALLERS`
+- `RESEARCH_MANAGER_ROOT_OWNED_REGISTRY_UNMODIFIED`
+- `RESEARCH_MANAGER_SUDO_ENABLED_SAME_UID_SIBLING_CAN_STOP` (**undesired ambient privilege / missing client isolation**)
+- `RESEARCH_MANAGER_PRIVILEGED_SYSTEM_OWNER_STOP_CONFIRMED`
+- `RESEARCH_MANAGER_SYSTEM_OWNER_S1_DIFFERENTIAL_PASS`
+
+**Fixture correction from executed Linux CI:** Initial systemd service creation failed before testing isolation: `User=60081` could not be resolved on the hosted runner, with `status=217/USER`. That result is an account-resolution limitation, **not security evidence**. The revised fixture uses systemd `DynamicUser=yes` with a distinct ephemeral service principal, checks its **actual kernel UID**, and **passed** the executed research tests above. This avoids permanent account installation **in the fixture**; it does not establish whether ephemeral app UIDs are suitable for Riesel's persistent SQLite data, GUI session interfaces or multi-user installations.
+
+## Strict interpretation and threat-model gaps
+
+**What the executed tests prove narrowly:** on the tested Linux runner, OS-enforced separate app owner/UID, real system-service control and root-owned artifacts can protect **the tested machine-service target** from **the tested unprivileged user**; the real system owner outlives the initiating controller; an OS-authorized coordinator can stop the exact observed unit.
+
+**What it does NOT prove:**
+
+1. **M-S2 legitimate operator authorization:** The two UID-60090 clients are both untrusted and both denied. No independently authenticated *legitimate* GUI/CLI/automation actor under UID 60090 is admitted by this fixture. The CI runner's `sudo -n` is an **ambient privilege of that runner account**, and **the revised fixture actually executed a separate unprivileged same-runner-UID process which used it to stop the otherwise isolated service**. The explicit marker `RESEARCH_MANAGER_SUDO_ENABLED_SAME_UID_SIBLING_CAN_STOP` is **negative authorization evidence**, not an approved legitimate client. A protected OS service alone does not solve the owner's accepted same-UID caller authorization requirement.
+2. **User-session app interoperability:** `sleep` does not need Wayland/X11, login/session D-Bus, notifications, local files or GUI input. A user-session app isolated under a different UID may lose desktop access, and sharing the original session bus could reintroduce same-UID-like bypasses. This release-critical gate requires a separate real GUI/session fixture.
+3. **Other OS authority:** Linux `systemd --system` is one candidate for machine services, not an implementation for Windows Service DACLs, macOS launchd/XPC or all Linux distributions. Actual Windows/macOS protected-owner and authorization tests remain mandatory **manual release** evidence; Linux alone does not establish parity.
+4. **Manager completeness:** no Riesel runtime, provider/session generation, authenticated app readiness, stop protocol, durable registry/transaction, competing-controller admission, permission-grant UX, portable installer, update path, recovery policy or arbitrary executable provenance is verified. `InvocationID` observation does not make a conditional stop atomic.
+5. **General immunity:** root/administrator/kernel attacks, service-file substitution by a privileged actor, ptrace/cgroup/namespace and local GUI input forgery, system-manager crash/reboot and cross-user data-sharing have not been modeled comprehensively. The fixture tests precisely the listed negative operations and a single app process, not all OS bypasses.
+
+**Decision rule:** accepting a protected `systemd --system` machine-service *candidate* requires an independently protected client principal and safe OS owner whose control cannot be bypassed by the human account; if that would block intended user-session GUI apps, **document the trade-off, compare independently enforced per-app confinement and request owner review before relaxing the security requirement**. No silent downgrade to `systemd --user`, UID-only peer auth or readable same-user bearer secrets.
+
+## Executed M-S2 Linux polkit permission differential — trusted details are not trusted client intent
+
+**Result:** [real polkit + systemd research CI #44914508116](https://github.com/aschenrot/riesel/actions/runs/44914508116) **PASSED** on source head `782c55ded45e1633515a18b892e9ef484e55026e` (Ubuntu 24.04, real `polkitd`). The new [reproducible probe](manager_polkit_same_uid_probe.py) uses a **random, test-only polkit action ID** and a temporary root-installed policy/rule which returns `YES` *only* for the disposable action, the CI runner's actual OS username, a single exact **fictional** Riesel application unit label and verb `stop`. It **never grants** `org.freedesktop.systemd1.manage-units`, creates no Manager service or privileged installation, and removes its own action and rule afterwards. No real system service is stopped by this test. The independent machine-service `systemd` probe still runs and passed in the same CI workflow.
+
+### Compared cases, same registered action
+
+| Case | Concrete tested principal / operation | Actual authorization |
+| --- | --- | --- |
+| Intended client (test role label only) | Unprivileged PID A, UID of CI runner, exact unit and `stop` | **Allowed** (`OPERATOR_RC_0`) |
+| Hostile sibling (same user) | Separate unprivileged PID B, **identical UID**, same unit and `stop` | **Also allowed** (`HOSTILE_SAME_UID_RC_0`) |
+| Wrong app target | PID B, same UID, slightly different unit label | **Denied** (`WRONG_UNIT_RC_1`) |
+| Wrong operation | PID B, same UID, `restart` instead of `stop` | **Denied** (`WRONG_VERB_RC_1`) |
+| Different user | Independent NSS-known `nobody` principal, same target and `stop` | **Denied** (`FOREIGN_UID_RC_1`) |
+| Client invents action details directly | Unprivileged client attempts `pkcheck --detail unit ... --detail verb stop` itself | **Rejected as not trusted**, **not** counted as a normal policy denial |
+
+For the **legitimate** and **hostile** processes, a distinct **privileged checker** (using disposable CI `sudo -n pkcheck`) supplies action details and a **kernel-observed** `pid,start-time,uid` subject tuple. This matters: polkit correctly refused the previous attempt by ordinary unprivileged callers to pass arbitrary details into the authority (`NotAuthorized`, exit 127). A real Manager must obtain the subject from the kernel/peer channel, determine exact registration/attempt and action from protected Manager state, and call polkit from a trusted broker. The test deliberately does **not** accept client-declared roles, credentials, or target strings as authority. See official [`pkcheck` race and peer-UID guidance](https://www.freedesktop.org/software/polkit/docs/latest/pkcheck.1.html) and [polkit CheckAuthorization details authority](https://www.freedesktop.org/software/polkit/docs/latest/eggdbus-interface-org.freedesktop.PolicyKit1.Authority.html).
+
+The test confirms **useful partial enforcement**: a trusted mechanism can constrain a privileged action to a particular user, verb and target. Yet if its policy simply returns `YES` for that OS user, **both programs under the user obtain the same grant**. Polkit does not thereby attest a particular trusted browser/CLI binary or prove that a human intentionally approved the operation. The result is **negative evidence against user+action allowlisting as the complete M-S2 solution**, *not* evidence that polkit itself ignores target details, is vulnerable, or provides no value.
+
+The exact research output includes `RESEARCH_M59_POLKIT_UNTRUSTED_DIRECT_DETAILS_REJECTED`, `RESEARCH_M59_POLKIT_SAME_UID_CLIENTS_BOTH_AUTHORIZED`, `RESEARCH_M59_POLKIT_ACTION_DETAILS_AND_OTHER_UID_DENIED`, `RESEARCH_M59_POLKIT_USER_POLICY_NO_CLIENT_ATTESTATION_PASS` and `RESEARCH_M59_POLKIT_TEMP_ACTION_AND_RULE_REMOVED`. The first fixture with a made-up numeric foreign UID had an unrelated `pkcheck` D-Bus/authority initialization failure. The final test uses an existing NSS-known other account; the foreign subject is evaluated by the trusted mechanism, not by attempting its own ad-hoc privileged-detail request. Those setup errors were **not** counted as security denials.
+
+**Still open:** interactive `AUTH_ADMIN`/per-operation human consent under a trusted OS UI, how consent is bound to an exact Manager app/version/operation and launch epoch, spoofed approval prompts, malicious same-user browser scripting, revocation/replay, explicitly provisioned unattended automatic policies and broker failure handling. **No `AUTH_ADMIN_KEEP` cached-grant test was run.** The published [polkit policy documentation](https://www.freedesktop.org/software/polkit/docs/latest/polkit.8.html) warns cached `AUTH_*_KEEP` decisions can reauthorize the same action/subject even when action details differ; do not assume cached approvals are bound to exact application targets. No concrete polkit, browser, signed-client or platform credential architecture has been accepted.
+
+## Cross-platform M-S2 caller-admission comparators (documentation only)
+
+The remaining problem is not whether an installed service can restrict its **own** OS process permissions; it is **how a legitimate CLI/browser/automation actor under a desktop account obtains a per-operation authority that arbitrary sibling code under that same UID cannot reuse**. The privileged service must bind each mutation to an authorized operation, caller, exact registration/attempt and a freshly validated proof. Distinct root/app UIDs are necessary for many ownership models but are **not sufficient for operator admission**.
+
+| Platform mechanism to compare | Grounded supported capability | Missing security and usability proof |
+| --- | --- | --- |
+| Linux **polkit** mediation of privileged OS mechanism | [polkit mechanisms/subjects](https://polkit.pages.freedesktop.org/polkit/polkit.8.html) and [`pkcheck` process/start-time/UID subject](https://polkit.pages.freedesktop.org/polkit/pkcheck.1.html) support explicit interactive authorization queries | Policy often identifies a user/session rather than cryptographically trusted client code. An untrusted process may itself ask for a prompt. The documented `AUTH_ADMIN_KEEP` / `AUTH_SELF_KEEP` modes can temporarily authorize **the same action ID even if check details differ**; do not reuse these modes for privileged, object-specific Manager changes without a verified design |
+| Windows **UAC / Administrator protection** + service/process access policies | [Microsoft UAC](https://learn.microsoft.com/en-us/windows/security/application-security/application-control/user-account-control/how-it-works) separates ordinary and elevated execution; [Administrator protection](https://learn.microsoft.com/en-us/windows/security/application-security/application-control/administrator-protection/) supports user-approved per-process elevation on eligible systems | Requires supported OS configuration and real device tests. An arbitrary same-user program may request a prompt; a trusted Manager backend must authorize the **actual mutation**, not only that some process elevated. Applicability to unattended background operations and web clients is unresolved |
+| macOS **signed XPC client requirements** + authorization | Apple documents [NSXPCListener code-signing checks](https://developer.apple.com/documentation/foundation/nsxpclistener/setconnectioncodesigningrequirement%28_%3A%29) and [XPC peer signing requirements](https://developer.apple.com/documentation/xpc/xpc_connection_set_peer_code_signing_requirement%28_%3A_%3A%29) | A browser tab is not an XPC-signed privileged client; broker delegation and web-origin/session credential binding must be designed separately. App signature/provenance distribution, installation permissions and OS acceptance require real macOS proof |
+
+**Common adversarial M-S2 test:** run an actual authorized and a malicious process **under the same operator OS account**. Issue the **same** `start/stop/install/uninstall` request to one protected Manager backend. Only the explicitly authorized operation may succeed; forged process PID, copied browser cookie, reused approval, different target or stale launch attempt must fail. Also show legitimate unattended opt-in policy can execute without a permanently elevated user-wide client credential, and that losing a Manager response does not replay the effect. Neither the positive `sudo -n` fixture nor a local `SO_PEERCRED` UID-only gate satisfies this.
+
+## Next decisive experiments
+
+| Gate | Alternative/hypothesis to compare | Sufficient falsifiable experiment |
+| --- | --- | --- |
+| **M-S1a** Separate OS owner for machine service | This system-service differential vs privileged broker with same-user app owner | Attacker direct SIGTERM/service call/registry writes denied; privileged owner still operates; controller crash survival |
+| **M-S1b** User-session GUI under protected owner | Separate UID owner + narrowly delegated desktop access vs actual OS-enforced confinement/sandbox | Genuine user-session GUI interaction works, attacker same-user PID/service/injection/asset modification denied |
+| **M-S2** Legitimate CLI/browser authorization | OS-approved per-operation human consent, separately signed/attested client, or bound privileged client principal; compare unattended automation | Legitimate and hostile **same-UID** clients behave differently under actual OS enforcement; stolen/replayed proofs and browser CSRF/origin cannot bypass |
+| **M-S3** Durable launch admission | Reuse #94 unique attempt + transaction concept inside protected owner, with ambiguous OS effect and competing controllers | No duplicate after lost outcome; old stop cannot target new attempt, even under concurrent mutation |
+| **Portability** | Native Windows Service/Process DACL and macOS launchd/SMAppService/XPC ownership | Repeat real OS-level negative and positive checks manually, documenting exact OS/configuration/installer permissions |
+
+Do **not** equate test fixture success, a technical preference, and approved first-release architecture. #59/#75 remain open, draft research stays unmerged, and no public Manager API or implementation issue is authorized by this test.
