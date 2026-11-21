@@ -8,6 +8,7 @@ on:
     branches: [main]
     paths:
       - "research/process-ownership/systemd_user_service_probe.py"
+      - "research/process-ownership/manager_admission_probe.py"
       - "research/process-ownership/systemd-user-service-report.md"
       - ".github/workflows/systemd-owner-research.yml"
   workflow_dispatch:
@@ -55,3 +56,5 @@ jobs:
           timeout 8 systemctl --user show-environment >/dev/null
           python3 -m py_compile research/process-ownership/systemd_user_service_probe.py
           timeout 75 python3 research/process-ownership/systemd_user_service_probe.py
+          python3 -m py_compile research/process-ownership/manager_admission_probe.py
+          timeout 100 python3 research/process-ownership/manager_admission_probe.py
