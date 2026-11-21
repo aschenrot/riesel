@@ -12,7 +12,7 @@ pub struct RunningApp {
     #[cfg(feature = "async-tcp")]
     pub(super) async_tasks: AsyncTasks,
     #[cfg(feature = "async-tcp")]
-    pub(super) graph_admission: Arc<crate::execution_runner::SessionGraphAdmission>,
+    pub(crate) graph_admission: Arc<crate::execution_runner::SessionGraphAdmission>,
     #[cfg(feature = "async-tcp")]
     pub(super) local_blocking: Vec<ProviderBlocking>,
     pub(super) session: SessionToken,
