@@ -12,6 +12,7 @@ records = ["dep:riesel_storage"]
 dev-memory-storage = ["records", "dep:riesel_storage_component"]
 sqlite-storage = ["records", "dep:riesel_storage_sqlite"]
 async-tcp = ["riesel_protocol/async-tcp", "riesel_app/async-tcp", "dep:tokio"]
+research-external-epoch = ["riesel_app/research-external-epoch", "riesel_protocol/research-external-epoch"]
 
 [dependencies]
 serde.workspace = true
