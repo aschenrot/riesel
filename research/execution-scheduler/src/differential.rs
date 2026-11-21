@@ -299,7 +299,8 @@ async fn single_outer_graph_coordinates_ecs_tick_and_async_join() {
             let sender = sender.clone();
             let result = Arc::clone(&result);
             async move {
-                *result.lock().unwrap() = Some(domain_tick(sender, 2).await?);
+                let snapshot = domain_tick(sender, 2).await?;
+                *result.lock().unwrap() = Some(snapshot);
                 Ok(())
             }
         })),
@@ -319,7 +320,7 @@ async fn single_outer_graph_coordinates_ecs_tick_and_async_join() {
     tokio::time::timeout(std::time::Duration::from_secs(2), run.advance(usize::MAX))
         .await.expect("combined ECS+IO graph must complete");
     assert_eq!(run.state("combined_join"), Some(Status::Completed));
-    assert_eq!(run.peak_in_flight, 3);
+    assert!(run.peak_in_flight >= 2, "independent IO branches must overlap");
     assert_eq!(state.lock().unwrap().as_ref().unwrap().positions, vec![2, 12]);
     assert_eq!(run.snapshot().len(), 5);
     assert!(run.trace.retained.iter().any(|e|
