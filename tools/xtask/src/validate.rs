@@ -55,6 +55,32 @@ pub fn run(mode: FormatMode) -> TaskResult {
             ],
         ),
         (
+            "Structured graph cleanup before provider teardown",
+            &[
+                "test",
+                "--locked",
+                "-p",
+                "riesel_app",
+                "--features",
+                "async-tcp",
+                "--lib",
+                "structured_background_graph_drains_before_local_provider_teardown",
+            ],
+        ),
+        (
+            "Named background graph failure propagation",
+            &[
+                "test",
+                "--locked",
+                "-p",
+                "riesel_app",
+                "--features",
+                "async-tcp",
+                "--lib",
+                "background_graph_failure_retains_named_task_error_and_report",
+            ],
+        ),
+        (
             "Real application-session graph/domain ownership regression",
             &[
                 "test",
