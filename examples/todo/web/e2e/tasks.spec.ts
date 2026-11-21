@@ -371,23 +371,37 @@ test('draft entered during in-flight creation is preserved after the first task 
   await page.goto('/');
   await expect(page.getByText('No tasks yet')).toBeVisible();
   const input = page.getByRole('textbox', { name: 'New task' });
+  // Gate the first POST explicitly instead of racing against a fixed timeout.
+  let firstRequestStarted!: () => void;
+  const firstStarted = new Promise<void>((resolve) => { firstRequestStarted = resolve; });
+  let releaseFirstRequest!: () => void;
+  const firstReleased = new Promise<void>((resolve) => { releaseFirstRequest = resolve; });
+  let firstPost = true;
   await page.route('**/api/v1/tasks', async (route) => {
-    if (route.request().method() === 'POST') {
-      await new Promise((resolve) => setTimeout(resolve, 750));
+    if (route.request().method() === 'POST' && firstPost) {
+      firstPost = false;
+      firstRequestStarted();
+      await firstReleased;
     }
     await route.continue();
   });
 
-  await input.fill('First task');
-  await page.getByRole('button', { name: 'Add task' }).click();
-  await expect(page.getByRole('button', { name: 'Adding…' })).toBeDisabled();
-  await input.fill('Second task');
-  await expect(input).toHaveValue('Second task');
-  await expect(page.getByText('First task', { exact: true })).toBeVisible();
-  await expect(input).toHaveValue('Second task');
+  try {
+    await input.fill('First task');
+    await page.getByRole('button', { name: 'Add task' }).click();
+    await firstStarted;
+    await expect(page.getByRole('button', { name: 'Adding…' })).toBeDisabled();
+    await input.fill('Second task');
+    await expect(input).toHaveValue('Second task');
 
-  await page.getByRole('button', { name: 'Add task' }).click();
-  await expect(page.getByText('Second task', { exact: true })).toBeVisible();
-  await expect(page.locator('li.task')).toHaveCount(2);
-  await expect(input).toHaveValue('');
+    releaseFirstRequest();
+    await expect(page.getByText('First task', { exact: true })).toBeVisible();
+    await expect(input).toHaveValue('Second task');
+    await page.getByRole('button', { name: 'Add task' }).click();
+    await expect(page.getByText('Second task', { exact: true })).toBeVisible();
+    await expect(page.locator('li.task')).toHaveCount(2);
+    await expect(input).toHaveValue('');
+  } finally {
+    releaseFirstRequest();
+  }
 });
