@@ -34,13 +34,15 @@ python3 -m py_compile research/process-ownership/manager_verified_executable_int
 timeout 70 python3 research/process-ownership/manager_verified_executable_intent_probe.py
 ```
 
-**Expected markers, not verified outcomes until actual green CI:**
+**Executed result:** exact-head Ubuntu 24.04 [research workflow #44915773507](https://github.com/aschenrot/riesel/actions/runs/44915773507) **PASSED** on `67a7d052ae08e46c6071a0f49d4f1e8b99fe3f1c`. The mock root verifier enforced real kernel `SO_PEERCRED`, unchanged root-owned executable device/inode and SHA-256. Direct same-UID Python access was denied, whereas normal CLI, hostile same-UID re-execution of the protected binary, and hostile invocation with an attacker-owned `LD_PRELOAD` constructor were **all allowed**. The test asserts the injected constructor actually ran, while the root-owned executable content remained unchanged. No real system-service or Riesel mutation occurred. The independent standard Linux Validate/smoke result remains a **separate** exact-head check.
+
+**Observed/checked evidence markers:**
 
 - `RESEARCH_M59_ROOT_OWNED_VERIFIED_CLI_PREPARED`
 - `RESEARCH_M59_DIRECT_SAME_UID_UNTRUSTED_CLIENT_DENIED`
 - `RESEARCH_M59_LEGIT_ROOT_OWNED_CLI_ALLOWED`
 - `RESEARCH_M59_UNTRUSTED_SAME_UID_CAN_REEXEC_TRUSTED_CLI`
-- `RESEARCH_M59_UNTRUSTED_LIBRARY_CODE_IN_VERIFIED_CLIENT`
+- `RESEARCH_M59_UNTRUSTED_LIBRARY_CODE_IN_VERIFIED_CLIENT` (asserted in captured injected child stderr, not printed by the root-side verifier)
 - `RESEARCH_M59_PRELOADED_SAME_UID_TRUSTED_EXE_STILL_ALLOWED`
 - `RESEARCH_M59_ROOT_VERIFIER_MOCK_MUTATIONS_3_DENIED_1`
 - `RESEARCH_M59_VERIFIED_CLI_CODE_IDENTITY_INTENT_GAP_PASS`
@@ -58,7 +60,7 @@ timeout 70 python3 research/process-ownership/manager_verified_executable_intent
 
 - Linux [`unix(7)`](https://man7.org/linux/man-pages/man7/unix.7.html) documents kernel-supplied `SO_PEERCRED` PID/UID/GID; it does not claim human intention or a trusted executable.
 - Linux [`ld.so(8)`](https://man7.org/linux/man-pages/man8/ld.so.8.html) documents `LD_PRELOAD` and the **secure-execution mode** distinction. This fixture uses an ordinary non-setuid CLI, so a user-controlled preload is expected. Do not generalize this to setuid, hardened/fully confined or verified dependencies.
-- Linux [AppArmor](https://ubuntu.com/server/docs/security-apparmor/) and [policy syntax](https://apparmor.dev/man/apparmor.d/) are *potential comparators* for OS-enforced executable/process security contexts, not accepted design or proof of feasible cross-platform same-UID client isolation. The research workflow records **only diagnostic LSM availability**; it does not load an AppArmor profile or claim a protected security label.
+- Linux [AppArmor](https://ubuntu.com/server/docs/security-apparmor/) and [policy syntax](https://apparmor.dev/man/apparmor.d/) are *potential comparators* for OS-enforced executable/process security contexts, not accepted design or proof of feasible cross-platform same-UID client isolation. The research workflow records **only diagnostic LSM availability**; it does not load an AppArmor profile or claim a protected security label. On [the executed Ubuntu run](https://github.com/aschenrot/riesel/actions/runs/44915773507), the host reported AppArmor in its enabled LSM list and `apparmor_parser` present, while the runner was `unconfined`. That is a **candidate-platform prerequisite**, not evidence a protected labelled caller can be launched, cannot be self-labelled by an adversary, or can support Riesel desktop GUIs.
 
 ## Architectural comparison — same accepted outcome
 
