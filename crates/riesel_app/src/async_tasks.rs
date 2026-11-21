@@ -637,6 +637,73 @@ mod tests {
     }
 
     #[test]
+    fn graph_from_another_app_session_cannot_enter_our_task_scope() {
+        use crate::execution_plan::{
+            ExecutionPlanDraft, OperationKey, OperationNode, OperationRegistry,
+        };
+        use crate::execution_runner::{AsyncOperation, OperationOutcome, async_operation};
+        use crate::{App, ConnectorRegistry};
+        use std::num::NonZeroUsize;
+
+        executor().block_on(async {
+            let app = || {
+                App::from_schema(
+                    r#"{"version":1,"app":{"name":"GraphScope"},"models":{},"requires":[]}"#,
+                )
+                .unwrap()
+                .start_local(&ConnectorRegistry::new())
+                .unwrap()
+            };
+            let mut first = app();
+            let mut second = app();
+            let first_tasks = first.async_tasks();
+            let second_tasks = second.async_tasks();
+            first_tasks.begin_scope().unwrap();
+            second_tasks.begin_scope().unwrap();
+
+            let invoked = Arc::new(AtomicBool::new(false));
+            let mut handlers = OperationRegistry::<AsyncOperation>::new();
+            handlers
+                .register(
+                    OperationKey::new("op", 1).unwrap(),
+                    async_operation({
+                        let invoked = Arc::clone(&invoked);
+                        move || {
+                            let invoked = Arc::clone(&invoked);
+                            async move {
+                                invoked.store(true, Ordering::Release);
+                                OperationOutcome::Completed
+                            }
+                        }
+                    }),
+                )
+                .unwrap();
+            let runner = first
+                .execution_graph(
+                    ExecutionPlanDraft::new("foreign-session", 1)
+                        .operation(OperationNode::new("op", OperationKey::new("op", 1).unwrap()))
+                        .validate()
+                        .unwrap()
+                        .bind(&handlers)
+                        .unwrap(),
+                    NonZeroUsize::new(1).unwrap(),
+                )
+                .unwrap();
+            assert!(matches!(
+                second_tasks.spawn_graph("foreign", runner),
+                Err(RuntimeError::GraphSessionMismatch)
+            ));
+            assert!(!invoked.load(Ordering::Acquire));
+            // Rejection must not consume a task slot or poison the owner.
+            second_tasks.spawn("ordinary", async { Ok(()) }).unwrap();
+            first_tasks.finish_scope().await.unwrap();
+            second_tasks.finish_scope().await.unwrap();
+            first.shutdown().unwrap();
+            second.shutdown().unwrap();
+        });
+    }
+
+    #[test]
     fn revoked_session_does_not_invent_secondary_background_graph_failure() {
         use crate::execution_plan::{
             ExecutionPlanDraft, OperationKey, OperationNode, OperationRegistry,
