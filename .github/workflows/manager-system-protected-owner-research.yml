@@ -1,0 +1,34 @@
+name: Protected machine-scope OS owner research (#59)
+
+permissions:
+  contents: read
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - "research/process-ownership/system_protected_owner_probe.py"
+      - "research/process-ownership/SYSTEM-PROTECTED-OWNER.md"
+      - ".github/workflows/manager-system-protected-owner-research.yml"
+  workflow_dispatch:
+
+jobs:
+  linux-protected-system-owner:
+    name: Linux real system service / direct-bypass differential
+    runs-on: ubuntu-24.04
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+      - name: Verify ephemeral system-service test prerequisites
+        run: |
+          set -euo pipefail
+          test "$(id -u)" != "0"
+          test "$(ps -p 1 -o comm=)" = systemd
+          command -v setpriv
+          sudo -n true
+          sudo -n systemctl --system is-system-running --wait >/dev/null || true
+      - name: Execute isolated protected OS process-owner experiment
+        run: |
+          set -euo pipefail
+          python3 -m py_compile research/process-ownership/system_protected_owner_probe.py
+          timeout 90 python3 research/process-ownership/system_protected_owner_probe.py
