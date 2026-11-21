@@ -1,0 +1,12 @@
+# A separate Cargo workspace within this checkout; deliberately NOT in Riesel's
+# root workspace membership, so local aliases/xtask are not inherited.
+[package]
+name = "riesel-operational-inspection-probe"
+version = "0.0.0"
+edition = "2024"
+publish = false
+
+[workspace]
+
+[dependencies]
+riesel = { path = "../../crates/riesel" }
