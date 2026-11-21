@@ -45,7 +45,7 @@ test('browser creates, edits, completes, reopens and deletes a task', async ({ p
   await expect(page.getByText('Ship release', { exact: true })).toBeVisible();
 
   await page.getByRole('checkbox', { name: 'Mark Ship release complete' }).check();
-  await expect(page.getByRole('status')).toContainText('Task completed.');
+  await expect(page.getByRole('status')).toContainText('Task completed');
   await page.getByRole('checkbox', { name: 'Mark Ship release incomplete' }).uncheck();
 
   await page.getByRole('button', { name: 'Actions for Ship release' }).click();
