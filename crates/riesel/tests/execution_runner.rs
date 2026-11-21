@@ -3,8 +3,8 @@
 //! async-tcp only to use the existing asynchronous execution infrastructure.
 #![cfg(feature = "async-tcp")]
 use riesel::{
-    AccessMode, App, AsyncOperation, ConnectorRegistry, DeploymentConfig, ExecutionPlanDraft,
-    GraphRunError, OperationKey, OperationNode, OperationOutcome, OperationRegistry,
+    AccessMode, App, AsyncOperation, ConnectorRegistry, DeploymentConfig, DomainAdmissionMode,
+    ExecutionPlanDraft, GraphRunError, OperationKey, OperationNode, OperationOutcome, OperationRegistry,
     OperationState, RunningApp, async_operation,
 };
 use std::num::NonZeroUsize;
@@ -654,6 +654,185 @@ fn aborting_a_run_releases_reserved_resources_for_other_runs() {
             .unwrap()
             .unwrap();
         assert!(result.succeeded());
+        assert_eq!(second_started.load(Ordering::SeqCst), 1);
+    });
+}
+
+#[test]
+fn domain_authority_claims_reject_conflicting_live_runs_before_any_operation() {
+    let called = Arc::new(AtomicUsize::new(0));
+    let mut handlers = OperationRegistry::<AsyncOperation>::new();
+    handlers
+        .register(
+            key("operation"),
+            async_operation({
+                let called = Arc::clone(&called);
+                move || {
+                    let called = Arc::clone(&called);
+                    async move {
+                        called.fetch_add(1, Ordering::SeqCst);
+                        OperationOutcome::Completed
+                    }
+                }
+            }),
+        )
+        .unwrap();
+    let central = || {
+        ExecutionPlanDraft::new("domain.central", 1)
+            .operation(OperationNode::new("tick", key("operation")).domain_tick("simulation"))
+            .validate()
+            .unwrap()
+            .bind(&handlers)
+            .unwrap()
+    };
+    let delegated = || {
+        ExecutionPlanDraft::new("domain.delegated", 1)
+            .operation(
+                OperationNode::new("frame", key("operation")).delegated_frame("simulation"),
+            )
+            .validate()
+            .unwrap()
+            .bind(&handlers)
+            .unwrap()
+    };
+    let owner = application_session();
+    let first = owner
+        .execution_graph(central(), NonZeroUsize::new(1).unwrap())
+        .unwrap();
+    assert!(matches!(
+        owner.execution_graph(delegated(), NonZeroUsize::new(1).unwrap()),
+        Err(GraphRunError::ConflictingDomainAuthority {
+            domain,
+            existing: DomainAdmissionMode::RieselTick,
+            requested: DomainAdmissionMode::DelegatedFrame,
+        }) if domain == "simulation"
+    ));
+    assert_eq!(called.load(Ordering::SeqCst), 0);
+
+    // A rejected plan does not corrupt the existing owner, and ownership
+    // can be handed off only after the previous graph lease has ended.
+    let parallel = owner
+        .execution_graph(central(), NonZeroUsize::new(1).unwrap())
+        .unwrap();
+    drop(parallel);
+    drop(first);
+    assert!(
+        owner
+            .execution_graph(delegated(), NonZeroUsize::new(1).unwrap())
+            .is_ok()
+    );
+    assert_eq!(called.load(Ordering::SeqCst), 0);
+}
+
+#[test]
+fn declared_domain_admission_serializes_cross_run_ticks_without_resource_keys() {
+    runtime().block_on(async {
+        let first_started = Arc::new(AtomicUsize::new(0));
+        let second_started = Arc::new(AtomicUsize::new(0));
+        let independent_started = Arc::new(AtomicUsize::new(0));
+        let release = Arc::new(tokio::sync::Notify::new());
+        let mut handlers = OperationRegistry::<AsyncOperation>::new();
+        handlers
+            .register(
+                key("hold"),
+                async_operation({
+                    let first_started = Arc::clone(&first_started);
+                    let release = Arc::clone(&release);
+                    move || {
+                        let first_started = Arc::clone(&first_started);
+                        let release = Arc::clone(&release);
+                        async move {
+                            first_started.store(1, Ordering::SeqCst);
+                            release.notified().await;
+                            OperationOutcome::Completed
+                        }
+                    }
+                }),
+            )
+            .unwrap();
+        handlers
+            .register(
+                key("next"),
+                async_operation({
+                    let second_started = Arc::clone(&second_started);
+                    move || {
+                        let second_started = Arc::clone(&second_started);
+                        async move {
+                            second_started.store(1, Ordering::SeqCst);
+                            OperationOutcome::Completed
+                        }
+                    }
+                }),
+            )
+            .unwrap();
+        handlers
+            .register(
+                key("independent"),
+                async_operation({
+                    let independent_started = Arc::clone(&independent_started);
+                    move || {
+                        let independent_started = Arc::clone(&independent_started);
+                        async move {
+                            independent_started.store(1, Ordering::SeqCst);
+                            OperationOutcome::Completed
+                        }
+                    }
+                }),
+            )
+            .unwrap();
+        let first_plan = ExecutionPlanDraft::new("domain.first", 1)
+            .operation(OperationNode::new("hold", key("hold")).domain_tick("world"))
+            .validate()
+            .unwrap()
+            .bind(&handlers)
+            .unwrap();
+        let second_plan = ExecutionPlanDraft::new("domain.second", 1)
+            .operation(OperationNode::new("next", key("next")).domain_tick("world"))
+            .operation(OperationNode::new("other", key("independent")))
+            .validate()
+            .unwrap()
+            .bind(&handlers)
+            .unwrap();
+
+        let owner = application_session();
+        let first = owner
+            .execution_graph(first_plan, NonZeroUsize::new(1).unwrap())
+            .unwrap();
+        let second = owner
+            .execution_graph(second_plan, NonZeroUsize::new(2).unwrap())
+            .unwrap();
+        let first_task = tokio::spawn(first.execute());
+        tokio::time::timeout(Duration::from_secs(3), async {
+            while first_started.load(Ordering::SeqCst) == 0 {
+                tokio::task::yield_now().await;
+            }
+        })
+        .await
+        .unwrap();
+        let second_task = tokio::spawn(second.execute());
+        tokio::time::timeout(Duration::from_secs(3), async {
+            while independent_started.load(Ordering::SeqCst) == 0 {
+                tokio::task::yield_now().await;
+            }
+        })
+        .await
+        .unwrap();
+        assert_eq!(second_started.load(Ordering::SeqCst), 0);
+        release.notify_one();
+        assert!(
+            tokio::time::timeout(Duration::from_secs(3), first_task)
+                .await
+                .unwrap()
+                .unwrap()
+                .succeeded()
+        );
+        assert!(
+            tokio::time::timeout(Duration::from_secs(3), second_task)
+                .await
+                .unwrap()
+                .unwrap()
+                .succeeded()
+        );
         assert_eq!(second_started.load(Ordering::SeqCst), 1);
     });
 }
