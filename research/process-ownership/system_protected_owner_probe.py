@@ -2,7 +2,7 @@
 """#59 isolated Linux protected system-service owner differential.
 
 Research only: creates one uniquely named transient *system* service that runs
-a stock OS sleep executable under a disposable numeric UID, and one root-owned
+a stock OS sleep executable under a transient systemd DynamicUser UID, and one root-owned
 temporary registry-like file. No production Manager, accounts, credentials,
 persistent units, or application data are installed or modified.
 """
@@ -20,7 +20,6 @@ import tempfile
 import time
 import uuid
 
-SERVICE_UID = 60081
 CALLER_UID = 60090
 UNIT_PREFIX = "riesel-research-59-secure-"
 NAME = re.compile(r"riesel-research-59-secure-[a-f0-9]{12}\.service\Z")
@@ -71,11 +70,16 @@ def read_uid(pid: int) -> int:
 def launch_and_crash(unit: str) -> None:
     if not NAME.fullmatch(unit):
         raise AssertionError("refuse non-research unit")
+    # Unlike a made-up numeric UID (which systemd 255 rejected with
+    # status=217/USER), DynamicUser=yes requests an ephemeral OS-owned
+    # principal without editing /etc/passwd or installing permanent users.
+    ephemeral_user = "rieselpr" + unit[len(UNIT_PREFIX):len(UNIT_PREFIX) + 10]
     try:
         checked(sudo("systemd-run", "--system", "--no-ask-password",
                      "--unit", unit, "--property=Type=exec",
                      "--property=Restart=no", "--property=KillMode=control-group",
-                     "--property=User=60081", "--property=Group=60081",
+                     "--property=DynamicUser=yes",
+                     "--property=User=" + ephemeral_user,
                      "--property=TimeoutStopSec=3s",
                      "/usr/bin/sleep", "100"))
     except AssertionError as error:
@@ -142,7 +146,7 @@ def runner() -> None:
         raise AssertionError("requires Linux unprivileged CI coordinator")
     if Path("/proc/1/comm").read_text().strip() != "systemd":
         raise AssertionError("requires actual systemd as PID1")
-    if os.geteuid() in (SERVICE_UID, CALLER_UID):
+    if os.geteuid() == CALLER_UID:
         raise AssertionError("runner account collides with disposable principals")
     checked(sudo("true"))
     name = UNIT_PREFIX + uuid.uuid4().hex[:12] + ".service"
@@ -175,10 +179,11 @@ def runner() -> None:
         if baseline is None:
             raise AssertionError(f"system service never became active: {show(name)}")
         pid = int(baseline["MainPID"])
-        if read_uid(pid) != SERVICE_UID:
-            raise AssertionError(f"victim wrong OS owner: {read_uid(pid)}")
-        if baseline.get("User") not in (str(SERVICE_UID),):
-            raise AssertionError(f"systemd owner mismatched: {baseline}")
+        service_uid = read_uid(pid)
+        if service_uid in (0, CALLER_UID, os.geteuid()):
+            raise AssertionError(f"transient service not isolated: UID={service_uid}")
+        if not baseline.get("User", "").startswith("rieselpr"):
+            raise AssertionError(f"systemd dynamic service user mismatched: {baseline}")
         if not baseline.get("InvocationID"):
             raise AssertionError("missing immutable OS attempt observation")
         print("RESEARCH_MANAGER_SYSTEM_OWNER_SURVIVES_CONTROLLER_EXIT", flush=True)
