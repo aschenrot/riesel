@@ -146,7 +146,6 @@ fn sqlite_query_and_writer_observe_one_state() {
     }));
 }
 
-
 /// #107 research-only candidate for a future fail-closed same-owner preflight.
 /// This is deliberately NOT a production resolver or authenticated instance proof.
 /// The runtime must separately verify its actual managed child/session at startup.
@@ -168,9 +167,7 @@ fn research_require_same_authoritative_instance(
     match (&writer.target, &query.target) {
         // A registered local provider ID refers to one provider instance in
         // the existing per-application linked component registry.
-        (PlannedTarget::Local { provider: a }, PlannedTarget::Local { provider: b })
-            if a == b =>
-        {
+        (PlannedTarget::Local { provider: a }, PlannedTarget::Local { provider: b }) if a == b => {
             Ok(())
         }
         // Explicitly named managed requirements can share the same launch,
