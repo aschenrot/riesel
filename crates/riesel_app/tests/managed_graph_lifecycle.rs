@@ -64,7 +64,7 @@ impl CapabilityConnector for ManagedFixtureConnector {
         // owned provider. It does not implement the generated RPC contract.
         TcpStream::connect_timeout(address, Duration::from_secs(2))?;
         let definition = ProviderDefinition {
-            id: "test.graph.managed-child".into(),
+            id: "test.graph.managedchild".into(),
             capabilities: vec![contract().capability],
         };
         Ok(ConnectedProvider {
