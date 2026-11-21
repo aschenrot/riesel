@@ -79,7 +79,7 @@
     // Do not replace a list while a mutation/page request is in flight or
     // silently discard an unsaved edit. Error recovery may discard a stale edit.
     if (refreshing || loadingMore || creating || actingId !== null ||
-      (editingId !== null && !errorMessage)) return;
+      (editingId !== null && !conflicted)) return;
     refreshing = true;
     refreshNotice = 'Checking tasks';
     clearFeedback();
@@ -297,7 +297,6 @@
       <div>
         <h1 id="page-title">Tasks</h1>
       </div>
-      <p class="page-summary">A clear view of what needs doing.</p>
     </header>
 
     <section class="panel" aria-label="Task management">
@@ -333,7 +332,7 @@
             aria-label="Refresh tasks"
             title="Refresh tasks"
             disabled={refreshing || loading || loadingMore || creating ||
-              actingId !== null || (editingId !== null && !errorMessage)}
+              actingId !== null || (editingId !== null && !conflicted)}
             onclick={() => void refresh()}
           >
             <svg
@@ -383,9 +382,15 @@
       {#if errorMessage}
         <div class="feedback error" role="alert">
           <span>{errorMessage}</span>
-          <button type="button" class="text-action" onclick={() => void refresh()}>
-            {conflicted ? 'Reload current tasks' : 'Try again'}
-          </button>
+          {#if editingId !== null && !conflicted}
+            <button type="button" class="text-action" onclick={() => clearFeedback()}>
+              Dismiss
+            </button>
+          {:else}
+            <button type="button" class="text-action" onclick={() => void refresh()}>
+              {conflicted ? 'Reload current tasks' : 'Try again'}
+            </button>
+          {/if}
         </div>
       {/if}
 

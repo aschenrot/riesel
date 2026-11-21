@@ -316,3 +316,50 @@ test('narrow 320px viewport keeps refresh and filters accessible', async ({ page
   expect(await page.evaluate(() =>
     document.documentElement.scrollWidth > window.innerWidth + 1)).toBe(false);
 });
+
+test('connection failure while editing preserves the draft until explicit cancellation', async ({ page }) => {
+  await page.goto('/');
+  await page.getByRole('textbox', { name: 'New task' }).fill('Original title');
+  await page.getByRole('button', { name: 'Add task' }).click();
+  await page.getByRole('button', { name: 'Actions for Original title' }).click();
+  await page.getByRole('button', { name: 'Edit task' }).click();
+  const title = page.getByRole('textbox', { name: 'Edit task title' });
+  await title.fill('Unsaved title');
+  await page.route('**/api/v1/tasks/*', (route) => {
+    if (route.request().method() === 'PATCH') return route.abort();
+    return route.continue();
+  });
+  await page.getByRole('button', { name: 'Save' }).click();
+  await expect(page.getByRole('alert')).toContainText('Cannot connect to the Todo backend.');
+  await expect(title).toHaveValue('Unsaved title');
+  await expect(page.getByRole('button', { name: 'Refresh tasks' })).toBeDisabled();
+  await page.getByRole('button', { name: 'Dismiss' }).click();
+  await expect(title).toHaveValue('Unsaved title');
+  await expect(page.getByRole('alert')).toHaveCount(0);
+  await page.unroute('**/api/v1/tasks/*');
+  await page.getByRole('button', { name: 'Cancel' }).click();
+  await expect(page.getByRole('button', { name: 'Refresh tasks' })).toBeEnabled();
+});
+
+test('revision conflict explicitly permits reloading a stale edit', async ({ page, request }) => {
+  await page.goto('/');
+  await page.getByRole('textbox', { name: 'New task' }).fill('Stale title');
+  await page.getByRole('button', { name: 'Add task' }).click();
+  await page.getByRole('button', { name: 'Actions for Stale title' }).click();
+  await page.getByRole('button', { name: 'Edit task' }).click();
+  await page.getByRole('textbox', { name: 'Edit task title' }).fill('My version');
+
+  const task = (await (await request.get(api)).json()).records[0];
+  const outside = await request.patch(api + '/' + task.id, {
+    headers: { Origin: origin() },
+    data: { revision: task.revision, title: 'External version' }
+  });
+  expect(outside.status()).toBe(200);
+
+  await page.getByRole('button', { name: 'Save' }).click();
+  await expect(page.getByRole('alert')).toContainText('Task revision is stale');
+  await expect(page.getByRole('button', { name: 'Refresh tasks' })).toBeEnabled();
+  await page.getByRole('button', { name: 'Reload current tasks' }).click();
+  await expect(page.getByText('External version', { exact: true })).toBeVisible();
+  await expect(page.getByRole('textbox', { name: 'Edit task title' })).toHaveCount(0);
+});
