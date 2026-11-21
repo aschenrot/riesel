@@ -308,3 +308,6 @@ mod tests;
 mod differential;
 #[cfg(test)]
 mod live_control;
+
+#[cfg(test)]
+mod bevy_comparator;
