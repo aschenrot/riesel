@@ -37,6 +37,8 @@ jobs:
         run: cargo validate --check
       - name: Smoke test runtime and managed providers
         run: cargo smoke
+      - name: Research #75 real SDK-resolved Counter operational policy probe
+        run: python3 research/operational-contract/probe.py --real
 
   windows:
     if: ${{ github.event_name == 'workflow_dispatch' && inputs.windows }}
