@@ -250,7 +250,10 @@ def runner():
         # fixture error; an actual AppArmor security policy rejection is
         # evidence. Require a concrete permission-denied error, not merely
         # a nonzero return code from aa-exec.
-        if "permission denied" not in stderr and "operation not permitted" not in stderr:
+        if not any(message in stderr for message in (
+            "permission denied", "operation not permitted",
+            "insufficient permissions to change to the profile",
+        )):
             raise AssertionError(
                 f"restricted transition failed without permission denial: "
                 f"rc={blocked.returncode}, stderr={blocked.stderr[:1100]!r}"
