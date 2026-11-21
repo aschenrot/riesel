@@ -68,6 +68,19 @@ pub fn run(mode: FormatMode) -> TaskResult {
             ],
         ),
         (
+            "Explicit fixed-tick domain authority comparison",
+            &[
+                "test",
+                "--locked",
+                "-p",
+                "riesel",
+                "--features",
+                "async-tcp",
+                "--test",
+                "execution_domains",
+            ],
+        ),
+        (
             "Minimal SDK without standard capability packages",
             &["test", "--locked", "-p", "riesel", "--no-default-features"],
         ),
