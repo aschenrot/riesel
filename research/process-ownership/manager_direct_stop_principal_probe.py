@@ -85,7 +85,8 @@ def run():
         child_pid = int(parts[1])
         if child_pid <= 1:
             raise AssertionError("invalid child PID")
-        os.kill(child_pid, 0)
+        if worker.poll() is not None:
+            raise AssertionError("isolated worker exited unexpectedly")
 
         def attempt(uid):
             result = subprocess.run(
@@ -100,7 +101,8 @@ def run():
         foreign_result = attempt(FOREIGN_UID)
         if foreign_result != "EPERM":
             raise AssertionError(f"foreign UID stop not denied: {foreign_result}")
-        os.kill(child_pid, 0)
+        if worker.poll() is not None:
+            raise AssertionError("isolated worker exited unexpectedly")
         print("RESEARCH_MANAGER_CROSS_UID_DIRECT_SIGTERM_DENIED", flush=True)
 
         same_result = attempt(OWNER_UID)
