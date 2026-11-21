@@ -40,6 +40,10 @@ These are the **invariants to validate and finalize** through #75, not yet a fro
 
 For all relevant slices retain the repository's Linux validation/smoke checks on the exact revision and the manual Windows pre-release policy. Research spikes are not production interfaces.
 
+## Technical evidence reconciliation (review annex — not accepted)
+
+The subsequent exact-head #68/#59/#60/#75 research and its security, recovery, readiness and implementation sequencing are synthesized in the [technical decision review](operational-technical-decision-review.md). That annex proposes the common semantics and independently deliverable slices, **but does not accept a public contract, trust profile, implementation mechanism or milestone**. Each open specification Issue remains the owner of its eventual technical decision. Do not merge or infer acceptance from research-only CI; the newest main Linux validation is separately failing in a SQLite ownership test.
+
 ## Decisions deliberately left to the respective specification issues
 
 - **#75:** concrete identity representation and compatible versions; authorized principal/credential model, local same-UID threat assumption and interface-publication trust; whether one bounded shared SDK contract reduces repetition relative to product-specific conventions. Evaluate against [the comparative research](application-operational-boundary-investigation.md).
