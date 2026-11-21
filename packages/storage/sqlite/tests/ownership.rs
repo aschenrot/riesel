@@ -86,13 +86,36 @@ fn parent_symlink_aliases_share_the_same_owner_identity() {
             .collect();
         #[cfg(not(target_os = "linux"))]
         let matching_descriptors = Vec::<std::ffi::OsString>::new();
+        #[cfg(target_os = "linux")]
+        let competing_lock_records: Vec<_> = {
+            use std::os::unix::fs::MetadataExt;
+            let inode = std::fs::metadata(&lock_path).unwrap().ino().to_string();
+            std::fs::read_to_string("/proc/locks").unwrap_or_default()
+                .lines()
+                .filter_map(|line| {
+                    // /proc/locks: ID TYPE ADVISORY WRITE PID MAJ:MIN:INODE 0 EOF.
+                    let fields: Vec<_> = line.split_whitespace().collect();
+                    let pid = *fields.get(4)?;
+                    let identity = *fields.get(5)?;
+                    (identity.rsplit(':').next()? == inode).then(|| {
+                        let process = std::fs::read_to_string(format!("/proc/{pid}/comm"))
+                            .unwrap_or_else(|_| "<unknown>".into());
+                        format!("{line}; process={}", process.trim())
+                    })
+                })
+                .collect()
+        };
+        #[cfg(not(target_os = "linux"))]
+        let competing_lock_records = Vec::<String>::new();
         panic!(
             "reopening the released parent-symlink alias must succeed; error: {error:?}; \
              canonical parent: {:?}; lockfile metadata: {:?}; \
-             still-open lockfile descriptors in test process: {:?}",
+             still-open lockfile descriptors in test process: {:?}; \
+             /proc/locks matching inode: {:?}",
             std::fs::canonicalize(&alias),
             std::fs::symlink_metadata(&lock_path),
             matching_descriptors,
+            competing_lock_records,
         );
     }
 }
