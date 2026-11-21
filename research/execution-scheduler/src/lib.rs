@@ -1,7 +1,7 @@
 //! Issue #83 research-only generic execution-graph experiment.
 //! This is NOT a production scheduler, stable execution format or Riesel API.
 //! Uses one Tokio session executor, never an independent long-lived runtime.
-use std::collections::{BTreeSet, HashSet, VecDeque};
+use std::collections::{BTreeSet, HashMap, HashSet, VecDeque};
 use std::future::Future;
 use std::pin::Pin;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -192,6 +192,7 @@ impl Trace {
 pub struct Run {
     plan: Arc<Plan>,
     state: Vec<Status>,
+    attempts: Vec<u64>,
     signals: BTreeSet<&'static str>,
     session: u64,
     run: u64,
@@ -207,7 +208,7 @@ impl Run {
     pub fn new(plan: Arc<Plan>, session: u64, run: u64, max_in_flight: usize, trace: Trace) -> Self {
         let n = plan.nodes.len();
         Self {
-            plan, state: vec![Status::Pending; n], signals: BTreeSet::new(),
+            plan, state: vec![Status::Pending; n], attempts: vec![0; n], signals: BTreeSet::new(),
             session, run, attempt: 0, max_in_flight: max_in_flight.max(1), trace,
             cancellation: Arc::new(AtomicBool::new(false)), peak_in_flight: 0, launched: 0,
         }
@@ -232,6 +233,7 @@ impl Run {
     pub async fn advance(&mut self, budget: usize) {
         let mut jobs = tokio::task::JoinSet::<(usize, Result<(), &'static str>)>::new();
         let mut active = Vec::<usize>::new();
+        let mut task_indices = HashMap::<tokio::task::Id, usize>::new();
         let mut remaining = budget;
         let mut failed = false;
         loop {
@@ -253,11 +255,13 @@ impl Run {
                     }
                     self.state[idx] = Status::Running;
                     self.attempt += 1;
+                    self.attempts[idx] = self.attempt;
                     self.launched += 1;
                     remaining -= 1;
                     self.trace.transition(self.session, self.run, node.id, self.attempt, Status::Running);
                     let invoke = Arc::clone(&node.invoke);
-                    jobs.spawn(async move { (idx, (invoke)().await) });
+                    let handle = jobs.spawn(async move { (idx, (invoke)().await) });
+                    task_indices.insert(handle.id(), idx);
                     active.push(idx);
                     self.peak_in_flight = self.peak_in_flight.max(active.len());
                 }
@@ -265,14 +269,27 @@ impl Run {
             if active.is_empty() {
                 break;
             }
-            let (idx, outcome) = jobs.join_next().await.expect("tracked job").expect("job panicked");
+            // Report failed/panicking workers as failed operations, rather than
+            // allowing an unwound task to destroy the inspector itself.
+            let joined = jobs.join_next_with_id().await.expect("tracked job");
+            let (idx, status) = match joined {
+                Ok((task_id, (idx, outcome))) => {
+                    task_indices.remove(&task_id);
+                    (idx, if outcome.is_ok() { Status::Completed } else { Status::Failed })
+                }
+                Err(error) => {
+                    let idx = task_indices.remove(&error.id()).expect("tracked panic identity");
+                    (idx, Status::Failed)
+                }
+            };
             active.retain(|i| *i != idx);
-            let status = if outcome.is_ok() { Status::Completed } else { Status::Failed };
             if status == Status::Failed {
                 failed = true;
             }
             self.state[idx] = status;
-            self.trace.transition(self.session, self.run, self.plan.nodes[idx].id, self.attempt, status);
+            self.trace.transition(
+                self.session, self.run, self.plan.nodes[idx].id, self.attempts[idx], status
+            );
         }
         if failed || self.cancellation.load(Ordering::Acquire) {
             for idx in 0..self.state.len() {
