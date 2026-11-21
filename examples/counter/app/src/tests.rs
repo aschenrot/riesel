@@ -754,8 +754,8 @@ fn research_query_like_observer_is_not_automatically_co_selected_with_writer() {
         shutdown_timeout_ms: 2_000,
     };
     let mut split = DeploymentConfig::new(BTreeMap::from([
-        ("writer".into(), endpoints("writer-instance")),
-        ("query".into(), endpoints("query-instance")),
+        ("writer".into(), endpoints("writer_instance")),
+        ("query".into(), endpoints("query_instance")),
     ]));
     split
         .expected_providers
@@ -782,8 +782,8 @@ fn research_query_like_observer_is_not_automatically_co_selected_with_writer() {
     assert_eq!(writer.expected_provider, reader.expected_provider);
 
     let mut colocated = DeploymentConfig::new(BTreeMap::from([
-        ("writer".into(), endpoints("same-instance")),
-        ("query".into(), endpoints("same-instance")),
+        ("writer".into(), endpoints("same_instance")),
+        ("query".into(), endpoints("same_instance")),
     ]));
     colocated
         .expected_providers
