@@ -342,7 +342,7 @@
         batchFailures = failures;
         batchSummary = changed + ' changed, ' + unchanged + ' already ' +
           (completed ? 'done' : 'open') + ', ' + failures.length +
-          ' failed. Failed tasks remain selected. Refresh before resolving stale revisions.';
+          ' failed. Failed tasks remain selected. Refresh to reconcile uncertain outcomes before retrying.';
       } else {
         selectMode = false;
         clearSelection();

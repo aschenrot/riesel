@@ -243,6 +243,14 @@ test('capture desktop and mobile UI for visual review', async ({ page }) => {
     fullPage: true,
     animations: 'disabled'
   });
+  await page.getByRole('button', { name: 'Select tasks' }).click();
+  await page.getByRole('button', { name: 'Select all loaded' }).click();
+  await page.screenshot({
+    path: 'test-results/visual-review/todo-selection-desktop-1280.png',
+    fullPage: true,
+    animations: 'disabled'
+  });
+  await page.getByRole('button', { name: 'Cancel selection' }).click();
   await page.setViewportSize({ width: 375, height: 812 });
   await expect(page.getByRole('heading', { name: 'Tasks' })).toBeVisible();
   expect(await page.evaluate(() => document.documentElement.scrollWidth > window.innerWidth + 1)).toBe(false);
@@ -251,6 +259,14 @@ test('capture desktop and mobile UI for visual review', async ({ page }) => {
     fullPage: true,
     animations: 'disabled'
   });
+  await page.getByRole('button', { name: 'Select tasks' }).click();
+  await page.getByRole('checkbox', { name: 'Select Review architecture' }).check();
+  await page.screenshot({
+    path: 'test-results/visual-review/todo-selection-mobile-375.png',
+    fullPage: true,
+    animations: 'disabled'
+  });
+  await page.getByRole('button', { name: 'Cancel selection' }).click();
   await page.emulateMedia({ colorScheme: 'dark' });
   await page.setViewportSize({ width: 1280, height: 800 });
   await page.screenshot({
@@ -612,6 +628,12 @@ test('Shift-click range and Ctrl/Cmd-click title use explicit loaded selection',
     .click({ modifiers: ['Shift'] });
   await expect(page.getByText('4 selected')).toBeVisible();
   await expect(page.getByRole('textbox', { name: 'Edit task title' })).toHaveCount(0);
+  const input = page.getByRole('textbox', { name: 'New task' });
+  await input.fill('Text field should remain editable');
+  await input.focus();
+  await page.keyboard.press('Control+a');
+  await expect(page.getByText('4 selected')).toBeVisible();
+  await page.getByRole('checkbox', { name: 'Select ' + titles[3].trim() }).focus();
   await page.keyboard.press('Control+a');
   await expect(page.getByText('5 selected')).toBeVisible();
   await page.keyboard.press('Escape');
@@ -718,6 +740,10 @@ test('selection and direct task controls have no 320px horizontal overflow', asy
   await page.getByRole('button', { name: 'Add task' }).click();
   await expect(page.getByRole('button', { name: 'Delete Narrow controls' })).toBeVisible();
   expect(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth + 1)).toBe(false);
+  await page.getByRole('button', { name: 'Delete Narrow controls' }).click();
+  await expect(page.getByRole('button', { name: 'Delete', exact: true })).toBeVisible();
+  expect(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth + 1)).toBe(false);
+  await page.getByRole('button', { name: 'Cancel', exact: true }).click();
   await page.getByRole('button', { name: 'Select tasks' }).click();
   await page.getByRole('checkbox', { name: 'Select Narrow controls' }).check();
   await expect(page.getByRole('button', { name: 'Mark done' })).toBeVisible();
