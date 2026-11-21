@@ -211,7 +211,8 @@ button.small { min-height: 44px; padding: 8px 11px; font-size: 13px; }
 .toast-region { position: fixed; z-index: 100; top: calc(76px + env(safe-area-inset-top, 0px)); right: max(24px, env(safe-area-inset-right, 0px)); width: min(355px, calc(100vw - 32px)); pointer-events: none; }
 .toast { display: flex; align-items: center; gap: 11px; padding: 10px 10px 10px 14px; min-height: 54px; background: var(--surface); border: 1px solid var(--line); border-radius: 12px; box-shadow: var(--toast-shadow); color: var(--ink); pointer-events: auto; }
 .toast-check { display: grid; place-items: center; flex: 0 0 24px; height: 24px; border-radius: 50%; background: var(--success-surface); color: var(--success); font-size: 16px; font-weight: 800; }
-.toast-message { flex: 1; font-size: 14px; font-weight: 600; line-height: 1.4; }
+.toast-message { flex: 1; min-width: 0; font-size: 14px; font-weight: 600; line-height: 1.4; }
+.toast-action { min-width: 44px; min-height: 44px; padding: 6px 8px; border-color: transparent; background: var(--surface-soft); color: var(--accent); font-size: 13px; font-weight: 700; }
 .toast-dismiss { width: 44px; min-width: 44px; height: 44px; padding: 0; border: 0; color: var(--muted); background: transparent; font-size: 22px; }
 
 @media (max-width: 650px) {
