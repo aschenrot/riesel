@@ -1,7 +1,6 @@
 //! Independent headless GUI stand-in using generated typed Rust capability
 //! bindings. No credentials are supplied: successful mutation here also
 //! demonstrates that the current loopback transport is NOT authenticated.
-use riesel::schema::CapabilityDescriptor;
 use riesel_counter::{AsyncCounterContract, AsyncCounterObserverContract};
 use riesel_protocol::{AsyncRpcClientBinding, AsyncTcpRpcTransport, RpcError};
 use std::{env, error::Error, net::SocketAddr, sync::Arc};
