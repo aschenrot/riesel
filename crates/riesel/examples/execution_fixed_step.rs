@@ -60,7 +60,8 @@ fn main() -> riesel::Result<()> {
             for _ in 0..frame.eligible {
                 // Claim one *proposal*, not a confirmed external effect.
                 assert_eq!(admission.claim(1), 1);
-                let runner = context.execution_graph(bound.clone(), NonZeroUsize::new(1).unwrap())?;
+                let runner =
+                    context.execution_graph(bound.clone(), NonZeroUsize::new(1).unwrap())?;
                 let report = executor.block_on(runner.execute());
                 if !report.succeeded() {
                     return Err(std::io::Error::other(format!(
@@ -74,7 +75,10 @@ fn main() -> riesel::Result<()> {
         if ticks.load(Ordering::SeqCst) != 3 {
             return Err(std::io::Error::other("expected three confirmed example ticks").into());
         }
-        println!("completed {} separate one-shot tick runs", ticks.load(Ordering::SeqCst));
+        println!(
+            "completed {} separate one-shot tick runs",
+            ticks.load(Ordering::SeqCst)
+        );
         Ok(())
     })
 }
