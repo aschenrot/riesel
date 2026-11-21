@@ -10,6 +10,7 @@ The workspace uses Rust 1.100.0. From the repository root:
 
 ```sh
 cargo run -p riesel_hello_example
+cargo run -p riesel --example execution_plan  # headless plan inspection, not scheduling
 cargo run -p todo --bin todo
 cargo run -p todo --bin todo -- --print-definition
 
@@ -95,6 +96,7 @@ See the [async execution contract](docs/product/riesel/async-execution-contract.
 
 - [Riesel product definition](docs/product/riesel/riesel.md)
 - [Implementation roadmap](docs/product/riesel/implementation-roadmap.md)
+- [Headless execution-plan authoring](docs/product/riesel/execution-plan-authoring.md)
 - [High-level application authoring contract](docs/product/riesel/api-authoring-v3.md)
 - [Async execution contract](docs/product/riesel/async-execution-contract.md)
 - [Provider catalog and selection](docs/product/riesel/provider-catalog.md)
