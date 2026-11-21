@@ -5,7 +5,13 @@ use riesel_counter::{AsyncCounterContract, AsyncCounterObserverContract, Counter
 use riesel_protocol::{
     AsyncRpcClientBinding, AsyncRpcTransport, AsyncTcpRpcTransport, CallError, RpcError,
 };
-use std::{env, error::Error, io::{self, Write}, net::SocketAddr, sync::Arc};
+use std::{
+    env,
+    error::Error,
+    io::{self, Write},
+    net::SocketAddr,
+    sync::Arc,
+};
 
 fn main() -> Result<(), Box<dyn Error + Send + Sync>> {
     let mut args = env::args().skip(1);
