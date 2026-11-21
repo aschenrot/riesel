@@ -506,6 +506,38 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn current_trace_identity_does_not_disclose_plan_revision() {
+        // Explicit *negative* finding: identical session/run/node/attempt/event
+        // keys can be emitted by different plans when callers reuse run IDs.
+        // A production coordinator must enforce run/session uniqueness AND
+        // expose a versioned plan association in authoritative snapshots/events.
+        let log = Arc::new(Mutex::new(Vec::new()));
+        let registry = registry(Arc::clone(&log));
+        let older = authored_document();
+        let mut newer = older.clone();
+        newer.revision = 2;
+        newer.nodes[2].operation.key = "bool_sink".into();
+
+        let mut first = Run::new(bind(&older, &registry).unwrap(), 700, 1, 2, Trace::new(true, 20));
+        first.advance(usize::MAX).await;
+        let trace1: Vec<_> = first.trace.retained.iter()
+            .map(|e| (e.sequence, e.session, e.run, e.node.clone(), e.attempt, e.status))
+            .collect();
+
+        let mut second = Run::new(bind(&newer, &registry).unwrap(), 700, 1, 2, Trace::new(true, 20));
+        second.advance(usize::MAX).await;
+        let trace2: Vec<_> = second.trace.retained.iter()
+            .map(|e| (e.sequence, e.session, e.run, e.node.clone(), e.attempt, e.status))
+            .collect();
+
+        assert_ne!(older.revision, newer.revision);
+        assert_eq!(trace1, trace2,
+            "research Event has no plan identity/revision: matching keys conceal differing bindings");
+        assert_eq!(*log.lock().unwrap(),
+            vec!["ingest", "simulate", "publish", "ingest", "simulate", "bool_sink"]);
+    }
+
+    #[tokio::test]
     async fn static_validation_does_not_execute_registered_side_effects() {
         let invoked = Arc::new(AtomicUsize::new(0));
         let copy = Arc::clone(&invoked);
