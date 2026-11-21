@@ -25,12 +25,12 @@ import time
 import uuid
 
 PINNED_NATIVE_GUI_HEAD = "5201e61cc74bab778dfc63a3788f1708b2530f21"
-ROOT_PREFIX = "/tmp/riesel-m59-native-owner-"
+ROOT_PREFIX = "/run/riesel-m59-native-owner-"
 UNIT_PREFIX = "riesel-m59-native-owner-"
 
 
 def safe_root(root: Path) -> bool:
-    return bool(re.fullmatch(r"/tmp/riesel-m59-native-owner-[a-f0-9]{12}", str(root)))
+    return bool(re.fullmatch(r"/run/riesel-m59-native-owner-[a-f0-9]{12}", str(root)))
 
 
 def safe_unit(unit: str) -> bool:
@@ -110,6 +110,9 @@ def controller_launch(unit: str, root: Path):
         raise AssertionError("unsafe launch fixture identifier")
     binary = root / "counter_resolved_facade_host"
     user = "rieselg" + unit[len(UNIT_PREFIX):len(UNIT_PREFIX) + 9]
+    # The root-owned binary is under /run, not the service-private /tmp.
+    # systemd DynamicUser implies PrivateTmp, which hid the initial /tmp
+    # fixture from the real app (observed: /bin/sh: ...: not found).
     # Keep the unchanged PR #90 stdin-driven research host from exiting on
     # stdin EOF. A test-only shell pipe holds stdin open without sending
     # STOP; systemd still owns the app and its child cgroup. The final
