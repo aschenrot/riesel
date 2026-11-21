@@ -220,7 +220,7 @@ This addendum is a **reviewable proposed specification, not acceptance**. It inc
 3. **M3 — app-level readiness and command semantics:** provider handshake alone cannot mark whole app ready; establish explicit app/interface generation and bounded observation; concurrent start/stop and lost-response tests guarantee no silent mutation retry.
 4. **M4 — local authorization:** forbidden operation, untrusted separate UID, same UID within the *declared* threat model, hostile browser origin/Host, token leak, malformed input and executable path replacement; no state transition before policy checks.
 5. **M5 — UI/backend parity:** one shared API implementation, CLI/UI status and errors agree, keyboard navigation and accessible error/focus states, reload/reconnect do not restart apps, headless operation remains valid.
-6. **M6 — exact revision verification:** Linux \`cargo validate --check\`, \`cargo smoke\` and new integration tests; Windows pre-release manual Job Object/named-pipe/UI review if claimed. CI-green cannot substitute for the selected process-owner failure experiments.
+6. **M6 — exact revision verification:** Linux `cargo validate --check`, `cargo smoke` and new integration tests; Windows pre-release manual Job Object/named-pipe/UI review if claimed. CI-green cannot substitute for the selected process-owner failure experiments.
 
 **Possible independent accepted slices:** (a) identity/registration/passive observations, (b) selected owner lifecycle and crash recovery, (c) secured command contract, (d) browser UI on the same backend. UI layout can be designed independently after schema agreement; browser write actions must wait for secured M4. Manager does not depend on the native window-host product or on #83's scheduler.
 
