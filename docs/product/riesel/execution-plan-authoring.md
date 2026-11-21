@@ -35,6 +35,18 @@ a resource key. This declaration does **not** create an ECS integration,
 clock, separate supervisor or automatic safe-point debugger; see the
 [execution runner contract](execution-runner.md).
 
+## Reusing immutable plan bindings for distinct tick runs
+
+A validated, bound plan can now be cloned without executing any operation
+or re-resolving capability providers. Each `RunningApp::execution_graph`
+call accepts the same immutable plan revision as a **separate one-shot
+execution**. The [fixed-step admission policy](execution-runner.md) can
+supply an explicitly bounded number of tick proposals per externally
+sampled frame; it is not an automatic graph loop or proof of committed
+side effects. Session-wide domain authority and resource admission
+continue to apply separately to each runner. Distinct run identity,
+attempt correlation and authoritative effects belong to #113.
+
 ## Boundaries and next steps
 
 - This graph is **not** the capability/provider startup dependency graph, the `AppSchema`, or the provider `DeploymentPlan`. Existing provider selection and session identity remain authoritative.
