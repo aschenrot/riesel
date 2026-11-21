@@ -132,6 +132,8 @@ This is a **recommendation**, not Gate B acceptance. The cross-project requireme
 
 **Nonfunctional criteria:** Linux Rust 1.100 compatibility; headless dependency independence; bounded startup and shutdown; no hidden file edits or network downloads; diagnostic source/context without secret leakage; explicit local trust and executable-inspection risks; documented Windows release validation. No untested process-tree or cross-user guarantee.
 
+**Verified shutdown mismatch:** the current Todo HTTP host waits for `tokio::signal::ctrl_c()` (`examples/todo/src/http/mod.rs`), whereas `riesel_protocol::run_async_tcp_rpc_host` advertises an opt-in `RIESEL_SHUTDOWN` stdin control for **managed provider hosts**. A generic developer runner must not assume an app supports the provider-host shutdown handshake. Its process-owner adapter must use a tested app-supported graceful signal/control, distinguish SIGINT/SIGTERM/Windows behavior, and report forced termination or incomplete provider cleanup rather than saying shutdown was graceful. Test this on Todo and the independently authored headless application.
+
 ### Executable acceptance and decomposition after maintainer approval
 
 - **Gate T1 — independent Cargo:** create a disposable new workspace *outside* this repository with the Riesel SDK, launch and inspect it through the proposed distribution mechanism. Assert it contains no copied repo `xtask` and no mandatory new manifest. Inspect setup-side effects as in #79.
