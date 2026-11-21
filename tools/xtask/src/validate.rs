@@ -42,6 +42,19 @@ pub fn run(mode: FormatMode) -> TaskResult {
             &["test", "--locked", "-p", "todo", "--features", "http"],
         ),
         (
+            "Fixed-domain authority and thread-affine integration",
+            &[
+                "test",
+                "--locked",
+                "-p",
+                "riesel",
+                "--features",
+                "async-tcp",
+                "--test",
+                "execution_domains",
+            ],
+        ),
+        (
             "Graph runner with the existing async session feature",
             &[
                 "test",
