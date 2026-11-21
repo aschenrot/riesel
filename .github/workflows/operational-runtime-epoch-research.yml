@@ -1,0 +1,46 @@
+name: Research #75 — runtime-owned external session fencing
+
+# This job validates a feature-gated PROTOTYPE, never a public runtime API.
+permissions:
+  contents: read
+
+on:
+  pull_request:
+    branches:
+      - main
+      - research/75-operational-contract-s1s2
+    paths:
+      - ".github/workflows/operational-runtime-epoch-research.yml"
+      - "crates/riesel_protocol/**"
+      - "crates/riesel_app/**"
+      - "crates/riesel/**"
+      - "examples/counter/app/**"
+      - "research/operational-contract/**"
+      - "Cargo.lock"
+  workflow_dispatch:
+
+jobs:
+  linux-research:
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install pinned Rust with formatting and Clippy
+        run: |
+          rustup toolchain install 1.100.0 --profile minimal --component rustfmt --component clippy
+          rustup default 1.100.0
+      - name: Validate ordinary Riesel workspace and smoke unchanged
+        run: |
+          cargo validate --check
+          cargo smoke
+      - name: Verify runtime-issued generation and revocation serialization
+        run: cargo test --locked -p riesel_protocol --features research-external-epoch
+      - name: Build real Riesel Counter with runtime-owned experimental epoch
+        run: |
+          cargo build --locked -p riesel_counter_example --bin counter_same_pid_recovery_host --features research-runtime-epoch
+      - name: Verify same-PID managed crash recovery through real runtime epoch
+        env:
+          RIESEL_RESEARCH_RUNTIME_EPOCH_REQUIRED: "1"
+        run: python3 research/operational-contract/same_pid_probe.py
+      - name: Preserve original resolved Counter and external replacement evidence
+        run: python3 research/operational-contract/probe.py --real
