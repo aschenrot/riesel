@@ -1333,7 +1333,9 @@ fn session_owned_graph_owns_thread_confined_domain_without_duplicate_scheduler()
 #[cfg(feature = "async-tcp")]
 #[test]
 fn graph_runner_real_local_session_shutdown_preserves_completed_prefix_and_unknown_work() {
-    use crate::execution_plan::{ExecutionPlanDraft, OperationKey, OperationNode, OperationRegistry};
+    use crate::execution_plan::{
+        ExecutionPlanDraft, OperationKey, OperationNode, OperationRegistry,
+    };
     use crate::execution_runner::{
         AsyncOperation, GraphRunError, OperationOutcome, OperationState, async_operation,
     };
@@ -1360,7 +1362,9 @@ fn graph_runner_real_local_session_shutdown_preserves_completed_prefix_and_unkno
                     let committed = Arc::clone(&committed);
                     async move {
                         if *resolved != 123 {
-                            return OperationOutcome::Failed("wrong already-resolved capability".into());
+                            return OperationOutcome::Failed(
+                                "wrong already-resolved capability".into(),
+                            );
                         }
                         committed.fetch_add(1, Ordering::SeqCst);
                         OperationOutcome::Completed
@@ -1410,7 +1414,10 @@ fn graph_runner_real_local_session_shutdown_preserves_completed_prefix_and_unkno
         .unwrap();
 
     let plan = ExecutionPlanDraft::new("lifecycle.committed-prefix", 1)
-        .operation(OperationNode::new("commit", OperationKey::new("commit", 1).unwrap()))
+        .operation(OperationNode::new(
+            "commit",
+            OperationKey::new("commit", 1).unwrap(),
+        ))
         .operation(
             OperationNode::new("dispatch", OperationKey::new("dispatch", 1).unwrap())
                 .after("commit"),
@@ -1442,7 +1449,10 @@ fn graph_runner_real_local_session_shutdown_preserves_completed_prefix_and_unkno
 
     let deadline = std::time::Instant::now() + Duration::from_secs(5);
     while dispatched.load(Ordering::SeqCst) == 0 {
-        assert!(std::time::Instant::now() < deadline, "graph did not dispatch");
+        assert!(
+            std::time::Instant::now() < deadline,
+            "graph did not dispatch"
+        );
         std::thread::sleep(Duration::from_millis(1));
     }
     assert_eq!(committed.load(Ordering::SeqCst), 1);
@@ -1451,7 +1461,10 @@ fn graph_runner_real_local_session_shutdown_preserves_completed_prefix_and_unkno
 
     assert!(report.session_expired);
     assert_eq!(report.operations["commit"], OperationState::Completed);
-    assert_eq!(report.operations["dispatch"], OperationState::OutcomeUnknown);
+    assert_eq!(
+        report.operations["dispatch"],
+        OperationState::OutcomeUnknown
+    );
     assert_eq!(report.operations["dependent"], OperationState::Blocked);
     assert_eq!(report.operations["signal"], OperationState::Cancelled);
     assert_eq!(report.started, 2);

@@ -54,13 +54,9 @@ fn main() -> riesel::Result<()> {
         )?;
 
         let plan = ExecutionPlanDraft::new("example.session-workflow", 1)
+            .operation(OperationNode::new("left", OperationKey::new("left", 1)?).on_signal("start"))
             .operation(
-                OperationNode::new("left", OperationKey::new("left", 1)?)
-                    .on_signal("start"),
-            )
-            .operation(
-                OperationNode::new("right", OperationKey::new("right", 1)?)
-                    .on_signal("start"),
+                OperationNode::new("right", OperationKey::new("right", 1)?).on_signal("start"),
             )
             .operation(
                 OperationNode::new("join", OperationKey::new("join", 1)?)
