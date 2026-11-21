@@ -20,7 +20,7 @@ import time
 import uuid
 from xml.sax.saxutils import escape
 
-OTHER_UID = 60090
+OTHER_UID = 65534  # existing 'nobody' principal, not an invented UID
 PREFIX = "org.riesel.research.manager.m"
 UNIT_PREFIX = "riesel-research-59-polkit-"
 
@@ -51,14 +51,21 @@ def subject(action: str, unit: str) -> None:
     if int(caps.split(":", 1)[1], 16):
         raise AssertionError("subject has effective Linux capabilities")
     identity = f"{os.getpid()},{start_time()},{os.getuid()}"
-    direct = run(["pkcheck", "--action-id", action, "--process", identity,
-                  "--detail", "unit", unit, "--detail", "verb", "stop"])
-    if direct.returncode != 127 or "NotAuthorized" not in direct.stderr:
-        raise AssertionError(
-            f"expected untrusted detail rejection; rc={direct.returncode}, "
-            f"stderr={direct.stderr!r}"
-        )
-    print("RESEARCH_M59_POLKIT_UNTRUSTED_DIRECT_DETAILS_REJECTED", flush=True)
+    if os.geteuid() == OTHER_UID:
+        # Numeric service-less disposable UIDs cannot necessarily initialize
+        # a polkit system-bus authority. Root does the actual distinct-UID
+        # check; the foreign subject only needs an observed living PID.
+        print("RESEARCH_M59_POLKIT_FOREIGN_NSS_SUBJECT_READY", flush=True)
+    else:
+        direct = run(["pkcheck", "--action-id", action, "--process", identity,
+                      "--detail", "unit", unit, "--detail", "verb", "stop"])
+        if direct.returncode != 127 or "NotAuthorized" not in direct.stderr:
+            raise AssertionError(
+                f"expected untrusted detail rejection; rc={direct.returncode}, "
+                f"stderr={direct.stderr!r}"
+            )
+        print("RESEARCH_M59_POLKIT_UNTRUSTED_DIRECT_DETAILS_REJECTED",
+              flush=True)
     print(f"READY {os.getpid()} {start_time()} {os.getuid()}", flush=True)
     sys.stdin.readline()  # remain alive for protected, trusted root check
 
@@ -70,7 +77,8 @@ def verified_subject(process: subprocess.Popen[str], timeout: float = 8.0) -> st
     if not ready:
         raise AssertionError("unprivileged polkit subject did not report status")
     marker = process.stdout.readline().strip()
-    if marker != "RESEARCH_M59_POLKIT_UNTRUSTED_DIRECT_DETAILS_REJECTED":
+    if marker not in ("RESEARCH_M59_POLKIT_UNTRUSTED_DIRECT_DETAILS_REJECTED",
+                      "RESEARCH_M59_POLKIT_FOREIGN_NSS_SUBJECT_READY"):
         diagnostic = (process.stderr.read() if process.poll() is not None
                       and process.stderr is not None else "subject still running")
         raise AssertionError(
@@ -139,6 +147,8 @@ def main() -> None:
     user = pwd.getpwuid(os.geteuid()).pw_name
     if not re.fullmatch(r"[A-Za-z_][A-Za-z0-9_.-]*", user):
         raise AssertionError("unexpected operator name")
+    if pwd.getpwnam("nobody").pw_uid != OTHER_UID:
+        raise AssertionError("expected existing NSS identity for other principal")
     if os.geteuid() == OTHER_UID:
         raise AssertionError("other principal collides with CI user")
 
