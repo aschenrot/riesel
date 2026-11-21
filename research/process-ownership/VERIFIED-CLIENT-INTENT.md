@@ -66,6 +66,24 @@ This is a **negative result for naive label allowlisting**: labels can add secur
 
 **Still necessary to establish the positive comparator:** install a protected client domain with an enforceable, root-owned **one-way entry policy**, show that only a deliberately provisioned launcher can enter it while a same-UID attacker fails `aa-exec`, injection, executable re-launch and FD relay; then prove intended CLI/browser functionality, per-operation human intent, app lifecycle fencing and working user-session GUI integration. Root-launched test clients alone do **not** demonstrate safe admission because the CI account's broad `sudo` rights are themselves ambient to all same-account programs (previous [#123](https://github.com/aschenrot/riesel/pull/123) negative proof).
 
+## Third experiment: two AppArmor domains and conditional profile-switch denial
+
+The previous peer-label experiment proved that an **unconfined** same-UID program could enter the deliberately permissive trusted test profile. The next question was narrower: **if the hostile process is already in a different, OS-enforced AppArmor domain that does not authorize profile changes, can it still assume the trusted domain?**
+
+The updated [same Linux research fixture](manager_apparmor_label_probe.py) loads **two** uniquely named disposable profiles: the previously permissive trusted peer label and a separate attacker profile. Both are root-installed *for the fixture*. The attacker profile permits the simple Python/Unix-socket test program and inherited execution but **does not grant `change_profile` to the trusted profile**. The experiment checks three cases under the same numeric UID `60090`:
+
+| Client state | Kernel-enforced behavior tested | Expected interpretation |
+| --- | --- | --- |
+| Trusted label, launched by the privileged CI fixture | `SO_PEERSEC` shows trusted profile; mock operation accepted | **Positive control**, not proof of an authenticated user |
+| Attacker labelled with its *different* confined AppArmor profile | `SO_PEERSEC` shows attacker profile; mock operation rejected | Distinct enforced security domains add useful caller context beyond UID |
+| Same confined attacker invokes `aa-exec -p` to select the trusted label | The attempted profile change is refused | **Conditional** isolation: a process already confined under policy without transition rights cannot simply select the other domain |
+
+[Initial executed research CI 44957534382](https://github.com/aschenrot/riesel/actions/runs/44957534382) **PASSED** these bounded cases at `306dbf2a38838a47310abd38c4eb881bcdd92e15`. A stricter follow-up asserts that the confined client's own `/proc/self/attr/current` identifies the attacker profile and that `aa-exec` specifically reports **permission denial**, not a missing file/profile or other harness failure. That stricter run is a **separate** exact revision and must be checked before claiming the stronger diagnostic result.
+
+**Critical limitation:** the fixture **still deliberately demonstrates the unconfined same-user bypass**. Therefore its positive *confined* result holds only if Riesel can prove **every untrusted relevant process is actually constrained** and cannot launch, transition into, compromise, or relay an authorized client. The tested temporary profiles are permissive for most other operations; no protected browser consent, OS login/session GUI integration, process injection defense, app owner, deployment or Windows/macOS equivalent was established. Treat the OS principal/profile assignment and its non-bypassability as a requirement of the system, **not** as a trusted string the client may send.
+
+**Decision implication:** AppArmor `SO_PEERSEC` is a useful Linux mechanism for communicating OS-enforced process-domain identity, but it does **not** make an arbitrary desktop app securely privileged by itself. Production viability depends on a trustworthy launch/entry and OS/session confinement design, plus human authorization for each privileged operation or a deliberately provisioned unattended policy. A restricted process-only fixture does not establish full hostile-same-UID robustness.
+
 ## Interpretation and limitations
 
 1. **Executable integrity remains essential**, especially for Manager-owned installation/update and OS owner service definitions. But **the ability to execute the root-owned CLI is usually shared by untrusted code under the same human account**. Confirming the executable inode, hash, owner or signed client binary is not proof that a human chose a particular mutation or that its command line/request came from a trusted origin.
