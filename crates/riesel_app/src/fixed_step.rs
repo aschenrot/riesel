@@ -236,7 +236,10 @@ mod tests {
         assert_eq!(policy.claim(1), 1);
         assert_eq!(policy.claim(1), 0);
         assert_eq!(policy.advance_frame(Duration::ZERO).eligible, 0);
-        assert_eq!(policy.advance_frame(Duration::from_millis(1)).fractional, Duration::from_millis(1));
+        assert_eq!(
+            policy.advance_frame(Duration::from_millis(1)).fractional,
+            Duration::from_millis(1)
+        );
     }
 
     #[test]
