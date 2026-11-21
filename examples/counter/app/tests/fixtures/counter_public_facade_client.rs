@@ -19,7 +19,9 @@ fn main() -> Result<(), Box<dyn Error + Send + Sync>> {
         .build()?;
     runtime.block_on(async {
         let transport = Arc::new(AsyncTcpRpcTransport::new(address));
-        transport.verify(&AsyncCounterContract::definition()?).await?;
+        transport
+            .verify(&AsyncCounterContract::definition()?)
+            .await?;
 
         // Internal Observer is not reachable on this explicitly selected
         // interface endpoint. Contract metadata is not authentication.
