@@ -4,8 +4,8 @@
 #[path = "facade_host_common.rs"]
 mod facade_host_common;
 
-use riesel::{Application, AsyncCapability};
 use riesel::schema::CapabilityContract;
+use riesel::{Application, AsyncCapability};
 use riesel_counter::{AsyncCounterContract, CounterError};
 use riesel_counter_component::AsyncMemoryCounter;
 use riesel_protocol::{AsyncRpcFuture, AsyncRpcHandler, CallError, RpcError};
@@ -31,8 +31,7 @@ struct LabelArgs {
 }
 
 fn decode<T: serde::de::DeserializeOwned>(payload: Value) -> Result<T, RpcError> {
-    serde_json::from_value(payload)
-        .map_err(|error| RpcError::InvalidArguments(error.to_string()))
+    serde_json::from_value(payload).map_err(|error| RpcError::InvalidArguments(error.to_string()))
 }
 
 /// Preserve transport/session failures as RPC errors, unlike naive conversion
@@ -50,8 +49,7 @@ struct ResolvedFacade(AsyncCapability<AsyncCounterContract>);
 
 impl AsyncRpcHandler for ResolvedFacade {
     fn contract(&self) -> Result<CapabilityContract, RpcError> {
-        AsyncCounterContract::definition()
-            .map_err(|error| RpcError::Contract(error.to_string()))
+        AsyncCounterContract::definition().map_err(|error| RpcError::Contract(error.to_string()))
     }
 
     fn dispatch<'a>(&'a self, operation: &'a str, payload: Value) -> AsyncRpcFuture<'a> {
@@ -77,18 +75,20 @@ impl AsyncRpcHandler for ResolvedFacade {
 
 fn main() -> riesel::Result<()> {
     Application::new("ResolvedFacadeResearch")
-        .async_handler(|counter: AsyncCapability<AsyncCounterContract>| async move {
-            // Unlike the first comparator, these operations resolve through
-            // Riesel's actual provider registry and active application session.
-            facade_host_common::serve(Arc::new(ResolvedFacade(counter.clone()))).await?;
-            let observed = counter.value().await.map_err(io::Error::other)?;
-            if observed != 5 {
-                return Err(io::Error::other(format!(
-                    "resolved application counter changed unexpectedly: {observed}"
-                )));
-            }
-            Ok::<(), io::Error>(())
-        })?
+        .async_handler(
+            |counter: AsyncCapability<AsyncCounterContract>| async move {
+                // Unlike the first comparator, these operations resolve through
+                // Riesel's actual provider registry and active application session.
+                facade_host_common::serve(Arc::new(ResolvedFacade(counter.clone()))).await?;
+                let observed = counter.value().await.map_err(io::Error::other)?;
+                if observed != 5 {
+                    return Err(io::Error::other(format!(
+                        "resolved application counter changed unexpectedly: {observed}"
+                    )));
+                }
+                Ok::<(), io::Error>(())
+            },
+        )?
         .component::<AsyncMemoryCounter>()?
         .run()
 }
