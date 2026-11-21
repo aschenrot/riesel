@@ -64,7 +64,16 @@ Run with an operational Ubuntu/systemd user manager:
 python3 research/process-ownership/systemd_user_service_probe.py
 python3 research/process-ownership/manager_admission_probe.py
 ```
-The dedicated #94 GitHub workflow now executes both. **Do not mark M2b verified until the exact current PR-head workflow has succeeded**.
+**Executed evidence:** The first complete M2b code + report revision `8367ffe490c3d2368d74e19c10fcb89c645bcd0a` passed [GitHub Actions 44884214554](https://github.com/aschenrot/riesel/actions/runs/44884214554) on Ubuntu 24.04 / real systemd 255 user manager: **3/3 existing real-unit scenarios and 4/4 new durable-admission tests**. The new logs include:
+
+- `RESEARCH_MANAGER_SQLITE_CONCURRENT_SINGLE_ADMISSION`
+- `RESEARCH_MANAGER_CRASH_AFTER_OS_START_RECONCILED`
+- `RESEARCH_MANAGER_DURABLE_ATTEMPT_FENCES_STALE_STOP`
+- `RESEARCH_MANAGER_CRASH_AFTER_OS_STOP_RECONCILED`
+- `RESEARCH_MANAGER_UNCERTAIN_RESERVATION_FAILS_CLOSED`
+- `RESEARCH_MANAGER_SAME_UID_REGISTRY_IS_NOT_AUTH`
+
+The tests use real OS-owned transient user units and independently spawned controller processes, while the registry itself is a test-only SQLite implementation. The exact final documentation revision needs its own passing CI before treating the branch as comprehensively validated. No general Manager implementation guarantee or security acceptance is implied.
 
 ### Decision comparison (not a vote)
 
