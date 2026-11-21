@@ -4,7 +4,7 @@
 #[path = "../src/ecs_parallel.rs"]
 mod ecs_parallel;
 
-use ecs_parallel::{Case, Engine, Fixture, Workload, expected_sums};
+use ecs_parallel::{Case, DirectOp, Engine, Fixture, Workload, expected_sums};
 use std::time::Instant;
 
 fn median(mut values: Vec<f64>) -> f64 {
@@ -86,6 +86,54 @@ fn main() {
             raw[1].iter().copied().reduce(f64::max).unwrap(),
             runen / bevy,
         );
+    }
+
+    // Isolate direct World query construction+iteration from schedule dispatch.
+    // These timings are NOT a pure storage-layout comparison: both include
+    // constructing the engine's public dynamic query handle per operation.
+    for entities in [1_000usize, 10_000usize] {
+        for operation in [DirectOp::Read, DirectOp::Write] {
+            let case = Case { workload: Workload::Empty, entities, parallel: false };
+            let mut fixtures = [
+                Fixture::new(Engine::Bevy, case),
+                Fixture::new(Engine::Runen, case),
+            ];
+            let warmups = 6usize;
+            let samples = 7usize;
+            let ticks_per_sample = if entities == 1_000 { 100usize } else { 30usize };
+            for fixture in &mut fixtures {
+                for _ in 0..warmups { fixture.run_direct(operation); }
+            }
+            let mut raw = [Vec::<f64>::new(), Vec::<f64>::new()];
+            for repetition in 0..samples {
+                let order = if repetition % 2 == 0 { [0usize, 1] } else { [1, 0] };
+                for engine_idx in order {
+                    let fixture = &mut fixtures[engine_idx];
+                    let start = Instant::now();
+                    for _ in 0..ticks_per_sample { fixture.run_direct(operation); }
+                    raw[engine_idx].push(start.elapsed().as_nanos() as f64 / ticks_per_sample as f64);
+                }
+            }
+            let mut expected = expected_sums(case, 0);
+            if matches!(operation, DirectOp::Write) {
+                expected[0] += entities as u64 * (warmups + samples * ticks_per_sample) as u64;
+            }
+            for fixture in &mut fixtures {
+                assert_eq!(fixture.sums(), expected, "direct-query fixture invalid");
+            }
+            let b = median(raw[0].clone());
+            let r = median(raw[1].clone());
+            println!(
+                "BENCH_DIRECT|op={}|entities={}|samples={}|ticks_per_sample={}|bevy_median_ns={:.0}|runen_median_ns={:.0}|bevy_min_ns={:.0}|bevy_max_ns={:.0}|runen_min_ns={:.0}|runen_max_ns={:.0}|runen_over_bevy_ratio={:.3}",
+                if matches!(operation, DirectOp::Read) { "read" } else { "write" },
+                entities, samples, ticks_per_sample, b, r,
+                raw[0].iter().copied().reduce(f64::min).unwrap(),
+                raw[0].iter().copied().reduce(f64::max).unwrap(),
+                raw[1].iter().copied().reduce(f64::min).unwrap(),
+                raw[1].iter().copied().reduce(f64::max).unwrap(),
+                r / b,
+            );
+        }
     }
 
     println!("BENCH_COMPLETE|samples_validated=true|selected_architecture=none");
