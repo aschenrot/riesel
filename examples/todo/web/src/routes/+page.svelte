@@ -11,6 +11,11 @@
   } from '$lib/api';
 
   type Filter = 'all' | 'open' | 'done';
+  type UndoChange = {
+    current: Task; // confirmed post-mutation revision; never silently retry
+    inverse: { title: string } | { completed: boolean };
+  };
+  type UndoOperation = { changes: UndoChange[]; partialFailures: number };
 
   let tasks = $state<Task[]>([]);
   let nextCursor = $state<string | null>(null);
@@ -32,6 +37,7 @@
   let conflicted = $state(false);
   let toastMessage = $state('');
   let toastId = $state(0);
+  let undoOperation = $state<UndoOperation | null>(null);
   let selectMode = $state(false);
   let selectedIds = $state<string[]>([]);
   let selectionAnchor = $state<string | null>(null);
@@ -62,12 +68,14 @@
     errorMessage = '';
     conflicted = false;
     toastMessage = '';
+    undoOperation = null;
     batchSummary = '';
     batchFailures = [];
   }
 
-  function notify(message: string) {
+  function notify(message: string, undo: UndoOperation | null = null) {
     toastMessage = message;
+    undoOperation = undo;
     toastId += 1;
   }
 
@@ -189,7 +197,10 @@
       editingId = null;
       // Re-enable the action trigger before restoring keyboard focus.
       actingId = null;
-      notify('Task updated');
+      notify('Task updated', {
+        changes: [{ current: updated, inverse: { title: task.title } }],
+        partialFailures: 0
+      });
       await tick();
       document.getElementById('edit-action-' + task.id)?.focus();
     } catch (error) {
@@ -210,7 +221,10 @@
     try {
       const updated = await updateTask(task, { completed: !task.completed });
       tasks = tasks.map((value) => value.id === updated.id ? updated : value);
-      notify(updated.completed ? 'Task completed' : 'Task reopened');
+      notify(updated.completed ? 'Task completed' : 'Task reopened', {
+        changes: [{ current: updated, inverse: { completed: task.completed } }],
+        partialFailures: 0
+      });
     } catch (error) {
       report(error);
     } finally {
@@ -314,6 +328,7 @@
     let unchanged = 0;
     const failedIds: string[] = [];
     const failures: { title: string; reason: string }[] = [];
+    const successful: UndoChange[] = [];
     try {
       for (let index = 0; index < snapshot.length; index++) {
         const task = snapshot[index];
@@ -326,6 +341,7 @@
           // Sequential, revision-checked commands: no atomic batch, no automatic retry.
           const updated = await updateTask(task, { completed });
           tasks = tasks.map((value) => value.id === updated.id ? updated : value);
+          successful.push({ current: updated, inverse: { completed: task.completed } });
           changed++;
         } catch (error) {
           failedIds.push(task.id);
@@ -340,20 +356,79 @@
         selectedIds = failedIds;
         selectionAnchor = failedIds[0] ?? null;
         batchFailures = failures;
+        undoOperation = successful.length > 0
+          ? { changes: successful, partialFailures: failures.length }
+          : null;
         batchSummary = changed + ' changed, ' + unchanged + ' already ' +
           (completed ? 'done' : 'open') + ', ' + failures.length +
           ' failed. Failed tasks remain selected. Refresh to reconcile uncertain outcomes before retrying.';
       } else {
         selectMode = false;
         clearSelection();
-        notify(changed === 0
-          ? 'Selected tasks already ' + (completed ? 'done' : 'open')
-          : changed + (changed === 1 ? ' task ' : ' tasks ') +
-            (completed ? 'marked done' : 'reopened'));
+        notify(
+          changed === 0
+            ? 'Selected tasks already ' + (completed ? 'done' : 'open')
+            : changed + (changed === 1 ? ' task ' : ' tasks ') +
+              (completed ? 'marked done' : 'reopened'),
+          successful.length > 0 ? { changes: successful, partialFailures: 0 } : null
+        );
       }
     } finally {
       batchProgress = '';
       batchRunning = false;
+    }
+  }
+
+  async function undoLastAction() {
+    const action = undoOperation;
+    if (!action || action.changes.length === 0 || batchRunning || refreshing ||
+        loadingMore || creating || actingId !== null || editingId !== null) return;
+
+    // Consume this opportunity before issuing any inverse mutation, so an
+    // uncertain response can never trigger an automatic second attempt.
+    undoOperation = null;
+    toastMessage = '';
+    batchRunning = true;
+    const failures: { title: string; reason: string }[] = [];
+    let reversed = 0;
+    try {
+      for (let index = 0; index < action.changes.length; index++) {
+        const change = action.changes[index];
+        batchProgress = 'Undoing ' + (index + 1) + ' of ' + action.changes.length + ' changes…';
+        try {
+          // The post-command revision fences newer edits from another client.
+          const updated = await updateTask(change.current, change.inverse);
+          tasks = tasks.map((task) => task.id === updated.id ? updated : task);
+          reversed++;
+        } catch (error) {
+          failures.push({
+            title: change.current.title,
+            reason: error instanceof ApiError ? error.message : 'Unexpected request failure'
+          });
+        }
+      }
+      if (failures.length > 0) {
+        batchFailures = [...batchFailures, ...failures];
+        batchSummary = reversed + ' reversed, ' + failures.length +
+          ' Undo changes failed. Refresh to reconcile before further updates; failed requests may have committed.';
+      } else if (action.partialFailures > 0) {
+        // Original unsuccessful batch items remain selected for reconciliation.
+        batchSummary = 'Undid ' + reversed + ' successful changes. ' +
+          action.partialFailures + ' original batch operations failed and remain selected. ' +
+          'Refresh before retrying those tasks.';
+        notify(reversed === 1 ? 'Change undone' : reversed + ' changes undone');
+      } else {
+        batchSummary = '';
+        batchFailures = [];
+        notify(reversed === 1 ? 'Change undone' : reversed + ' changes undone');
+      }
+    } finally {
+      batchProgress = '';
+      batchRunning = false;
+    }
+    if (failures.length > 0) {
+      await tick();
+      document.querySelector<HTMLButtonElement>('.batch-result .text-action')?.focus();
     }
   }
 
@@ -542,6 +617,10 @@
               {/each}
             </ul>
           </div>
+          {#if undoOperation !== null && undoOperation.partialFailures > 0}
+            <button type="button" class="text-action" disabled={batchRunning}
+              onclick={() => void undoLastAction()}>Undo successful changes</button>
+          {/if}
           <button type="button" class="text-action" disabled={batchRunning} onclick={() => void refresh()}>Refresh tasks</button>
         </div>
       {/if}
@@ -683,7 +762,14 @@
   {#if toastMessage}
     <div class="toast-region">
       {#key toastId}
-        <Toast message={toastMessage} onDismiss={() => { toastMessage = ''; }} />
+        <Toast
+          message={toastMessage}
+          timeout={undoOperation ? 7000 : 3200}
+          actionLabel={undoOperation ? 'Undo' : undefined}
+          onAction={undoOperation ? () => void undoLastAction() : undefined}
+          actionDisabled={batchRunning || refreshing || loadingMore || actingId !== null}
+          onDismiss={() => { toastMessage = ''; undoOperation = null; }}
+        />
       {/key}
     </div>
   {/if}
