@@ -1,0 +1,14 @@
+[package]
+name = "riesel-scheduler-research"
+version = "0.0.0"
+edition = "2024"
+publish = false
+
+# Intentionally isolated: not a new production Riesel crate or accepted API.
+[workspace]
+
+[dependencies]
+tokio = { version = "=1.54.1", features = ["rt", "macros", "sync", "time"] }
+riesel = { path = "../../crates/riesel", features = ["async-tcp"] }
+riesel_counter = { path = "../../examples/counter/contract" }
+riesel_counter_component = { path = "../../examples/counter/component", features = ["async-tcp"] }
