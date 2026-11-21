@@ -5,13 +5,11 @@
 mod facade_host_common;
 
 use riesel::{Application, AsyncCapability};
-use riesel_counter::{AsyncCounterContract, AsyncMemoryCounter as _};
-use riesel_counter::{CounterError};
+use riesel::schema::CapabilityContract;
+use riesel_counter::{AsyncCounterContract, CounterError};
 use riesel_counter_component::AsyncMemoryCounter;
 use riesel_protocol::{AsyncRpcFuture, AsyncRpcHandler, CallError, RpcError};
-use riesel::schema::CapabilityContract;
-use serde::Deserialize;
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::io;
 use std::sync::Arc;
