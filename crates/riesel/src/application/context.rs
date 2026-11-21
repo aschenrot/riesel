@@ -34,7 +34,7 @@ impl Context<'_> {
         plan: crate::BoundExecutionPlan<crate::AsyncOperation>,
         max_in_flight: std::num::NonZeroUsize,
     ) -> std::result::Result<crate::ExecutionGraphRunner, crate::GraphRunError> {
-        crate::ExecutionGraphRunner::new(plan, self.running.session_token(), max_in_flight)
+        self.running.execution_graph(plan, max_in_flight)
     }
 
     /// Start work owned by this application. On service failure or shutdown
