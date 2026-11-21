@@ -39,6 +39,8 @@ jobs:
         run: cargo smoke
       - name: Isolated application-export research (#60)
         run: cargo test --manifest-path research/application-export/Cargo.toml --offline -- --nocapture
+      - name: Application-export source comparison (#60)
+        run: python3 research/application-export/measure.py
 
   windows:
     if: ${{ github.event_name == 'workflow_dispatch' && inputs.windows }}
