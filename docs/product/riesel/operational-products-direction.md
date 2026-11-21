@@ -42,7 +42,7 @@ For all relevant slices retain the repository's Linux validation/smoke checks on
 
 ## Technical evidence reconciliation (review annex — not accepted)
 
-The subsequent exact-head #68/#59/#60/#75 research and its security, recovery, readiness and implementation sequencing are synthesized in the [technical decision review](operational-technical-decision-review.md). That annex proposes the common semantics and independently deliverable slices, **but does not accept a public contract, trust profile, implementation mechanism or milestone**. Each open specification Issue remains the owner of its eventual technical decision. Do not merge or infer acceptance from research-only CI; the newest main Linux validation is separately failing in a SQLite ownership test.
+The subsequent exact-head #68/#59/#60/#75 research and its security, recovery, readiness and implementation sequencing are synthesized in the [technical decision review](operational-technical-decision-review.md). That annex proposes the common semantics and independently deliverable slices, **but does not accept a public contract, trust profile, implementation mechanism or milestone**. Each open specification Issue remains the owner of its eventual technical decision. Do not merge or infer acceptance from research-only CI. The earlier SQLite ownership regression (#102) was resolved and closed after tested merged-main corrections; validate each subsequent candidate against its own exact-head checks instead of carrying forward that historical CI failure.
 
 ## Decisions deliberately left to the respective specification issues
 
