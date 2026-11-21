@@ -253,6 +253,19 @@ test('capture desktop and mobile UI for visual review', async ({ page }) => {
     fullPage: true,
     animations: 'disabled'
   });
+  await page.emulateMedia({ colorScheme: 'dark' });
+  await page.setViewportSize({ width: 1280, height: 800 });
+  await page.screenshot({
+    path: 'test-results/visual-review/todo-dark-desktop-1280.png',
+    fullPage: true,
+    animations: 'disabled'
+  });
+  await page.setViewportSize({ width: 375, height: 812 });
+  await page.screenshot({
+    path: 'test-results/visual-review/todo-dark-mobile-375.png',
+    fullPage: true,
+    animations: 'disabled'
+  });
 });
 
 test('refresh control stays at top-left, spins during GET and records successful checks', async ({ page }) => {
@@ -404,4 +417,81 @@ test('draft entered during in-flight creation is preserved after the first task 
   } finally {
     releaseFirstRequest();
   }
+});
+
+test('system light and dark themes track live browser preference with readable states', async ({ page }) => {
+  await page.emulateMedia({ colorScheme: 'light' });
+  await page.goto('/');
+  const panel = page.locator('.panel');
+  const colors = async () => await page.evaluate(() => {
+    const style = (selector: string) => getComputedStyle(document.querySelector(selector)!);
+    return {
+      surface: style('.panel').backgroundColor,
+      canvas: style('.app-shell').backgroundColor,
+      primary: style('.new-task button.primary').backgroundColor,
+      primaryInk: style('.new-task button.primary').color,
+      ink: style('h1').color,
+      errorSurface: getComputedStyle(document.documentElement).getPropertyValue('--error-surface').trim(),
+      userAgent: style('html').colorScheme
+    };
+  });
+  const light = await colors();
+  expect(light.surface).toBe('rgb(255, 255, 255)');
+  expect(light.canvas).toBe('rgb(245, 247, 245)');
+  expect(light.userAgent).toContain('dark');
+
+  await page.emulateMedia({ colorScheme: 'dark' });
+  await expect(panel).toHaveCSS('background-color', 'rgb(24, 39, 34)');
+  const dark = await colors();
+  expect(dark.canvas).toBe('rgb(16, 27, 23)');
+  expect(dark.primary).not.toEqual(light.primary);
+  expect(dark.ink).not.toEqual(light.ink);
+  expect(dark.errorSurface).not.toEqual(light.errorSurface);
+
+  const contrast = (text: string, background: string): number => {
+    const channels = (rgb: string) => rgb.match(/[\\d.]+/g)!.slice(0, 3).map(Number).map((x) => {
+      const c = x / 255;
+      return c <= 0.04045 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4;
+    });
+    const luminance = (rgb: string) => {
+      const [r, g, b] = channels(rgb);
+      return r * 0.2126 + g * 0.7152 + b * 0.0722;
+    };
+    const a = luminance(text);
+    const b = luminance(background);
+    return (Math.max(a, b) + 0.05) / (Math.min(a, b) + 0.05);
+  };
+  expect(contrast(dark.ink, dark.surface)).toBeGreaterThanOrEqual(4.5);
+  expect(contrast(dark.primaryInk, dark.primary)).toBeGreaterThanOrEqual(4.5);
+
+  await page.emulateMedia({ colorScheme: 'light' });
+  await expect(panel).toHaveCSS('background-color', 'rgb(255, 255, 255)');
+});
+
+test('system dark theme preserves readable completed rows, feedback, and focus', async ({ page }) => {
+  await page.emulateMedia({ colorScheme: 'dark' });
+  await page.goto('/');
+  const title = page.getByRole('textbox', { name: 'New task' });
+  await title.fill('Dark task');
+  await page.getByRole('button', { name: 'Add task' }).click();
+  await expect(page.getByRole('status')).toContainText('Task created');
+  await page.getByRole('checkbox', { name: 'Mark Dark task complete' }).check();
+  await expect(page.locator('.done .task-title')).toHaveCSS('text-decoration-line', 'line-through');
+  const trigger = page.getByRole('button', { name: 'Actions for Dark task' });
+  await trigger.focus();
+  await expect(trigger).toBeFocused();
+  await page.keyboard.press('Enter');
+  await expect(page.getByRole('button', { name: 'Edit task' })).toBeFocused();
+  await page.keyboard.press('Escape');
+  await expect(trigger).toBeFocused();
+});
+
+test('dark color scheme respects mobile widths without horizontal overflow', async ({ page }) => {
+  await page.emulateMedia({ colorScheme: 'dark' });
+  await page.setViewportSize({ width: 320, height: 740 });
+  await page.goto('/');
+  await expect(page.getByRole('heading', { name: 'Tasks' })).toBeVisible();
+  expect(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth + 1)).toBe(false);
+  await page.setViewportSize({ width: 375, height: 812 });
+  expect(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth + 1)).toBe(false);
 });

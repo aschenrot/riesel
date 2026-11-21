@@ -30,3 +30,7 @@ The upper-left circular-arrow control checks for task changes on demand, spins d
 The All/Open/Done filters and visible counts operate on **loaded cursor pages only**. Loading additional pages may change those totals; they are not a global task count. Todo does not claim creation-order sorting, real-time synchronization or an authorized remote UI.
 
 Browser regressions include responsive overflow, keyboard actions, toast feedback and the existing mutation/revision-conflict scenarios. Visual and screen-reader checks still require a human review of the rendered result.
+
+## System appearance (first delivery, #105)
+
+Todo's browser interface follows the operating-system/browser `prefers-color-scheme` preference, with semantic light/dark colors and native `color-scheme` support. Light/dark switches take effect without reload. System is currently the **only** appearance policy: Todo does not yet expose a manual Light/Dark override or claim persistence of such a choice. That separate requirement is specified in [#106](https://github.com/aschenrot/riesel/issues/106) because `--port 0` may give the browser a different origin after a restart. Do not use per-origin `localStorage` as proof of durable cross-port settings. The completed-task section and status-aware paging remain separate research in [#107](https://github.com/aschenrot/riesel/issues/107).
