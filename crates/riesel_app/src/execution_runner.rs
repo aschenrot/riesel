@@ -222,50 +222,39 @@ impl ExecutionGraphRunner {
                 break;
             }
 
-            if active.is_empty() {
-                tokio::select! {
-                    biased;
-                    _ = self.session.cancelled() => {
-                        session_expired = true;
-                        break;
-                    }
-                    Some(signal) = self.signal_rx.recv() => {
-                        self.fired.insert(signal);
-                    }
+            match wait_for_work(
+                &self.session,
+                &mut self.signal_rx,
+                &mut jobs,
+                !active.is_empty(),
+            )
+            .await
+            {
+                Wake::Expired => {
+                    session_expired = true;
+                    break;
                 }
-            } else {
-                tokio::select! {
-                    biased;
-                    _ = self.session.cancelled() => {
-                        session_expired = true;
-                        break;
-                    }
-                    Some(signal) = self.signal_rx.recv() => {
-                        self.fired.insert(signal);
-                    }
-                    result = jobs.join_next_with_id() => {
-                        match result.expect("nonempty tracked operation set") {
-                            Ok((id, (index, outcome))) => {
-                                let owned = active.remove(&id);
-                                debug_assert_eq!(owned, Some(index));
-                                self.states[index] = match outcome {
-                                    OperationOutcome::Completed => OperationState::Completed,
-                                    OperationOutcome::Failed(message) => {
-                                        OperationState::Failed(message)
-                                    }
-                                    OperationOutcome::Cancelled => OperationState::Cancelled,
-                                    OperationOutcome::OutcomeUnknown => OperationState::OutcomeUnknown,
-                                };
-                            }
-                            Err(error) => {
-                                let index = active
-                                    .remove(&error.id())
-                                    .expect("tracked operation task identity");
-                                self.states[index] = OperationState::Failed(error.to_string());
-                            }
-                        }
-                    }
+                Wake::Signal(signal) => {
+                    self.fired.insert(signal);
                 }
+                Wake::Completed(result) => match result {
+                    Ok((id, (index, outcome))) => {
+                        let owned = active.remove(&id);
+                        debug_assert_eq!(owned, Some(index));
+                        self.states[index] = match outcome {
+                            OperationOutcome::Completed => OperationState::Completed,
+                            OperationOutcome::Failed(message) => OperationState::Failed(message),
+                            OperationOutcome::Cancelled => OperationState::Cancelled,
+                            OperationOutcome::OutcomeUnknown => OperationState::OutcomeUnknown,
+                        };
+                    }
+                    Err(error) => {
+                        let index = active
+                            .remove(&error.id())
+                            .expect("tracked operation task identity");
+                        self.states[index] = OperationState::Failed(error.to_string());
+                    }
+                },
             }
         }
 
@@ -380,6 +369,45 @@ impl ExecutionGraphRunner {
             }
         }
     }
+}
+
+
+enum Wake {
+    Expired,
+    Signal(String),
+    Completed(Result<(Id, (usize, OperationOutcome)), tokio::task::JoinError>),
+}
+
+/// Mirror the existing async-task poll_fn cancellation pattern; this does
+/// not require Tokio's optional macros feature. Recreate neither Notify
+/// subscription nor the join future on every poll. Finished operations are
+/// polled before the signal queue, so a busy producer cannot starve cleanup.
+async fn wait_for_work(
+    session: &SessionToken,
+    signals: &mut mpsc::Receiver<String>,
+    jobs: &mut JoinSet<(usize, OperationOutcome)>,
+    has_jobs: bool,
+) -> Wake {
+    use std::task::Poll;
+
+    let mut expired = std::pin::pin!(session.cancelled());
+    let mut incoming = std::pin::pin!(signals.recv());
+    let mut completed = std::pin::pin!(jobs.join_next_with_id());
+    std::future::poll_fn(|cx| {
+        if expired.as_mut().poll(cx).is_ready() {
+            return Poll::Ready(Wake::Expired);
+        }
+        if has_jobs
+            && let Poll::Ready(Some(result)) = completed.as_mut().poll(cx)
+        {
+            return Poll::Ready(Wake::Completed(result));
+        }
+        if let Poll::Ready(Some(signal)) = incoming.as_mut().poll(cx) {
+            return Poll::Ready(Wake::Signal(signal));
+        }
+        Poll::Pending
+    })
+    .await
 }
 
 fn conflicts(left: &[ResourceAccess], right: &[ResourceAccess]) -> bool {
