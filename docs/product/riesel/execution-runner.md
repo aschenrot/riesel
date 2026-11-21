@@ -32,8 +32,9 @@ whose *internal* ticks and systems are owned by the domain's own scheduler.
 These are inspectable plan semantics, not arbitrary-closure serialization,
 automatic fixed-rate clocks or permissions to control an ECS.
 
-- The plan validator rejects invalid domain IDs and a single plan that mixes
-  these two owners for the same domain, **even when the nodes are ordered**.
+- The plan validator rejects invalid domain IDs, repeated boundary assignments
+  on one operation (no silent last-wins authority), and a single plan that
+  mixes these two owners for the same domain, **even when the nodes are ordered**.
 - The existing session admission table claims each plan's declared domain
   modes atomically when a runner is created. Another outstanding run cannot
   claim the opposing mode for the same named domain. The typed
