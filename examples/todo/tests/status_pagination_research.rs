@@ -56,9 +56,7 @@ fn seed(
     ids.sort_unstable();
     for &position in open_positions {
         let task = todo.get_task(ids[position]).unwrap().unwrap();
-        let updated = todo
-            .set_completed(task.id, task.revision, false)
-            .unwrap();
+        let updated = todo.set_completed(task.id, task.revision, false).unwrap();
         assert_eq!(updated.id, ids[position]);
         assert!(!updated.value.completed);
     }
@@ -81,12 +79,7 @@ struct Scan {
 /// Candidate A: explicitly bounded scan of existing 32-record UUID pages.
 /// Critically, no matching task in this response does NOT mean no matching
 /// task exists unless the scan also reports exhausted=true.
-fn bounded_scan(
-    todo: &Todo,
-    after: Option<Uuid>,
-    completed: bool,
-    max_pages: usize,
-) -> Scan {
+fn bounded_scan(todo: &Todo, after: Option<Uuid>, completed: bool, max_pages: usize) -> Scan {
     assert!(max_pages > 0);
     let mut matches = Vec::new();
     let mut cursor = after;
@@ -137,7 +130,10 @@ fn drain(todo: &Todo, provider: Provider, completed: bool, max_total_pages: usiz
     };
     let started = Instant::now();
     while !aggregate.exhausted {
-        assert!(aggregate.pages < max_total_pages, "scan exceeded page bound");
+        assert!(
+            aggregate.pages < max_total_pages,
+            "scan exceeded page bound"
+        );
         let part = bounded_scan(todo, after, completed, 1);
         aggregate.matches.extend(part.matches);
         aggregate.scanned += part.scanned;
@@ -236,9 +232,7 @@ fn status_change_behind_cursor_is_missing_from_non_snapshot_continuation() {
         let continuation = first_page.next_cursor.expect("more pages");
 
         // Client B changes it after A passed its cursor; there is no snapshot.
-        let reopened = todo
-            .set_completed(first.id, first.revision, false)
-            .unwrap();
+        let reopened = todo.set_completed(first.id, first.revision, false).unwrap();
         assert_eq!(reopened.revision, first.revision + 1);
         assert!(!reopened.value.completed);
         let tail = drain_from_cursor(&todo, continuation);
@@ -246,9 +240,7 @@ fn status_change_behind_cursor_is_missing_from_non_snapshot_continuation() {
         assert!(!todo.get_task(first.id).unwrap().unwrap().value.completed);
 
         // A stale write from the original client cannot overwrite client B.
-        assert!(todo
-            .set_completed(first.id, first.revision, true)
-            .is_err());
+        assert!(todo.set_completed(first.id, first.revision, true).is_err());
     }
 }
 
