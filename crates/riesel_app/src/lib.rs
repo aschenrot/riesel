@@ -4,6 +4,7 @@ mod async_tasks;
 mod catalog;
 mod component;
 mod deployment;
+mod execution_plan;
 mod plan;
 mod recovery;
 mod resolver;
@@ -17,6 +18,11 @@ pub use async_tasks::AsyncTasks;
 pub use catalog::{CatalogError, ProviderCatalog, ProviderSelectionConfig};
 pub use component::{ComponentDefinition, DeclarativeComponent};
 pub use deployment::{DeploymentConfig, DeploymentError, ServiceEndpoint};
+pub use execution_plan::{
+    AccessMode, BoundExecutionPlan, ExecutionPlanDescription, ExecutionPlanDraft,
+    ExecutionPlanError, OperationKey, OperationNode, OperationRegistry, OperationTrigger,
+    PlanRevisionCatalog, ResourceAccess, ValidatedExecutionPlan,
+};
 pub use resolver::{InstanceIdentity, ProviderRegistry, ResolutionError, ResolvedCapability};
 #[cfg(feature = "async-tcp")]
 pub use riesel_protocol::{ProviderBlocking, ProviderBlockingError, ProviderCancellation};
