@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
 """#59 M-S2 actual AppArmor peer-label differential; Linux research ONLY.
 
-Loads one uniquely named, deliberately broad, non-production AppArmor profile
-on a disposable Ubuntu runner and tests whether an AF_UNIX verifier can see
-that label for two same-UID processes, and whether a same-UID unprivileged
-process can select the same label itself with aa-exec. No systemd/Manager
+Loads two uniquely named, deliberately non-production AppArmor profiles:
+a permissive allowlisted client profile and a separate confined attacker
+profile with no profile-switch rights. Compares real same-UID SO_PEERSEC,
+unconfined self-entry, and restricted process profile-switch denial. No systemd/Manager
 service, protected application or real privileged action is ever changed.
 """
 from __future__ import annotations
@@ -93,6 +93,7 @@ def runner():
     checked(sudo("true"))
     nonce = uuid.uuid4().hex[:12]
     profile = "riesel_m59_" + nonce
+    attacker_profile = "riesel_m59_attacker_" + nonce
     root = Path(BASE + nonce)
     if not re.fullmatch(r"/tmp/riesel-m59-apparmor-[a-f0-9]{12}", str(root)):
         raise AssertionError("unsafe research root")
@@ -103,6 +104,18 @@ def runner():
     policy_file.write_text(
         '#include <tunables/global>\n'
         f'profile {profile} flags=(attach_disconnected) {{\n'
+        '  #include <abstractions/base>\n'
+        '  file,\n'
+        '  network,\n'
+        '  unix,\n'
+        '  capability,\n'
+        '  /** ix,\n'
+        '}\n'
+        # Separate, *conditionally* restricted attacker profile. It allows
+        # normal Python/aa-exec execution but does not grant change_profile
+        # to the allowlisted domain. This tests only a constrained attacker;
+        # an unconfined same-UID process may still self-enter the target.
+        f'profile {attacker_profile} flags=(attach_disconnected) {{\n'
         '  #include <abstractions/base>\n'
         '  file,\n'
         '  network,\n'
@@ -199,6 +212,41 @@ def runner():
         else:
             print("RESEARCH_M59_APPARMOR_UNPRIVILEGED_SELF_LABEL_DENIED",
                   flush=True)
+        # Explicitly enforce a *conditional* security-domain boundary:
+        # the attacker is first placed by the root fixture into a separate
+        # confined domain without any transition permission to the trusted
+        # client domain. This illustrates why security-label *entry*
+        # policy matters, while keeping the unconfined bypass above visible.
+        restricted = sudo(
+            "aa-exec", "-p", attacker_profile, "--",
+            "/usr/bin/setpriv", f"--reuid={ATTACK_UID}",
+            f"--regid={ATTACK_UID}", "--clear-groups",
+            "/usr/bin/python3", str(script), "--client"
+        )
+        run_case([*restricted, str(root / "socket-restricted.sock")],
+                 "DENY", "restricted")
+        print("RESEARCH_M59_APPARMOR_CONFINED_ATTACKER_SAME_UID_DENIED",
+              flush=True)
+
+        attempted_change = sudo(
+            "aa-exec", "-p", attacker_profile, "--",
+            "/usr/bin/setpriv", f"--reuid={ATTACK_UID}",
+            f"--regid={ATTACK_UID}", "--clear-groups",
+            "/usr/bin/aa-exec", "-p", profile, "--",
+            "/usr/bin/cat", "/proc/self/attr/current"
+        )
+        blocked = invoke(attempted_change)
+        if blocked.returncode == 0:
+            raise AssertionError(
+                "attacker confined without transition rights nevertheless "
+                f"entered trusted profile: stdout={blocked.stdout!r}"
+            )
+        if profile in blocked.stdout and attacker_profile not in blocked.stdout:
+            raise AssertionError("rejected attempt unexpectedly used trusted label")
+        print("RESEARCH_M59_APPARMOR_CONFINED_ATTACKER_PROFILE_SWITCH_DENIED",
+              flush=True)
+        print("RESEARCH_M59_APPARMOR_CONDITIONAL_RESTRICTED_DOMAIN_PASS",
+              flush=True)
         print("RESEARCH_M59_APPARMOR_SO_PEERSEC_LABEL_DIFFERENTIAL_PASS",
               flush=True)
     finally:
