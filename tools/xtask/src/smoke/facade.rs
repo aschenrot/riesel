@@ -214,7 +214,9 @@ fn verify_stale_external_client() -> TaskResult {
     }
     let status = wait_for(&mut client.0, Duration::from_secs(8))?;
     if !status.success() {
-        return Err(format!("stale external client exited unsuccessfully: {status}"));
+        return Err(format!(
+            "stale external client exited unsuccessfully: {status}"
+        ));
     }
     reader
         .join()
