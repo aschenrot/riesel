@@ -1179,3 +1179,149 @@ fn asynchronous_startup_preserves_original_and_provider_cleanup_failures() {
     };
     assert_startup_and_rollback_errors(error);
 }
+
+#[cfg(feature = "async-tcp")]
+#[test]
+fn session_owned_graph_owns_thread_confined_domain_without_duplicate_scheduler() {
+    use crate::execution_plan::{
+        ExecutionPlanDraft, OperationKey, OperationNode, OperationRegistry,
+    };
+    use crate::execution_runner::{
+        AsyncOperation, GraphRunError, OperationOutcome, async_operation,
+    };
+    use std::num::NonZeroUsize;
+    use std::sync::atomic::{AtomicUsize, Ordering};
+    use std::time::Duration;
+
+    let mut connectors = ConnectorRegistry::new();
+    connectors
+        .register(Dummy {
+            local_version: 1,
+            remote_version: 1,
+        })
+        .unwrap();
+    let mut running = app().start(&deployment(), &connectors).unwrap();
+    let resolved = Arc::clone(running.service::<Arc<u64>>("counter").unwrap());
+    let observed_ticks = Arc::new(AtomicUsize::new(0));
+    let world_observation = Arc::clone(&observed_ticks);
+
+    // The world is deliberately !Send; it is created and retained entirely
+    // inside the domain-owned thread, never moved into Tokio's graph runner.
+    let (actor_sender, actor_receiver) =
+        std::sync::mpsc::channel::<tokio::sync::oneshot::Sender<usize>>();
+    let actor = std::thread::spawn(move || {
+        let world = std::rc::Rc::new(std::cell::Cell::new(0usize));
+        while let Ok(reply) = actor_receiver.recv() {
+            let next = world.get() + 1;
+            world.set(next);
+            world_observation.store(next, Ordering::SeqCst);
+            let _ = reply.send(next);
+        }
+    });
+
+    let tick = OperationKey::new("example.domain.tick", 1).unwrap();
+    let background = OperationKey::new("example.capability.read", 1).unwrap();
+    let tick_sender = actor_sender.clone();
+    let background_completed = Arc::new(AtomicUsize::new(0));
+    let background_observer = Arc::clone(&background_completed);
+    let mut registry = OperationRegistry::<AsyncOperation>::new();
+    registry
+        .register(
+            tick.clone(),
+            async_operation(move || {
+                let sender = tick_sender.clone();
+                async move {
+                    let (reply, result) = tokio::sync::oneshot::channel();
+                    if sender.send(reply).is_err() {
+                        return OperationOutcome::Failed("domain actor unavailable".into());
+                    }
+                    match result.await {
+                        Ok(_) => OperationOutcome::Completed,
+                        Err(_) => OperationOutcome::OutcomeUnknown,
+                    }
+                }
+            }),
+        )
+        .unwrap();
+    registry
+        .register(
+            background.clone(),
+            async_operation(move || {
+                let capability = Arc::clone(&resolved);
+                let completed = Arc::clone(&background_observer);
+                async move {
+                    if *capability == 42 {
+                        completed.store(1, Ordering::SeqCst);
+                        OperationOutcome::Completed
+                    } else {
+                        OperationOutcome::Failed("wrong resolved capability".into())
+                    }
+                }
+            }),
+        )
+        .unwrap();
+
+    let plan = ExecutionPlanDraft::new("example.domain-run", 1)
+        .operation(OperationNode::new("tick-one", tick.clone()).on_signal("domain.tick.one"))
+        .operation(
+            OperationNode::new("tick-two", tick)
+                .after("tick-one")
+                .on_signal("domain.tick.two"),
+        )
+        .operation(OperationNode::new("background", background))
+        .validate()
+        .unwrap()
+        .bind(&registry)
+        .unwrap();
+    drop(registry);
+    drop(actor_sender);
+
+    let async_runtime = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .unwrap();
+    let report = async_runtime.block_on(async {
+        let runner = running
+            .execution_graph(plan, NonZeroUsize::new(3).unwrap())
+            .unwrap();
+        let admission = runner.signal_sender();
+        let running_graph = tokio::spawn(runner.execute());
+
+        // The independent capability operation runs while no domain tick is
+        // admitted; the graph cannot implicitly schedule the domain itself.
+        tokio::time::timeout(Duration::from_secs(3), async {
+            while background_completed.load(Ordering::SeqCst) == 0 {
+                tokio::task::yield_now().await;
+            }
+        })
+        .await
+        .unwrap();
+        assert_eq!(observed_ticks.load(Ordering::SeqCst), 0);
+        admission.fire("domain.tick.one").unwrap();
+        tokio::time::timeout(Duration::from_secs(3), async {
+            while observed_ticks.load(Ordering::SeqCst) != 1 {
+                tokio::task::yield_now().await;
+            }
+        })
+        .await
+        .unwrap();
+        assert!(!running_graph.is_finished());
+        admission.fire("domain.tick.two").unwrap();
+        let result = tokio::time::timeout(Duration::from_secs(3), running_graph)
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(observed_ticks.load(Ordering::SeqCst), 2);
+        assert_eq!(result.peak_in_flight, 1);
+        assert_eq!(result.started, 3);
+        assert!(result.succeeded());
+        (result, admission)
+    });
+    assert_eq!(report.0.revision, 1);
+    running.shutdown().unwrap();
+    assert!(matches!(
+        report.1.fire("domain.tick.one"),
+        Err(GraphRunError::SessionExpired)
+    ));
+    actor.join().unwrap();
+}

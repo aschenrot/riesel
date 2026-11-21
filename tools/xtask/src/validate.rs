@@ -42,6 +42,32 @@ pub fn run(mode: FormatMode) -> TaskResult {
             &["test", "--locked", "-p", "todo", "--features", "http"],
         ),
         (
+            "Graph runner with the existing async session feature",
+            &[
+                "test",
+                "--locked",
+                "-p",
+                "riesel",
+                "--features",
+                "async-tcp",
+                "--test",
+                "execution_runner",
+            ],
+        ),
+        (
+            "Real application-session graph/domain ownership regression",
+            &[
+                "test",
+                "--locked",
+                "-p",
+                "riesel_app",
+                "--features",
+                "async-tcp",
+                "--lib",
+                "session_owned_graph_owns_thread_confined_domain",
+            ],
+        ),
+        (
             "Minimal SDK without standard capability packages",
             &["test", "--locked", "-p", "riesel", "--no-default-features"],
         ),

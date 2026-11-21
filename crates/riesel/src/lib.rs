@@ -53,6 +53,11 @@ pub use application::{
 #[cfg(feature = "records")]
 pub use records::{Record, RecordPage, Records};
 #[cfg(feature = "async-tcp")]
+pub use riesel_app::{
+    AsyncOperation, ExecutionGraphRunner, GraphRunError, GraphRunReport, GraphSignalSender,
+    OperationFuture, OperationOutcome, OperationState, async_operation,
+};
+#[cfg(feature = "async-tcp")]
 pub use riesel_app::{AsyncTasks, ProviderBlocking, ProviderBlockingError, ProviderCancellation};
 #[cfg(feature = "async-tcp")]
 pub use rpc_connector::AsyncRpcConnector;
