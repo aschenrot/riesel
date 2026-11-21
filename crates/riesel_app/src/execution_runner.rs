@@ -371,7 +371,6 @@ impl ExecutionGraphRunner {
     }
 }
 
-
 enum Wake {
     Expired,
     Signal(String),
@@ -397,9 +396,7 @@ async fn wait_for_work(
         if expired.as_mut().poll(cx).is_ready() {
             return Poll::Ready(Wake::Expired);
         }
-        if has_jobs
-            && let Poll::Ready(Some(result)) = completed.as_mut().poll(cx)
-        {
+        if has_jobs && let Poll::Ready(Some(result)) = completed.as_mut().poll(cx) {
             return Poll::Ready(Wake::Completed(result));
         }
         if let Poll::Ready(Some(signal)) = incoming.as_mut().poll(cx) {
