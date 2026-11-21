@@ -1,0 +1,20 @@
+# Isolated, disposable research workspace. Not a product crate or public API.
+[package]
+name = "riesel-application-export-research"
+version = "0.0.0"
+edition = "2024"
+publish = false
+
+[workspace]
+
+[dependencies]
+riesel = { path = "../../crates/riesel", features = ["async-tcp", "dev-memory-storage"] }
+riesel_counter = { path = "../../examples/counter/contract" }
+riesel_counter_component = { path = "../../examples/counter/component", features = ["async-tcp"] }
+riesel_macros = { path = "../../crates/riesel_macros" }
+riesel_protocol = { path = "../../crates/riesel_protocol", features = ["async-tcp"] }
+riesel_schema = { path = "../../crates/riesel_schema" }
+todo = { path = "../../examples/todo" }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+thiserror = "2.0.21"
