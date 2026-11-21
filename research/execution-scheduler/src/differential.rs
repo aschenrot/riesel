@@ -409,17 +409,17 @@ async fn domain_owned_frame_supports_fenced_cooperative_tick_stepping_and_partia
         permits: permit_rx,
         observation: observation_tx,
         completion: completion_tx,
-    }).expect("bounded ECS owner queue should initially be empty");
+    }).map_err(|_| "bounded ECS owner queue unavailable").unwrap();
 
     let (stale_tx, stale_rx) = oneshot::channel();
-    permits.try_send(DomainPermit::Advance { generation: 711, reply: stale_tx }).unwrap();
+    permits.try_send(DomainPermit::Advance { generation: 711, reply: stale_tx }).map_err(|_| "permit queue unavailable").unwrap();
     assert_eq!(stale_rx.await.unwrap(), Err("stale session generation"));
     assert!(tokio::time::timeout(
         std::time::Duration::from_millis(20), observations.recv()
     ).await.is_err(), "stale step may not advance a tick");
 
     let (first_tx, first_rx) = oneshot::channel();
-    permits.try_send(DomainPermit::Advance { generation: 712, reply: first_tx }).unwrap();
+    permits.try_send(DomainPermit::Advance { generation: 712, reply: first_tx }).map_err(|_| "permit queue unavailable").unwrap();
     assert_eq!(first_rx.await.unwrap(), Ok(()));
     let first = tokio::time::timeout(std::time::Duration::from_secs(2), observations.recv())
         .await.unwrap().unwrap();
@@ -432,7 +432,7 @@ async fn domain_owned_frame_supports_fenced_cooperative_tick_stepping_and_partia
     ).await.is_err(), "one permit must not execute two simulation ticks");
 
     let (second_tx, second_rx) = oneshot::channel();
-    permits.try_send(DomainPermit::Advance { generation: 712, reply: second_tx }).unwrap();
+    permits.try_send(DomainPermit::Advance { generation: 712, reply: second_tx }).map_err(|_| "permit queue unavailable").unwrap();
     assert_eq!(second_rx.await.unwrap(), Ok(()));
     let second = tokio::time::timeout(std::time::Duration::from_secs(2), observations.recv())
         .await.unwrap().unwrap();
@@ -440,7 +440,7 @@ async fn domain_owned_frame_supports_fenced_cooperative_tick_stepping_and_partia
     assert_eq!(second.positions, vec![4, 12, 14]);
 
     let (cancel_tx, cancel_rx) = oneshot::channel();
-    permits.try_send(DomainPermit::Cancel { generation: 712, reply: cancel_tx }).unwrap();
+    permits.try_send(DomainPermit::Cancel { generation: 712, reply: cancel_tx }).map_err(|_| "permit queue unavailable").unwrap();
     assert_eq!(cancel_rx.await.unwrap(), Ok(()));
     let result = tokio::time::timeout(std::time::Duration::from_secs(2), completion_rx)
         .await.unwrap().unwrap().unwrap();
@@ -466,10 +466,11 @@ async fn slow_domain_observer_cannot_stall_tick_execution() {
         permits: permit_rx,
         observation: observation_tx,
         completion: completion_tx,
-    }).unwrap();
+    }).map_err(|_| "bounded ECS owner queue unavailable").unwrap();
     for _ in 0..3 {
         let (response_tx, response_rx) = oneshot::channel();
-        permits.send(DomainPermit::Advance { generation: 812, reply: response_tx }).unwrap();
+        permits.send(DomainPermit::Advance { generation: 812, reply: response_tx })
+            .map_err(|_| "permit queue unavailable").unwrap();
         assert_eq!(response_rx.await.unwrap(), Ok(()));
     }
     let result = tokio::time::timeout(std::time::Duration::from_secs(2), completion_rx)
