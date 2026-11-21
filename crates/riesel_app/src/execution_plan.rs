@@ -254,7 +254,7 @@ impl ExecutionPlanDraft {
                     id: operation.id.clone(),
                 });
             }
-            if ids.insert(operation.id.as_str(), index).is_some() {
+            if ids.insert(operation.id.clone(), index).is_some() {
                 return Err(ExecutionPlanError::DuplicateNode {
                     id: operation.id.clone(),
                 });
