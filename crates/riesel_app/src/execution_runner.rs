@@ -697,3 +697,63 @@ impl RunningApp {
         )
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::execution_plan::{
+        ExecutionPlanDraft, OperationKey, OperationNode, OperationRegistry,
+    };
+
+    fn plan(mode: DomainAdmissionMode) -> BoundExecutionPlan<AsyncOperation> {
+        let key = OperationKey::new("test.tick", 1).unwrap();
+        let mut registry = OperationRegistry::<AsyncOperation>::new();
+        registry
+            .register(
+                key.clone(),
+                async_operation(|| async { OperationOutcome::Completed }),
+            )
+            .unwrap();
+        let node = OperationNode::new("operation", key);
+        let (id, node) = match mode {
+            DomainAdmissionMode::RieselTick => ("central", node.domain_tick("world")),
+            DomainAdmissionMode::DelegatedFrame => ("delegated", node.delegated_frame("world")),
+        };
+        ExecutionPlanDraft::new(id, 1)
+            .operation(node)
+            .validate()
+            .unwrap()
+            .bind(&registry)
+            .unwrap()
+    }
+
+    #[test]
+    fn abandoned_runner_does_not_release_domain_mode_while_child_lease_is_active() {
+        let admission = Arc::new(SessionGraphAdmission::default());
+        let central = plan(DomainAdmissionMode::RieselTick);
+        let delegated = plan(DomainAdmissionMode::DelegatedFrame);
+
+        let claimed_run = admission.claim_run(&central).unwrap();
+        let tick = central.plan().description().operations()[0]
+            .domain_boundary()
+            .unwrap();
+        let child_operation = admission.reserve(&[], Some(tick)).unwrap();
+
+        // Dropping the outer runner (for instance an abruptly cancelled
+        // Tokio future) is not proof all spawned operation futures have
+        // dropped. A mode change is unsafe until the last child lease goes.
+        drop(claimed_run);
+        assert!(matches!(
+            admission.claim_run(&delegated),
+            Err(GraphRunError::ConflictingDomainAuthority {
+                existing: DomainAdmissionMode::RieselTick,
+                requested: DomainAdmissionMode::DelegatedFrame,
+                ..
+            })
+        ));
+        drop(child_operation);
+        let delegated_run = admission.claim_run(&delegated).unwrap();
+        drop(delegated_run);
+        assert!(admission.state.lock().unwrap().domains.is_empty());
+    }
+}
