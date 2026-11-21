@@ -302,6 +302,10 @@ impl ExecutionGraphRunner {
         self.signal_tx.clone()
     }
 
+    pub(crate) fn belongs_to_session(&self, session: &SessionToken) -> bool {
+        self.session.shares_session_with(session)
+    }
+
     /// Execute a single immutable plan revision once. Waiting for an external
     /// signal is intentional; the owning application may cancel its session.
     /// Calls are never retried, and other branches remain eligible while a
