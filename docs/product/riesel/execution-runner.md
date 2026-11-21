@@ -68,6 +68,54 @@ work. A future accepted clock/pacing policy and #113 safe-point controls
 can build on this same explicit boundary without creating a second
 provider resolver, ECS scheduler or process owner.
 
+## Bounded fixed-step proposal policy (opt-in)
+
+`FixedStepPolicy::new(interval, max_ticks_per_frame, backlog_policy)` and
+`FixedStepAdmission::advance_frame(elapsed)` provide deterministic, bounded
+logical tick proposals to an **explicitly chosen clock owner**. These types
+are also usable without the async TCP feature, so a native/domain thread can
+calculate its own frame budget without acquiring a Tokio executor.
+
+- `interval` must be strictly positive; `max_ticks_per_frame` must be
+  1–1024; an optional retained backlog is limited to 65,536 ticks.
+  `FixedStepBacklog::DiscardExcess` or
+  `FixedStepBacklog::RetainUpTo(limit)` **must be selected explicitly**.
+- `FixedStepFrame` reports the number of currently eligible proposals,
+  deferred ticks, explicitly discarded ticks (`u128` to handle very long
+  elapsed times), and fractional elapsed time. Large stalls are counted in
+  bounded arithmetic, not a loop for each lost interval.
+- `claim(n)` consumes at most the remaining **per-frame** budget.
+  Unclaimed proposals remain subject to the next frame's selected backlog
+  policy; claimed proposals become the caller's dispatch responsibility,
+  **not proof that a graph operation or remote effect completed**. Failed
+  dispatches and unknown effects must be reconciled by the owning domain
+  instead of blindly replaying claims.
+- An application's monotonic event/frame clock supplies **elapsed time**
+  exactly once to its chosen tick owner. There is no implicit wall clock,
+  timer task, frame deadline, jitter guarantee or background scheduler.
+  A new application session constructs a **fresh** admission instance,
+  never reuses an old session's deferred ticks, and still relies on existing
+  graph/session fencing for execution.
+- Centrally owned ticks may each consume one proposal and execute a
+  `domain_tick` plan. Domain-owned frames instead invoke one outer
+  `delegated_frame` plan operation; its native `!Send` coordinator owns
+  its own independent fixed-step accumulator and claims internal ticks.
+  A graph remains **one-shot**. An immutable `BoundExecutionPlan` can be
+  cloned to start *separate* runs in the same session, with no implicit
+  retry of cancelled/uncertain effects. A reusable automatic recurring
+  runner, true wall-clock pacing and #113 run identity/stepping remain
+  separate, not silently implemented by `advance_frame`.
+
+Run
+`cargo run --locked -p riesel --features async-tcp --example execution_fixed_step`.
+It drives three independent one-shot tick executions across three synthetic
+frame samples (35ms, 0ms, 0ms) using a 10ms tick interval, 2-tick frame
+cap and one retained tick. Its explicit clock input is reproducible; it
+does not claim a real-time frame loop. The existing `execution_domains`
+integration verifies that central and delegated **actual** thread-confined
+actor execution retain equivalent committed-tick semantics with the same
+bounded policy and independent async work.
+
 ## Runnable headless workflow and session shutdown
 
 Run `cargo run --locked -p riesel --features async-tcp --example execution_graph`. The example executes two deliberately overlapping async branches, an explicit `start` signal and a completion join, using a single real `Application::run` session. It awaits the entire graph on the caller-owned Tokio executor **before** `Application::run` tears down the session. It neither performs a second provider-resolution pass nor creates a second Riesel application.
