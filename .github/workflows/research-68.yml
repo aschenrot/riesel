@@ -1,0 +1,46 @@
+name: Research 68 — cross-project developer workflow
+
+permissions:
+  contents: read
+
+on:
+  pull_request:
+    branches:
+      - main
+    paths:
+      - "research/developer-workflow/**"
+      - ".github/workflows/research-68.yml"
+  workflow_dispatch:
+
+jobs:
+  linux-research:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install Rust 1.100.0
+        run: |
+          rustup toolchain install 1.100.0 --profile minimal
+          rustup default 1.100.0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - name: Build Todo's real persistent HTTP application
+        run: cargo build --locked -p todo --features http --bin todo_http
+      - name: Install static frontend dependencies explicitly (research CI only)
+        working-directory: examples/todo/web
+        run: npm ci --no-audit --no-fund
+      - name: Validate real browser frontend and build static assets
+        working-directory: examples/todo/web
+        run: |
+          npm run check
+          npm test
+          npm run build
+      - name: Install headless Chromium for browser lifecycle experiment
+        working-directory: examples/todo/web
+        run: npx playwright install --with-deps --only-shell chromium
+      - name: Run bounded independent Cargo and Todo lifetime probes
+        run: node research/developer-workflow/probe.mjs
+      - name: Existing full Todo browser end-to-end regression suite
+        working-directory: examples/todo/web
+        run: npm run test:e2e
