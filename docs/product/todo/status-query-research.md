@@ -94,6 +94,12 @@ migration costs.
 accept whether the contract is a separately versioned query interface plus
 verified same-instance selection, or an updated unified Storage contract.
 
+## Co-located read/write contract spike
+
+An independently versioned **test-only** `research.todo.records.status@1` query and unchanged `riesel.storage.records@2` mutation contract are bound to **one authoritative Arc-backed component state**. The actual linked MemoryStore and SqliteStore providers are tested separately. The handler creates Open/Done records, observes writes immediately through the query, reopens Done by revision-checked update, and rejects stale overwrites without hiding the changed records.
+
+The query implementation deliberately scans existing UUID pages. It proves typed capability composition and linked-provider state sharing, **not** index efficiency, stable query continuation, a production API, managed SQLite support, or preflight enforcement of query/write co-selection. Those remain separate acceptance gates.
+
 ## Decision gate
 
 Before implementing UX groups, choose one complete semantic model:

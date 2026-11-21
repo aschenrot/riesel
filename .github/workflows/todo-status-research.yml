@@ -9,6 +9,7 @@ on:
   pull_request:
     paths:
       - "examples/todo/tests/status_pagination_research.rs"
+      - "examples/todo/tests/query_capability_research.rs"
       - "examples/todo/Cargo.toml"
       - "docs/product/todo/status-query-research.md"
       - ".github/workflows/todo-status-research.yml"
@@ -24,4 +25,6 @@ jobs:
           rustup toolchain install 1.100.0 --profile minimal
           rustup default 1.100.0
       - name: Measure real Todo memory/SQLite bounded scans
-        run: cargo test --locked -p todo --test status_pagination_research -- --nocapture
+        run: |
+          cargo test --locked -p todo --test status_pagination_research -- --nocapture
+          cargo test --locked -p todo --test query_capability_research -- --nocapture
