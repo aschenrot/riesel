@@ -398,29 +398,35 @@ transactional inventory transfers justify expanding the **query** interface.
 Do not treat the current evidence as a quantitative platform-wide
 scalability benchmark.
 
-### Revised decision gate
+### Revised decision and verification gates
 
-Before owner acceptance, provide a short *contract evolution proof*, not a
-general query engine:
+**Architecture/specification acceptance, before publishing an API:** compare
+a concrete, non-binding query descriptor/cursor and versioning strategy for
+equality, optional/null values, unsupported operator types and later
+range/sort/projection additions. Explain how Storage v2 and old query cursors
+are preserved or explicitly invalidated. Evaluate query/write identity
+preflight and its implementation cost against the single-handle v3 approach;
+no real managed process or production query service must be implemented just
+to *choose* an architecture. The additional models and negative tests are
+representative stress cases, not a requirement to ship game infrastructure.
+The owner/maintainer records the accept/revise/defer decision and the first
+supported placement scope.
 
-- Show a concrete versioned query descriptor and cursor for equality, plus
-  **specified** treatment of optional/null values and unsupported future
-  operators; demonstrate that a later range/sort/projection addition does
-  not require breaking Storage v2 or reinterpret old cursors.
-- Exercise native provider-side matching on Memory and SQLite with at least
-  two model shapes and varied predicate selectivity; include valid/invalid
-  types, cursor tampering/reuse, concurrent writes and measured query budget.
-  The existing co-located query research intentionally scans v2 pages.
-- Complete the explicit shared-instance preflight/runtime comparison,
-  including an actual managed query+writer provider, same-session proof,
-  refusal of split aliases and process restart/recovery. If its cost or
-  guarantees are worse, revisit unified v3.
-- Record out-of-scope workloads and a realistic evolution policy in the
-  eventual accepted contract; do **not** make game-domain frameworks,
-  snapshot persistence or future blob/transaction services mandatory
-  dependencies of Todo #107.
+**Implementation acceptance, after that decision:** require provider-native
+matching with linked Memory and SQLite parity, invalid predicates/cursors,
+multiple model shapes/selectivity, measured resource budgets, concurrent
+updates and rejected split-instance plans before shipping the capability.
+Require real managed startup, co-selection, restart/fencing and failure tests
+**before claiming managed placement support**; it may be a separate,
+explicitly deferred delivery increment. Production performance, transport,
+security and index migration claims each require their own evidence. The
+Todo domain/HTTP/UI work still needs honest pagination and regression tests.
 
-Keep #107 open and PR #130 **draft research only** until the decision is
-recorded under `docs/project/delivery.md`. No generic Query API,
-production SQL index, game infrastructure, persistent format change, or
+Record out-of-scope workloads and an evolution policy in the eventual
+contract. Do **not** make game-domain frameworks, world snapshots, bulk
+asset storage or future transaction services prerequisites of Todo #107.
+
+Keep #107 open and PR #130 **draft research only** until the architecture
+decision is recorded under `docs/project/delivery.md`. No generic Query
+API, production SQL index, game infrastructure, physical format change or
 Open/Completed UI is accepted by this extension.
