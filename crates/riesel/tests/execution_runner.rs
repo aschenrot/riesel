@@ -4,7 +4,8 @@
 #![cfg(feature = "async-tcp")]
 use riesel::{
     AccessMode, App, AsyncOperation, ConnectorRegistry, DeploymentConfig, DomainAdmissionMode,
-    ExecutionPlanDraft, GraphRunError, OperationKey, OperationNode, OperationOutcome,
+    ExecutionPlanDraft, FixedStepAdmission, FixedStepBacklog, FixedStepPolicy, GraphRunError,
+    OperationKey, OperationNode, OperationOutcome,
     OperationRegistry, OperationState, RunningApp, async_operation,
 };
 use std::num::NonZeroUsize;
@@ -832,5 +833,74 @@ fn declared_domain_admission_serializes_cross_run_ticks_without_resource_keys() 
                 .succeeded()
         );
         assert_eq!(second_started.load(Ordering::SeqCst), 1);
+    });
+}
+
+#[test]
+fn bounded_frame_budget_runs_a_reused_immutable_plan_without_implicit_retries() {
+    runtime().block_on(async {
+        let completed = Arc::new(AtomicUsize::new(0));
+        let mut handlers = OperationRegistry::<AsyncOperation>::new();
+        handlers
+            .register(
+                key("tick"),
+                async_operation({
+                    let completed = Arc::clone(&completed);
+                    move || {
+                        let completed = Arc::clone(&completed);
+                        async move {
+                            completed.fetch_add(1, Ordering::SeqCst);
+                            OperationOutcome::Completed
+                        }
+                    }
+                }),
+            )
+            .unwrap();
+        let plan = ExecutionPlanDraft::new("reusable.fixed-tick", 1)
+            .operation(OperationNode::new("tick", key("tick")).domain_tick("world"))
+            .validate()
+            .unwrap()
+            .bind(&handlers)
+            .unwrap();
+        let mut clock = FixedStepAdmission::new(
+            FixedStepPolicy::new(
+                Duration::from_millis(10),
+                NonZeroUsize::new(2).unwrap(),
+                FixedStepBacklog::DiscardExcess,
+            )
+            .unwrap(),
+        );
+        // One external frame advances three logical intervals, but this
+        // Riesel-owned domain admits only two. The third is explicitly dropped.
+        let budget = clock.advance_frame(Duration::from_millis(30));
+        assert_eq!(budget.eligible, 2);
+        assert_eq!(budget.discarded, 1);
+        let owner = application_session();
+        for _ in 0..budget.eligible {
+            assert_eq!(clock.claim(1), 1);
+            // Reuse the exact immutable semantic plan and registered Rust
+            // handlers; each run receives new session admission resources.
+            let runner = owner
+                .execution_graph(plan.clone(), NonZeroUsize::new(1).unwrap())
+                .unwrap();
+            let result = runner.execute().await;
+            assert!(result.succeeded());
+            assert_eq!(result.plan_id, "reusable.fixed-tick");
+            assert_eq!(result.revision, 1);
+        }
+        assert_eq!(clock.available(), 0);
+        assert_eq!(completed.load(Ordering::SeqCst), 2);
+        assert_eq!(clock.advance_frame(Duration::ZERO).eligible, 0);
+
+        // A new application session is not a continuation of the old clock.
+        let restarted = application_session();
+        let mut fresh_clock = FixedStepAdmission::new(clock.policy());
+        assert_eq!(fresh_clock.advance_frame(Duration::ZERO).eligible, 0);
+        assert_eq!(fresh_clock.claim(1), 0);
+        let runner = restarted
+            .execution_graph(plan, NonZeroUsize::new(1).unwrap())
+            .unwrap();
+        assert!(runner.execute().await.succeeded());
+        assert_eq!(completed.load(Ordering::SeqCst), 3);
     });
 }
