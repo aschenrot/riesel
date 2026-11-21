@@ -1,0 +1,31 @@
+name: Research #75 — Linux separate-principal authentication boundary
+
+permissions:
+  contents: read
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - "research/operational-contract/linux_principals.py"
+      - "research/operational-contract/LINUX-PRINCIPALS.md"
+      - ".github/workflows/operational-linux-principals-research.yml"
+  workflow_dispatch:
+
+jobs:
+  real-credentials:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - name: Verify privileged identity-test prerequisites
+        run: |
+          set -euo pipefail
+          test "$(id -u)" != "0"
+          command -v setpriv
+          sudo -n true
+          python3 --version
+      - name: Test kernel peer identity, separate UID and same-UID impersonation limits
+        run: |
+          python3 -m py_compile research/operational-contract/linux_principals.py
+          timeout 55 python3 research/operational-contract/linux_principals.py
