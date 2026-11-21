@@ -103,6 +103,40 @@ impl AsyncTasks {
         Ok(())
     }
 
+    /// Start a bounded graph as a named task owned by the application's
+    /// existing async scope. Unlike ordinary detached Tokio tasks, scope
+    /// shutdown requests a cooperative graph stop, aborts and joins graph
+    /// operation futures, then allows provider teardown.
+    ///
+    /// A graph that finishes unsuccessfully reports GraphExecutionFailure
+    /// as a named task error and revokes the session. Normal scope shutdown
+    /// does not itself report a new task failure. Dispatched effects cannot
+    /// be undone, and noncooperative synchronous callbacks can still block.
+    pub fn spawn_graph(
+        &self,
+        name: impl Into<String>,
+        runner: crate::execution_runner::ExecutionGraphRunner,
+    ) -> Result<(), RuntimeError> {
+        let name = name.into();
+        let (mut state, executor) = self.reserve(&name)?;
+        let stopping = Arc::clone(&self.inner);
+        let worker = executor.spawn(async move {
+            let (report, stopped) = runner.execute_until(stopping.stop_requested()).await;
+            if stopped {
+                None
+            } else if report.succeeded() {
+                Some(Ok(()))
+            } else {
+                Some(Err(Box::new(
+                    crate::execution_runner::GraphExecutionFailure { report },
+                ) as ConnectorError))
+            }
+        });
+        let watcher = self.watch(&executor, name.clone(), worker);
+        state.handles.push((name, watcher));
+        Ok(())
+    }
+
     /// Explicit boundary for synchronous work in an async application.
     /// The closure runs on Tokio's blocking worker pool, not the session
     /// reactor. At most eight blocking jobs can be admitted concurrently.
