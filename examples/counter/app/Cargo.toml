@@ -6,6 +6,10 @@ license.workspace = true
 repository.workspace = true
 publish = false
 
+[features]
+# Test-only integration of the runtime-owned epoch prototype.
+research-runtime-epoch = ["riesel/research-external-epoch"]
+
 [dependencies]
 riesel = { workspace = true, features = ["async-tcp"] }
 riesel_counter.workspace = true
