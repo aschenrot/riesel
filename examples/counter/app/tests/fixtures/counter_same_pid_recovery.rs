@@ -8,7 +8,10 @@ use std::collections::HashMap;
 use std::error::Error;
 use std::io::{self, BufRead, BufReader, Write};
 use std::net::{TcpListener, TcpStream};
-use std::sync::{Arc, Mutex, atomic::{AtomicBool, Ordering}};
+use std::sync::{
+    Arc, Mutex,
+    atomic::{AtomicBool, Ordering},
+};
 use std::thread;
 use std::time::Duration;
 use uuid::Uuid;
@@ -26,7 +29,9 @@ struct PublishedSession {
     attachments: HashMap<String, bool>,
 }
 
-fn denied(reason: &str) -> Value { json!({"error": reason}) }
+fn denied(reason: &str) -> Value {
+    json!({"error": reason})
+}
 
 fn request(state: &Mutex<PublishedSession>, stop: &AtomicBool, msg: Value) -> Value {
     if msg.get("app").and_then(Value::as_str) != Some(APP) {
@@ -43,7 +48,9 @@ fn request(state: &Mutex<PublishedSession>, stop: &AtomicBool, msg: Value) -> Va
         return json!({"phase":current.phase,"pid":std::process::id()});
     }
     if msg["type"] == "attach" {
-        if current.counter.is_none() { return denied("not_ready"); }
+        if current.counter.is_none() {
+            return denied("not_ready");
+        }
         let write = match msg["proof"].as_str() {
             Some("research-write-NOT-A-CREDENTIAL") => true,
             Some("research-read-NOT-A-CREDENTIAL") => false,
@@ -67,11 +74,15 @@ fn request(state: &Mutex<PublishedSession>, stop: &AtomicBool, msg: Value) -> Va
         return denied("unauthorized");
     };
     if msg["type"] == "stop" {
-        if !write { return denied("forbidden"); }
+        if !write {
+            return denied("forbidden");
+        }
         stop.store(true, Ordering::Release);
         return json!({"ok":true});
     }
-    let Some(counter) = &current.counter else { return denied("not_ready"); };
+    let Some(counter) = &current.counter else {
+        return denied("not_ready");
+    };
     match msg["operation"].as_str() {
         Some("value") => match counter.value() {
             Ok(value) => json!({"result":{"Ok":value}}),
@@ -91,12 +102,18 @@ fn request(state: &Mutex<PublishedSession>, stop: &AtomicBool, msg: Value) -> Va
     }
 }
 
-fn serve_once(mut socket: TcpStream, state: &Mutex<PublishedSession>, stop: &AtomicBool) -> io::Result<()> {
+fn serve_once(
+    mut socket: TcpStream,
+    state: &Mutex<PublishedSession>,
+    stop: &AtomicBool,
+) -> io::Result<()> {
     socket.set_read_timeout(Some(Duration::from_secs(5)))?;
     socket.set_write_timeout(Some(Duration::from_secs(5)))?;
     let mut line = String::new();
     let mut reader = BufReader::new(socket.try_clone()?);
-    if reader.read_line(&mut line)? > 65536 { return Err(io::Error::other("frame too long")); }
+    if reader.read_line(&mut line)? > 65536 {
+        return Err(io::Error::other("frame too long"));
+    }
     let parsed: Value = serde_json::from_str(&line)?;
     let result = request(state, stop, parsed);
     socket.write_all(serde_json::to_string(&result)?.as_bytes())?;
@@ -115,7 +132,9 @@ fn main() -> Result<(), Box<dyn Error + Send + Sync>> {
     let serving = thread::spawn(move || {
         while !thread_stop.load(Ordering::Acquire) {
             match listener.accept() {
-                Ok((socket, _)) => { let _ = serve_once(socket, &thread_state, &thread_stop); }
+                Ok((socket, _)) => {
+                    let _ = serve_once(socket, &thread_state, &thread_stop);
+                }
                 Err(error) if error.kind() == io::ErrorKind::WouldBlock => {
                     thread::sleep(Duration::from_millis(10));
                 }
@@ -142,22 +161,30 @@ fn main() -> Result<(), Box<dyn Error + Send + Sync>> {
                 current.phase = invocations;
             }
             if invocations == 1 {
-                if !ctx.cancellation_token().wait_cancelled_timeout(Duration::from_secs(12)) {
-                    return Err(Box::new(io::Error::other("managed provider did not crash")) as riesel::ConnectorError);
+                if !ctx
+                    .cancellation_token()
+                    .wait_cancelled_timeout(Duration::from_secs(12))
+                {
+                    return Err(Box::new(io::Error::other("managed provider did not crash"))
+                        as riesel::ConnectorError);
                 }
                 let mut current = closure_state.lock().expect("research state lock poisoned");
                 current.counter = None;
                 current.attachments.clear();
             } else if invocations == 2 {
                 for _ in 0..600 {
-                    if closure_stop.load(Ordering::Acquire) { break; }
+                    if closure_stop.load(Ordering::Acquire) {
+                        break;
+                    }
                     thread::sleep(Duration::from_millis(20));
                 }
                 if !closure_stop.load(Ordering::Acquire) {
-                    return Err(Box::new(io::Error::other("external client did not finish")) as riesel::ConnectorError);
+                    return Err(Box::new(io::Error::other("external client did not finish"))
+                        as riesel::ConnectorError);
                 }
             } else {
-                return Err(Box::new(io::Error::other("unexpected extra session")) as riesel::ConnectorError);
+                return Err(Box::new(io::Error::other("unexpected extra session"))
+                    as riesel::ConnectorError);
             }
             Ok::<(), riesel::ConnectorError>(())
         });
