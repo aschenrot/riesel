@@ -39,15 +39,15 @@ fn run_client(address: SocketAddr, mode: &str) -> TaskResult {
 /// Research #75/#60: app-owned generated typed capability, an independent
 /// process, deliberate facade selection, and backend survival after GUI exit.
 /// Loopback RPC is unauthenticated; this is not an accepted public exporter.
-pub(super) fn verify_two_process_facade() -> TaskResult {
+fn verify_facade_host(program: &str) -> TaskResult {
     let mut host = FacadeHost(
-        Command::new(binary("counter_public_facade_host"))
+        Command::new(binary(program))
             .current_dir(workspace_root())
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
             .stderr(Stdio::inherit())
             .spawn()
-            .map_err(|error| format!("cannot start research facade host: {error}"))?,
+            .map_err(|error| format!("cannot start {program} facade host: {error}"))?,
     );
     let stdout = host
         .0
@@ -108,4 +108,11 @@ pub(super) fn verify_two_process_facade() -> TaskResult {
         ));
     }
     Ok(())
+}
+
+/// Compare hosting a selected component with exporting a capability already
+/// resolved by the application runtime. Both use a headless external client.
+pub(super) fn verify_two_process_facade() -> TaskResult {
+    verify_facade_host("counter_public_facade_host")?;
+    verify_facade_host("counter_resolved_facade_host")
 }

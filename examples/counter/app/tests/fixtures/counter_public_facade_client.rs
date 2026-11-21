@@ -1,8 +1,10 @@
 //! Independent headless GUI stand-in using generated typed Rust capability
 //! bindings. No credentials are supplied: successful mutation here also
 //! demonstrates that the current loopback transport is NOT authenticated.
-use riesel_counter::{AsyncCounterContract, AsyncCounterObserverContract};
-use riesel_protocol::{AsyncRpcClientBinding, AsyncTcpRpcTransport, RpcError};
+use riesel_counter::{AsyncCounterContract, AsyncCounterObserverContract, CounterError};
+use riesel_protocol::{
+    AsyncRpcClientBinding, AsyncRpcTransport, AsyncTcpRpcTransport, CallError, RpcError,
+};
 use std::{env, error::Error, net::SocketAddr, sync::Arc};
 
 fn main() -> Result<(), Box<dyn Error + Send + Sync>> {
@@ -30,16 +32,35 @@ fn main() -> Result<(), Box<dyn Error + Send + Sync>> {
             Err(RpcError::WrongCapability { .. })
         ));
 
+        // Both generated and manually forwarded endpoints must reject
+        // malformed input and preserve domain vs transport failures.
+        let expected = AsyncCounterContract::definition()?;
+        assert!(matches!(
+            transport
+                .call(
+                    &expected.capability,
+                    "add",
+                    serde_json::json!({"amount": 1, "extra": true}),
+                )
+                .await,
+            Err(RpcError::InvalidArguments(_))
+        ));
         let public = AsyncCounterContract::bind_async(transport);
+        assert!(matches!(
+            public.add(0).await,
+            Err(CallError::Domain(CounterError::ZeroIncrement))
+        ));
         match mode.as_str() {
             "first" => {
                 assert_eq!(public.value().await?, 0);
                 assert_eq!(public.add(3).await?, 3);
+                assert_eq!(public.label("count").await?, "count: 3");
             }
             "second" => {
                 // First client exited; backend state remains authoritative.
                 assert_eq!(public.value().await?, 3);
                 assert_eq!(public.add(2).await?, 5);
+                assert_eq!(public.label("count").await?, "count: 5");
             }
             _ => return Err("unknown test mode".into()),
         }
