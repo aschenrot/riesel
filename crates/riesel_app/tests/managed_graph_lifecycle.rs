@@ -5,9 +5,9 @@
 
 use riesel_app::{
     App, AsyncOperation, BoundExecutionPlan, CapabilityConnector, ConnectedProvider,
-    ConnectorError, ConnectorRegistry, DeploymentConfig, ExecutionPlanDraft,
-    GraphRunError, OperationKey, OperationNode, OperationOutcome, OperationRegistry,
-    OperationState, RunningApp, RuntimeError, ServiceEndpoint, async_operation,
+    ConnectorError, ConnectorRegistry, DeploymentConfig, ExecutionPlanDraft, GraphRunError,
+    OperationKey, OperationNode, OperationOutcome, OperationRegistry, OperationState, RunningApp,
+    RuntimeError, ServiceEndpoint, async_operation,
 };
 use riesel_protocol::SessionToken;
 use riesel_schema::{
