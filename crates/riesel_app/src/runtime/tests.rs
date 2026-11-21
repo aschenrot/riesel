@@ -1329,3 +1329,147 @@ fn session_owned_graph_owns_thread_confined_domain_without_duplicate_scheduler()
     ));
     actor.join().unwrap();
 }
+
+#[cfg(feature = "async-tcp")]
+#[test]
+fn graph_runner_real_local_session_shutdown_preserves_completed_prefix_and_unknown_work() {
+    use crate::execution_plan::{ExecutionPlanDraft, OperationKey, OperationNode, OperationRegistry};
+    use crate::execution_runner::{
+        AsyncOperation, GraphRunError, OperationOutcome, OperationState, async_operation,
+    };
+    use std::num::NonZeroUsize;
+    use std::sync::atomic::{AtomicUsize, Ordering};
+
+    let mut connectors = ConnectorRegistry::new();
+    connectors
+        .register_local(LocalCounter("example.counter.memory"))
+        .unwrap();
+    let mut running = app().start_local(&connectors).unwrap();
+    let resolved = Arc::clone(running.service::<Arc<u64>>("counter").unwrap());
+    let committed = Arc::new(AtomicUsize::new(0));
+    let dispatched = Arc::new(AtomicUsize::new(0));
+    let blocked_executed = Arc::new(AtomicUsize::new(0));
+    let mut handlers = OperationRegistry::<AsyncOperation>::new();
+    handlers
+        .register(
+            OperationKey::new("commit", 1).unwrap(),
+            async_operation({
+                let committed = Arc::clone(&committed);
+                move || {
+                    let resolved = Arc::clone(&resolved);
+                    let committed = Arc::clone(&committed);
+                    async move {
+                        if *resolved != 123 {
+                            return OperationOutcome::Failed("wrong already-resolved capability".into());
+                        }
+                        committed.fetch_add(1, Ordering::SeqCst);
+                        OperationOutcome::Completed
+                    }
+                }
+            }),
+        )
+        .unwrap();
+    handlers
+        .register(
+            OperationKey::new("dispatch", 1).unwrap(),
+            async_operation({
+                let dispatched = Arc::clone(&dispatched);
+                move || {
+                    let dispatched = Arc::clone(&dispatched);
+                    async move {
+                        // Sending an external mutation is not undone by
+                        // dropping the future before its response arrives.
+                        dispatched.fetch_add(1, Ordering::SeqCst);
+                        std::future::pending::<()>().await;
+                        OperationOutcome::Completed
+                    }
+                }
+            }),
+        )
+        .unwrap();
+    handlers
+        .register(
+            OperationKey::new("dependent", 1).unwrap(),
+            async_operation({
+                let executed = Arc::clone(&blocked_executed);
+                move || {
+                    let executed = Arc::clone(&executed);
+                    async move {
+                        executed.fetch_add(1, Ordering::SeqCst);
+                        OperationOutcome::Completed
+                    }
+                }
+            }),
+        )
+        .unwrap();
+    handlers
+        .register(
+            OperationKey::new("signal", 1).unwrap(),
+            async_operation(|| async { OperationOutcome::Completed }),
+        )
+        .unwrap();
+
+    let plan = ExecutionPlanDraft::new("lifecycle.committed-prefix", 1)
+        .operation(OperationNode::new("commit", OperationKey::new("commit", 1).unwrap()))
+        .operation(
+            OperationNode::new("dispatch", OperationKey::new("dispatch", 1).unwrap())
+                .after("commit"),
+        )
+        .operation(
+            OperationNode::new("dependent", OperationKey::new("dependent", 1).unwrap())
+                .after("dispatch"),
+        )
+        .operation(
+            OperationNode::new("signal", OperationKey::new("signal", 1).unwrap())
+                .on_signal("never"),
+        )
+        .validate()
+        .unwrap()
+        .bind(&handlers)
+        .unwrap();
+
+    let runner = running
+        .execution_graph(plan, NonZeroUsize::new(2).unwrap())
+        .unwrap();
+    let stale_admission = runner.signal_sender();
+    let worker = std::thread::spawn(move || {
+        let runtime = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .unwrap();
+        runtime.block_on(runner.execute())
+    });
+
+    let deadline = std::time::Instant::now() + Duration::from_secs(5);
+    while dispatched.load(Ordering::SeqCst) == 0 {
+        assert!(std::time::Instant::now() < deadline, "graph did not dispatch");
+        std::thread::sleep(Duration::from_millis(1));
+    }
+    assert_eq!(committed.load(Ordering::SeqCst), 1);
+    running.shutdown().unwrap();
+    let report = worker.join().unwrap();
+
+    assert!(report.session_expired);
+    assert_eq!(report.operations["commit"], OperationState::Completed);
+    assert_eq!(report.operations["dispatch"], OperationState::OutcomeUnknown);
+    assert_eq!(report.operations["dependent"], OperationState::Blocked);
+    assert_eq!(report.operations["signal"], OperationState::Cancelled);
+    assert_eq!(report.started, 2);
+    assert_eq!(committed.load(Ordering::SeqCst), 1);
+    assert_eq!(dispatched.load(Ordering::SeqCst), 1);
+    assert_eq!(blocked_executed.load(Ordering::SeqCst), 0);
+    assert!(matches!(
+        stale_admission.fire("never"),
+        Err(GraphRunError::SessionExpired)
+    ));
+
+    // Restarting the same app does not automatically replay a graph or
+    // reauthorize handles retained from its previous generation.
+    let new_session = app().start_local(&connectors).unwrap();
+    assert_eq!(**new_session.service::<Arc<u64>>("counter").unwrap(), 123);
+    assert!(matches!(
+        stale_admission.fire("never"),
+        Err(GraphRunError::SessionExpired)
+    ));
+    assert_eq!(dispatched.load(Ordering::SeqCst), 1);
+}
