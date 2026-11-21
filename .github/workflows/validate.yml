@@ -37,6 +37,8 @@ jobs:
         run: cargo validate --check
       - name: Smoke test runtime and managed providers
         run: cargo smoke
+      - name: Execute Issue 83 isolated research probes
+        run: cargo test --manifest-path research/execution-scheduler/Cargo.toml --offline -- --nocapture
 
   windows:
     if: ${{ github.event_name == 'workflow_dispatch' && inputs.windows }}
