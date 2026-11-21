@@ -362,7 +362,6 @@ fn correct_operator_consent_does_not_override_direct_source_drift_during_prompt(
     assert_eq!(saved.get("task", id).unwrap().unwrap().data, source.data);
 }
 
-
 #[test]
 fn operator_confirmation_is_bounded_and_requires_a_complete_line() {
     let dir = tempfile::tempdir().unwrap();
@@ -446,11 +445,9 @@ fn occupied_backup_destination_and_corrupt_source_refuse_before_confirmation() {
     }
     let direct = rusqlite::Connection::open(&corrupt).unwrap();
     let raw: Vec<u8> = direct
-        .query_row(
-            "SELECT data FROM records WHERE model='task'",
-            [],
-            |row| row.get(0),
-        )
+        .query_row("SELECT data FROM records WHERE model='task'", [], |row| {
+            row.get(0)
+        })
         .unwrap();
     assert_eq!(raw, b"not JSON");
 }
@@ -614,9 +611,14 @@ struct FailOnCommitReceipt {
 
 impl std::io::Write for FailOnCommitReceipt {
     fn write(&mut self, text: &[u8]) -> std::io::Result<usize> {
-        if text.windows(b"Migration committed".len()).any(|s| s == b"Migration committed") {
+        if text
+            .windows(b"Migration committed".len())
+            .any(|s| s == b"Migration committed")
+        {
             self.failed = true;
-            return Err(std::io::Error::other("injected output failure after commit"));
+            return Err(std::io::Error::other(
+                "injected output failure after commit",
+            ));
         }
         self.output.extend_from_slice(text);
         Ok(text.len())
@@ -647,7 +649,10 @@ fn output_failure_after_commit_is_not_misreported_as_a_safe_rollback() {
         &mut output,
     )
     .unwrap_err();
-    assert!(output.failed, "simulated post-commit failure was not triggered");
+    assert!(
+        output.failed,
+        "simulated post-commit failure was not triggered"
+    );
     assert!(
         format!("{err}").contains("injected output failure after commit"),
         "{err}"
@@ -661,7 +666,6 @@ fn output_failure_after_commit_is_not_misreported_as_a_safe_rollback() {
     let old = SqliteStore::open(&archive, models::<Old>()).unwrap();
     assert_eq!(old.get("task", id).unwrap().unwrap().revision, 1);
 }
-
 
 struct ActionDuringConsent {
     answer: Cursor<Vec<u8>>,
@@ -695,11 +699,9 @@ fn direct_source_schema_drift_during_approval_refuses_before_backup_or_mutation(
     fixture(&db);
     let before: Vec<u8> = rusqlite::Connection::open(&db)
         .unwrap()
-        .query_row(
-            "SELECT data FROM records WHERE model='task'",
-            [],
-            |row| row.get(0),
-        )
+        .query_row("SELECT data FROM records WHERE model='task'", [], |row| {
+            row.get(0)
+        })
         .unwrap();
     let confirmation = format!(
         "MIGRATE {} BACKUP {}\n",
@@ -729,18 +731,18 @@ fn direct_source_schema_drift_during_approval_refuses_before_backup_or_mutation(
     )
     .unwrap_err();
     assert!(
-        format!("{error}").contains("registration")
-            || format!("{error}").contains("model"),
+        format!("{error}").contains("registration") || format!("{error}").contains("model"),
         "{error}"
     );
-    assert!(!archive.exists(), "schema drift must reject before publication");
+    assert!(
+        !archive.exists(),
+        "schema drift must reject before publication"
+    );
     let connection = rusqlite::Connection::open(&db).unwrap();
     let after: Vec<u8> = connection
-        .query_row(
-            "SELECT data FROM records WHERE model='task'",
-            [],
-            |row| row.get(0),
-        )
+        .query_row("SELECT data FROM records WHERE model='task'", [], |row| {
+            row.get(0)
+        })
         .unwrap();
     assert_eq!(after, before);
     assert!(SqliteStore::open(&db, models::<Old>()).is_err());
@@ -777,11 +779,13 @@ fn backup_destination_occupied_during_confirmation_remains_intact() {
         std::fs::read(&archive).unwrap(),
         b"existing backup must not be overwritten"
     );
-    assert!(
-        std::fs::read_dir(dir.path())
+    assert!(std::fs::read_dir(dir.path()).unwrap().all(|item| {
+        !item
             .unwrap()
-            .all(|item| !item.unwrap().file_name().to_string_lossy().contains(".riesel-pending-"))
-    );
+            .file_name()
+            .to_string_lossy()
+            .contains(".riesel-pending-")
+    }));
     let old = SqliteStore::open(&db, models::<Old>()).unwrap();
     assert_eq!(old.get("task", id).unwrap().unwrap().revision, 1);
     drop(old);
