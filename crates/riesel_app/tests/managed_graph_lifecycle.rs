@@ -88,7 +88,7 @@ fn managed_config() -> DeploymentConfig {
     DeploymentConfig::new(BTreeMap::from([(
         "managed".into(),
         ServiceEndpoint::Managed {
-            instance: Some("managed-graph-fixture".into()),
+            instance: None,
             program: env!("CARGO_BIN_EXE_managed_graph_child").into(),
             args: vec![],
             startup_timeout_ms: 5_000,
