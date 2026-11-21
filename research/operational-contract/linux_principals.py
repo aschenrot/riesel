@@ -166,7 +166,7 @@ def verify():
 
             # Server-owned 0700 directory and 0600 file separate the owner
             # secret from both the legitimate runner UID and an outsider UID.
-            assert secret.exists()
+            assert secret.parent.exists(), "server-owned private directory missing"
             assert unreadable(secret), "runner read isolated server-owned key"
             outsider_read = subprocess.run([
                 "sudo", "-n", "setpriv", "-u", str(OUTSIDER_UID),
