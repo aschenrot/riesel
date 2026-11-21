@@ -54,7 +54,29 @@ enum EcsCommand {
         input: i32,
         completion: oneshot::Sender<Result<EcsSnapshot, &'static str>>,
     },
+    Frame {
+        proposed: usize,
+        catch_up_cap: usize,
+        input: i32,
+        completion: oneshot::Sender<Result<Vec<EcsSnapshot>, &'static str>>,
+    },
     Stop,
+}
+
+fn perform_ecs_tick(world: &mut World, runtime: &mut Runtime, input: i32)
+    -> Result<EcsSnapshot, &'static str>
+{
+    world.resource_mut::<Input>().unwrap().0 = input;
+    runtime.run_schedule::<Simulation>(world)
+        .map_err(|_| "RunenECS schedule failed")?;
+    let mut positions: Vec<_> = world.query::<&Position>()
+        .iter(world).map(|position| position.0).collect();
+    positions.sort_unstable();
+    Ok(EcsSnapshot {
+        tick: world.resource::<TickCount>().unwrap().0,
+        positions,
+        invoker_thread_calls: world.resource::<LocalOnly>().unwrap().0.get(),
+    })
 }
 
 /// The actual ECS World/Runtime/!Send resource are created and accessed only
@@ -83,18 +105,14 @@ impl EcsOwner {
             for command in receiver {
                 match command {
                     EcsCommand::Tick { input, completion } => {
-                        world.resource_mut::<Input>().unwrap().0 = input;
-                        let outcome = runtime.run_schedule::<Simulation>(&mut world);
-                        let result = outcome.map(|()| {
-                            let mut positions: Vec<_> = world.query::<&Position>()
-                                .iter(&world).map(|position| position.0).collect();
-                            positions.sort_unstable(); // ECS iteration order is not an API contract.
-                            EcsSnapshot {
-                                tick: world.resource::<TickCount>().unwrap().0,
-                                positions,
-                                invoker_thread_calls: world.resource::<LocalOnly>().unwrap().0.get(),
-                            }
-                        }).map_err(|_| "RunenECS schedule failed");
+                        let _ = completion.send(perform_ecs_tick(&mut world, &mut runtime, input));
+                    }
+                    EcsCommand::Frame { proposed, catch_up_cap, input, completion } => {
+                        // H: this coordinator, not the outer graph, grants tick admission.
+                        // The one frame call is intentionally indivisible from outside.
+                        let result = (0..proposed.min(catch_up_cap))
+                            .map(|_| perform_ecs_tick(&mut world, &mut runtime, input))
+                            .collect();
                         let _ = completion.send(result);
                     }
                     EcsCommand::Stop => break,
@@ -117,6 +135,15 @@ async fn domain_tick(sender: SyncSender<EcsCommand>, input: i32) -> Result<EcsSn
     sender.try_send(EcsCommand::Tick { input, completion })
         .map_err(|_| "bounded domain command queue full or closed")?;
     receiver.await.map_err(|_| "domain owner exited before reply")?
+}
+
+async fn domain_frame(sender: SyncSender<EcsCommand>, proposed: usize, catch_up_cap: usize, input: i32)
+    -> Result<Vec<EcsSnapshot>, &'static str>
+{
+    let (completion, receiver) = oneshot::channel();
+    sender.try_send(EcsCommand::Frame { proposed, catch_up_cap, input, completion })
+        .map_err(|_| "bounded domain frame queue full or closed")?;
+    receiver.await.map_err(|_| "domain owner exited before frame reply")?
 }
 
 #[derive(Clone, Copy)]
@@ -146,33 +173,30 @@ async fn drive_ticks(owner: TickOwner) -> (Vec<EcsSnapshot>, usize) {
     let mut run_number = 0;
     let mut visible_kernel_ticks = 0;
     for proposed_ticks in [0_usize, 1, 4] {
-        // The same domain frame policy limits catch-up in both cases.
-        for _ in 0..proposed_ticks.min(2) {
-            run_number += 1;
-            match owner {
-                TickOwner::Kernel => {
+        match owner {
+            TickOwner::Kernel => {
+                // C: the outer policy grants each separate simulation-tick run.
+                for _ in 0..proposed_ticks.min(2) {
+                    run_number += 1;
                     let mut run = Run::new(Arc::clone(&plan), 123, run_number, 2, Trace::new(true, 16));
                     run.advance(1).await;
                     assert_eq!(run.state("ecs_tick"), Some(Status::Pending));
-                    // One outer operation step cannot advance an internal ECS system.
                     assert_eq!(seen.lock().unwrap().len(), visible_kernel_ticks);
                     run.advance(1).await;
                     assert_eq!(run.state("ecs_tick"), Some(Status::Completed));
                     run.advance(1).await;
                     assert_eq!(run.state("publish_snapshot"), Some(Status::Completed));
-                    let authoritative = run.snapshot();
-                    assert!(authoritative.iter().any(|(id, state)|
+                    assert!(run.snapshot().iter().any(|(id, state)|
                         *id == "ecs_tick" && *state == Status::Completed));
                     visible_kernel_ticks += 1;
                 }
-                TickOwner::Domain => {
-                    // Domain policy owns admission; no second graph can also
-                    // claim to schedule or stop this tick.
-                    let snapshot = domain_tick(ecs.sender.clone(), 2).await.unwrap();
-                    seen.lock().unwrap().push(snapshot);
-                    // A shared inspector needs an explicit domain adapter:
-                    // this domain tick has no entry in the generic Run state.
-                }
+            }
+            TickOwner::Domain => {
+                // H: the domain grants 0/N ticks inside one frame command.
+                // Riesel's generic Run does not own these tick nodes or safe points.
+                let snapshots = domain_frame(ecs.sender.clone(), proposed_ticks, 2, 2)
+                    .await.unwrap();
+                seen.lock().unwrap().extend(snapshots);
             }
         }
     }
