@@ -188,7 +188,7 @@ def main() -> None:
 if __name__ == "__main__":
     if len(sys.argv) == 1:
         main()
-    elif len(sys.argv) == 8 and sys.argv[1] == "--client":
+    elif len(sys.argv) == 7 and sys.argv[1] == "--client":
         _, _, action, unit, verb, role, expected = sys.argv
         client(action, unit, verb, role, int(expected))
     else:
