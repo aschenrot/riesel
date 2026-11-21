@@ -22,6 +22,8 @@ tower-http = { version = "=0.6.11", default-features = false, features = ["fs"],
 riesel_storage_component = { path = "../../packages/storage/memory" }
 riesel_storage_sqlite = { path = "../../packages/storage/sqlite" }
 riesel_app = { path = "../../crates/riesel_app" }
+riesel_protocol.workspace = true
+riesel_schema.workspace = true
 rusqlite = { version = "=0.43.0", features = ["bundled", "backup", "hooks"] }
 serde_json.workspace = true
 tempfile = "3.23"
