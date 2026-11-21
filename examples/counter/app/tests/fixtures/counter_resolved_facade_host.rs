@@ -12,7 +12,10 @@ use riesel_protocol::{AsyncRpcFuture, AsyncRpcHandler, CallError, RpcError};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::io;
-use std::sync::Arc;
+use std::sync::{
+    Arc,
+    atomic::{AtomicBool, Ordering},
+};
 
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -45,7 +48,10 @@ fn encode<T: Serialize>(outcome: Result<T, CallError<CounterError>>) -> Result<V
     serde_json::to_value(logical).map_err(|error| RpcError::Codec(error.to_string()))
 }
 
-struct ResolvedFacade(AsyncCapability<AsyncCounterContract>);
+struct ResolvedFacade {
+    counter: AsyncCapability<AsyncCounterContract>,
+    suppress_first_add_reply: AtomicBool,
+}
 
 impl AsyncRpcHandler for ResolvedFacade {
     fn contract(&self) -> Result<CapabilityContract, RpcError> {
@@ -57,15 +63,25 @@ impl AsyncRpcHandler for ResolvedFacade {
             match operation {
                 "value" => {
                     let _: NoArgs = decode(payload)?;
-                    encode(self.0.value().await)
+                    encode(self.counter.value().await)
                 }
                 "add" => {
                     let args: AddArgs = decode(payload)?;
-                    encode(self.0.add(args.amount).await)
+                    let outcome = self.counter.add(args.amount).await;
+                    if args.amount > 0
+                        && self.suppress_first_add_reply.swap(false, Ordering::AcqRel)
+                    {
+                        // After a real Riesel-resolved mutation returns, withhold
+                        // the RPC response. Client timeout MUST mean unknown
+                        // outcome, not permission to replay this operation.
+                        std::future::pending::<Result<Value, RpcError>>().await
+                    } else {
+                        encode(outcome)
+                    }
                 }
                 "label" => {
                     let args: LabelArgs = decode(payload)?;
-                    encode(self.0.label(&args.prefix).await)
+                    encode(self.counter.label(&args.prefix).await)
                 }
                 _ => Err(RpcError::UnknownOperation(operation.to_owned())),
             }
@@ -74,12 +90,17 @@ impl AsyncRpcHandler for ResolvedFacade {
 }
 
 fn main() -> riesel::Result<()> {
+    let suppress_first_add_reply = std::env::var_os("RIESEL_RESEARCH_SUPPRESS_ADD_REPLY").is_some();
     Application::new("ResolvedFacadeResearch")
         .async_handler(
-            |counter: AsyncCapability<AsyncCounterContract>| async move {
+            move |counter: AsyncCapability<AsyncCounterContract>| async move {
                 // Unlike the first comparator, these operations resolve through
                 // Riesel's actual provider registry and active application session.
-                facade_host_common::serve(Arc::new(ResolvedFacade(counter.clone()))).await?;
+                facade_host_common::serve(Arc::new(ResolvedFacade {
+                    counter: counter.clone(),
+                    suppress_first_add_reply: AtomicBool::new(suppress_first_add_reply),
+                }))
+                .await?;
                 let observed = counter.value().await.map_err(io::Error::other)?;
                 if observed != 5 {
                     return Err(io::Error::other(format!(
