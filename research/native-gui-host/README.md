@@ -27,7 +27,7 @@ cargo build --manifest-path research/native-gui-host/Cargo.toml
 LIBGL_ALWAYS_SOFTWARE=1 xvfb-run -a -s "-screen 0 1280x900x24" python3 research/native-gui-host/exercise.py
 ```
 
-Requires `xdotool`, Xvfb, Mesa/OpenGL and Linux X11 development libraries. The script discovers the actual window, focuses it, sends Tab and Ctrl+I via X11, checks distinct process PIDs, observes snapshots, closes the window via X11, tests GUI reopening and backend survival, then tests visible backend failure and input processing. Its final marker is `NATIVE_GUI_RESEARCH_XVFB_PASS`; **do not assert success without an exact-head passing CI run and its log**.
+Requires `xdotool`, Xvfb, Mesa/OpenGL and Linux X11 development libraries. The script discovers the actual window, focuses it, sends Tab and Ctrl+I via X11, checks distinct process PIDs, observes snapshots, closes the window through Ctrl+Q handled by the toolkit, tests GUI reopening and backend survival, then tests visible backend failure and input processing. Its final marker is `NATIVE_GUI_RESEARCH_XVFB_PASS`; **do not assert success without an exact-head passing CI run and its log**.
 
 Manual Linux desktop: start `cargo run -p riesel_counter_example --bin counter_resolved_facade_host`, copy the ephemeral `RESEARCH_FACADE_BOUND` address, then execute `cargo run --manifest-path research/native-gui-host/Cargo.toml -- <address>` in another terminal. Closing the GUI leaves the app running. The Counter fixture expects the total to equal five on test-only `STOP`. Its stdin control is not a general deployment interface.
 
