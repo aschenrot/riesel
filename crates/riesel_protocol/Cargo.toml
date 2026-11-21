@@ -8,6 +8,8 @@ repository.workspace = true
 [features]
 default = []
 async-tcp = ["dep:tokio"]
+# EXCLUSIVELY for #75 research; not an accepted SDK or protocol mechanism.
+research-external-epoch = ["dep:uuid"]
 
 [dependencies]
 riesel_schema.workspace = true
@@ -15,6 +17,7 @@ serde.workspace = true
 serde_json.workspace = true
 thiserror.workspace = true
 tokio = { workspace = true, optional = true }
+uuid = { workspace = true, optional = true }
 
 [[bin]]
 name = "riesel_async_host_fixture"

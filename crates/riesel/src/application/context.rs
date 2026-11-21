@@ -25,6 +25,15 @@ impl Context<'_> {
         self.running.session_token()
     }
 
+    /// #75 research ONLY: recover the actual runtime-created session token
+    /// for an experimental app-owned publication adapter. Not an accepted
+    /// application/remote interface or authentication API.
+    #[cfg(feature = "research-external-epoch")]
+    #[doc(hidden)]
+    pub fn research_publication_session(&self) -> riesel_protocol::SessionToken {
+        self.running.session_token()
+    }
+
     /// Start work owned by this application. On service failure or shutdown
     /// the task's cancellation token is signalled; all tasks must finish
     /// before managed providers can be torn down or restarted.

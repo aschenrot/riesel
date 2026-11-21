@@ -74,7 +74,10 @@ def main():
                 raise AssertionError(f'Riesel application did not reach phase {want}')
 
             def bind():
-                return send('attach', proof='research-write-NOT-A-CREDENTIAL')
+                attached = send('attach', proof='research-write-NOT-A-CREDENTIAL')
+                if os.environ.get('RIESEL_RESEARCH_RUNTIME_EPOCH_REQUIRED') == '1':
+                    assert attached.get('research_issuer') == 'runtime_session_token', attached
+                return attached
 
             def call(binding, operation, arguments=None):
                 return send('call', generation=binding['generation'],

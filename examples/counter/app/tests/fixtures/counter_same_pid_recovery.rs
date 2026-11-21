@@ -26,6 +26,8 @@ struct PublishedSession {
     generation: String,
     phase: usize,
     counter: Option<CounterHandle>,
+    #[cfg(feature = "research-runtime-epoch")]
+    runtime_session: Option<riesel_protocol::SessionToken>,
     attachments: HashMap<String, bool>,
 }
 
@@ -51,6 +53,16 @@ fn request(state: &Mutex<PublishedSession>, stop: &AtomicBool, msg: Value) -> Va
         if current.counter.is_none() {
             return denied("not_ready");
         }
+        #[cfg(feature = "research-runtime-epoch")]
+        let session_for_attach = current.runtime_session.clone();
+        #[cfg(feature = "research-runtime-epoch")]
+        let _admission = match session_for_attach
+            .as_ref()
+            .and_then(|token| token.research_admit(&current.generation))
+        {
+            Some(permit) => permit,
+            None => return denied("not_ready"),
+        };
         let write = match msg["proof"].as_str() {
             Some("research-write-NOT-A-CREDENTIAL") => true,
             Some("research-read-NOT-A-CREDENTIAL") => false,
@@ -58,8 +70,15 @@ fn request(state: &Mutex<PublishedSession>, stop: &AtomicBool, msg: Value) -> Va
         };
         let attachment = Uuid::new_v4().to_string();
         current.attachments.insert(attachment.clone(), write);
-        return json!({"generation":current.generation,"attachment":attachment,
+        let published = json!({"generation":current.generation,"attachment":attachment,
                        "scope":if write {"write"} else {"read"}});
+        #[cfg(feature = "research-runtime-epoch")]
+        let published = {
+            let mut enriched = published;
+            enriched["research_issuer"] = json!("runtime_session_token");
+            enriched
+        };
+        return published;
     }
     if msg["type"] != "call" && msg["type"] != "stop" {
         return denied("invalid_request");
@@ -67,6 +86,19 @@ fn request(state: &Mutex<PublishedSession>, stop: &AtomicBool, msg: Value) -> Va
     if msg["generation"].as_str() != Some(current.generation.as_str()) {
         return denied("stale_generation");
     }
+    // Research-only: lock the actual runtime token's admission gate through
+    // this short synchronous dispatched operation. The runtime's invalidation
+    // uses the corresponding write lock, so its completion fences new calls.
+    #[cfg(feature = "research-runtime-epoch")]
+    let session_for_call = current.runtime_session.clone();
+    #[cfg(feature = "research-runtime-epoch")]
+    let _admission = match session_for_call
+        .as_ref()
+        .and_then(|token| token.research_admit(msg["generation"].as_str().unwrap_or_default()))
+    {
+        Some(permit) => permit,
+        None => return denied("stale_generation"),
+    };
     let Some(attachment) = msg["attachment"].as_str() else {
         return denied("unauthorized");
     };
@@ -156,7 +188,19 @@ fn main() -> Result<(), Box<dyn Error + Send + Sync>> {
             {
                 let mut current = closure_state.lock().expect("research state lock poisoned");
                 current.counter = Some(counter);
-                current.generation = Uuid::new_v4().to_string();
+                // Existing #92 baseline was app-authored UUID issuance.
+                // With the gated experiment, this generation comes from
+                // StartupState::new -> RunningApp::session_token instead.
+                #[cfg(feature = "research-runtime-epoch")]
+                {
+                    let token = ctx.research_publication_session();
+                    current.generation = token.research_generation();
+                    current.runtime_session = Some(token);
+                }
+                #[cfg(not(feature = "research-runtime-epoch"))]
+                {
+                    current.generation = Uuid::new_v4().to_string();
+                }
                 current.attachments.clear();
                 current.phase = invocations;
             }

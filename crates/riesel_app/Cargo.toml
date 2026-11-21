@@ -9,6 +9,7 @@ publish = false
 [features]
 default = []
 async-tcp = ["riesel_protocol/async-tcp", "dep:tokio"]
+research-external-epoch = ["riesel_protocol/research-external-epoch"]
 
 [dependencies]
 tokio = { workspace = true, optional = true }
