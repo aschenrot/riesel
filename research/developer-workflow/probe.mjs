@@ -254,8 +254,7 @@ async function verifyTodo() {
     },
     body: JSON.stringify({ title: 'Retained development record' })
   });
-  assert.equal(created.status, 201, await created.text().catch(() => ''));
-  // The response body was consumed by the diagnostic expression above only on failure.
+  assert.equal(created.status, 201, 'Todo POST failed with ' + created.status);
   const record = await created.json();
   assert.equal(record.title, 'Retained development record');
   const id = record.id;
