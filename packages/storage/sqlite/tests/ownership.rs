@@ -72,11 +72,27 @@ fn parent_symlink_aliases_share_the_same_owner_identity() {
     // The original is_ok() assertion hid whether this was a stale file lock,
     // SQLite WAL reopen, identity check, or filesystem permission failure.
     if let Err(error) = SqliteStore::open(alias.join("records.db"), models()) {
+        let lock_path = temporary.path().join("records.db.riesel-owner.lock");
+        // A Linux-only diagnostic: are any lockfile descriptors still open in
+        // *this test process* after the provider is explicitly dropped?
+        #[cfg(target_os = "linux")]
+        let matching_descriptors: Vec<_> = std::fs::read_dir("/proc/self/fd")
+            .unwrap()
+            .filter_map(Result::ok)
+            .filter_map(|fd| {
+                let destination = std::fs::read_link(fd.path()).ok()?;
+                (destination == lock_path).then_some(fd.file_name())
+            })
+            .collect();
+        #[cfg(not(target_os = "linux"))]
+        let matching_descriptors = Vec::<std::ffi::OsString>::new();
         panic!(
             "reopening the released parent-symlink alias must succeed; error: {error:?}; \
-             canonical parent: {:?}; lockfile metadata: {:?}",
+             canonical parent: {:?}; lockfile metadata: {:?}; \
+             still-open lockfile descriptors in test process: {:?}",
             std::fs::canonicalize(&alias),
-            std::fs::symlink_metadata(temporary.path().join("records.db.riesel-owner.lock"))
+            std::fs::symlink_metadata(&lock_path),
+            matching_descriptors,
         );
     }
 }
