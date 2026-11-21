@@ -700,8 +700,14 @@ mod tests {
         assert_eq!(boundary.domain(), "world");
         assert_eq!(boundary.mode(), DomainAdmissionMode::RieselTick);
         let projected = serde_json::to_value(plan.description()).unwrap();
-        assert_eq!(projected["operations"][0]["domain_boundary"]["domain"], "world");
-        assert_eq!(projected["operations"][0]["domain_boundary"]["mode"], "riesel_tick");
+        assert_eq!(
+            projected["operations"][0]["domain_boundary"]["domain"],
+            "world"
+        );
+        assert_eq!(
+            projected["operations"][0]["domain_boundary"]["mode"],
+            "riesel_tick"
+        );
         assert!(projected["operations"][0].get("internal_systems").is_none());
     }
 
@@ -735,9 +741,7 @@ mod tests {
         assert!(
             ExecutionPlanDraft::new("independent", 1)
                 .operation(OperationNode::new("tick", key("op", 1)).domain_tick("world-a"))
-                .operation(
-                    OperationNode::new("frame", key("op", 1)).delegated_frame("world-b")
-                )
+                .operation(OperationNode::new("frame", key("op", 1)).delegated_frame("world-b"))
                 .validate()
                 .is_ok()
         );
