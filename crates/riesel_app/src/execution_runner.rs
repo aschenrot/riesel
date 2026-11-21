@@ -98,8 +98,27 @@ impl Drop for GraphOperationLease {
             .state
             .lock()
             .unwrap_or_else(PoisonError::into_inner);
-        let removed = state.operations.remove(&self.ticket);
-        debug_assert!(removed.is_some());
+        let removed = state
+            .operations
+            .remove(&self.ticket)
+            .expect("active operation reservation");
+        // An abruptly dropped graph runner does not synchronously drain its
+        // JoinSet. Preserve the domain mode until the operation future itself
+        // has been aborted and actually released this lease.
+        if let Some(domain) = removed.domain {
+            let remove = {
+                let (_, owners) = state
+                    .domains
+                    .get_mut(&domain)
+                    .expect("operation pins its declared domain mode");
+                debug_assert!(*owners > 0);
+                *owners -= 1;
+                *owners == 0
+            };
+            if remove {
+                state.domains.remove(&domain);
+            }
+        }
         drop(state);
         self.session.changed.notify_waiters();
     }
@@ -179,6 +198,14 @@ impl SessionGraphAdmission {
                 domain: domain.map(|boundary| boundary.domain().to_owned()),
             },
         );
+        if let Some(boundary) = domain {
+            let (registered_mode, count) = state
+                .domains
+                .get_mut(boundary.domain())
+                .expect("run must claim domain authority before operation admission");
+            debug_assert_eq!(*registered_mode, boundary.mode());
+            *count += 1;
+        }
         Some(GraphOperationLease {
             session: Arc::clone(self),
             ticket,
