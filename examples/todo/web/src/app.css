@@ -112,7 +112,7 @@ button:focus-visible, input:focus-visible { outline: 3px solid var(--focus); out
 input[type="text"] { width: 100%; min-width: 0; min-height: 46px; border: 1px solid var(--input-border); border-radius: var(--radius-sm); background: var(--surface); color: var(--ink); padding: 10px 13px; font-size: 15px; }
 input::placeholder { color: var(--placeholder-ink); }
 input[aria-invalid="true"] { border-color: var(--error); }
-button { border-radius: var(--radius-sm); border: 1px solid var(--button-border); background: var(--surface); color: var(--button-ink); font-weight: 650; padding: 9px 14px; transition: background .14s ease, border-color .14s ease; }
+button { border-radius: var(--radius-sm); border: 1px solid var(--button-border); background: var(--surface); color: var(--button-ink); font-weight: 650; padding: 9px 14px; /* Immediate palette swaps avoid transient contrast failure on OS theme changes. */ }
 button:hover:not(:disabled) { background: var(--surface-soft); }
 button.primary { background: var(--accent); border-color: var(--accent); color: var(--primary-ink); white-space: nowrap; }
 button.primary:hover:not(:disabled) { background: var(--accent-hover); }
