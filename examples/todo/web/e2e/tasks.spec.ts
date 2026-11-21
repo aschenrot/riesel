@@ -30,14 +30,15 @@ test.beforeEach(async ({ request }) => {
 
 test('browser creates, edits, completes, reopens and deletes a task', async ({ page }) => {
   await page.goto('/');
-  await expect(page.getByRole('heading', { name: 'Stay on top of what matters.' })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Tasks' })).toBeVisible();
   await expect(page.getByText('No tasks yet')).toBeVisible();
 
-  await page.getByRole('textbox', { name: 'Add a task' }).fill('Plan release');
+  await page.getByRole('textbox', { name: 'New task' }).fill('Plan release');
   await page.getByRole('button', { name: 'Add task' }).click();
   await expect(page.getByText('Plan release', { exact: true })).toBeVisible();
 
-  await page.getByRole('button', { name: 'Edit Plan release' }).click();
+  await page.getByRole('button', { name: 'Actions for Plan release' }).click();
+  await page.getByRole('button', { name: 'Edit task' }).click();
   await page.getByRole('textbox', { name: 'Edit task title' }).fill('Ship release');
   await page.getByRole('button', { name: 'Save' }).click();
   await expect(page.getByText('Ship release', { exact: true })).toBeVisible();
@@ -46,14 +47,15 @@ test('browser creates, edits, completes, reopens and deletes a task', async ({ p
   await expect(page.getByRole('status')).toContainText('Task completed.');
   await page.getByRole('checkbox', { name: 'Mark Ship release incomplete' }).uncheck();
 
-  await page.getByRole('button', { name: 'Remove Ship release' }).click();
-  await page.getByRole('button', { name: 'Confirm' }).click();
+  await page.getByRole('button', { name: 'Actions for Ship release' }).click();
+  await page.getByRole('button', { name: 'Remove task' }).click();
+  await page.getByRole('button', { name: 'Delete' }).click();
   await expect(page.getByText('No tasks yet')).toBeVisible();
 });
 
 test('stale browser revisions require refresh; never silently overwrite', async ({ page, request }) => {
   await page.goto('/');
-  await page.getByRole('textbox', { name: 'Add a task' }).fill('Draft');
+  await page.getByRole('textbox', { name: 'New task' }).fill('Draft');
   await page.getByRole('button', { name: 'Add task' }).click();
   await expect(page.getByText('Draft', { exact: true })).toBeVisible();
 
@@ -78,7 +80,7 @@ test('stale browser revisions require refresh; never silently overwrite', async 
 test('mobile keyboard, reload and reconnect retain task state', async ({ page, context }) => {
   await page.setViewportSize({ width: 375, height: 812 });
   await page.goto('/');
-  const input = page.getByRole('textbox', { name: 'Add a task' });
+  const input = page.getByRole('textbox', { name: 'New task' });
   await input.focus();
   await page.keyboard.type('Keyboard task');
   await page.keyboard.press('Enter');
@@ -93,7 +95,7 @@ test('mobile keyboard, reload and reconnect retain task state', async ({ page, c
 
 test('connection errors are visible and allow retry without losing tasks', async ({ page }) => {
   await page.goto('/');
-  await page.getByRole('textbox', { name: 'Add a task' }).fill('Reconnect task');
+  await page.getByRole('textbox', { name: 'New task' }).fill('Reconnect task');
   await page.getByRole('button', { name: 'Add task' }).click();
   await expect(page.getByText('Reconnect task', { exact: true })).toBeVisible();
 
@@ -118,12 +120,12 @@ test('loading and domain validation are visible before accepting corrected input
   await expect(page.getByText('No tasks yet')).toBeVisible();
   await page.unroute('**/api/v1/tasks*');
 
-  await page.getByRole('textbox', { name: 'Add a task' }).fill('   ');
+  await page.getByRole('textbox', { name: 'New task' }).fill('   ');
   await page.getByRole('button', { name: 'Add task' }).click();
-  await expect(page.getByRole('alert')).toContainText('Invalid request');
+  await expect(page.getByRole('alert')).toContainText('Enter a task title.');
   await expect(page.getByText('No tasks yet')).toBeVisible();
 
-  await page.getByRole('textbox', { name: 'Add a task' }).fill('Valid after error');
+  await page.getByRole('textbox', { name: 'New task' }).fill('Valid after error');
   await page.getByRole('button', { name: 'Add task' }).click();
   await expect(page.getByText('Valid after error', { exact: true })).toBeVisible();
 });
@@ -147,7 +149,7 @@ test('cursor pagination loads the complete collection without duplicating rows',
 test('completed and open filters do not modify persisted state', async ({ page }) => {
   await page.goto('/');
   for (const title of ['Leave open', 'Mark done']) {
-    await page.getByRole('textbox', { name: 'Add a task' }).fill(title);
+    await page.getByRole('textbox', { name: 'New task' }).fill(title);
     await page.getByRole('button', { name: 'Add task' }).click();
     await expect(page.getByText(title, { exact: true })).toBeVisible();
   }
@@ -160,4 +162,52 @@ test('completed and open filters do not modify persisted state', async ({ page }
   await expect(page.getByText('Mark done', { exact: true })).toHaveCount(0);
   await page.getByRole('button', { name: 'All', exact: true }).click();
   await expect(page.locator('li.task')).toHaveCount(2);
+});
+
+test('success feedback uses a dismissible toast without moving the list', async ({ page }) => {
+  await page.goto('/');
+  await page.getByRole('textbox', { name: 'New task' }).fill('Toast example');
+  await page.getByRole('button', { name: 'Add task' }).click();
+  await expect(page.getByRole('status')).toContainText('Task created');
+  await expect(page.locator('.toast-region')).toHaveCSS('position', 'fixed');
+  await page.getByRole('button', { name: 'Dismiss notification' }).click();
+  await expect(page.locator('.toast')).toHaveCount(0);
+  await expect(page.getByText('Toast example', { exact: true })).toBeVisible();
+});
+
+test('task actions are keyboard accessible; Escape returns focus to trigger', async ({ page }) => {
+  await page.goto('/');
+  await page.getByRole('textbox', { name: 'New task' }).fill('Keyboard actions');
+  await page.getByRole('button', { name: 'Add task' }).click();
+  const trigger = page.getByRole('button', { name: 'Actions for Keyboard actions' });
+  await trigger.focus();
+  await page.keyboard.press('Enter');
+  await expect(page.getByRole('button', { name: 'Edit task' })).toBeFocused();
+  await page.keyboard.press('Escape');
+  await expect(trigger).toBeFocused();
+
+  await page.keyboard.press('Enter');
+  await page.getByRole('button', { name: 'Remove task' }).click();
+  await expect(page.getByRole('button', { name: 'Delete' })).toBeVisible();
+  await page.getByRole('button', { name: 'Cancel' }).click();
+  await expect(page.getByText('Keyboard actions', { exact: true })).toBeVisible();
+  await expect(trigger).toBeFocused();
+});
+
+test('mobile layout keeps task action on the row without horizontal overflow', async ({ page }) => {
+  await page.setViewportSize({ width: 375, height: 812 });
+  await page.goto('/');
+  await page.getByRole('textbox', { name: 'New task' }).fill('Small-screen example');
+  await page.getByRole('button', { name: 'Add task' }).click();
+  await expect(page.getByRole('button', { name: 'Actions for Small-screen example' })).toBeVisible();
+  await expect(page.locator('li.task')).toHaveCSS('flex-wrap', 'nowrap');
+  expect(await page.evaluate(() => document.documentElement.scrollWidth > window.innerWidth + 1)).toBe(false);
+});
+
+test('inline title validation keeps the invalid input in place', async ({ page }) => {
+  await page.goto('/');
+  await page.getByRole('textbox', { name: 'New task' }).fill('   ');
+  await page.getByRole('button', { name: 'Add task' }).click();
+  await expect(page.locator('#new-title-error')).toHaveText('Enter a task title.');
+  await expect(page.getByText('No tasks yet')).toBeVisible();
 });
