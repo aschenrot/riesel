@@ -86,7 +86,7 @@ struct EcsOwner {
     worker: Option<JoinHandle<()>>,
 }
 impl EcsOwner {
-    fn start() -> Self {
+    fn start(owner: TickOwner) -> Self {
         let (sender, receiver) = mpsc::sync_channel::<EcsCommand>(1);
         let worker = std::thread::spawn(move || {
             let mut world = World::new();
@@ -105,14 +105,23 @@ impl EcsOwner {
             for command in receiver {
                 match command {
                     EcsCommand::Tick { input, completion } => {
-                        let _ = completion.send(perform_ecs_tick(&mut world, &mut runtime, input));
+                        let result = if matches!(owner, TickOwner::Kernel) {
+                            perform_ecs_tick(&mut world, &mut runtime, input)
+                        } else {
+                            Err("the domain owns tick admission in this session")
+                        };
+                        let _ = completion.send(result);
                     }
                     EcsCommand::Frame { proposed, catch_up_cap, input, completion } => {
                         // H: this coordinator, not the outer graph, grants tick admission.
                         // The one frame call is intentionally indivisible from outside.
-                        let result = (0..proposed.min(catch_up_cap))
-                            .map(|_| perform_ecs_tick(&mut world, &mut runtime, input))
-                            .collect();
+                        let result = if matches!(owner, TickOwner::Domain) {
+                            (0..proposed.min(catch_up_cap))
+                                .map(|_| perform_ecs_tick(&mut world, &mut runtime, input))
+                                .collect()
+                        } else {
+                            Err("the kernel owns tick admission in this session")
+                        };
                         let _ = completion.send(result);
                     }
                     EcsCommand::Stop => break,
@@ -152,7 +161,7 @@ enum TickOwner { Kernel, Domain }
 /// One reference scenario: identical world, tick input, frame policies and
 /// actual ECS operations. Only admission/control authority differs.
 async fn drive_ticks(owner: TickOwner) -> (Vec<EcsSnapshot>, usize) {
-    let ecs = EcsOwner::start();
+    let ecs = EcsOwner::start(owner);
     let seen = Arc::new(Mutex::new(Vec::<EcsSnapshot>::new()));
     let sender = ecs.sender.clone();
     let observed = Arc::clone(&seen);
@@ -249,4 +258,70 @@ async fn actual_runen_ecs_c_and_h_authority_probe_with_simultaneous_async_workfl
         EcsSnapshot { tick: 2, positions: vec![4, 12, 14], invoker_thread_calls: 2 },
         EcsSnapshot { tick: 3, positions: vec![6, 12, 14, 16], invoker_thread_calls: 3 },
     ]);
+}
+
+
+/// The adapter forbids mixed authorities even though its internal message type
+/// supports both commands. A second dispatcher cannot silently double-step.
+#[tokio::test(flavor = "current_thread")]
+async fn domain_actor_rejects_conflicting_tick_admission_modes() {
+    let kernel_owned = EcsOwner::start(TickOwner::Kernel);
+    assert_eq!(
+        domain_frame(kernel_owned.sender.clone(), 1, 2, 2).await,
+        Err("the kernel owns tick admission in this session")
+    );
+    assert_eq!(domain_tick(kernel_owned.sender.clone(), 2).await.unwrap().tick, 1);
+
+    let domain_owned = EcsOwner::start(TickOwner::Domain);
+    assert_eq!(
+        domain_tick(domain_owned.sender.clone(), 2).await,
+        Err("the domain owns tick admission in this session")
+    );
+    assert_eq!(
+        domain_frame(domain_owned.sender.clone(), 1, 2, 2).await.unwrap()[0].tick,
+        1
+    );
+}
+
+/// C's strongest claim is ONE outer graph that can admit both an ECS tick and
+/// triggered async work, while never attempting to schedule internal systems.
+#[tokio::test(flavor = "current_thread")]
+async fn single_outer_graph_coordinates_ecs_tick_and_async_join() {
+    let ecs = EcsOwner::start(TickOwner::Kernel);
+    let sender = ecs.sender.clone();
+    let state = Arc::new(Mutex::new(None::<EcsSnapshot>));
+    let result = Arc::clone(&state);
+    let barrier = Arc::new(tokio::sync::Barrier::new(2));
+    let a = Arc::clone(&barrier);
+    let b = Arc::clone(&barrier);
+    let plan = Arc::new(Plan::validate(vec![
+        Node::new("ecs_tick", &[], vec![Access::Write("ecs-world")], operation(move || {
+            let sender = sender.clone();
+            let result = Arc::clone(&result);
+            async move {
+                *result.lock().unwrap() = Some(domain_tick(sender, 2).await?);
+                Ok(())
+            }
+        })),
+        Node::new("io_event", &[], vec![], noop()).triggered("message"),
+        Node::new("io_a", &["io_event"], vec![], operation(move || {
+            let a = Arc::clone(&a);
+            async move { a.wait().await; Ok(()) }
+        })),
+        Node::new("io_b", &["io_event"], vec![], operation(move || {
+            let b = Arc::clone(&b);
+            async move { b.wait().await; Ok(()) }
+        })),
+        Node::new("combined_join", &["ecs_tick", "io_a", "io_b"], vec![], noop()),
+    ]).unwrap());
+    let mut run = Run::new(plan, 123, 100, 3, Trace::new(true, 32));
+    run.fire("message");
+    tokio::time::timeout(std::time::Duration::from_secs(2), run.advance(usize::MAX))
+        .await.expect("combined ECS+IO graph must complete");
+    assert_eq!(run.state("combined_join"), Some(Status::Completed));
+    assert_eq!(run.peak_in_flight, 3);
+    assert_eq!(state.lock().unwrap().as_ref().unwrap().positions, vec![2, 12]);
+    assert_eq!(run.snapshot().len(), 5);
+    assert!(run.trace.retained.iter().any(|e|
+        e.node == "ecs_tick" && e.status == Status::Completed));
 }
