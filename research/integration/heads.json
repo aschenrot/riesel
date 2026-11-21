@@ -1,0 +1,108 @@
+{
+  "schema": 1,
+  "main": "a35ac7c9ac9749ff023a72595c6851caee5f4859",
+  "sources": [
+    {
+      "pr": 84,
+      "head": "002a516e34ac08da9c643b57c0c8d39a2c52c08a",
+      "base": "0798a6fb8815a57bca822c2db9f220e21ec14354",
+      "files": [
+        ".github/workflows/validate.yml",
+        "research/execution-scheduler/Cargo.toml",
+        "research/execution-scheduler/REPORT.md",
+        "research/execution-scheduler/benches/ecs_scaling.rs",
+        "research/execution-scheduler/src/bevy_comparator.rs",
+        "research/execution-scheduler/src/differential.rs",
+        "research/execution-scheduler/src/ecs_parallel.rs",
+        "research/execution-scheduler/src/lib.rs",
+        "research/execution-scheduler/src/live_control.rs",
+        "research/execution-scheduler/src/tests.rs"
+      ]
+    },
+    {
+      "pr": 86,
+      "head": "e4effcf8afb01aa69edae2421f7d695efe6b1068",
+      "base": "a35ac7c9ac9749ff023a72595c6851caee5f4859",
+      "files": [
+        "docs/product/riesel/operational-products-direction.md",
+        "docs/product/riesel/riesel.md"
+      ]
+    },
+    {
+      "pr": 87,
+      "head": "cf95f71d0c5775d4f64776afd6dc957bf700de03",
+      "base": "a35ac7c9ac9749ff023a72595c6851caee5f4859",
+      "files": [
+        "docs/product/riesel/application-operational-boundary-investigation.md",
+        "examples/counter/app/tests/fixtures/counter_public_facade_client.rs",
+        "examples/counter/app/tests/fixtures/counter_resolved_facade_host.rs",
+        "examples/counter/app/tests/fixtures/facade_host_common.rs",
+        "tools/xtask/src/smoke/facade.rs"
+      ]
+    },
+    {
+      "pr": 88,
+      "head": "12dc146c15c6d497b579c3ab3f6faf48e35b5715",
+      "base": "a35ac7c9ac9749ff023a72595c6851caee5f4859",
+      "files": [
+        ".github/workflows/research-68.yml",
+        "research/developer-workflow/REPORT.md",
+        "research/developer-workflow/headless/Cargo.toml",
+        "research/developer-workflow/headless/src/main.rs",
+        "research/developer-workflow/probe.mjs"
+      ]
+    },
+    {
+      "pr": 89,
+      "head": "0e2bcbbdb24792f830c1127a893a5593e3325201",
+      "base": "a35ac7c9ac9749ff023a72595c6851caee5f4859",
+      "files": [
+        "docs/product/riesel/manager-control-plane-investigation.md",
+        "research/process-ownership/manager_owner_probe.py"
+      ]
+    },
+    {
+      "pr": 90,
+      "head": "5201e61cc74bab778dfc63a3788f1708b2530f21",
+      "base": "a35ac7c9ac9749ff023a72595c6851caee5f4859",
+      "files": [
+        ".github/workflows/native-gui-research.yml",
+        "research/native-gui-host/Cargo.toml",
+        "research/native-gui-host/README.md",
+        "research/native-gui-host/exercise.py",
+        "research/native-gui-host/src/main.rs"
+      ]
+    },
+    {
+      "pr": 91,
+      "head": "cf569ea8d2747ab65a8d28006c1048f9336396bc",
+      "base": "a35ac7c9ac9749ff023a72595c6851caee5f4859",
+      "files": [
+        ".github/workflows/validate.yml",
+        "docs/product/riesel/native-window-host-investigation.md",
+        "research/application-export/Cargo.toml",
+        "research/application-export/README.md",
+        "research/application-export/REPORT.md",
+        "research/application-export/measure.py",
+        "research/application-export/src/lib.rs",
+        "research/application-export/tests/reuse.rs"
+      ]
+    },
+    {
+      "pr": 92,
+      "head": "adc014e99edca6171a9370edc4f3ef79ce599a49",
+      "base": "a35ac7c9ac9749ff023a72595c6851caee5f4859",
+      "files": [
+        ".github/workflows/validate.yml",
+        "Cargo.lock",
+        "docs/product/riesel/application-operational-boundary-investigation.md",
+        "examples/counter/app/Cargo.toml",
+        "examples/counter/app/tests/fixtures/counter_same_pid_recovery.rs",
+        "research/operational-contract/README.md",
+        "research/operational-contract/REPORT.md",
+        "research/operational-contract/probe.py",
+        "research/operational-contract/same_pid_probe.py"
+      ]
+    }
+  ]
+}

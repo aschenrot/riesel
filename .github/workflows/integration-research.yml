@@ -1,0 +1,112 @@
+name: Cross-product research integration (review only)
+
+# This job tests a disposable assembly of exact, independently reviewed PR
+# revisions. It never merges source PRs or pushes the resulting tree.
+permissions:
+  contents: read
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - "research/integration/**"
+      - ".github/workflows/integration-research.yml"
+  workflow_dispatch:
+
+jobs:
+  combined-core:
+    name: Combined runtime / operational / manager / scheduler
+    runs-on: ubuntu-latest
+    timeout-minutes: 50
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Install pinned Rust 1.100.0
+        run: |
+          rustup toolchain install 1.100.0 --profile minimal --component rustfmt --component clippy
+          rustup default 1.100.0
+      - name: Assemble immutable research revisions (no merge or push)
+        run: python3 research/integration/assemble.py
+      - name: Validate combined Rust workspace and documentation
+        run: cargo validate --check
+      - name: Run combined executable smoke
+        run: cargo smoke
+      - name: Exercise Manager ownership research with real subprocesses
+        run: python3 research/process-ownership/manager_owner_probe.py
+      - name: Exercise operational attachment against real Riesel sessions
+        run: |
+          python3 research/operational-contract/probe.py --real
+          python3 research/operational-contract/same_pid_probe.py
+      - name: Exercise Counter + Todo shared exporter-policy research
+        run: |
+          cargo test --manifest-path research/application-export/Cargo.toml --offline -- --nocapture
+          python3 research/application-export/measure.py
+      - name: Exercise execution graph, RunenECS and Bevy comparators
+        run: cargo test --manifest-path research/execution-scheduler/Cargo.toml -- --nocapture
+
+  combined-developer:
+    name: Combined independent Cargo + persistent Todo browser
+    runs-on: ubuntu-latest
+    timeout-minutes: 50
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Install pinned Rust 1.100.0
+        run: |
+          rustup toolchain install 1.100.0 --profile minimal
+          rustup default 1.100.0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - name: Assemble immutable research revisions (no merge or push)
+        run: python3 research/integration/assemble.py
+      - name: Build real Todo backend
+        run: cargo build --locked -p todo --features http --bin todo_http
+      - name: Install real Todo static frontend dependencies
+        working-directory: examples/todo/web
+        run: npm ci --no-audit --no-fund
+      - name: Validate and build browser assets
+        working-directory: examples/todo/web
+        run: |
+          npm run check
+          npm test
+          npm run build
+      - name: Install headless Chromium
+        working-directory: examples/todo/web
+        run: npx playwright install --with-deps --only-shell chromium
+      - name: Test independent Cargo and persistent frontend lifecycle
+        run: node research/developer-workflow/probe.mjs
+      - name: Run existing Todo browser end-to-end regressions
+        working-directory: examples/todo/web
+        run: npm run test:e2e
+
+  combined-native:
+    name: Combined native GUI integration on Xvfb
+    runs-on: ubuntu-latest
+    timeout-minutes: 50
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Install pinned Rust 1.100.0
+        run: |
+          rustup toolchain install 1.100.0 --profile minimal
+          rustup default 1.100.0
+      - name: Assemble immutable research revisions (no merge or push)
+        run: python3 research/integration/assemble.py
+      - name: Install research X11 / OpenGL prerequisites
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y xvfb xdotool x11-utils libxcb-render0-dev libxcb-shape0-dev libxcb-xfixes0-dev libxkbcommon-dev libxkbcommon-x11-0 libxkbcommon-x11-dev libssl-dev libgl1-mesa-dev libegl1-mesa-dev libx11-dev libxi-dev
+      - name: Build resolved Riesel host and independent native GUI
+        run: |
+          cargo build -p riesel_counter_example --bin counter_resolved_facade_host
+          cargo build --manifest-path research/native-gui-host/Cargo.toml
+      - name: Exercise real native event loop, focus and process lifetime
+        env:
+          LIBGL_ALWAYS_SOFTWARE: "1"
+          GALLIUM_DRIVER: llvmpipe
+        run: |
+          xvfb-run -a -s "-screen 0 1280x900x24" python3 research/native-gui-host/exercise.py
