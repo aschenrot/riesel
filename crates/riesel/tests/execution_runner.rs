@@ -57,19 +57,20 @@ fn parallel_branches_complete_before_a_join() {
             .unwrap();
 
         let plan = ExecutionPlanDraft::new("branching", 1)
-            .operation(OperationNode::new("join", key("join")).after("left").after("right"))
+            .operation(
+                OperationNode::new("join", key("join"))
+                    .after("left")
+                    .after("right"),
+            )
             .operation(OperationNode::new("left", key("left")))
             .operation(OperationNode::new("right", key("right")))
             .validate()
             .unwrap()
             .bind(&registry)
             .unwrap();
-        let runner = ExecutionGraphRunner::new(
-            plan,
-            SessionToken::new(),
-            NonZeroUsize::new(2).unwrap(),
-        )
-        .unwrap();
+        let runner =
+            ExecutionGraphRunner::new(plan, SessionToken::new(), NonZeroUsize::new(2).unwrap())
+                .unwrap();
         let report = tokio::time::timeout(Duration::from_secs(3), runner.execute())
             .await
             .unwrap();
@@ -114,8 +115,8 @@ fn signal_gates_only_its_own_branch_without_blocking_independent_work() {
             .bind(&registry)
             .unwrap();
         let session = SessionToken::new();
-        let runner = ExecutionGraphRunner::new(plan, session, NonZeroUsize::new(2).unwrap())
-            .unwrap();
+        let runner =
+            ExecutionGraphRunner::new(plan, session, NonZeroUsize::new(2).unwrap()).unwrap();
         let signals = runner.signal_sender();
         assert!(matches!(
             signals.fire("undeclared"),
@@ -129,7 +130,10 @@ fn signal_gates_only_its_own_branch_without_blocking_independent_work() {
         })
         .await
         .unwrap();
-        assert!(!run.is_finished(), "tick is still waiting for its owner signal");
+        assert!(
+            !run.is_finished(),
+            "tick is still waiting for its owner signal"
+        );
         signals.fire("advance-tick").unwrap();
         let report = tokio::time::timeout(Duration::from_secs(3), run)
             .await
@@ -185,21 +189,20 @@ fn resource_conflicts_are_serialized_and_uncertain_effects_are_not_retried() {
 
         let plan = ExecutionPlanDraft::new("conflicts", 1)
             .operation(OperationNode::new("first", key("first")).access("world", AccessMode::Write))
-            .operation(OperationNode::new("second", key("second")).access("world", AccessMode::Read))
+            .operation(
+                OperationNode::new("second", key("second")).access("world", AccessMode::Read),
+            )
             .operation(OperationNode::new("unknown", key("unknown")))
             .operation(OperationNode::new("dependent", key("dependent")).after("unknown"))
             .validate()
             .unwrap()
             .bind(&registry)
             .unwrap();
-        let report = ExecutionGraphRunner::new(
-            plan,
-            SessionToken::new(),
-            NonZeroUsize::new(3).unwrap(),
-        )
-        .unwrap()
-        .execute()
-        .await;
+        let report =
+            ExecutionGraphRunner::new(plan, SessionToken::new(), NonZeroUsize::new(3).unwrap())
+                .unwrap()
+                .execute()
+                .await;
         assert_eq!(report.peak_in_flight, 2); // one writer plus the unrelated unknown op
         assert_eq!(peak.load(Ordering::SeqCst), 1);
         assert_eq!(calls.load(Ordering::SeqCst), 2);
@@ -244,12 +247,9 @@ fn expired_session_aborts_work_conservatively_and_rejects_stale_signals() {
             .bind(&registry)
             .unwrap();
         let session = SessionToken::new();
-        let runner = ExecutionGraphRunner::new(
-            plan,
-            session.clone(),
-            NonZeroUsize::new(2).unwrap(),
-        )
-        .unwrap();
+        let runner =
+            ExecutionGraphRunner::new(plan, session.clone(), NonZeroUsize::new(2).unwrap())
+                .unwrap();
         let signal = runner.signal_sender();
         let run = tokio::spawn(runner.execute());
         tokio::time::timeout(Duration::from_secs(3), started_rx)

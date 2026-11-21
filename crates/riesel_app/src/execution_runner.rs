@@ -8,9 +8,7 @@
 //! This first increment admits one-shot operations, explicit signals and
 //! declarative resource conflicts. Authoritative run identity, committed-effect
 //! ledgers and cooperative step controls belong to Issue #113.
-use crate::execution_plan::{
-    AccessMode, BoundExecutionPlan, OperationTrigger, ResourceAccess,
-};
+use crate::execution_plan::{AccessMode, BoundExecutionPlan, OperationTrigger, ResourceAccess};
 use crate::runtime::RunningApp;
 use riesel_protocol::SessionToken;
 use std::collections::{BTreeMap, BTreeSet, HashMap};
@@ -94,10 +92,12 @@ impl GraphSignalSender {
                 name: name.to_owned(),
             });
         }
-        self.sender.try_send(name.to_owned()).map_err(|error| match error {
-            mpsc::error::TrySendError::Full(_) => GraphRunError::SignalQueueFull,
-            mpsc::error::TrySendError::Closed(_) => GraphRunError::SignalQueueClosed,
-        })
+        self.sender
+            .try_send(name.to_owned())
+            .map_err(|error| match error {
+                mpsc::error::TrySendError::Full(_) => GraphRunError::SignalQueueFull,
+                mpsc::error::TrySendError::Closed(_) => GraphRunError::SignalQueueClosed,
+            })
     }
 }
 
