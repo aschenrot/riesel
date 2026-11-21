@@ -681,7 +681,10 @@ mod tests {
             let runner = first
                 .execution_graph(
                     ExecutionPlanDraft::new("foreign-session", 1)
-                        .operation(OperationNode::new("op", OperationKey::new("op", 1).unwrap()))
+                        .operation(OperationNode::new(
+                            "op",
+                            OperationKey::new("op", 1).unwrap(),
+                        ))
                         .validate()
                         .unwrap()
                         .bind(&handlers)
