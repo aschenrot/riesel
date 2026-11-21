@@ -103,6 +103,47 @@ impl AsyncTasks {
         Ok(())
     }
 
+    /// Start a bounded graph as a named task owned by the application's
+    /// existing async scope. Unlike ordinary detached Tokio tasks, scope
+    /// shutdown requests a cooperative graph stop, aborts and joins graph
+    /// operation futures, then allows provider teardown.
+    ///
+    /// A graph that finishes unsuccessfully reports GraphExecutionFailure
+    /// as a named task error and revokes the session. Normal scope shutdown
+    /// does not itself report a new task failure. Dispatched effects cannot
+    /// be undone, and noncooperative synchronous callbacks can still block.
+    pub fn spawn_graph(
+        &self,
+        name: impl Into<String>,
+        runner: crate::execution_runner::ExecutionGraphRunner,
+    ) -> Result<(), RuntimeError> {
+        if !runner.belongs_to_session(&self.inner.session) {
+            return Err(RuntimeError::GraphSessionMismatch);
+        }
+        let name = name.into();
+        let (mut state, executor) = self.reserve(&name)?;
+        let stopping = Arc::clone(&self.inner);
+        let worker = executor.spawn(async move {
+            let (report, stopped) = runner.execute_until(stopping.stop_requested()).await;
+            // Session revocation (for example a managed-service crash) is
+            // already owned by the original failure. Do not create a
+            // secondary named graph failure merely because it was cancelled.
+            if stopped || report.session_expired {
+                None
+            } else if report.succeeded() {
+                Some(Ok(()))
+            } else {
+                Some(Err(
+                    Box::new(crate::execution_runner::GraphExecutionFailure { report })
+                        as ConnectorError,
+                ))
+            }
+        });
+        let watcher = self.watch(&executor, name.clone(), worker);
+        state.handles.push((name, watcher));
+        Ok(())
+    }
+
     /// Explicit boundary for synchronous work in an async application.
     /// The closure runs on Tokio's blocking worker pool, not the session
     /// reactor. At most eight blocking jobs can be admitted concurrently.
@@ -592,6 +633,156 @@ mod tests {
                 panic_group.finish_scope().await,
                 Err(RuntimeError::TaskFailed { name, .. }) if name == "panic"
             ));
+        });
+    }
+
+    #[test]
+    fn graph_from_another_app_session_cannot_enter_our_task_scope() {
+        use crate::execution_plan::{
+            ExecutionPlanDraft, OperationKey, OperationNode, OperationRegistry,
+        };
+        use crate::execution_runner::{AsyncOperation, OperationOutcome, async_operation};
+        use crate::{App, ConnectorRegistry};
+        use std::num::NonZeroUsize;
+
+        executor().block_on(async {
+            let app = || {
+                App::from_schema(
+                    r#"{"version":1,"app":{"name":"GraphScope"},"models":{},"requires":[]}"#,
+                )
+                .unwrap()
+                .start_local(&ConnectorRegistry::new())
+                .unwrap()
+            };
+            let mut first = app();
+            let mut second = app();
+            let first_tasks = first.async_tasks();
+            let second_tasks = second.async_tasks();
+            first_tasks.begin_scope().unwrap();
+            second_tasks.begin_scope().unwrap();
+
+            let invoked = Arc::new(AtomicBool::new(false));
+            let mut handlers = OperationRegistry::<AsyncOperation>::new();
+            handlers
+                .register(
+                    OperationKey::new("op", 1).unwrap(),
+                    async_operation({
+                        let invoked = Arc::clone(&invoked);
+                        move || {
+                            let invoked = Arc::clone(&invoked);
+                            async move {
+                                invoked.store(true, Ordering::Release);
+                                OperationOutcome::Completed
+                            }
+                        }
+                    }),
+                )
+                .unwrap();
+            let runner = first
+                .execution_graph(
+                    ExecutionPlanDraft::new("foreign-session", 1)
+                        .operation(OperationNode::new(
+                            "op",
+                            OperationKey::new("op", 1).unwrap(),
+                        ))
+                        .validate()
+                        .unwrap()
+                        .bind(&handlers)
+                        .unwrap(),
+                    NonZeroUsize::new(1).unwrap(),
+                )
+                .unwrap();
+            assert!(matches!(
+                second_tasks.spawn_graph("foreign", runner),
+                Err(RuntimeError::GraphSessionMismatch)
+            ));
+            assert!(!invoked.load(Ordering::Acquire));
+            // Rejection must not consume a task slot or poison the owner.
+            second_tasks.spawn("ordinary", async { Ok(()) }).unwrap();
+            first_tasks.finish_scope().await.unwrap();
+            second_tasks.finish_scope().await.unwrap();
+            first.shutdown().unwrap();
+            second.shutdown().unwrap();
+        });
+    }
+
+    #[test]
+    fn revoked_session_does_not_invent_secondary_background_graph_failure() {
+        use crate::execution_plan::{
+            ExecutionPlanDraft, OperationKey, OperationNode, OperationRegistry,
+        };
+        use crate::execution_runner::{AsyncOperation, OperationOutcome, async_operation};
+        use crate::{App, ConnectorRegistry};
+        use std::num::NonZeroUsize;
+
+        executor().block_on(async {
+            let mut running = App::from_schema(
+                r#"{"version":1,"app":{"name":"RevokedGraph"},"models":{},"requires":[]}"#,
+            )
+            .unwrap()
+            .start_local(&ConnectorRegistry::new())
+            .unwrap();
+            let tasks = running.async_tasks();
+            tasks.begin_scope().unwrap();
+            let started = Arc::new(AtomicBool::new(false));
+            let revoked = running.session_token();
+            let mut handlers = OperationRegistry::<AsyncOperation>::new();
+            handlers
+                .register(
+                    OperationKey::new("expire", 1).unwrap(),
+                    async_operation({
+                        let started = Arc::clone(&started);
+                        move || {
+                            let started = Arc::clone(&started);
+                            let revoked = revoked.clone();
+                            async move {
+                                started.store(true, Ordering::Release);
+                                revoked.invalidate();
+                                OperationOutcome::Completed
+                            }
+                        }
+                    }),
+                )
+                .unwrap();
+            let runner = running
+                .execution_graph(
+                    ExecutionPlanDraft::new("revoked-work", 1)
+                        .operation(OperationNode::new(
+                            "expire",
+                            OperationKey::new("expire", 1).unwrap(),
+                        ))
+                        .validate()
+                        .unwrap()
+                        .bind(&handlers)
+                        .unwrap(),
+                    NonZeroUsize::new(1).unwrap(),
+                )
+                .unwrap();
+            tasks.spawn_graph("revoked", runner).unwrap();
+
+            tokio::time::timeout(Duration::from_secs(3), async {
+                while !started.load(Ordering::Acquire) {
+                    tokio::task::yield_now().await;
+                }
+                loop {
+                    let has_pending_watchers = {
+                        let state = tasks.inner.state.lock().unwrap();
+                        state
+                            .handles
+                            .iter()
+                            .any(|(_, watcher)| !watcher.is_finished())
+                    };
+                    if !has_pending_watchers {
+                        break;
+                    }
+                    tokio::task::yield_now().await;
+                }
+            })
+            .await
+            .unwrap();
+            assert!(tasks.failure().is_none());
+            tasks.finish_scope().await.unwrap();
+            running.shutdown().unwrap();
         });
     }
 }

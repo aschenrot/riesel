@@ -138,6 +138,9 @@ pub enum RuntimeError {
     InvalidTaskName(String),
     #[error("application task group is already closing")]
     TaskGroupClosed,
+    #[cfg(feature = "async-tcp")]
+    #[error("background graph runner belongs to a different application session")]
+    GraphSessionMismatch,
     #[error("application task limit exceeded (maximum {limit} concurrent tasks)")]
     TaskLimitExceeded { limit: usize },
     #[error("application task {name} failed: {source}")]

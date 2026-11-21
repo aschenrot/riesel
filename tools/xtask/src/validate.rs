@@ -55,6 +55,58 @@ pub fn run(mode: FormatMode) -> TaskResult {
             ],
         ),
         (
+            "Structured graph cleanup before provider teardown",
+            &[
+                "test",
+                "--locked",
+                "-p",
+                "riesel_app",
+                "--features",
+                "async-tcp",
+                "--lib",
+                "structured_background_graph_drains_before_local_provider_teardown",
+            ],
+        ),
+        (
+            "Named background graph failure propagation",
+            &[
+                "test",
+                "--locked",
+                "-p",
+                "riesel_app",
+                "--features",
+                "async-tcp",
+                "--lib",
+                "background_graph_failure_retains_named_task_error_and_report",
+            ],
+        ),
+        (
+            "Foreign graph task scope is rejected before admission",
+            &[
+                "test",
+                "--locked",
+                "-p",
+                "riesel_app",
+                "--features",
+                "async-tcp",
+                "--lib",
+                "graph_from_another_app_session_cannot_enter_our_task_scope",
+            ],
+        ),
+        (
+            "Revoked session retains original graph failure attribution",
+            &[
+                "test",
+                "--locked",
+                "-p",
+                "riesel_app",
+                "--features",
+                "async-tcp",
+                "--lib",
+                "revoked_session_does_not_invent_secondary_background_graph_failure",
+            ],
+        ),
+        (
             "Real application-session graph/domain ownership regression",
             &[
                 "test",

@@ -56,6 +56,14 @@ impl SessionToken {
         self.active.load(Ordering::Acquire)
     }
 
+    /// True only for clones of this exact in-process runtime session.
+    /// This compares shared revocation ownership, not a process-global ID
+    /// or proof of external caller identity. Never use it as authentication
+    /// for remote management or privileged commands.
+    pub fn shares_session_with(&self, other: &Self) -> bool {
+        Arc::ptr_eq(&self.active, &other.active)
+    }
+
     pub fn check(&self) -> Result<(), crate::RpcError> {
         if self.is_active() {
             Ok(())
@@ -68,6 +76,19 @@ impl SessionToken {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn cloned_sessions_share_identity_but_restarted_session_does_not() {
+        let session = SessionToken::new();
+        let clone = session.clone();
+        let next = SessionToken::new();
+        assert!(session.shares_session_with(&clone));
+        assert!(clone.shares_session_with(&session));
+        assert!(!session.shares_session_with(&next));
+        session.invalidate();
+        assert!(session.shares_session_with(&clone));
+        assert!(!clone.shares_session_with(&next));
+    }
 
     #[test]
     fn cloned_tokens_share_revocation() {
