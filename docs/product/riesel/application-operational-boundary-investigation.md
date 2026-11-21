@@ -156,7 +156,7 @@ The Rust application handler explicitly creates an `AsyncMemoryCounter` implemen
 The research issue [#75](https://github.com/aschenrot/riesel/issues/75) owns the checklist and final accept/revise/defer/reject decision. [#68](https://github.com/aschenrot/riesel/issues/68), [#59](https://github.com/aschenrot/riesel/issues/59) and [#60](https://github.com/aschenrot/riesel/issues/60) retain independent product outcome decisions. The already accepted Storage and Todo HTTP contracts are unchanged. No roadmap stage is created merely by adding this investigation.
 
 
-## 11. Coordinated decision packet — 2026-11-21 (main \`0798a6fb\`, proposal)
+## 11. Coordinated decision packet — 2026-11-21 (main `0798a6fb`, proposal)
 
 This section **updates the research recommendation**, not the accepted application contract. It incorporates the independent Cargo executable-inspection test [#79](https://github.com/aschenrot/riesel/pull/79), the generated facade comparator [#81](https://github.com/aschenrot/riesel/pull/81) and SDK-resolved handle forwarding [#82](https://github.com/aschenrot/riesel/pull/82). The latter two prove cross-process typed calls and retained app-owned state. They do **not** prove externally fenced sessions, authorization, readiness or a native event loop. Older statements in this investigation that a resolved application facade has not been exercised are superseded by section 9 and this packet.
 
@@ -174,14 +174,14 @@ This section **updates the research recommendation**, not the accepted applicati
 | Client attachment identity | Trusted connection/authorization layer | One attachment, revocable and not interchangeable with application session or registration | Export endpoint |
 | Management command ID | Authoritative Manager command coordinator | A recorded request/result **within the coordinator's advertised retention epoch**; does not survive an unjournaled Manager crash by magic | CLI/UI |
 
-A descriptive name, TCP port, PID, \`ProcessKey\`, in-process \`SessionToken\` or arbitrary provider metadata **must not** act as the public authentication credential, stable application identity, or cross-process session generation. No new Rust type names, canonical JSON schema, serialization or storage location are accepted here.
+A descriptive name, TCP port, PID, `ProcessKey`, in-process `SessionToken` or arbitrary provider metadata **must not** act as the public authentication credential, stable application identity, or cross-process session generation. No new Rust type names, canonical JSON schema, serialization or storage location are accepted here.
 
 ### 11.2 Observation is a set of independently evidenced facts
 
-Report **definition known**, **plan validated**, **OS launch accepted/spawned**, **process observed alive**, **providers ready**, **application handler active**, **specific public interface bound**, **specific interface verified callable**, and **terminal/failed/unknown** independently; do not collapse these into one boolean \`ready\`. Every observation should carry an authority/source and observed generation; stale observations must not masquerade as current state. A successful bind/readiness line is not a complete end-to-end authenticated call. A stopped application cannot self-report fresh live readiness; missing telemetry is \`unknown\`, not \`healthy\`.
+Report **definition known**, **plan validated**, **OS launch accepted/spawned**, **process observed alive**, **providers ready**, **application handler active**, **specific public interface bound**, **specific interface verified callable**, and **terminal/failed/unknown** independently; do not collapse these into one boolean `ready`. Every observation should carry an authority/source and observed generation; stale observations must not masquerade as current state. A successful bind/readiness line is not a complete end-to-end authenticated call. A stopped application cannot self-report fresh live readiness; missing telemetry is `unknown`, not `healthy`.
 
 - **Passive inspection:** read already generated/cached metadata with its provenance and freshness caveat; no untrusted application execution.
-- **Executable inspection:** deliberately run a **trusted** binary; #79 demonstrates user Rust setup runs before \`--print-definition\`. Label and authorize this as code execution, not passive inspection.
+- **Executable inspection:** deliberately run a **trusted** binary; #79 demonstrates user Rust setup runs before `--print-definition`. Label and authorize this as code execution, not passive inspection.
 - **Live inspection:** authorize against a specific app/interface session and report disconnect/timeout without fabricating negative or healthy state.
 - **Failure envelope:** preserve origin (build/tool, process owner, application startup, provider, interface, client transport), actionable details and whether the command's effect is known. Avoid exposing credentials in error/log output.
 
