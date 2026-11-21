@@ -48,6 +48,8 @@ pub enum ExecutionPlanError {
     DuplicateResource { node: String, resource: String },
     #[error("invalid domain boundary for operation {node}: {domain:?}")]
     InvalidDomainBoundary { node: String, domain: String },
+    #[error("operation {node} declares more than one domain admission boundary")]
+    RepeatedDomainBoundary { node: String },
     #[error(
         "domain {domain} has conflicting admission owners in one immutable plan: {first:?} versus {second:?}"
     )]
@@ -183,6 +185,8 @@ pub struct OperationNode {
     access: Vec<ResourceAccess>,
     #[serde(skip_serializing_if = "Option::is_none")]
     domain_boundary: Option<DomainBoundary>,
+    #[serde(skip)]
+    repeated_domain_boundary: bool,
 }
 
 impl OperationNode {
@@ -194,6 +198,7 @@ impl OperationNode {
             trigger: OperationTrigger::Immediate,
             access: Vec::new(),
             domain_boundary: None,
+            repeated_domain_boundary: false,
         }
     }
 
@@ -215,21 +220,21 @@ impl OperationNode {
     /// Declare that this graph operation is one Riesel-admitted outer tick.
     /// An application-provided tick source must explicitly release it, e.g.
     /// through the existing `on_signal` trigger. This is not a fixed-rate clock.
-    pub fn domain_tick(mut self, domain: impl Into<String>) -> Self {
-        self.domain_boundary = Some(DomainBoundary {
-            domain: domain.into(),
-            mode: DomainAdmissionMode::RieselTick,
-        });
-        self
+    pub fn domain_tick(self, domain: impl Into<String>) -> Self {
+        self.with_domain_boundary(domain.into(), DomainAdmissionMode::RieselTick)
     }
 
     /// Admit a single outer frame operation, leaving all internal domain
     /// ticks/system scheduling under that domain's coordinator.
-    pub fn delegated_frame(mut self, domain: impl Into<String>) -> Self {
-        self.domain_boundary = Some(DomainBoundary {
-            domain: domain.into(),
-            mode: DomainAdmissionMode::DelegatedFrame,
-        });
+    pub fn delegated_frame(self, domain: impl Into<String>) -> Self {
+        self.with_domain_boundary(domain.into(), DomainAdmissionMode::DelegatedFrame)
+    }
+
+    fn with_domain_boundary(mut self, domain: String, mode: DomainAdmissionMode) -> Self {
+        if self.domain_boundary.is_some() {
+            self.repeated_domain_boundary = true;
+        }
+        self.domain_boundary = Some(DomainBoundary { domain, mode });
         self
     }
 
@@ -336,6 +341,11 @@ impl ExecutionPlanDraft {
         let mut dependents = vec![Vec::<usize>::new(); description.operations.len()];
         let mut domain_modes = BTreeMap::<&str, DomainAdmissionMode>::new();
         for (index, operation) in description.operations.iter().enumerate() {
+            if operation.repeated_domain_boundary {
+                return Err(ExecutionPlanError::RepeatedDomainBoundary {
+                    node: operation.id.clone(),
+                });
+            }
             if let Some(boundary) = &operation.domain_boundary {
                 if !valid_name(boundary.domain()) {
                     return Err(ExecutionPlanError::InvalidDomainBoundary {
@@ -720,6 +730,18 @@ mod tests {
             invalid,
             Err(ExecutionPlanError::InvalidDomainBoundary { node, domain })
                 if node == "tick" && domain == "bad domain"
+        ));
+        let repeated = ExecutionPlanDraft::new("domain", 1)
+            .operation(
+                OperationNode::new("tick", key("op", 1))
+                    .domain_tick("world")
+                    .delegated_frame("world"),
+            )
+            .validate();
+        assert!(matches!(
+            repeated,
+            Err(ExecutionPlanError::RepeatedDomainBoundary { node })
+                if node == "tick"
         ));
         let mixed = ExecutionPlanDraft::new("domain", 1)
             .operation(OperationNode::new("tick", key("op", 1)).domain_tick("world"))
