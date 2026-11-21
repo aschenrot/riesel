@@ -23,3 +23,12 @@ runen_ecs = { package = "runen-ecs", git = "https://github.com/dornglut/runen-ec
 # Exact published standalone ECS; this does NOT pull in Bevy's app/renderer.
 # Serial reference and feature-gated system debugger are compared separately.
 bevy_ecs = { version = "=0.20.1", default-features = false, features = ["std", "bevy_debug_stepping", "multi_threaded"] }
+
+# The standalone Bevy ECS multi-threaded executor requires a global CPU task pool.
+# This is configured with exactly 4 threads in the isolated comparator fixture.
+bevy_tasks = { version = "=0.20.1", default-features = false, features = ["multi_threaded"] }
+
+# Custom harness: standalone release sampling, semantic oracle before accepting data.
+[[bench]]
+name = "ecs_scaling"
+harness = false
