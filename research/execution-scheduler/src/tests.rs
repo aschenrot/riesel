@@ -12,10 +12,10 @@ fn rejects_invalid_graph_before_executing_code() {
     assert!(matches!(Plan::validate(vec![Node::new("", &[], vec![], noop())]), Err(InvalidPlan::EmptyId)));
     assert!(matches!(Plan::validate(vec![
         Node::new("a", &[], vec![], noop()), Node::new("a", &[], vec![], noop())
-    ]), Err(InvalidPlan::DuplicateId("a"))));
+    ]), Err(InvalidPlan::DuplicateId(ref id)) if id == "a"));
     assert!(matches!(Plan::validate(vec![
         Node::new("a", &["missing"], vec![], noop())
-    ]), Err(InvalidPlan::MissingDependency("missing"))));
+    ]), Err(InvalidPlan::MissingDependency(ref id)) if id == "missing"));
     assert!(matches!(Plan::validate(vec![
         Node::new("a", &["b"], vec![], noop()),
         Node::new("b", &["a"], vec![], noop()),
@@ -23,7 +23,7 @@ fn rejects_invalid_graph_before_executing_code() {
     assert!(matches!(Plan::validate(vec![
         Node::new("a", &[], vec![], noop()),
         Node::new("b", &["a", "a"], vec![], noop())
-    ]), Err(InvalidPlan::DuplicateDependency("a"))));
+    ]), Err(InvalidPlan::DuplicateDependency(ref id)) if id == "a"));
 }
 
 #[tokio::test(flavor = "current_thread")]
@@ -103,7 +103,7 @@ async fn step_operation_failure_cancel_and_trace_loss_are_explicit() {
     assert_eq!(run.trace.subscriber_disconnected, 1);
     assert_eq!(run.trace.retained.len(), 2);
     let last = run.trace.retained.back().unwrap();
-    assert_eq!((last.session, last.run, last.node), (7, 9, "unreached"));
+    assert_eq!((last.session, last.run, last.node.as_str()), (7, 9, "unreached"));
     let authoritative = run.snapshot();
     assert_eq!(authoritative.len(), 3);
     assert_ne!(run.trace.retained.len(), authoritative.len());
