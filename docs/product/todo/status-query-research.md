@@ -69,7 +69,7 @@ However, the provider resolver binds requirements independently. An identical
 provider **definition** does not imply that two requirements target the same
 **running instance**.
 
-The research test in \`examples/counter/app/src/tests.rs\` constructs one
+The research test in `examples/counter/app/src/tests.rs` constructs one
 two-capability application and two preflight plans, each with identical pinned
 provider metadata. In the first, writer/query use **different named managed
 instances**; in the second, both use the **same named managed instance**. It
@@ -80,7 +80,7 @@ operator-owned TCP services. Existing Counter tests separately exercise
 write-through-observer on one local component and one managed instance.
 
 This is an important constraint for an additive query capability: merely
-exposing \`RecordStoreContract\` and \`RecordQueryContract\` from one component
+exposing `RecordStoreContract` and `RecordQueryContract` from one component
 type is **insufficient** if the application can select them independently.
 Any accepted query+write co-location guarantee needs explicit preflight
 validation of authoritative **instance identity** (including named managed
