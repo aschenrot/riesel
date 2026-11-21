@@ -55,6 +55,19 @@ pub fn run(mode: FormatMode) -> TaskResult {
             ],
         ),
         (
+            "Real managed child crash during session-owned graph execution",
+            &[
+                "test",
+                "--locked",
+                "-p",
+                "riesel_app",
+                "--features",
+                "async-tcp,test-fixtures",
+                "--test",
+                "managed_graph_lifecycle",
+            ],
+        ),
+        (
             "Structured graph cleanup before provider teardown",
             &[
                 "test",

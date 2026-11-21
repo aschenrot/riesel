@@ -1,6 +1,6 @@
 # Headless execution-plan authoring (foundation)
 
-**Status:** The first versioned-plan and binding foundation is implemented in Riesel's Rust SDK. The session-owned graph runner, authoritative state/control and graphical inspector are **not yet implemented**. This is a Rust authoring API, not an executable manifest or stable JSON wire format.
+**Status:** The versioned-plan and binding foundation is implemented in Riesel's Rust SDK. A bounded, one-shot **session-owned async graph runner** is available behind the `async-tcp` feature ([current runner scope](execution-runner.md)), but full runner acceptance and authoritative state/control are still open. A graphical inspector is not yet delivered. This authoring surface is not an executable manifest or stable JSON wire format.
 
 ## Run the example
 
@@ -24,8 +24,8 @@ See [the complete Rust example](../../../crates/riesel/examples/execution_plan.r
 ## Boundaries and next steps
 
 - This graph is **not** the capability/provider startup dependency graph, the `AppSchema`, or the provider `DeploymentPlan`. Existing provider selection and session identity remain authoritative.
-- Resource declarations do not establish Rust borrowing safety. A signal declaration does not independently create an event source or execute a node. No typed value transfer, time policy, concurrency scheduling, cancellation, retry, GUI or remote authorization is provided by this foundation.
+- Resource declarations do not establish Rust borrowing safety. A signal declaration does not independently create an event source or execute a node. This **authoring-only foundation** provides no typed value transfer, clock policy, runtime scheduling, cancellation, retry, GUI or remote authorization by itself. The separate session-owned async runner supports bounded one-shot execution and cancellation within its documented limits.
 - A new semantic revision must be published for a changed plan. Catalog immutability holds within that catalog's lifetime, not across trusted or untrusted processes.
-- The planned [session-owned runner (#112)](https://github.com/aschenrot/riesel/issues/112) will invoke bound operations under the existing application lifecycle. [Authoritative run inspection/control (#113)](https://github.com/aschenrot/riesel/issues/113) and [optional visual inspection (#114)](https://github.com/aschenrot/riesel/issues/114) follow, with a separate bounded [visual editing specification (#111)](https://github.com/aschenrot/riesel/issues/111).
+- The implemented [session-owned runner (#112)](execution-runner.md) invokes supported bound async operations under the existing application lifecycle; remaining #112 domain-policy acceptance is tracked in its [implementation issue](https://github.com/aschenrot/riesel/issues/112). [Authoritative run inspection/control (#113)](https://github.com/aschenrot/riesel/issues/113) and [optional visual inspection (#114)](https://github.com/aschenrot/riesel/issues/114) follow, with a separate bounded [visual editing specification (#111)](https://github.com/aschenrot/riesel/issues/111).
 
 For accepted invariants see the [execution-plan contract](execution-plan-contract.md) and [delivery roadmap](implementation-roadmap.md). This example is intentionally **not** evidence of a production-ready runtime scheduler.
