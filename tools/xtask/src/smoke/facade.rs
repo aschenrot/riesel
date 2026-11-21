@@ -237,8 +237,7 @@ fn verify_stale_external_client() -> TaskResult {
 /// value() call then observes the change; no retry of the timed-out mutation
 /// was performed by the generated transport or this test.
 fn verify_lost_mutation_reply() -> TaskResult {
-    let (mut host, address) =
-        start_facade_host("counter_resolved_facade_host", None, true)?;
+    let (mut host, address) = start_facade_host("counter_resolved_facade_host", None, true)?;
     run_client(address, "lost-reply")?;
     stop_facade_host(&mut host)?;
     println!("RESEARCH_FACADE_UNKNOWN_MUTATION_OUTCOME_PROVEN");
