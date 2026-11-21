@@ -369,3 +369,269 @@ fn admission_above_explicit_parallel_limit_is_rejected_before_work() {
         })
     ));
 }
+
+#[test]
+fn different_graph_runs_share_one_session_parallelism_budget() {
+    runtime().block_on(async {
+        const OPERATIONS_PER_RUN: usize = 24;
+        const MAX_SESSION_ACTIVE: usize = 32;
+        let active = Arc::new(AtomicUsize::new(0));
+        let peak = Arc::new(AtomicUsize::new(0));
+        let started = Arc::new(AtomicUsize::new(0));
+        let first_wave = Arc::new(tokio::sync::Barrier::new(MAX_SESSION_ACTIVE));
+        let mut registry = OperationRegistry::<AsyncOperation>::new();
+        let op = key("shared-capacity");
+        registry
+            .register(
+                op.clone(),
+                async_operation({
+                    let active = Arc::clone(&active);
+                    let peak = Arc::clone(&peak);
+                    let started = Arc::clone(&started);
+                    let first_wave = Arc::clone(&first_wave);
+                    move || {
+                        let active = Arc::clone(&active);
+                        let peak = Arc::clone(&peak);
+                        let started = Arc::clone(&started);
+                        let first_wave = Arc::clone(&first_wave);
+                        async move {
+                            let sequence = started.fetch_add(1, Ordering::SeqCst);
+                            let now = active.fetch_add(1, Ordering::SeqCst) + 1;
+                            peak.fetch_max(now, Ordering::SeqCst);
+                            if sequence < MAX_SESSION_ACTIVE {
+                                first_wave.wait().await;
+                            }
+                            tokio::task::yield_now().await;
+                            active.fetch_sub(1, Ordering::SeqCst);
+                            OperationOutcome::Completed
+                        }
+                    }
+                }),
+            )
+            .unwrap();
+        let mut left = ExecutionPlanDraft::new("shared-budget.left", 1);
+        let mut right = ExecutionPlanDraft::new("shared-budget.right", 1);
+        for index in 0..OPERATIONS_PER_RUN {
+            left = left.operation(OperationNode::new(format!("left-{index}"), op.clone()));
+            right = right.operation(OperationNode::new(format!("right-{index}"), op.clone()));
+        }
+        let owner = application_session();
+        let left = owner
+            .execution_graph(
+                left.validate().unwrap().bind(&registry).unwrap(),
+                NonZeroUsize::new(OPERATIONS_PER_RUN).unwrap(),
+            )
+            .unwrap();
+        let right = owner
+            .execution_graph(
+                right.validate().unwrap().bind(&registry).unwrap(),
+                NonZeroUsize::new(OPERATIONS_PER_RUN).unwrap(),
+            )
+            .unwrap();
+        let left = tokio::spawn(left.execute());
+        let right = tokio::spawn(right.execute());
+        let result_left = tokio::time::timeout(Duration::from_secs(5), left)
+            .await
+            .unwrap()
+            .unwrap();
+        let result_right = tokio::time::timeout(Duration::from_secs(5), right)
+            .await
+            .unwrap()
+            .unwrap();
+        assert!(result_left.succeeded());
+        assert!(result_right.succeeded());
+        assert_eq!(started.load(Ordering::SeqCst), OPERATIONS_PER_RUN * 2);
+        assert_eq!(active.load(Ordering::SeqCst), 0);
+        assert_eq!(peak.load(Ordering::SeqCst), MAX_SESSION_ACTIVE);
+    });
+}
+
+#[test]
+fn access_conflicts_across_runs_wait_for_release_without_a_new_signal() {
+    runtime().block_on(async {
+        let (release_sender, release_receiver) = tokio::sync::oneshot::channel::<()>();
+        let release = Arc::new(std::sync::Mutex::new(Some(release_receiver)));
+        let writer_started = Arc::new(AtomicUsize::new(0));
+        let reader_started = Arc::new(AtomicUsize::new(0));
+        let mut registry = OperationRegistry::<AsyncOperation>::new();
+        registry
+            .register(
+                key("writer"),
+                async_operation({
+                    let release = Arc::clone(&release);
+                    let started = Arc::clone(&writer_started);
+                    move || {
+                        let reply = release.lock().unwrap().take().unwrap();
+                        let started = Arc::clone(&started);
+                        async move {
+                            started.store(1, Ordering::SeqCst);
+                            let _ = reply.await;
+                            OperationOutcome::Completed
+                        }
+                    }
+                }),
+            )
+            .unwrap();
+        registry
+            .register(
+                key("reader"),
+                async_operation({
+                    let started = Arc::clone(&reader_started);
+                    move || {
+                        let started = Arc::clone(&started);
+                        async move {
+                            started.store(1, Ordering::SeqCst);
+                            OperationOutcome::Completed
+                        }
+                    }
+                }),
+            )
+            .unwrap();
+        let writer = ExecutionPlanDraft::new("same-world.writer", 1)
+            .operation(OperationNode::new("write", key("writer")).access("world", AccessMode::Write))
+            .validate()
+            .unwrap()
+            .bind(&registry)
+            .unwrap();
+        let reader = ExecutionPlanDraft::new("same-world.reader", 1)
+            .operation(OperationNode::new("read", key("reader")).access("world", AccessMode::Read))
+            .validate()
+            .unwrap()
+            .bind(&registry)
+            .unwrap();
+        let owner = application_session();
+        let writer = owner.execution_graph(writer, NonZeroUsize::new(1).unwrap()).unwrap();
+        let write_task = tokio::spawn(writer.execute());
+        tokio::time::timeout(Duration::from_secs(3), async {
+            while writer_started.load(Ordering::SeqCst) == 0 {
+                tokio::task::yield_now().await;
+            }
+        })
+        .await
+        .unwrap();
+        let reader = owner.execution_graph(reader, NonZeroUsize::new(1).unwrap()).unwrap();
+        let read_task = tokio::spawn(reader.execute());
+        tokio::time::sleep(Duration::from_millis(30)).await;
+        assert_eq!(reader_started.load(Ordering::SeqCst), 0);
+        release_sender.send(()).unwrap();
+        assert!(
+            tokio::time::timeout(Duration::from_secs(3), write_task)
+                .await
+                .unwrap()
+                .unwrap()
+                .succeeded()
+        );
+        assert!(
+            tokio::time::timeout(Duration::from_secs(3), read_task)
+                .await
+                .unwrap()
+                .unwrap()
+                .succeeded()
+        );
+        assert_eq!(reader_started.load(Ordering::SeqCst), 1);
+    });
+}
+
+#[test]
+fn session_run_limit_is_bounded_and_releases_slots_on_drop() {
+    let mut registry = OperationRegistry::<AsyncOperation>::new();
+    registry
+        .register(
+            key("slot"),
+            async_operation(|| async { OperationOutcome::Completed }),
+        )
+        .unwrap();
+    let plan = || {
+        ExecutionPlanDraft::new("bounded-session", 1)
+            .operation(OperationNode::new("slot", key("slot")))
+            .validate()
+            .unwrap()
+            .bind(&registry)
+            .unwrap()
+    };
+    let owner = application_session();
+    let mut held = Vec::new();
+    for _ in 0..16 {
+        held.push(owner.execution_graph(plan(), NonZeroUsize::new(1).unwrap()).unwrap());
+    }
+    assert!(matches!(
+        owner.execution_graph(plan(), NonZeroUsize::new(1).unwrap()),
+        Err(GraphRunError::SessionRunLimitExceeded { limit: 16 })
+    ));
+    held.pop();
+    assert!(owner.execution_graph(plan(), NonZeroUsize::new(1).unwrap()).is_ok());
+}
+
+#[test]
+fn aborting_a_run_releases_reserved_resources_for_other_runs() {
+    runtime().block_on(async {
+        let first_started = Arc::new(AtomicUsize::new(0));
+        let second_started = Arc::new(AtomicUsize::new(0));
+        let mut registry = OperationRegistry::<AsyncOperation>::new();
+        registry
+            .register(
+                key("pending"),
+                async_operation({
+                    let first_started = Arc::clone(&first_started);
+                    move || {
+                        let first_started = Arc::clone(&first_started);
+                        async move {
+                            first_started.store(1, Ordering::SeqCst);
+                            std::future::pending::<()>().await;
+                            OperationOutcome::Completed
+                        }
+                    }
+                }),
+            )
+            .unwrap();
+        registry
+            .register(
+                key("after-abort"),
+                async_operation({
+                    let second_started = Arc::clone(&second_started);
+                    move || {
+                        let second_started = Arc::clone(&second_started);
+                        async move {
+                            second_started.store(1, Ordering::SeqCst);
+                            OperationOutcome::Completed
+                        }
+                    }
+                }),
+            )
+            .unwrap();
+        let first = ExecutionPlanDraft::new("abort.first", 1)
+            .operation(OperationNode::new("pending", key("pending")).access("lock", AccessMode::Write))
+            .validate()
+            .unwrap()
+            .bind(&registry)
+            .unwrap();
+        let second = ExecutionPlanDraft::new("abort.second", 1)
+            .operation(OperationNode::new("after", key("after-abort")).access("lock", AccessMode::Write))
+            .validate()
+            .unwrap()
+            .bind(&registry)
+            .unwrap();
+        let owner = application_session();
+        let first = owner.execution_graph(first, NonZeroUsize::new(1).unwrap()).unwrap();
+        let second = owner.execution_graph(second, NonZeroUsize::new(1).unwrap()).unwrap();
+        let first_task = tokio::spawn(first.execute());
+        tokio::time::timeout(Duration::from_secs(3), async {
+            while first_started.load(Ordering::SeqCst) == 0 {
+                tokio::task::yield_now().await;
+            }
+        })
+        .await
+        .unwrap();
+        let second_task = tokio::spawn(second.execute());
+        tokio::task::yield_now().await;
+        assert_eq!(second_started.load(Ordering::SeqCst), 0);
+        first_task.abort();
+        let _ = first_task.await;
+        let result = tokio::time::timeout(Duration::from_secs(3), second_task)
+            .await
+            .unwrap()
+            .unwrap();
+        assert!(result.succeeded());
+        assert_eq!(second_started.load(Ordering::SeqCst), 1);
+    });
+}

@@ -426,12 +426,8 @@ impl ExecutionGraphRunner {
             {
                 continue;
             }
-            if active
-                .values()
-                .any(|&other| conflicts(node.resources(), operations[other].resources()))
-            {
-                continue;
-            }
+            // The one session-level admission table enforces conflicts for
+            // both this run and every other run in the same application.
             let Some(lease) = self.admission.reserve(node.resources()) else {
                 continue;
             };
