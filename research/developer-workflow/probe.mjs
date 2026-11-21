@@ -200,19 +200,40 @@ async function verifyReadinessNegatives() {
   const stalled = spawnOwned(process.execPath, ['-e', 'setTimeout(()=>{},5000);']);
   await assert.rejects(waitReady(stalled, readyTodo, 150), /timeout/);
   await stopOwned(stalled);
-  const falseReady = spawnOwned(process.execPath, [
-    '-e', 'console.log("TODO_HTTP_READY 127.0.0.1:1");setTimeout(()=>{},5000);'
-  ]);
-  const fakeAuthority = await waitReady(falseReady, readyTodo);
-  await assert.rejects(fetch('http://' + fakeAuthority + '/api/v1/tasks',
-    { signal: AbortSignal.timeout(1000) }));
-  await stopOwned(falseReady);
+  // A real TCP listener deliberately refuses to speak HTTP: no hard-coded
+  // assumption about which ports are free or unreachable on the CI host.
+  const falseInterface = createServer(socket => socket.destroy());
+  await new Promise((resolve, reject) =>
+    falseInterface.once('error', reject).listen(0, '127.0.0.1', resolve));
+  try {
+    const fakeAddress = '127.0.0.1:' + falseInterface.address().port;
+    const falseReady = spawnOwned(process.execPath, [
+      '-e', 'console.log("TODO_HTTP_READY " + process.argv[1]);setTimeout(()=>{},5000);',
+      fakeAddress
+    ]);
+    const fakeAuthority = await waitReady(falseReady, readyTodo);
+    assert.equal(fakeAuthority, fakeAddress);
+    await assert.rejects(fetch('http://' + fakeAuthority + '/api/v1/tasks',
+      { signal: AbortSignal.timeout(1000) }));
+    await stopOwned(falseReady);
+  } finally {
+    await new Promise(resolve => falseInterface.close(resolve));
+  }
   console.log('PASS probe rejects early exit, oversized, timeout and false interface readiness');
 }
 
 async function verifyTodo() {
   await access(path.join(web, 'build/200.html'));
   await access(todo);
+
+  const missingFrontend = path.join(scratch, 'frontend-without-deps');
+  await mkdir(missingFrontend);
+  await copyFile(path.join(web, 'package.json'), path.join(missingFrontend, 'package.json'));
+  const missingNpmDeps = execChecked('npm', ['run', 'build'],
+    { cwd: missingFrontend, timeout: 15000 });
+  assert.notEqual(missingNpmDeps.status, 0, 'frontend build succeeded without installed dependencies');
+  console.log('PASS missing frontend dependencies fail without auto-installation (npm baseline)');
+
   const db = path.join(scratch, 'retained-tasks.db');
   await expectEarlyFailure(['--db'], 'missing database argument');
   await expectEarlyFailure(['--db', path.join(scratch, 'no-parent', 'db.sqlite')],
