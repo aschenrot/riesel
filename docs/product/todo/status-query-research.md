@@ -36,6 +36,31 @@ An additional browser integration fixture `examples/todo/web/e2e/status-query-re
 
 A fifth, **scratch-database-only** Rust test uses the same SQLite file seeded by the actual linked Todo provider at 10,000 records, then releases the provider's cooperative owner. It measures a `json_extract(CAST(data AS TEXT),'$.completed')` status predicate with UUID ordering, before and after creating a temporary expression index in that **isolated research database**. It reports SQLite `EXPLAIN QUERY PLAN` and the median of 11 in-process SQL-only timings, and asserts result identity. This compares query strategies but does **not** implement an accessible Riesel capability, include app transport/session costs, or establish an approved physical migration procedure for user databases.
 
+## Reproduced outcomes and comparison — 2026-11-21
+
+The [exact-head research CI #44916963789](https://github.com/aschenrot/riesel/actions/runs/44916963789) passed **5/5** tests on a pinned Rust 1.100.0 Linux runner. The preceding [browser CI #44916559745](https://github.com/aschenrot/riesel/actions/runs/44916559745) passed **41/41** real Rust/SQLite Chromium scenarios, including the 33-task screen capture.
+
+| Scenario | Verified outcome |
+| --- | --- |
+| 33 tasks, first 32 Done | First Open-only page returns zero matches but is **not exhausted**; 33rd record is Open |
+| 100, Open at UUID positions 70/98/99 | Two 32-record pages find zero Open; all four pages eventually find three |
+| 10,000, only last UUID Open | Eight pages inspect 256 with no Open and remain partial; complete traversal requires **313 pages** |
+| Mutation after a cursor has passed a task | Reopening that task behind the cursor is **not included** in continuation; revision checking independently prevents stale overwrites |
+
+**Single-run observations, not a latency SLA:** at 10,000 records, a complete in-process scan took **38 ms** with MemoryStore and **657 ms** with linked SQLite. These timings omit HTTP round trips, task/UI rendering, and actual concurrency load. Creation/seeding times are separate.
+
+The SQLite scratch-index test used the database *seeded through the real linked provider* but issued SQL directly after releasing the owner. For the final Open task, the median of 11 warmed SQL-only samples was **12,297 μs** without an index versus **42 μs** after a temporary expression index was created. `EXPLAIN QUERY PLAN` changed from `SEARCH records USING PRIMARY KEY (model=?)` to `SEARCH records USING COVERING INDEX todo_status_research_idx (model=? AND <expr>=?)`. These numbers exclude provider/transport integration and do not establish an operational index-migration pathway.
+
+### Interpretation and provisional direction
+
+- **Loaded-only grouping** is acceptable only if openly labeled as incomplete; it does not fulfill a globally actionable Open-first list at the chosen growth horizon.
+- **Eager full scans on each view** are inappropriate as the default large-list solution: sparse matches force 313 pages at 10,000, with no consistent snapshot and a potentially lengthy browser request chain. Per-request bounded scans retain correctness of their `partial/exhausted` state but cannot guarantee promptly finding distant matches.
+- **Status-scoped cursor reads at the Todo boundary** are the leading *product-facing* semantics. A query must return actual matches in stable ID order, a cursor scoped to the selected predicate, bounded work and honest exhaustion. Under concurrent mutations, avoid promising a snapshot or global exact count unless supported by a separately verified consistency mechanism. Refresh/restart should reconcile cursor drift.
+- **Provider-integrated filtering with an optional index** is promising for read efficiency; its ownership must be researched across linked SQLite, memory and potential managed providers. Do not introduce direct SQLite SQL in Todo's browser handler or unversioned index migrations. Evaluate a reusable, typed/versioned query capability when cross-application reuse justifies its contract and provider parity.
+- **Future Trash compatibility** means a query design should not freeze a bespoke boolean-only public Storage API. Treat completion, lifecycle location and query cursor provenance as distinct semantics. Ctrl/Cmd selection, batch changes and Undo must remain revision-fenced and predictable across section transitions.
+
+**No architecture is accepted by these experiments.** They identify the UX guarantee and rule out misleading empty states; owner review is still required before changing a public query contract, physical index or persistent task model.
+
 ## Decision gate
 
 Before implementing UX groups, choose one complete semantic model:
