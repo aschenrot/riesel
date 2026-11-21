@@ -9,6 +9,9 @@ publish = false
 
 [dependencies]
 tokio = { version = "=1.54.1", features = ["rt", "macros", "sync", "time"] }
+
+# These are used only in research tests; do not link them into the runner library.
+[dev-dependencies]
 riesel = { path = "../../crates/riesel", features = ["async-tcp"] }
 riesel_counter = { path = "../../examples/counter/contract" }
 riesel_counter_component = { path = "../../examples/counter/component", features = ["async-tcp"] }
