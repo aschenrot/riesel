@@ -11,8 +11,8 @@ use std::time::Duration;
 pub async fn serve(handler: Arc<dyn AsyncRpcHandler>) -> io::Result<()> {
     // Research-only fixed-address restart probe. Default fixtures still use
     // an OS-assigned loopback port; no application discovery policy is implied.
-    let bind_address = std::env::var("RIESEL_RESEARCH_FACADE_BIND")
-        .unwrap_or_else(|_| "127.0.0.1:0".to_owned());
+    let bind_address =
+        std::env::var("RIESEL_RESEARCH_FACADE_BIND").unwrap_or_else(|_| "127.0.0.1:0".to_owned());
     let requested: std::net::SocketAddr = bind_address
         .parse()
         .map_err(|error| io::Error::new(io::ErrorKind::InvalidInput, error))?;
