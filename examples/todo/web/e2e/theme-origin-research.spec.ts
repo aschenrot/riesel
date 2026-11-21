@@ -1,5 +1,8 @@
 /** #106 research fixture; no Todo product cookie is implemented or authorized. */
-import { test, expect } from '@playwright/test';
+import { test, expect, chromium } from '@playwright/test';
+import { mkdtemp, rm } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { createServer, type Server } from 'node:http';
 import type { AddressInfo } from 'node:net';
 
@@ -67,5 +70,47 @@ test('appearance cookie remains isolated across browser profiles', async ({ brow
     await first.close();
     await second.close();
     await stop(server);
+  }
+});
+
+test('host cookie survives a real browser process restart with one persistent profile', async () => {
+  const first = await host();
+  const second = await host();
+  const profile = await mkdtemp(join(tmpdir(), 'riesel-theme-profile-research-'));
+  try {
+    expect(first.url).not.toBe(second.url);
+    const original = await chromium.launchPersistentContext(profile, { headless: true });
+    try {
+      const page = await original.newPage();
+      await page.goto(first.url);
+      await page.evaluate(key => {
+        document.cookie = key + '=dark; Path=/; SameSite=Strict; Max-Age=120';
+        localStorage.setItem(key, 'dark');
+      }, name);
+      expect(await page.evaluate(key => document.cookie.includes(key + '=dark'), name)).toBe(true);
+      const localHostCookies = await original.cookies('http://localhost:12345');
+      expect(localHostCookies.some(cookie => cookie.name === name)).toBe(false);
+    } finally {
+      await original.close(); // Terminates the browser process, not just its tab.
+    }
+
+    const restarted = await chromium.launchPersistentContext(profile, { headless: true });
+    try {
+      const page = await restarted.newPage();
+      await page.goto(second.url);
+      expect(await page.evaluate(key => document.cookie.includes(key + '=dark'), name)).toBe(true);
+      expect(await page.evaluate(key => localStorage.getItem(key), name)).toBeNull();
+      expect(second.seen.some(value => value.includes(name + '=dark'))).toBe(true);
+
+      // A persisted host cookie on 127.0.0.1 is not visible through localhost,
+      // even though both names can designate the same machine.
+      const differentHost = await restarted.cookies('http://localhost:45678');
+      expect(differentHost.some(cookie => cookie.name === name)).toBe(false);
+    } finally {
+      await restarted.close();
+    }
+  } finally {
+    await rm(profile, { recursive: true, force: true });
+    await stop(first, second);
   }
 });
