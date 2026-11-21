@@ -336,6 +336,34 @@ not promise a universally efficient range query over arbitrary JSON fields.
 Physical index evolution must obey independent ownership/backup/migration
 rules and keep revisions, identities and view correctness authoritative.
 
+### Schema/value comparator correctness risk
+
+Riesel's `ModelDefinition` supports `Bool`, `String`, `Uuid`,
+`U64`, `I64`, `F64`, `Json`, `Optional` and `List` fields. Storage
+v2 validates and preserves `u64` values in JSON and stores independent
+revision counters as a full `u64`. This does **not** establish that every
+SQLite JSON expression is a correct implementation of typed equality.
+
+A new **scratch-SQLite-only**, CI-exercised research fixture in
+`record_workload_research.rs` compares `u64::MAX` and
+`u64::MAX - 1` under `json_extract`: values outside signed 64-bit range
+may be returned as floating point and lose exact integer distinctions.
+Likewise `json_extract` returns SQL NULL for both an absent optional
+field and a field containing JSON null, whereas `json_type` can
+distinguish missing from explicit null. These probes do not demonstrate
+that the existing Riesel Storage provider returns wrong records: it does
+**not** expose such filtered predicates today.
+
+**Decision consequence:** A generic predicate must define type-specific
+canonical representation, equality, null/missing semantics, and provider
+parity before accepting numeric or optional equality. For the first
+iteration, supporting a smaller set of exactly implementable scalar
+predicates is preferable to silently returning wrong matches. Do not
+treat SQL's implicit numeric conversions as the public Record Query
+contract. Test complete `u64` values, both signs/ranges of `i64`,
+UUID normalization and precise optional semantics as separate cases.
+The exact first operator/field-type matrix remains unaccepted.
+
 ### Public contract evolution risks to resolve *before* freezing shape
 
 1. **Predicate algebra:** The first viable native provider operation may be a
