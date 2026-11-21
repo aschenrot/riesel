@@ -306,12 +306,14 @@ async fn central_policy() -> (Vec<Snapshot>, GraphRunReport) {
                 OperationNode::new("tick-one", key("tick"))
                     .after("input")
                     .on_signal("tick.one")
+                    .domain_tick("ecs.world")
                     .access("ecs.world", AccessMode::Write),
             )
             .operation(
                 OperationNode::new("tick-two", key("tick"))
                     .after("tick-one")
                     .on_signal("tick.two")
+                    .domain_tick("ecs.world")
                     .access("ecs.world", AccessMode::Write),
             ),
         "tick-two",
@@ -420,6 +422,7 @@ async fn delegated_policy(
         ExecutionPlanDraft::new("fixed.delegated", 1).operation(
             OperationNode::new("frame", key("frame"))
                 .after("input")
+                .delegated_frame("ecs.world")
                 .access("ecs.world", AccessMode::Write),
         ),
         "frame",
