@@ -270,3 +270,88 @@ fn expired_session_aborts_work_conservatively_and_rejects_stale_signals() {
         ));
     });
 }
+
+
+#[test]
+fn failed_prerequisite_blocks_success_dependent_without_stopping_independent_branch() {
+    runtime().block_on(async {
+        let independent = Arc::new(AtomicUsize::new(0));
+        let mut registry = OperationRegistry::<AsyncOperation>::new();
+        registry
+            .register(
+                key("failure"),
+                async_operation(|| async {
+                    OperationOutcome::Failed("operation refused".into())
+                }),
+            )
+            .unwrap();
+        registry
+            .register(
+                key("should-not-run"),
+                async_operation(|| async {
+                    panic!("dependent cannot execute after failure")
+                }),
+            )
+            .unwrap();
+        let completed = Arc::clone(&independent);
+        registry
+            .register(
+                key("independent"),
+                async_operation(move || {
+                    let completed = Arc::clone(&completed);
+                    async move {
+                        completed.store(1, Ordering::SeqCst);
+                        OperationOutcome::Completed
+                    }
+                }),
+            )
+            .unwrap();
+
+        let plan = ExecutionPlanDraft::new("failure-isolation", 1)
+            .operation(OperationNode::new("failed", key("failure")))
+            .operation(OperationNode::new("dependent", key("should-not-run")).after("failed"))
+            .operation(OperationNode::new("independent", key("independent")))
+            .validate()
+            .unwrap()
+            .bind(&registry)
+            .unwrap();
+        let report =
+            ExecutionGraphRunner::new(plan, SessionToken::new(), NonZeroUsize::new(2).unwrap())
+                .unwrap()
+                .execute()
+                .await;
+        assert_eq!(report.started, 2);
+        assert_eq!(
+            report.operations["failed"],
+            OperationState::Failed("operation refused".into())
+        );
+        assert_eq!(report.operations["dependent"], OperationState::Blocked);
+        assert_eq!(report.operations["independent"], OperationState::Completed);
+        assert_eq!(independent.load(Ordering::SeqCst), 1);
+        assert!(!report.succeeded());
+    });
+}
+
+#[test]
+fn admission_above_explicit_parallel_limit_is_rejected_before_work() {
+    let mut registry = OperationRegistry::<AsyncOperation>::new();
+    registry
+        .register(
+            key("one"),
+            async_operation(|| async { OperationOutcome::Completed }),
+        )
+        .unwrap();
+    let plan = ExecutionPlanDraft::new("bounded", 1)
+        .operation(OperationNode::new("one", key("one")))
+        .validate()
+        .unwrap()
+        .bind(&registry)
+        .unwrap();
+    assert!(matches!(
+        ExecutionGraphRunner::new(plan, SessionToken::new(), NonZeroUsize::new(33).unwrap()),
+        Err(GraphRunError::InvalidParallelism {
+            requested: 33,
+            maximum: 32
+        })
+    ));
+}
