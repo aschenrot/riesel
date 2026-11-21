@@ -107,7 +107,10 @@ def snapshot(path, registration):
 def os_evidence(info):
     # This app-authored evidence is NOT cryptographically authenticated,
     # and is insufficient against an untrusted same-UID peer.
-    return os_owner.owner_state(info["unit"], Path(info["marker"]))
+    try:
+        return os_owner.owner_state(info["unit"], Path(info["marker"]))
+    except AssertionError:
+        return None  # unit absent/unavailable; NOT authenticated evidence
 
 
 def reconcile(path: str, registration: str, expected_attempt: str):
