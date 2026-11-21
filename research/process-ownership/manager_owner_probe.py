@@ -88,6 +88,14 @@ def controller(mode, marker, lock=""):
         time.sleep(0.2)
 
 
+def reconcile(marker):
+    observation = read_marker(marker)
+    if observation and alive(observation["pid"]):
+        print("unreconciled")  # not an OS process-owner handle
+    else:
+        print("not_running")
+
+
 def command_server(sockpath, journal):
     server = socket.socket(socket.AF_UNIX)
     server.bind(sockpath)
@@ -189,10 +197,9 @@ class ManagerOwnershipEvidence(unittest.TestCase):
         self.assertEqual(owner.returncode, 23)
         pid = read_marker(marker)["pid"]
         self.pids[pid] = birth(pid)
-        observation = {"pid": pid, "birth": birth(pid), "owner_alive": False}
-        self.assertTrue(alive(observation["pid"]))
-        self.assertFalse(observation["owner_alive"])
-        # Observation is NOT a transferable OS ownership handle.
+        restarted = subprocess.check_output([sys.executable, SELF, "--reconcile", marker], timeout=3)
+        self.assertEqual(restarted.decode().strip(), "unreconciled")
+        self.assertTrue(alive(pid))  # no unsafe adoption or stop
 
     def test_04_top_level_stop_leaves_escaped_descendant(self):
         parent, marker = self.launch("descendant", "tree")
@@ -223,6 +230,10 @@ class ManagerOwnershipEvidence(unittest.TestCase):
         self.assertTrue(until(lambda: read_marker(marker) is not None))
         first = read_marker(marker)["pid"]
         self.pids[first] = birth(first)
+        # A live controller's lock prevents a second controller lock.
+        with open(lock, "a+") as competitor:
+            with self.assertRaises(BlockingIOError):
+                fcntl.flock(competitor, fcntl.LOCK_EX | fcntl.LOCK_NB)
         owner.kill()
         owner.wait(timeout=2)
         self.assertTrue(alive(first))
@@ -272,6 +283,8 @@ if __name__ == "__main__":
         app(sys.argv[2], sys.argv[3])
     elif len(sys.argv) > 1 and sys.argv[1] == "--controller":
         controller(sys.argv[2], sys.argv[3], sys.argv[4] if len(sys.argv) > 4 else "")
+    elif len(sys.argv) > 1 and sys.argv[1] == "--reconcile":
+        reconcile(sys.argv[2])
     elif len(sys.argv) > 1 and sys.argv[1] == "--command-server":
         command_server(sys.argv[2], sys.argv[3])
     elif len(sys.argv) > 1 and sys.argv[1] == "--peer":
