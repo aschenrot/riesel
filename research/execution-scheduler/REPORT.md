@@ -128,6 +128,37 @@ A controller that can mutate execution is more sensitive than telemetry. The loc
 
 **Illustrative CLI experience (NOT implemented):** inspect an existing trusted built artifact/explicitly authorized app and present plan revision, dependencies, capabilities and validation; connect to an already running, explicitly exported, authorized session to `watch`, `snapshot`, `pause`, `step`, `resume`. Invoking a binary for discovery is not passive inspection; no global Manager is assumed.
 
+A concrete **NON-COMPILING API sketch**, deliberately leaving registration and placement unselected:
+
+```rust,ignore
+// Illustrative only: none of these types/methods exist in the Riesel SDK.
+let plan = ExecutionPlan::builder("simulation-pipeline", 1)
+    .node("input", input_operation)
+    .node("simulation", nested_domain_tick_operation)
+    .node("snapshot", snapshot_operation)
+    .after("simulation", "input")
+    .after("snapshot", "simulation")
+    .build()?;
+let prepared = session.execution().validate(plan)?; // no operation runs
+let metadata = prepared.inspect_plan()?;              // version + bindings + edges
+let run = prepared.start()?;                          // existing app-session owner
+let before = run.snapshot().await?;                   // authoritative node state
+run.pause_at_safe_point().await?;
+run.advance_operation().await?;                      // NOT an arbitrary thread pause
+// run.advance_domain_tick() requires an explicit domain adapter.
+```
+
+Illustrative future CLI interaction (not runnable commands and not an accepted CLI contract):
+
+```text
+riesel execution inspect --trusted-artifact ./app.plan.json
+riesel execution watch   --app APP --session SESSION
+riesel execution pause   --app APP --session SESSION
+riesel execution step    --app APP --session SESSION --boundary operation
+```
+
+The first command assumes a trustworthy *already-produced* metadata artifact and must verify provenance/revision; it must not claim passive discovery by executing an untrusted binary. The latter commands require explicit app export, caller authorization, session fencing and a declared safe-point policy (shared with #75), and must fail clearly when unavailable. CLI naming/flags remain exploratory.
+
 **Illustrative GUI experience (NOT implemented):** graph view with explicit ownership boundaries (Riesel outer node vs domain internal schedule), timeline showing event loss, authoritative current state and safe-point control availability. An optional composer may edit only declared/registered operations and statically validated graph edges; visual edits must yield the *same execution meaning* as SDK/CLI. It cannot synthesize executable arbitrary Rust from a rendered trace.
 
 Acceptance tests to consider **only after product/mechanism agreement**: independent Cargo SDK user; graph serialization/round-trip and rejected stale code bindings; deterministic domain serial oracle and async branch/join; safe nested step/tick/frame; `!Send`/thread affinity; error/panic/cancellation and recovery; event loss and hostile observer; saturation/fairness/resource limits; authenticated stale-controller rejection; extensibility across 2+ unrelated concrete apps; real measured overhead and migration cost. No production Issue should assume these accepted.
