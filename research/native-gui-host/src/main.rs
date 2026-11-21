@@ -2,8 +2,7 @@
 //! Deliberately no application exporter API, Manager, or native Riesel UI framework.
 use eframe::egui;
 use riesel_counter::AsyncCounterContract;
-use riesel_protocol::{AsyncRpcClientBinding, AsyncRpcTransport, AsyncTcpRpcTransport};
-use riesel_schema::CapabilityContract;
+use riesel_protocol::{AsyncRpcClientBinding, AsyncTcpRpcTransport};
 use std::{
     env,
     error::Error,
