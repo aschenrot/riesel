@@ -87,6 +87,12 @@ Acceptance:
 
 Local-only security, lifecycle and API rules: [accepted HTTP integration boundary](http-local-browser-contract.md). Backend [Issue #17](https://github.com/aschenrot/riesel/issues/17) was delivered in [PR #39](https://github.com/aschenrot/riesel/pull/39). Browser [Issue #18](https://github.com/aschenrot/riesel/issues/18) is delivered through [PR #40](https://github.com/aschenrot/riesel/pull/40), with Chromium end-to-end tests against the real Rust/SQLite host. See the [Todo example](../../../examples/todo/README.md) for execution and limitations. Remote authentication, public deployment and power-loss guarantees are **not** part of R2.
 
+## Accepted Todo R2 interaction evolution (2026-11-21)
+
+The next browser usability increment makes title editing and deletion directly discoverable without a three-dot overflow menu. Completion remains a dedicated checkbox; multi-selection uses a distinct explicit selection mode with Shift-range and Ctrl/Cmd additions for mouse/keyboard, and is also usable through touch buttons. Batch Mark done/Reopen operate only on selected **displayed, loaded tasks**, never on unseen database matches; report success, unchanged tasks, revision conflicts and partial failures honestly. Existing individual revision-aware APIs remain authoritative, with no silent retry or fake atomic batch.
+
+**Current destructive-operation limit:** the existing DELETE API permanently deletes records, so it requires an explicit confirmation and cannot be called Trash or Undo. Recoverable Trash, full Undo, optional Archive, status-aware global list pagination and touch swipe shortcuts are separate specification/implementation work (#119, #107 and #120). User-controlled System/Light/Dark settings across dynamic ports remain #106. None of those features may be claimed delivered by the basic interaction increment.
+
 ## Scope boundaries
 
 Todo is a product-level acceptance example for reusable Riesel infrastructure. Implement generic functionality in Riesel or a reusable capability package when multiple applications need it; keep task-specific behavior within Todo.
