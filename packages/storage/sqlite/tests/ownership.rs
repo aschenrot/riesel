@@ -67,57 +67,9 @@ fn parent_symlink_aliases_share_the_same_owner_identity() {
         Err(StoreError::Failed(_))
     ));
     drop(store);
-    // Keep this invariant strict, but preserve the exact underlying failure
-    // when a Linux runner intermittently refuses a released canonical alias.
-    // The original is_ok() assertion hid whether this was a stale file lock,
-    // SQLite WAL reopen, identity check, or filesystem permission failure.
+    // Preserve the reason if the released owner remains unexpectedly locked.
     if let Err(error) = SqliteStore::open(alias.join("records.db"), models()) {
-        let lock_path = temporary.path().join("records.db.riesel-owner.lock");
-        // A Linux-only diagnostic: are any lockfile descriptors still open in
-        // *this test process* after the provider is explicitly dropped?
-        #[cfg(target_os = "linux")]
-        let matching_descriptors: Vec<_> = std::fs::read_dir("/proc/self/fd")
-            .unwrap()
-            .filter_map(Result::ok)
-            .filter_map(|fd| {
-                let destination = std::fs::read_link(fd.path()).ok()?;
-                (destination == lock_path).then_some(fd.file_name())
-            })
-            .collect();
-        #[cfg(not(target_os = "linux"))]
-        let matching_descriptors = Vec::<std::ffi::OsString>::new();
-        #[cfg(target_os = "linux")]
-        let competing_lock_records: Vec<_> = {
-            use std::os::unix::fs::MetadataExt;
-            let inode = std::fs::metadata(&lock_path).unwrap().ino().to_string();
-            std::fs::read_to_string("/proc/locks")
-                .unwrap_or_default()
-                .lines()
-                .filter_map(|line| {
-                    // /proc/locks: ID TYPE ADVISORY WRITE PID MAJ:MIN:INODE 0 EOF.
-                    let fields: Vec<_> = line.split_whitespace().collect();
-                    let pid = *fields.get(4)?;
-                    let identity = *fields.get(5)?;
-                    (identity.rsplit(':').next()? == inode).then(|| {
-                        let process = std::fs::read_to_string(format!("/proc/{pid}/comm"))
-                            .unwrap_or_else(|_| "<unknown>".into());
-                        format!("{line}; process={}", process.trim())
-                    })
-                })
-                .collect()
-        };
-        #[cfg(not(target_os = "linux"))]
-        let competing_lock_records = Vec::<String>::new();
-        panic!(
-            "reopening the released parent-symlink alias must succeed; error: {error:?}; \
-             canonical parent: {:?}; lockfile metadata: {:?}; \
-             still-open lockfile descriptors in test process: {:?}; \
-             /proc/locks matching inode: {:?}",
-            std::fs::canonicalize(&alias),
-            std::fs::symlink_metadata(&lock_path),
-            matching_descriptors,
-            competing_lock_records,
-        );
+        panic!("reopening the released parent-directory alias failed: {error:?}");
     }
 }
 
