@@ -488,7 +488,9 @@ fn access_conflicts_across_runs_wait_for_release_without_a_new_signal() {
             )
             .unwrap();
         let writer = ExecutionPlanDraft::new("same-world.writer", 1)
-            .operation(OperationNode::new("write", key("writer")).access("world", AccessMode::Write))
+            .operation(
+                OperationNode::new("write", key("writer")).access("world", AccessMode::Write),
+            )
             .validate()
             .unwrap()
             .bind(&registry)
@@ -500,7 +502,9 @@ fn access_conflicts_across_runs_wait_for_release_without_a_new_signal() {
             .bind(&registry)
             .unwrap();
         let owner = application_session();
-        let writer = owner.execution_graph(writer, NonZeroUsize::new(1).unwrap()).unwrap();
+        let writer = owner
+            .execution_graph(writer, NonZeroUsize::new(1).unwrap())
+            .unwrap();
         let write_task = tokio::spawn(writer.execute());
         tokio::time::timeout(Duration::from_secs(3), async {
             while writer_started.load(Ordering::SeqCst) == 0 {
@@ -509,7 +513,9 @@ fn access_conflicts_across_runs_wait_for_release_without_a_new_signal() {
         })
         .await
         .unwrap();
-        let reader = owner.execution_graph(reader, NonZeroUsize::new(1).unwrap()).unwrap();
+        let reader = owner
+            .execution_graph(reader, NonZeroUsize::new(1).unwrap())
+            .unwrap();
         let read_task = tokio::spawn(reader.execute());
         tokio::time::sleep(Duration::from_millis(30)).await;
         assert_eq!(reader_started.load(Ordering::SeqCst), 0);
@@ -552,14 +558,22 @@ fn session_run_limit_is_bounded_and_releases_slots_on_drop() {
     let owner = application_session();
     let mut held = Vec::new();
     for _ in 0..16 {
-        held.push(owner.execution_graph(plan(), NonZeroUsize::new(1).unwrap()).unwrap());
+        held.push(
+            owner
+                .execution_graph(plan(), NonZeroUsize::new(1).unwrap())
+                .unwrap(),
+        );
     }
     assert!(matches!(
         owner.execution_graph(plan(), NonZeroUsize::new(1).unwrap()),
         Err(GraphRunError::SessionRunLimitExceeded { limit: 16 })
     ));
     held.pop();
-    assert!(owner.execution_graph(plan(), NonZeroUsize::new(1).unwrap()).is_ok());
+    assert!(
+        owner
+            .execution_graph(plan(), NonZeroUsize::new(1).unwrap())
+            .is_ok()
+    );
 }
 
 #[test]
@@ -600,20 +614,28 @@ fn aborting_a_run_releases_reserved_resources_for_other_runs() {
             )
             .unwrap();
         let first = ExecutionPlanDraft::new("abort.first", 1)
-            .operation(OperationNode::new("pending", key("pending")).access("lock", AccessMode::Write))
+            .operation(
+                OperationNode::new("pending", key("pending")).access("lock", AccessMode::Write),
+            )
             .validate()
             .unwrap()
             .bind(&registry)
             .unwrap();
         let second = ExecutionPlanDraft::new("abort.second", 1)
-            .operation(OperationNode::new("after", key("after-abort")).access("lock", AccessMode::Write))
+            .operation(
+                OperationNode::new("after", key("after-abort")).access("lock", AccessMode::Write),
+            )
             .validate()
             .unwrap()
             .bind(&registry)
             .unwrap();
         let owner = application_session();
-        let first = owner.execution_graph(first, NonZeroUsize::new(1).unwrap()).unwrap();
-        let second = owner.execution_graph(second, NonZeroUsize::new(1).unwrap()).unwrap();
+        let first = owner
+            .execution_graph(first, NonZeroUsize::new(1).unwrap())
+            .unwrap();
+        let second = owner
+            .execution_graph(second, NonZeroUsize::new(1).unwrap())
+            .unwrap();
         let first_task = tokio::spawn(first.execute());
         tokio::time::timeout(Duration::from_secs(3), async {
             while first_started.load(Ordering::SeqCst) == 0 {

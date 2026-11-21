@@ -116,7 +116,6 @@ impl SessionGraphAdmission {
     }
 }
 
-
 /// A registered operation does not own a Tokio runtime or an ECS world.
 /// Delegated thread-affine work must remain in its domain-owned executor.
 pub type OperationFuture = Pin<Box<dyn Future<Output = OperationOutcome> + Send + 'static>>;
