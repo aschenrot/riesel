@@ -323,10 +323,8 @@ impl ExecutionGraphRunner {
         let mut stop = std::pin::pin!(stop);
 
         loop {
-            if std::future::poll_fn(|cx| {
-                std::task::Poll::Ready(stop.as_mut().poll(cx).is_ready())
-            })
-            .await
+            if std::future::poll_fn(|cx| std::task::Poll::Ready(stop.as_mut().poll(cx).is_ready()))
+                .await
             {
                 stopped_by_owner = true;
                 break;
