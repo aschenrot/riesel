@@ -8,6 +8,7 @@ on:
     branches: [main]
     paths:
       - "research/process-ownership/system_protected_owner_probe.py"
+      - "research/process-ownership/manager_polkit_same_uid_probe.py"
       - "research/process-ownership/SYSTEM-PROTECTED-OWNER.md"
       - ".github/workflows/manager-system-protected-owner-research.yml"
   workflow_dispatch:
@@ -32,3 +33,11 @@ jobs:
           set -euo pipefail
           python3 -m py_compile research/process-ownership/system_protected_owner_probe.py
           timeout 90 python3 research/process-ownership/system_protected_owner_probe.py
+
+      - name: Compare real polkit action/target authorization under same UID
+        run: |
+          set -euo pipefail
+          command -v pkcheck
+          command -v pkaction
+          python3 -m py_compile research/process-ownership/manager_polkit_same_uid_probe.py
+          timeout 75 python3 research/process-ownership/manager_polkit_same_uid_probe.py
