@@ -719,7 +719,6 @@ fn async_startup_does_not_execute_legacy_blocking_connectors() {
     ));
 }
 
-
 /// #107 research: two independently selected interfaces do not automatically
 /// require co-location. This intentionally proves the *current* preflight
 /// behavior; it is not a request to relax the provider/instance boundary.
@@ -756,8 +755,12 @@ fn research_query_like_observer_is_not_automatically_co_selected_with_writer() {
         ("writer".into(), endpoints("writer-instance")),
         ("query".into(), endpoints("query-instance")),
     ]));
-    split.expected_providers.insert("writer".into(), provider.clone());
-    split.expected_providers.insert("query".into(), provider.clone());
+    split
+        .expected_providers
+        .insert("writer".into(), provider.clone());
+    split
+        .expected_providers
+        .insert("query".into(), provider.clone());
 
     let split_plan = app.deployment_plan(&split).unwrap();
     let writer = split_plan
@@ -770,7 +773,10 @@ fn research_query_like_observer_is_not_automatically_co_selected_with_writer() {
         .iter()
         .find(|s| s.requirement == "query")
         .unwrap();
-    assert_ne!(writer.target, reader.target, "independent instances must stay distinct");
+    assert_ne!(
+        writer.target, reader.target,
+        "independent instances must stay distinct"
+    );
     assert_eq!(writer.expected_provider, reader.expected_provider);
 
     let mut colocated = DeploymentConfig::new(BTreeMap::from([
@@ -780,7 +786,9 @@ fn research_query_like_observer_is_not_automatically_co_selected_with_writer() {
     colocated
         .expected_providers
         .insert("writer".into(), provider.clone());
-    colocated.expected_providers.insert("query".into(), provider);
+    colocated
+        .expected_providers
+        .insert("query".into(), provider);
 
     let shared_plan = app.deployment_plan(&colocated).unwrap();
     let writer = shared_plan
