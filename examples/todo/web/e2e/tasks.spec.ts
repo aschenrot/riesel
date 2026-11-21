@@ -253,6 +253,38 @@ test('capture desktop and mobile UI for visual review', async ({ page }) => {
     fullPage: true,
     animations: 'disabled'
   });
+  await page.emulateMedia({ colorScheme: 'dark' });
+  await page.setViewportSize({ width: 1280, height: 800 });
+  await page.screenshot({
+    path: 'test-results/visual-review/todo-dark-desktop-1280.png',
+    fullPage: true,
+    animations: 'disabled'
+  });
+  await page.setViewportSize({ width: 375, height: 812 });
+  await page.screenshot({
+    path: 'test-results/visual-review/todo-dark-mobile-375.png',
+    fullPage: true,
+    animations: 'disabled'
+  });
+  await page.setViewportSize({ width: 1280, height: 800 });
+  await title.fill('Dark visual feedback');
+  await page.getByRole('button', { name: 'Add task' }).click();
+  await expect(page.getByText('Dark visual feedback', { exact: true })).toBeVisible();
+  await expect(page.getByRole('status')).toContainText('Task created');
+  await page.screenshot({
+    path: 'test-results/visual-review/todo-dark-toast-1280.png',
+    fullPage: true,
+    animations: 'disabled'
+  });
+  await page.getByRole('button', { name: 'Dismiss notification' }).click();
+  await page.getByRole('button', { name: 'Actions for Dark visual feedback' }).click();
+  await expect(page.getByRole('button', { name: 'Edit task' })).toBeVisible();
+  await page.screenshot({
+    path: 'test-results/visual-review/todo-dark-action-menu-1280.png',
+    fullPage: true,
+    animations: 'disabled'
+  });
+  await page.keyboard.press('Escape');
 });
 
 test('refresh control stays at top-left, spins during GET and records successful checks', async ({ page }) => {
@@ -404,4 +436,148 @@ test('draft entered during in-flight creation is preserved after the first task 
   } finally {
     releaseFirstRequest();
   }
+});
+
+test('system light and dark themes track live browser preference with readable states', async ({ page }) => {
+  await page.emulateMedia({ colorScheme: 'light' });
+  await page.goto('/');
+  const panel = page.locator('.panel');
+  // Static SvelteKit bootstraps client-side; wait for the rendered app first.
+  await expect(panel).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Add task' })).toBeVisible();
+  const colors = async () => await page.evaluate(() => {
+    const style = (selector: string) => getComputedStyle(document.querySelector(selector)!);
+    return {
+      surface: style('.panel').backgroundColor,
+      canvas: style('.app-shell').backgroundColor,
+      primary: style('.new-task button.primary').backgroundColor,
+      primaryInk: style('.new-task button.primary').color,
+      ink: style('h1').color,
+      errorSurface: getComputedStyle(document.documentElement).getPropertyValue('--error-surface').trim(),
+      userAgent: style('html').colorScheme
+    };
+  });
+  const light = await colors();
+  expect(light.surface).toBe('rgb(255, 255, 255)');
+  expect(light.canvas).toBe('rgb(245, 247, 245)');
+  expect(light.userAgent).toContain('dark');
+
+  await page.emulateMedia({ colorScheme: 'dark' });
+  await expect(panel).toHaveCSS('background-color', 'rgb(24, 39, 34)');
+  const dark = await colors();
+  expect(dark.canvas).toBe('rgb(16, 27, 23)');
+  expect(dark.primary).not.toEqual(light.primary);
+  expect(dark.ink).not.toEqual(light.ink);
+  expect(dark.errorSurface).not.toEqual(light.errorSurface);
+
+  const contrast = (text: string, background: string): number => {
+    const channels = (rgb: string) => rgb.match(/[\d.]+/g)!.slice(0, 3).map(Number).map((x) => {
+      const c = x / 255;
+      return c <= 0.04045 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4;
+    });
+    const luminance = (rgb: string) => {
+      const [r, g, b] = channels(rgb);
+      return r * 0.2126 + g * 0.7152 + b * 0.0722;
+    };
+    const a = luminance(text);
+    const b = luminance(background);
+    return (Math.max(a, b) + 0.05) / (Math.min(a, b) + 0.05);
+  };
+  expect(contrast(dark.ink, dark.surface)).toBeGreaterThanOrEqual(4.5);
+  expect(contrast(dark.primaryInk, dark.primary)).toBeGreaterThanOrEqual(4.5);
+
+  await page.emulateMedia({ colorScheme: 'light' });
+  await expect(panel).toHaveCSS('background-color', 'rgb(255, 255, 255)');
+});
+
+test('system dark theme preserves readable completed rows, feedback, and focus', async ({ page }) => {
+  await page.emulateMedia({ colorScheme: 'dark' });
+  await page.goto('/');
+  const title = page.getByRole('textbox', { name: 'New task' });
+  await title.fill('Dark task');
+  await page.getByRole('button', { name: 'Add task' }).click();
+  await expect(page.getByRole('status')).toContainText('Task created');
+  await page.getByRole('checkbox', { name: 'Mark Dark task complete' }).check();
+  await expect(page.locator('.done .task-title')).toHaveCSS('text-decoration-line', 'line-through');
+  const trigger = page.getByRole('button', { name: 'Actions for Dark task' });
+  await trigger.focus();
+  await expect(trigger).toBeFocused();
+  await page.keyboard.press('Enter');
+  await expect(page.getByRole('button', { name: 'Edit task' })).toBeFocused();
+  await page.keyboard.press('Escape');
+  await expect(trigger).toBeFocused();
+});
+
+test('dark color scheme respects mobile widths without horizontal overflow', async ({ page }) => {
+  await page.emulateMedia({ colorScheme: 'dark' });
+  await page.setViewportSize({ width: 320, height: 740 });
+  await page.goto('/');
+  await expect(page.getByRole('heading', { name: 'Tasks' })).toBeVisible();
+  expect(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth + 1)).toBe(false);
+  await page.setViewportSize({ width: 375, height: 812 });
+  expect(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth + 1)).toBe(false);
+});
+
+test('system theme tokens meet sampled text and control boundary contrast in both schemes', async ({ page }) => {
+  for (const scheme of ['light', 'dark'] as const) {
+    await page.emulateMedia({ colorScheme: scheme });
+    await page.goto('/');
+    await expect(page.locator('.panel')).toBeVisible();
+    const colors = await page.evaluate(() => {
+      const style = getComputedStyle(document.documentElement);
+      const names = [
+        'canvas', 'surface', 'ink', 'muted', 'completed-ink', 'placeholder-ink',
+        'accent', 'primary-ink', 'button-ink', 'input-border', 'button-border',
+        'error', 'error-surface', 'success', 'success-surface'
+      ];
+      return Object.fromEntries(names.map((name) =>
+        [name, style.getPropertyValue('--' + name).trim()]
+      ));
+    });
+    const luminosity = (hex: string) => {
+      // Vite minification may compact #ffffff to #fff in production CSS.
+      const expanded = /^#[0-9a-f]{3}$/i.test(hex)
+        ? '#' + [...hex.slice(1)].map((digit) => digit + digit).join('')
+        : hex;
+      expect(expanded, scheme + ': valid six-digit theme token').toMatch(/^#[0-9a-f]{6}$/i);
+      const values = [1, 3, 5].map((index) =>
+        parseInt(expanded.slice(index, index + 2), 16) / 255
+      );
+      const [r, g, b] = values.map((v) =>
+        v <= 0.04045 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4
+      );
+      return r * 0.2126 + g * 0.7152 + b * 0.0722;
+    };
+    const contrast = (a: string, b: string) => {
+      const first = luminosity(colors[a]);
+      const second = luminosity(colors[b]);
+      return (Math.max(first, second) + 0.05) / (Math.min(first, second) + 0.05);
+    };
+    for (const [foreground, background] of [
+      ['ink', 'canvas'], ['ink', 'surface'], ['muted', 'surface'],
+      ['completed-ink', 'surface'], ['placeholder-ink', 'surface'],
+      ['accent', 'surface'], ['button-ink', 'surface'],
+      ['primary-ink', 'accent'], ['error', 'error-surface'], ['success', 'success-surface']
+    ]) {
+      expect(contrast(foreground, background), scheme + ': ' + foreground + '/' + background)
+        .toBeGreaterThanOrEqual(4.5);
+    }
+    for (const border of ['input-border', 'button-border']) {
+      expect(contrast(border, 'surface'), scheme + ': ' + border + '/surface')
+        .toBeGreaterThanOrEqual(3);
+    }
+  }
+});
+
+test('forced-colors mode retains visible focus and native color adjustment', async ({ page }) => {
+  await page.emulateMedia({ colorScheme: 'dark', forcedColors: 'active' });
+  await page.goto('/');
+  const input = page.getByRole('textbox', { name: 'New task' });
+  await expect(input).toBeVisible();
+  await input.focus();
+  await expect(input).toHaveCSS('outline-style', 'solid');
+  const button = page.getByRole('button', { name: 'Add task' });
+  await button.focus();
+  await expect(button).toHaveCSS('outline-style', 'solid');
+  await expect(button).toHaveCSS('forced-color-adjust', 'auto');
 });
