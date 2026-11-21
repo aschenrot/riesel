@@ -234,3 +234,193 @@ invariants in the authoritative product/architecture documents and split
 implementation along independently testable boundaries: provider/query
 contract + pairing; Todo domain/HTTP adapter; Open/Completed UI. Do not
 merge research-only types as production APIs.
+
+
+## Cross-workload architecture and bias review — 2026-11-22
+
+**Research extension, not a change to the accepted platform product scope or a
+public query API.** The motivating user outcome remains correct Open-first Todo
+with a scalable reusable path for schema-registered application records.
+The wider comparison is a *stress test of the proposed abstraction* against
+credible application and editor/game persistence needs, not an authorization
+to develop a general game engine, full query language, or transaction service.
+
+### Authority and source of future requirements
+
+- `docs/project/delivery.md`: compare architectures against a plausible
+  growth horizon, reject both short-term example bias and speculative
+  abstraction bias, and make public-interface decisions deliberately.
+- `docs/product/riesel/riesel.md` and `api-authoring-v3.md`: applications
+  depend on versioned capabilities; components retain state and process
+  ownership; game/ECS integrations are optional specialized applications.
+- `durable-record-storage-architecture-proposal.md` and
+  `sqlite-offline-migration-architecture.md`: Storage v2 has a bounded
+  linked SQLite realization; physical format/index changes do not happen
+  automatically at application startup.
+- `execution-plan-contract.md`: one execution owner per nested domain;
+  Riesel does not also schedule a delegated ECS's internal tick/systems.
+- `dornglut/runen-ecs/ARCHITECTURE.md`: the standalone ECS owns entity,
+  component and resource lifecycle, dense storage, borrow-constrained
+  queries and system scheduling; not Riesel RecordStore. The owning
+  engine's world-persistence adapter may export an explicit checkpoint.
+- `dornglut/runenwerk` accepted ADRs 0017 and 0018: useful **external**
+  architecture comparators for explicit semantic authority, identity
+  mapping, provenance and physical realization. They are NOT Riesel
+  product acceptance or a requirement to adopt a common meta-framework.
+
+### Workload matrix: what a Record Query must and must not own
+
+| Plausible workload | Query shape / property | Authority and abstraction consequence |
+| --- | --- | --- |
+| Todo, settings, user profiles | Model-field equality, bounded ID pages, CAS revisions | **In scope:** reusable Record Query over authoritative typed records |
+| Asset catalog and editor discovery | Equality plus likely future range/order/text search, metadata-only projections | **In scope for evolution analysis; not initial delivery:** don't assume equality and UUID order satisfy all future queries; don't couple storage to full-text/index technology |
+| Game progression and inventory metadata | Durable reads/updates plus possibly cross-record invariant | **Record CRUD is applicable; atomic multi-record transfers are NOT provided by v2 or solved by a read/query interface** |
+| Scene and world persistence | Complete versioned checkpoint, stable identity mapping, large payload or chunk stream | **Different consistency/transfer problem:** choose a domain-owned snapshot/restore or object/blob facility if accepted; do not turn independent record pages into an alleged world snapshot |
+| Runtime ECS systems | Dense component tuples, structural epochs, mutable borrows, tick-local access | **Excluded:** RunenECS authority; Record Query's cursor/RPC/JSON semantics are not appropriate inside a frame |
+| Physics/spatial and network replication | Spatial predicates, simulation time, prediction, rollback | **Excluded:** specialized domain authority and independently justified contracts |
+| Logs and telemetry | Append/stream/range/retention and observer loss | **Excluded from first Record Query:** event-stream semantics differ from model-record pagination |
+
+The meaningful reuse question is *which applications query registered durable
+records*, not *which products use the word query*. A provider may implement
+several contracts, but no global source of truth, world clock, single
+transaction model or shared entity ID follows from that composition.
+
+### Fresh reproducible negative tests
+
+`examples/todo/tests/record_workload_research.rs` runs the unchanged
+`RecordStore` v2 against both registered Memory and real linked SQLite with
+two **additional** Rust-derived research models. It checks:
+
+1. A game-like two-record inventory transfer issues a committed debit followed
+   by a stale-revision credit. A second client's no-op revision bump forces
+   the conflict. The first debit remains committed; **two v2 CAS calls are
+   not an atomic multi-record transaction**. This says nothing about
+   whether a future transaction capability is necessary or where it belongs.
+2. An editor asset-metadata model has 65 records; only the last UUID has the
+   searched tag. Reading two 32-record pages still finds no match. This
+   demonstrates Todo's sparse-search defect on an independent typed model,
+   though it is not an indexed query performance measurement.
+3. A valid registered model with an 80-KiB text payload is rejected by both
+   record providers' 64-KiB stored-record limit, while small asset metadata
+   remains valid. A bulk texture/blob facility would require **different
+   capacity and transfer contracts**, not a larger query response by default.
+
+These fixtures are tests of **current behavior** and falsification of
+overbroad platform claims; they are not a replacement for transaction,
+persistent-stream or game-engine integration specifications. CI outcome must
+be reported separately from test authoring.
+
+### Growth, capacity and performance interpretation
+
+Current verified sparse Open at 10,000 records needs 313 full Storage v2
+pages, and an editor metadata query has the same logical incompleteness
+before page exhaustion. For pure UUID pagination, the full-walk page count is
+`ceil(N / 32)`: **3,125** pages at 100,000 records and **31,250** at
+1,000,000 records, *analytical only, not performance measurements*.
+Filter selectivity is a first-class benchmark dimension; checking only common
+matches biases toward full-scan solutions.
+
+The current transport frame is **4 MiB** in
+`crates/riesel_protocol/src/tcp/wire.rs`, each stored record is capped at
+**64 KiB** by Memory/SQLite, and Storage v2 page size is **32**. A bounded
+number of records therefore helps transport sizing but does **not** guarantee
+bounded query CPU, database lock duration, memory allocation or response time.
+Production work must measure predicate evaluation, provider locks, RPC,
+HTTP/browser delivery and interference with concurrent mutations.
+A one-time scratch SQLite expression-index result is **not** a published
+complexity/SLA guarantee.
+
+For a generic indexed query, explicitly decide how providers expose or
+refuse unindexed operations that violate an accepted scan/time budget. Do
+not promise a universally efficient range query over arbitrary JSON fields.
+Physical index evolution must obey independent ownership/backup/migration
+rules and keep revisions, identities and view correctness authoritative.
+
+### Public contract evolution risks to resolve *before* freezing shape
+
+1. **Predicate algebra:** The first viable native provider operation may be a
+   validated conjunction of equality predicates. Before publication,
+   demonstrate that a future comparison/range operator, null/optional
+   semantics, sorting and metadata-only projection can be added through
+   deliberate versioning without violating previous cursors or requiring a
+   data rewrite. They are design scenarios, **not required v1 functions**.
+   Reject unsupported field/operator types explicitly; never accept arbitrary
+   SQL/JSONPath or silently evaluate the wrong predicate.
+2. **Consistency tiers:** Live, non-snapshot continuation is acceptable for
+   Todo; it is **not** a coherent checkpoint, fixed-revision dataset or
+   multi-record transaction. Query/read-view and snapshot/transaction
+   capabilities must not be conflated. Concurrent filter mutation can make
+   records appear/disappear between pages; UI refresh/reconciliation is a
+   product responsibility.
+3. **Cursor identity and privacy:** Bind an opaque cursor to model, canonical
+   filter, sort order, instance/session generation and chosen contract
+   semantics. Treat it as untrusted input, validate expiration and supported
+   continuation, and do not assume untrusted clients have permission merely
+   because metadata matches. The final token encoding, possible tamper
+   resistance and restart behavior need an explicit threat model.
+4. **Cross-capability binding:** Separate query+writer requirements need a
+   generic, fail-closed same-authoritative-instance relation; tests for
+   named managed and actual start/restart identity are not satisfied by
+   comparing provider definitions or loopback addresses. A query-only client
+   must not require mutation privilege. This is the clearest additional
+   long-lived complexity relative to one versioned Storage v3 handle.
+5. **Result sizing and execution:** Decide if a query returns full records
+   or a forward-compatible projection. Respect the existing JSON RPC frame
+   budget and bounded worker ownership; a synchronous SQLite query cannot
+   become native async only by changing a trait signature.
+6. **Data/model evolution:** Registered Rust field schemas are the source of
+   truth. Persisted model shape and physical index format are separate
+   migration concerns. An additional query interface must not silently
+   migrate user files, construct second authoritative stores or change
+   Storage v2 identity/revision semantics.
+
+### Updated comparison: separate Query vs unified Storage v3
+
+Both candidates can keep `RecordStore` v2 available by co-exposure; neither
+automatically forces every existing client to migrate.
+
+| Dimension | Separate, versioned Record Query | Unified v3 record interface |
+| --- | --- | --- |
+| Existing v2 clients | Unchanged | Unchanged only if v2 is co-exposed; new client binding needs a migration plan |
+| Read-only consumers | Query-only contract without write methods | Exposes mutation methods unless a separately scoped read facet is provided |
+| Read/write authority | Explicit same-instance binding plus runtime proof | One handle intrinsically selects one instance for its own operations |
+| Future query-language growth | Independently version Query | Version Storage surface or add compatible method/argument semantics |
+| Physical index/migration | Backend work with unchanged data authority | Same backend work; not inherently easier |
+| Operational complexity | Extra interface, routing, selection and pairing tests | Fewer interfaces but broader capability/compatibility surface |
+| ECS/asset/scene applicability | Neither is an ECS query or blob/checkpoint API | Neither becomes one merely through a v3 version |
+
+**Provisional finding:** Additive Record Query remains the leading candidate
+because persistent metadata/editor/profile queries are credible multi-app
+uses and its read-only boundary avoids coupling every viewer to mutations.
+However, a unified v3 is still a competitive alternative when pairing and
+authorization costs are measured. Neither game-world snapshots nor
+transactional inventory transfers justify expanding the **query** interface.
+Do not treat the current evidence as a quantitative platform-wide
+scalability benchmark.
+
+### Revised decision gate
+
+Before owner acceptance, provide a short *contract evolution proof*, not a
+general query engine:
+
+- Show a concrete versioned query descriptor and cursor for equality, plus
+  **specified** treatment of optional/null values and unsupported future
+  operators; demonstrate that a later range/sort/projection addition does
+  not require breaking Storage v2 or reinterpret old cursors.
+- Exercise native provider-side matching on Memory and SQLite with at least
+  two model shapes and varied predicate selectivity; include valid/invalid
+  types, cursor tampering/reuse, concurrent writes and measured query budget.
+  The existing co-located query research intentionally scans v2 pages.
+- Complete the explicit shared-instance preflight/runtime comparison,
+  including an actual managed query+writer provider, same-session proof,
+  refusal of split aliases and process restart/recovery. If its cost or
+  guarantees are worse, revisit unified v3.
+- Record out-of-scope workloads and a realistic evolution policy in the
+  eventual accepted contract; do **not** make game-domain frameworks,
+  snapshot persistence or future blob/transaction services mandatory
+  dependencies of Todo #107.
+
+Keep #107 open and PR #130 **draft research only** until the decision is
+recorded under `docs/project/delivery.md`. No generic Query API,
+production SQL index, game infrastructure, persistent format change, or
+Open/Completed UI is accepted by this extension.
