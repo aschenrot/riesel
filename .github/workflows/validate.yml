@@ -37,6 +37,8 @@ jobs:
         run: cargo validate --check
       - name: Smoke test runtime and managed providers
         run: cargo smoke
+      - name: Isolated application-export research (#60)
+        run: cargo test --manifest-path research/application-export/Cargo.toml --offline -- --nocapture
 
   windows:
     if: ${{ github.event_name == 'workflow_dispatch' && inputs.windows }}
