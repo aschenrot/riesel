@@ -1,0 +1,12 @@
+# Research fixture only. The runner copies this Cargo package to an external
+# temporary directory and substitutes the absolute SDK path.
+[package]
+name = "riesel-developer-workflow-headless-probe"
+version = "0.0.0"
+edition = "2024"
+publish = false
+
+[workspace]
+
+[dependencies]
+riesel = { path = "../../../crates/riesel" }
