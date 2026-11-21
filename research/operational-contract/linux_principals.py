@@ -87,8 +87,8 @@ def run_client(program, socket_path, claimant_uid, caller_uid, server_uid, other
     command = [sys.executable, str(program), "--client", str(socket_path),
                "mutate", str(claimant_uid), str(server_uid)]
     if other:
-        command = ["sudo", "-n", "setpriv", "-u", str(caller_uid),
-                   "-g", str(caller_uid), "--clear-groups", *command]
+        command = ["sudo", "-n", "setpriv", "--reuid", str(caller_uid),
+                   "--regid", str(caller_uid), "--clear-groups", *command]
     result = subprocess.run(
         command, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
         text=True, timeout=15,
@@ -131,8 +131,8 @@ def verify():
         secret = socket_dir / "private" / "identity"
 
         server_command = [
-            "sudo", "-n", "setpriv", "-u", str(SERVER_UID),
-            "-g", str(SERVER_UID), "--clear-groups",
+            "sudo", "-n", "setpriv", "--reuid", str(SERVER_UID),
+            "--regid", str(SERVER_UID), "--clear-groups",
             sys.executable, str(program), "--server",
             str(socket_path), str(secret.parent), str(user_uid),
         ]
@@ -169,14 +169,14 @@ def verify():
             assert secret.parent.exists(), "server-owned private directory missing"
             assert unreadable(secret), "runner read isolated server-owned key"
             outsider_read = subprocess.run([
-                "sudo", "-n", "setpriv", "-u", str(OUTSIDER_UID),
-                "-g", str(OUTSIDER_UID), "--clear-groups",
+                "sudo", "-n", "setpriv", "--reuid", str(OUTSIDER_UID),
+                "--regid", str(OUTSIDER_UID), "--clear-groups",
                 sys.executable, str(program), "--read-private", str(secret)
             ], capture_output=True, text=True, timeout=10)
             assert outsider_read.returncode == 13, outsider_read
             server_read = subprocess.run([
-                "sudo", "-n", "setpriv", "-u", str(SERVER_UID),
-                "-g", str(SERVER_UID), "--clear-groups",
+                "sudo", "-n", "setpriv", "--reuid", str(SERVER_UID),
+                "--regid", str(SERVER_UID), "--clear-groups",
                 sys.executable, str(program), "--read-private", str(secret)
             ], capture_output=True, text=True, timeout=10)
             assert server_read.returncode == 0, server_read
