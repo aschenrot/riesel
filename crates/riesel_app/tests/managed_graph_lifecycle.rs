@@ -5,7 +5,7 @@
 
 use riesel_app::{
     App, AsyncOperation, BoundExecutionPlan, CapabilityConnector, ConnectedProvider,
-    ConnectorError, ConnectorRegistry, DeploymentConfig, ExecutionGraphRunner, ExecutionPlanDraft,
+    ConnectorError, ConnectorRegistry, DeploymentConfig, ExecutionPlanDraft,
     GraphRunError, OperationKey, OperationNode, OperationOutcome, OperationRegistry,
     OperationState, RunningApp, RuntimeError, ServiceEndpoint, async_operation,
 };
