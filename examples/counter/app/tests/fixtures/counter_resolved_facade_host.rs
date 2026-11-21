@@ -69,9 +69,7 @@ impl AsyncRpcHandler for ResolvedFacade {
                     let args: AddArgs = decode(payload)?;
                     let outcome = self.counter.add(args.amount).await;
                     if args.amount > 0
-                        && self
-                            .suppress_first_add_reply
-                            .swap(false, Ordering::AcqRel)
+                        && self.suppress_first_add_reply.swap(false, Ordering::AcqRel)
                     {
                         // After a real Riesel-resolved mutation returns, withhold
                         // the RPC response. Client timeout MUST mean unknown
