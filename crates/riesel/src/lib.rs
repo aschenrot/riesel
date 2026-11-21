@@ -59,11 +59,14 @@ pub use rpc_connector::AsyncRpcConnector;
 pub use rpc_connector::RpcConnector;
 
 pub use riesel_app::{
-    App, AppError, AppRunError, CancellationToken, CapabilityConnector, CatalogError,
-    ConnectedProvider, ConnectorError, ConnectorRegistry, DeclarativeComponent, DeploymentConfig,
-    DeploymentError, HookFailure, HookPhase, LifecycleFailure, LocalProviderFactory,
-    ProviderCatalog, ProviderRegistry, ProviderSelectionConfig, RecoveryPolicy, ResolutionError,
-    ResolvedCapability, RunningApp, RuntimeError, ServiceEndpoint, SessionToken,
+    AccessMode, App, AppError, AppRunError, BoundExecutionPlan, CancellationToken,
+    CapabilityConnector, CatalogError, ConnectedProvider, ConnectorError, ConnectorRegistry,
+    DeclarativeComponent, DeploymentConfig, DeploymentError, ExecutionPlanDescription,
+    ExecutionPlanDraft, ExecutionPlanError, HookFailure, HookPhase, LifecycleFailure,
+    LocalProviderFactory, OperationKey, OperationNode, OperationRegistry, OperationTrigger,
+    PlanRevisionCatalog, ProviderCatalog, ProviderRegistry, ProviderSelectionConfig,
+    RecoveryPolicy, ResolutionError, ResolvedCapability, ResourceAccess, RunningApp, RuntimeError,
+    ServiceEndpoint, SessionToken, ValidatedExecutionPlan,
 };
 pub use riesel_macros::{RieselModel, RieselType, app, capability, component};
 
