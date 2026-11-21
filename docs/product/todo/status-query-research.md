@@ -30,6 +30,8 @@ All candidates must preserve application-owned task semantics, stable IDs and re
 
 `.github/workflows/todo-status-research.yml` runs those tests with `--nocapture` and prints **observed** per-provider setup and scan timing in CI. Timing is machine- and load-dependent; do not turn one CI number into an SLA. This is deterministic *logic* evidence for non-snapshot behavior, not a latency-certified index alternative.
 
+An additional browser integration fixture `examples/todo/web/e2e/status-query-research.spec.ts` seeds 33 records through the accepted local HTTP API with the first 32 UUIDs completed. It confirms the current Open tab displays its **loaded-page-only** placeholder while the sole Open task remains behind `Load more tasks`, then appears after cursor continuation. A screenshot records the partial empty state. This fixture is evidence of current behavior, not an acceptance test for a redesigned list.
+
 ## Decision gate
 
 Before implementing UX groups, choose one complete semantic model:
