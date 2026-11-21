@@ -119,8 +119,9 @@ async fn run_kernel_owned_mixed() -> MixedOutcome {
     ).count();
     assert_eq!(run.state("final"), Some(Status::Completed));
     assert_eq!(run.peak_in_flight >= 2, true, "the workflow requires overlapping async branches");
+    let ticks = saved.lock().unwrap().clone();
     MixedOutcome {
-        ticks: saved.lock().unwrap().clone(),
+        ticks,
         async_joined: joined.load(Ordering::SeqCst),
         outer_completed: run.state("final") == Some(Status::Completed),
         tick_nodes_visible,
