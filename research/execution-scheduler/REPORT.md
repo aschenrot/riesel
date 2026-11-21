@@ -241,3 +241,54 @@ The fixture asserts the **same ECS-observable state** from both policies after t
 **Bias controls and next evidence:** Do not declare Bevy superior merely because a debugger API already exists, or RunenECS superior merely because its serial oracle is explicit or its maintainer also owns Riesel. Measure whether per-system stepping is actually a necessary *accepted* product outcome, and whether implementing the required safe points upstream in RunenECS is worth the design/verification cost. A future fair performance comparator must pin complete dependency resolution, CPU/OS/compiler/features, workload/entity counts, warmups and repeated release-build samples; separate serial and parallel execution and state whether observability is on. Short debug-build CI timings are **not** performance evidence. Revisit the plan/visual round-trip, borrow/affinity contracts, session failure/control and security requirements independently of ECS choice.
 
 **Delivery decision remains:** Keep #83 open and PR #84 draft/research-only; no change to accepted Riesel or RunenECS product contracts, public APIs, implementation Issues or roadmap. Favor independent optional ECS integrations if matched outcomes show a coherent common control/observation model. The Bevy comparator CI outcome must be recorded against its **exact tested revision**, not inferred from the first-run partial success.
+
+
+## 12. Gate F — serial/parallel equivalence, release sampling and direct-query attribution (research)
+
+**Authoritative tested inputs:** Riesel test-only research branch, standalone `bevy_ecs =0.20.1`, exact RunenECS `5d6af86bfa7c58f1ad26ec73635590a72e89ef37`, Rust `1.100.0`, Linux x86_64. RunenECS current `main` was checked and matched this pinned revision during the experiment. This does not make RunenECS a production Riesel dependency.
+
+**Evidence sources:**
+- [`82cb1690c83229cfbbee75ea1a743a058da12739`, successful CI 44876653339](https://github.com/aschenrot/riesel/actions/runs/44876653339) — serial/parallel correctness and paired end-to-end release sampler.
+- [`9ef9948c446988ebbcf7960c5008b8d6e66fdedb`, successful CI 44877157317](https://github.com/aschenrot/riesel/actions/runs/44877157317) — **21/21** research tests, including direct-World read/mutate parity, and expanded release sampler; workspace validation and smoke gates also passed. The exact revisions are separately retrievable via the linked run; do not pool their absolute medians as if measured simultaneously.
+
+### Methodology and semantic oracle
+
+`src/ecs_parallel.rs` constructs independent, matched four-component Worlds and registers four-system workloads: empty scheduling, four compatible reads, four independent component writers, and four conflicting writers of one component. Both engines execute the same arithmetic over identical row counts. Conflicting writes deliberately **commute**, since neither engine's generic unordered schedule guarantees a chosen user-code order. The test checks actual authoritative component sums after repeated execution for 0, 64, and 512 entities under both serial and four-worker modes, comparing every engine/mode to the same expected result. This establishes **bounded functional parity**, not identical ordering, parallel scaling or arbitrary deterministic user callbacks.
+
+The standalone `benches/ecs_scaling.rs` harness uses the optimized Cargo bench profile, precreates Worlds/plans outside timing, warms each instance six times, takes seven paired warm-process samples, alternates engine order, runs a fixed number of schedule invocations per sample and rechecks world-state sums after timing. It emits `BENCH_CONTEXT`, `BENCH_RESULT` and `BENCH_DIRECT` log records with medians/min/max and a ratio, not a threshold/gate. The runner reported **two available CPUs**, while Bevy's global ComputeTaskPool was configured for **four worker threads** and RunenECS admission capacity was **four**. Both engines ran with the standalone Bevy ECS `bevy_debug_stepping` feature compiled but not enabled in these workloads. This is a hosted, oversubscribed execution-policy comparison.
+
+In the second run, `run_direct` probes invoke **public World query construction and iteration without scheduling** over the same four-component Worlds. A read computes a checksum; a mutation increments all C0 components, and an untimed authoritative sum verifies the outcome. This **still includes query construction, traversal and change bookkeeping**, and is not an isolated storage or cache-miss microbenchmark. Unlike the schedule workload, these direct probes touch only one of the four component columns.
+
+### Results — measured samples, not comparative guarantees
+
+For clarity, values below are **median elapsed microseconds per invocation**. All quoted observations are from one exact host/job per table; the first and second jobs are separate ephemeral hosted runs.
+
+| Workload, 10,000 entities unless stated | Bevy ECS, CI 44876653339 | RunenECS, same job | Runen / Bevy |
+| --- | ---: | ---: | ---: |
+| Empty serial schedule | 0.097 | 0.225 | 2.32× |
+| Empty parallel schedule, 4 workers | 22.565 | 154.979 | 6.87× |
+| Four read-only query systems, serial | 7.451 | 156.377 | 20.99× |
+| Four independent writes, serial | 49.836 | 1,494.247 | 29.98× |
+| Four independent writes, parallel | 86.854 | 2,189.821 | 25.21× |
+| Four conflicting writes, parallel | 139.505 | 1,828.840 | 13.11× |
+
+| Workload, 10,000 entities unless stated | Bevy ECS, CI 44877157317 | RunenECS, same job | Runen / Bevy |
+| --- | ---: | ---: | ---: |
+| Four read-only query systems, serial | 5.110 | 88.883 | 17.39× |
+| Four independent writes, serial | 20.313 | 823.535 | 40.54× |
+| Four independent writes, parallel | 41.215 | 1,496.353 | 36.31× |
+| **Direct single-column read, no schedule** | **1.586** | **22.312** | **14.07×** |
+| **Direct single-column write, no schedule** | **7.158** | **217.348** | **30.37×** |
+
+The different absolute values between separate hosted runs are material: the median Bevy four-writer serial case changed **49.836 → 20.313 µs** and RunenECS **1,494.247 → 823.535 µs**, despite comparable fixture definitions and identical compiler/version/nominal host class. **Do not turn this into a stable speedup, regression threshold, product choice, or claim that Bevy is inherently 30–40× faster**. Within each job the paired differences are consistent for this bounded workload, so the research question remains important.
+
+### Critical interpretation, ownership and next gates
+
+1. **Neither engine is being accused of incorrect scheduling.** Every tested engine/mode delivered the expected final ECS component values. Bevy is ahead *for the measured simple traversal/write workload*, but no attempt was made to compare full game features, ECS relationship semantics, exceptional failure behavior, arbitrary side effects, memory, compile time or real-world frame pacing.
+2. **The serial gap is not chiefly caused by RunenECS worker creation.** A substantial read/write difference remains in **direct public World query paths without scheduling**, and grows with entity count. The next owner to profile is ordinary query state construction, dense row traversal and mutation/change-observation cost. It is not yet proven which internal step dominates.
+3. **Parallel worker lifetime is separately non-equivalent.** The pinned RunenECS source physically launches scoped threads for planned worker cohorts; Bevy's CPU executor uses a reusable global pool. Changing that *physical policy* is possible under RunenECS ADR 0003, but it is not an architecture acceptance or a promise of better end-to-end results. The two-CPU/four-worker oversubscription also makes this run unsuitable for general multicore scaling conclusions.
+4. **Avoid duplicating the existing RunenECS investigation.** RunenECS already delivered substantial evidence-driven query and mutation optimizations through [#114](https://github.com/dornglut/runen-ecs/issues/114), [#116](https://github.com/dornglut/runen-ecs/issues/116), [#118](https://github.com/dornglut/runen-ecs/issues/118), [#124](https://github.com/dornglut/runen-ecs/issues/124), [#126](https://github.com/dornglut/runen-ecs/issues/126), [#133](https://github.com/dornglut/runen-ecs/issues/133), [#147](https://github.com/dornglut/runen-ecs/issues/147), and [#157](https://github.com/dornglut/runen-ecs/issues/157). These have closed, with independent correctness and host-specific performance evidence; they are **not** proof the observed cost is fixed everywhere. Before proposing another RunenECS optimization, reproduce and attribute the current workload inside its own maintained Criterion benchmark suite, on the same pinned candidate/base host and under its safety/semantics gates. Do not open redundant RunenECS implementation Issues from this Riesel spike.
+5. **Further evidence required:** a verified >=4 physical-core host with a controlled nonoversubscribed worker configuration; separate matched schedule/query-construction and cached-query iteration paths; meaningful 100k/1m workloads plus representative simulation; CPU profile/memory/caches; stable lockfiles/compiler/feature parity; transparent setup/serialization/capability adapter overhead; failure/deferred publication and observed debug-control costs. The existing isolated Riesel research workspace still lacks a checked-in Cargo.lock and does not guarantee transitive dependency reproducibility across future clean builds.
+6. **Product ownership remains unchanged.** Riesel's execution-plan and safe-point contracts must be evaluated independently of either ECS's internal query throughput. A shared outer execution/inspection model can support *both*; no universal scheduler, per-system debugger, RunenECS redesign, framework replacement, or mandatory ECS dependency follows from these CI numbers.
+
+**Gate F disposition: evidence collected; architecture selection still DEFERRED.** The simple-workload performance gap is credible enough to prioritize a targeted independent RunenECS profiling question, but insufficient to rewrite its memory/observability contracts. Riesel #83 stays open, PR #84 stays draft and research-only. Headless composition, authoritative local control, visual inspection, and executable visual authoring remain **separate product decisions**.
