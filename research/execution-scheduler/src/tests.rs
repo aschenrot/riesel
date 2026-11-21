@@ -55,6 +55,14 @@ async fn parallel_eligibility_join_and_access_exclusion() {
     let events: Vec<_> = run.trace.retained.iter().collect();
     assert!(events.iter().position(|e| e.node == "begin" && e.status == Status::Completed).unwrap()
         < events.iter().position(|e| e.node == "left" && e.status == Status::Running).unwrap());
+    // Each operation's start/completion identities must correlate even if
+    // two independent operations are admitted before either completes.
+    for node in ["begin", "left", "right", "join"] {
+        let started = events.iter().find(|e| e.node == node && e.status == Status::Running).unwrap();
+        let finished = events.iter().find(|e| e.node == node && e.status == Status::Completed).unwrap();
+        assert_eq!(started.attempt, finished.attempt, "miscorrelated attempt for {node}");
+        assert!(finished.sequence > started.sequence);
+    }
 
     let exclusive = Arc::new(Plan::validate(vec![
         Node::new("a", &[], vec![Access::Write("world")], operation(|| async {
@@ -105,6 +113,24 @@ async fn step_operation_failure_cancel_and_trace_loss_are_explicit() {
     cancelled.advance(usize::MAX).await;
     assert_eq!(cancelled.launched, 0);
     assert!(cancelled.snapshot().iter().all(|(_, status)| *status == Status::Cancelled));
+}
+
+#[tokio::test(flavor = "current_thread")]
+async fn panicking_operation_is_reported_as_failure_not_scheduler_panic() {
+    let plan = Arc::new(Plan::validate(vec![
+        Node::new("panic", &[], vec![], operation(|| async {
+            if std::hint::black_box(true) {
+                panic!("deliberate operation panic for research");
+            }
+            Ok(())
+        })),
+        Node::new("after", &["panic"], vec![], noop()),
+    ]).unwrap());
+    let mut run = Run::new(plan, 1, 3, 2, Trace::new(true, 16));
+    run.advance(usize::MAX).await;
+    assert_eq!(run.state("panic"), Some(Status::Failed));
+    assert_eq!(run.state("after"), Some(Status::Blocked));
+    assert_eq!(run.snapshot().len(), 2);
 }
 
 #[derive(Default)]
