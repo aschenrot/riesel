@@ -1,6 +1,6 @@
 //! Explicit operator CLI uses existing typed Rust plans without a new schema.
 use riesel_schema::{ModelDefinition, RieselModel, TypeRef};
-use riesel_storage::RecordStore;
+use riesel_storage::{RecordStore, StoreError};
 use riesel_storage_sqlite::{
     EvolutionLimits, ModelEvolution, OperatorOutcome, SnapshotBudget, SqliteStore,
     run_operator_maintenance_cli,
@@ -360,4 +360,304 @@ fn correct_operator_consent_does_not_override_direct_source_drift_during_prompt(
     assert!(SqliteStore::open(&db, models::<New>()).is_err());
     let saved = SqliteStore::open(&archive, models::<Old>()).unwrap();
     assert_eq!(saved.get("task", id).unwrap().unwrap().data, source.data);
+}
+
+
+#[test]
+fn operator_confirmation_is_bounded_and_requires_a_complete_line() {
+    let dir = tempfile::tempdir().unwrap();
+    let db = dir.path().join("source.db");
+    let archive = dir.path().join("no-archive.db");
+    let id = fixture(&db);
+    let exact = format!(
+        "MIGRATE {} BACKUP {}",
+        db.canonicalize().unwrap().display(),
+        archive.display()
+    );
+    for answer in [
+        format!("{exact}{}", " ".repeat(4_096)).into_bytes(),
+        exact.into_bytes(),
+        vec![0xff, b'\n'],
+    ] {
+        let mut output = Vec::new();
+        let result = run_operator_maintenance_cli(
+            &command("execute", &[&db, &archive]),
+            &plan(),
+            limits(),
+            &mut Cursor::new(answer),
+            &mut output,
+        );
+        assert!(result.is_err(), "malformed confirmation was accepted");
+        assert!(!archive.exists());
+        let old = SqliteStore::open(&db, models::<Old>()).unwrap();
+        assert_eq!(old.get("task", id).unwrap().unwrap().revision, 1);
+    }
+    assert!(SqliteStore::open(&db, models::<New>()).is_err());
+}
+
+#[test]
+fn occupied_backup_destination_and_corrupt_source_refuse_before_confirmation() {
+    let dir = tempfile::tempdir().unwrap();
+    let db = dir.path().join("source.db");
+    let archive = dir.path().join("preexisting.db");
+    let id = fixture(&db);
+    std::fs::write(&archive, b"must not overwrite").unwrap();
+    let original_archive = std::fs::read(&archive).unwrap();
+    for operation in ["preview", "execute"] {
+        let mut output = Vec::new();
+        let result = run_operator_maintenance_cli(
+            &command(operation, &[&db, &archive]),
+            &plan(),
+            limits(),
+            &mut Cursor::new(Vec::<u8>::new()),
+            &mut output,
+        );
+        assert!(result.is_err(), "occupied archive unexpectedly accepted");
+        assert_eq!(std::fs::read(&archive).unwrap(), original_archive);
+    }
+    let old = SqliteStore::open(&db, models::<Old>()).unwrap();
+    assert_eq!(old.get("task", id).unwrap().unwrap().revision, 1);
+    drop(old);
+
+    let corrupt = dir.path().join("corrupt.db");
+    fixture(&corrupt);
+    let direct = rusqlite::Connection::open(&corrupt).unwrap();
+    direct
+        .execute(
+            "UPDATE records SET data=?1 WHERE model='task'",
+            rusqlite::params![b"not JSON"],
+        )
+        .unwrap();
+    drop(direct);
+    let unpublished = dir.path().join("unpublished.db");
+    for operation in ["preview", "execute"] {
+        let mut output = Vec::new();
+        assert!(
+            run_operator_maintenance_cli(
+                &command(operation, &[&corrupt, &unpublished]),
+                &plan(),
+                limits(),
+                &mut Cursor::new(Vec::<u8>::new()),
+                &mut output,
+            )
+            .is_err()
+        );
+        assert!(!unpublished.exists());
+    }
+    let direct = rusqlite::Connection::open(&corrupt).unwrap();
+    let raw: Vec<u8> = direct
+        .query_row(
+            "SELECT data FROM records WHERE model='task'",
+            [],
+            |row| row.get(0),
+        )
+        .unwrap();
+    assert_eq!(raw, b"not JSON");
+}
+
+#[test]
+fn failure_during_confirmed_execution_preserves_old_schema_and_recovery_image() {
+    use std::sync::{
+        Arc,
+        atomic::{AtomicUsize, Ordering},
+    };
+
+    let dir = tempfile::tempdir().unwrap();
+    let db = dir.path().join("source.db");
+    let archive = dir.path().join("retained-old.db");
+    let id = fixture(&db);
+    let calls = Arc::new(AtomicUsize::new(0));
+    let observed = Arc::clone(&calls);
+    let failing = ModelEvolution::new(models::<Old>(), models::<New>())
+        .unwrap()
+        .transform::<Old, New, _>(move |old| {
+            if observed.fetch_add(1, Ordering::SeqCst) > 0 {
+                return Err(StoreError::Failed(
+                    "injected confirmed-execution transform failure".into(),
+                ));
+            }
+            Ok(New {
+                title: old.title,
+                priority: 0,
+            })
+        })
+        .unwrap();
+    let confirmation = format!(
+        "MIGRATE {} BACKUP {}\n",
+        db.canonicalize().unwrap().display(),
+        archive.display()
+    );
+    let mut output = Vec::new();
+    let err = run_operator_maintenance_cli(
+        &command("execute", &[&db, &archive]),
+        &failing,
+        limits(),
+        &mut Cursor::new(confirmation.as_bytes()),
+        &mut output,
+    )
+    .unwrap_err();
+    assert!(format!("{err}").contains("injected confirmed-execution"));
+    assert_eq!(calls.load(Ordering::SeqCst), 2);
+    assert!(archive.exists());
+    let old = SqliteStore::open(&db, models::<Old>()).unwrap();
+    assert_eq!(old.get("task", id).unwrap().unwrap().revision, 1);
+    drop(old);
+    assert!(SqliteStore::open(&db, models::<New>()).is_err());
+    let snapshot = SqliteStore::open(&archive, models::<Old>()).unwrap();
+    assert_eq!(snapshot.get("task", id).unwrap().unwrap().revision, 1);
+}
+
+#[test]
+fn operator_restore_rejects_corrupt_backup_and_occupied_target_without_mutation() {
+    let dir = tempfile::tempdir().unwrap();
+    let db = dir.path().join("source.db");
+    let archive = dir.path().join("old.db");
+    let retention = dir.path().join("not-created.db");
+    let id = fixture(&db);
+    let confirmation = format!(
+        "MIGRATE {} BACKUP {}\n",
+        db.canonicalize().unwrap().display(),
+        archive.display()
+    );
+    run_operator_maintenance_cli(
+        &command("execute", &[&db, &archive]),
+        &plan(),
+        limits(),
+        &mut Cursor::new(confirmation.as_bytes()),
+        &mut Vec::new(),
+    )
+    .unwrap();
+
+    let live = SqliteStore::open(&db, models::<New>()).unwrap();
+    let mut output = Vec::new();
+    assert!(
+        run_operator_maintenance_cli(
+            &command("restore", &[&db, &archive, &retention]),
+            &plan(),
+            limits(),
+            &mut Cursor::new(Vec::<u8>::new()),
+            &mut output,
+        )
+        .is_err()
+    );
+    assert!(!retention.exists());
+    assert_eq!(live.get("task", id).unwrap().unwrap().revision, 2);
+    drop(live);
+
+    let direct = rusqlite::Connection::open(&archive).unwrap();
+    direct
+        .execute(
+            "UPDATE records SET data=?1 WHERE model='task'",
+            rusqlite::params![b"not JSON"],
+        )
+        .unwrap();
+    drop(direct);
+    let mut output = Vec::new();
+    let err = run_operator_maintenance_cli(
+        &command("restore", &[&db, &archive, &retention]),
+        &plan(),
+        limits(),
+        &mut Cursor::new(Vec::<u8>::new()),
+        &mut output,
+    )
+    .unwrap_err();
+    assert!(format!("{err}").contains("SQLite"), "{err}");
+    assert!(!retention.exists());
+    let evolved = SqliteStore::open(&db, models::<New>()).unwrap();
+    assert_eq!(evolved.get("task", id).unwrap().unwrap().revision, 2);
+    drop(evolved);
+    assert!(SqliteStore::open(&db, models::<Old>()).is_err());
+}
+
+#[test]
+fn projected_json_overflow_is_refused_before_operator_approval() {
+    let dir = tempfile::tempdir().unwrap();
+    let db = dir.path().join("source.db");
+    let archive = dir.path().join("not-created.db");
+    let id = fixture(&db);
+    let direct = rusqlite::Connection::open(&db).unwrap();
+    let old_json_bytes: i64 = direct
+        .query_row(
+            "SELECT length(data) FROM records WHERE model='task'",
+            [],
+            |row| row.get(0),
+        )
+        .unwrap();
+    drop(direct);
+    let strict = EvolutionLimits {
+        snapshot: SnapshotBudget {
+            max_json_bytes: u64::try_from(old_json_bytes).unwrap(),
+            ..limits().snapshot
+        },
+        ..limits()
+    };
+    let mut output = Vec::new();
+    let result = run_operator_maintenance_cli(
+        &command("execute", &[&db, &archive]),
+        &plan(),
+        strict,
+        &mut Cursor::new(Vec::<u8>::new()),
+        &mut output,
+    );
+    let error = result.unwrap_err();
+    assert!(format!("{error}").contains("projected JSON"), "{error}");
+    assert!(!archive.exists());
+    let old = SqliteStore::open(&db, models::<Old>()).unwrap();
+    assert_eq!(old.get("task", id).unwrap().unwrap().revision, 1);
+}
+
+#[derive(Default)]
+struct FailOnCommitReceipt {
+    output: Vec<u8>,
+    failed: bool,
+}
+
+impl std::io::Write for FailOnCommitReceipt {
+    fn write(&mut self, text: &[u8]) -> std::io::Result<usize> {
+        if text.windows(b"Migration committed".len()).any(|s| s == b"Migration committed") {
+            self.failed = true;
+            return Err(std::io::Error::other("injected output failure after commit"));
+        }
+        self.output.extend_from_slice(text);
+        Ok(text.len())
+    }
+
+    fn flush(&mut self) -> std::io::Result<()> {
+        Ok(())
+    }
+}
+
+#[test]
+fn output_failure_after_commit_is_not_misreported_as_a_safe_rollback() {
+    let dir = tempfile::tempdir().unwrap();
+    let db = dir.path().join("source.db");
+    let archive = dir.path().join("retained-old.db");
+    let id = fixture(&db);
+    let confirmation = format!(
+        "MIGRATE {} BACKUP {}\n",
+        db.canonicalize().unwrap().display(),
+        archive.display()
+    );
+    let mut output = FailOnCommitReceipt::default();
+    let err = run_operator_maintenance_cli(
+        &command("execute", &[&db, &archive]),
+        &plan(),
+        limits(),
+        &mut Cursor::new(confirmation.as_bytes()),
+        &mut output,
+    )
+    .unwrap_err();
+    assert!(output.failed, "simulated post-commit failure was not triggered");
+    assert!(
+        format!("{err}").contains("injected output failure after commit"),
+        "{err}"
+    );
+    // The return value is Err, but the transaction already committed.
+    // An operator must inspect the new schema rather than retry or restore.
+    let current = SqliteStore::open(&db, models::<New>()).unwrap();
+    assert_eq!(current.get("task", id).unwrap().unwrap().revision, 2);
+    drop(current);
+    assert!(SqliteStore::open(&db, models::<Old>()).is_err());
+    let old = SqliteStore::open(&archive, models::<Old>()).unwrap();
+    assert_eq!(old.get("task", id).unwrap().unwrap().revision, 1);
 }
