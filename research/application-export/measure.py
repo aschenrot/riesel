@@ -25,8 +25,8 @@ for name, path in paths.items():
 counter = (root / paths["Counter resolved manual facade"]).read_text()
 fixture = (root / paths["Two-application research adapters/tests"]).read_text()
 routes = (root / paths["Todo HTTP routing"]).read_text()
-arm_pattern = r'"(?:value|add|label)"\\s*=>'
-route_pattern = r'pub\\(super\\) async fn (?:list|show|create|patch|delete)\\('
+arm_pattern = r'"(?:value|add|label)"\s*=>'
+route_pattern = r'pub\(super\) async fn (?:list|show|create|patch|delete)\('
 manual_arms = len(re.findall(arm_pattern, counter))
 prototype_arms = len(re.findall(arm_pattern, fixture))
 route_functions = len(re.findall(route_pattern, routes))
