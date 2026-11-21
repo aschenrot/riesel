@@ -21,8 +21,9 @@ pub use catalog::{CatalogError, ProviderCatalog, ProviderSelectionConfig};
 pub use component::{ComponentDefinition, DeclarativeComponent};
 pub use deployment::{DeploymentConfig, DeploymentError, ServiceEndpoint};
 pub use execution_plan::{
-    AccessMode, BoundExecutionPlan, ExecutionPlanDescription, ExecutionPlanDraft,
-    ExecutionPlanError, OperationKey, OperationNode, OperationRegistry, OperationTrigger,
+    AccessMode, BoundExecutionPlan, DomainAdmissionMode, DomainBoundary,
+    ExecutionPlanDescription, ExecutionPlanDraft, ExecutionPlanError, OperationKey, OperationNode,
+    OperationRegistry, OperationTrigger,
     PlanRevisionCatalog, ResourceAccess, ValidatedExecutionPlan,
 };
 #[cfg(feature = "async-tcp")]
