@@ -535,7 +535,14 @@ test('system theme tokens meet sampled text and control boundary contrast in bot
       ));
     });
     const luminosity = (hex: string) => {
-      const values = [1, 3, 5].map((index) => parseInt(hex.slice(index, index + 2), 16) / 255);
+      // Vite minification may compact #ffffff to #fff in production CSS.
+      const expanded = /^#[0-9a-f]{3}$/i.test(hex)
+        ? '#' + [...hex.slice(1)].map((digit) => digit + digit).join('')
+        : hex;
+      expect(expanded, scheme + ': valid six-digit theme token').toMatch(/^#[0-9a-f]{6}$/i);
+      const values = [1, 3, 5].map((index) =>
+        parseInt(expanded.slice(index, index + 2), 16) / 255
+      );
       const [r, g, b] = values.map((v) =>
         v <= 0.04045 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4
       );
