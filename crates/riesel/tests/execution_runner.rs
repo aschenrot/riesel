@@ -4,8 +4,8 @@
 #![cfg(feature = "async-tcp")]
 use riesel::{
     AccessMode, App, AsyncOperation, ConnectorRegistry, DeploymentConfig, DomainAdmissionMode,
-    ExecutionPlanDraft, GraphRunError, OperationKey, OperationNode, OperationOutcome, OperationRegistry,
-    OperationState, RunningApp, async_operation,
+    ExecutionPlanDraft, GraphRunError, OperationKey, OperationNode, OperationOutcome,
+    OperationRegistry, OperationState, RunningApp, async_operation,
 };
 use std::num::NonZeroUsize;
 use std::sync::{
@@ -687,9 +687,7 @@ fn domain_authority_claims_reject_conflicting_live_runs_before_any_operation() {
     };
     let delegated = || {
         ExecutionPlanDraft::new("domain.delegated", 1)
-            .operation(
-                OperationNode::new("frame", key("operation")).delegated_frame("simulation"),
-            )
+            .operation(OperationNode::new("frame", key("operation")).delegated_frame("simulation"))
             .validate()
             .unwrap()
             .bind(&handlers)
