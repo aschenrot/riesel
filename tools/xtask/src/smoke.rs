@@ -18,6 +18,7 @@ use riesel_storage::RecordStoreContract;
 
 mod authoring;
 mod counter;
+mod facade;
 mod fixtures;
 mod inspection;
 mod operational;
@@ -27,6 +28,7 @@ use authoring::verify_documented_entrypoints;
 use counter::{
     verify_counter_provider, verify_managed_session_recovery, verify_shared_managed_component,
 };
+use facade::verify_two_process_facade;
 use fixtures::{TemporaryConfig, binary, output_with_timeout, wait_for};
 use inspection::verify_deployment_preflight;
 use operational::verify_independent_inspection;
@@ -131,6 +133,10 @@ pub fn run() -> TaskResult {
     println!("\n==> Verifying two capabilities sharing one managed component instance");
     verify_shared_managed_component()?;
     println!("\nShared managed component state passed.");
+
+    println!("\n==> Verifying app-owned typed facade across independent processes");
+    verify_two_process_facade()?;
+    println!("\nTwo-process application facade research passed.");
 
     println!("\n==> Verifying application recovery from a crashed managed Counter");
     verify_managed_session_recovery()?;
