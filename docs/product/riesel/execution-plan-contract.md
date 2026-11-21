@@ -1,6 +1,6 @@
 # Riesel — Execution Plans, Scheduling and Inspection
 
-**Status:** Accepted product outcomes and architectural invariants (2026-11-21); **headless plan/binding foundation delivered; runner and inspector not yet delivered**. The owner accepted the bounded direction in [specification #83](https://github.com/aschenrot/riesel/issues/83#issuecomment-7063096674), based on [research PR #84](https://github.com/aschenrot/riesel/pull/84) and its [35 passing research tests](https://github.com/aschenrot/riesel/actions/runs/44887680499). Research-only structs, JSON documents, schedulers and examples are **not** approved public APIs or interoperability formats. This contract states required outcomes, boundaries and testable invariants, not a frozen mechanism.
+**Status:** Accepted product outcomes and architectural invariants (2026-11-21); **headless plan/binding foundation and first bounded runner increment delivered; full runner and inspector acceptance outstanding**. The owner accepted the bounded direction in [specification #83](https://github.com/aschenrot/riesel/issues/83#issuecomment-7063096674), based on [research PR #84](https://github.com/aschenrot/riesel/pull/84) and its [35 passing research tests](https://github.com/aschenrot/riesel/actions/runs/44887680499). Research-only structs, JSON documents, schedulers and examples are **not** approved public APIs or interoperability formats. This contract states required outcomes, boundaries and testable invariants, not a frozen mechanism.
 
 ## Product outcome
 

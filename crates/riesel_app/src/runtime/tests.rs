@@ -300,6 +300,8 @@ fn with_exiting_managed_child() -> RunningApp {
         #[cfg(feature = "async-tcp")]
         async_tasks: AsyncTasks::new(SessionToken::new(), CancellationToken::default()),
         #[cfg(feature = "async-tcp")]
+        graph_admission: Arc::new(crate::execution_runner::SessionGraphAdmission::default()),
+        #[cfg(feature = "async-tcp")]
         local_blocking: Vec::new(),
         session: SessionToken::new(),
     }
@@ -386,6 +388,8 @@ fn managed_failure_during_task_join_is_not_missed() {
         tasks,
         #[cfg(feature = "async-tcp")]
         async_tasks: AsyncTasks::new(SessionToken::new(), CancellationToken::default()),
+        #[cfg(feature = "async-tcp")]
+        graph_admission: Arc::new(crate::execution_runner::SessionGraphAdmission::default()),
         #[cfg(feature = "async-tcp")]
         local_blocking: Vec::new(),
         session: SessionToken::new(),

@@ -489,6 +489,8 @@ impl<'a> StartupState<'a> {
             #[cfg(feature = "async-tcp")]
             async_tasks,
             #[cfg(feature = "async-tcp")]
+            graph_admission: Arc::new(crate::execution_runner::SessionGraphAdmission::default()),
+            #[cfg(feature = "async-tcp")]
             local_blocking,
             session: self.session,
         })
