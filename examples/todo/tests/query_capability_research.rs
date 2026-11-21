@@ -1,8 +1,6 @@
 //! #107 research-only: co-located typed status query and RecordStore v2.
 //! This query scans UUID pages; it is NOT an optimized production query.
-use riesel::storage::{
-    RecordStore, RecordStoreContract, RecordStoreRpcDispatcher, StoreError,
-};
+use riesel::storage::{RecordStore, RecordStoreContract, RecordStoreRpcDispatcher, StoreError};
 use riesel::{Application, Capability, RieselModel, capability};
 use riesel_app::{ComponentDefinition, LocalProviderFactory};
 use riesel_storage_component::MemoryStore;
