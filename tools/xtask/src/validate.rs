@@ -42,6 +42,19 @@ pub fn run(mode: FormatMode) -> TaskResult {
             &["test", "--locked", "-p", "todo", "--features", "http"],
         ),
         (
+            "Graph runner with the existing async session feature",
+            &[
+                "test",
+                "--locked",
+                "-p",
+                "riesel",
+                "--features",
+                "async-tcp",
+                "--test",
+                "execution_runner",
+            ],
+        ),
+        (
             "Minimal SDK without standard capability packages",
             &["test", "--locked", "-p", "riesel", "--no-default-features"],
         ),

@@ -5,6 +5,8 @@ mod catalog;
 mod component;
 mod deployment;
 mod execution_plan;
+#[cfg(feature = "async-tcp")]
+mod execution_runner;
 mod plan;
 mod recovery;
 mod resolver;
@@ -22,6 +24,11 @@ pub use execution_plan::{
     AccessMode, BoundExecutionPlan, ExecutionPlanDescription, ExecutionPlanDraft,
     ExecutionPlanError, OperationKey, OperationNode, OperationRegistry, OperationTrigger,
     PlanRevisionCatalog, ResourceAccess, ValidatedExecutionPlan,
+};
+#[cfg(feature = "async-tcp")]
+pub use execution_runner::{
+    AsyncOperation, ExecutionGraphRunner, GraphRunError, GraphRunReport, GraphSignalSender,
+    OperationFuture, OperationOutcome, OperationState, async_operation,
 };
 pub use resolver::{InstanceIdentity, ProviderRegistry, ResolutionError, ResolvedCapability};
 #[cfg(feature = "async-tcp")]

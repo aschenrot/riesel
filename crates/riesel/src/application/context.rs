@@ -25,6 +25,18 @@ impl Context<'_> {
         self.running.session_token()
     }
 
+    /// Construct a bounded graph runner in this application's actual session.
+    /// Operations remain the application's own Rust bindings; no provider
+    /// resolution or independent executor is performed.
+    #[cfg(feature = "async-tcp")]
+    pub fn execution_graph(
+        &self,
+        plan: crate::BoundExecutionPlan<crate::AsyncOperation>,
+        max_in_flight: std::num::NonZeroUsize,
+    ) -> std::result::Result<crate::ExecutionGraphRunner, crate::GraphRunError> {
+        crate::ExecutionGraphRunner::new(plan, self.running.session_token(), max_in_flight)
+    }
+
     /// Start work owned by this application. On service failure or shutdown
     /// the task's cancellation token is signalled; all tasks must finish
     /// before managed providers can be torn down or restarted.
