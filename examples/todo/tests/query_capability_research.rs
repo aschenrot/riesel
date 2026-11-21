@@ -275,8 +275,7 @@ fn query_writer_pairing_can_be_checked_before_side_effects() {
     unpinned.expected_providers.clear();
     // If core preflight already rejects unpinned managed configuration,
     // that is also a safe failure; it is not evidence of an accepted pairing.
-    match app.deployment_plan(&unpinned) {
-        Ok(plan) => assert!(research_require_same_authoritative_instance(&plan).is_err()),
-        Err(_) => {}
+    if let Ok(plan) = app.deployment_plan(&unpinned) {
+        assert!(research_require_same_authoritative_instance(&plan).is_err());
     }
 }
