@@ -69,12 +69,14 @@ fn request(state: &Mutex<PublishedSession>, stop: &AtomicBool, msg: Value) -> Va
         };
         let attachment = Uuid::new_v4().to_string();
         current.attachments.insert(attachment.clone(), write);
-        let mut published = json!({"generation":current.generation,"attachment":attachment,
+        let published = json!({"generation":current.generation,"attachment":attachment,
                        "scope":if write {"write"} else {"read"}});
         #[cfg(feature = "research-runtime-epoch")]
-        {
-            published["research_issuer"] = json!("runtime_session_token");
-        }
+        let published = {
+            let mut enriched = published;
+            enriched["research_issuer"] = json!("runtime_session_token");
+            enriched
+        };
         return published;
     }
     if msg["type"] != "call" && msg["type"] != "stop" {
