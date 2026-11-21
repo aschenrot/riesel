@@ -266,7 +266,12 @@ impl eframe::App for Gui {
                 self.send(Request::Refresh);
             }
             ui.separator();
-            ui.label("Keyboard: Tab focuses actions; Ctrl+I increments; Ctrl+R refreshes; H checks responsiveness.");
+            if ui.button("Close GUI (Ctrl+Q)").clicked()
+                || ctx.input(|input| input.modifiers.ctrl && input.key_pressed(egui::Key::Q))
+            {
+                ctx.send_viewport_cmd(egui::ViewportCommand::Close);
+            }
+            ui.label("Keyboard: Tab focuses actions; Ctrl+I increments; Ctrl+R refreshes; Ctrl+Q closes GUI; H checks responsiveness.");
             ui.small("PROVISIONAL / INSECURE: loopback + contract verification is not client authentication or external session fencing.");
         });
         ctx.request_repaint_after(Duration::from_millis(35));
