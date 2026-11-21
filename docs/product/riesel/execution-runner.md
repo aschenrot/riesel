@@ -23,6 +23,51 @@ Session-wide admission provides a conservative shared resource budget; it does n
 
 This increment deliberately does not claim fixed-rate timing guarantees, reusable tick loops, nested ECS-system stepping, callback portability to other processes, typed dataflow, managed-service recovery, process-global authority or a graphical inspector. Full #112 acceptance still requires realistic domain delegation and application-session end-to-end fixtures before closure.
 
+## Explicit domain admission ownership (opt-in)
+
+The validated plan can declare a domain's **outer** execution boundary using
+`OperationNode::domain_tick("domain.id")` for Riesel-admitted tick operations,
+or `OperationNode::delegated_frame("domain.id")` for a Riesel-admitted frame
+whose *internal* ticks and systems are owned by the domain's own scheduler.
+These are inspectable plan semantics, not arbitrary-closure serialization,
+automatic fixed-rate clocks or permissions to control an ECS.
+
+- The plan validator rejects invalid domain IDs, repeated boundary assignments
+  on one operation (no silent last-wins authority), and a single plan that
+  mixes these two owners for the same domain, **even when the nodes are ordered**.
+- The existing session admission table claims each plan's declared domain
+  modes atomically when a runner is created. Another outstanding run cannot
+  claim the opposing mode for the same named domain. The typed
+  `GraphRunError::ConflictingDomainAuthority` fails **before any callback**.
+  The mode claim remains pinned by any still-active graph-owned Tokio
+  callback lease even if its outer runner future is abruptly dropped;
+  only after these leases are released may Riesel admit a different
+  declared owner. Actual external/domain-native work may continue after
+  its async adapter is dropped: the application/domain must independently
+  establish a safe handoff before using that newly available mode.
+- Each operation declaring the same domain is admitted exclusively, **even
+  without a manually declared read/write resource key**, across runs in the
+  same Riesel application session. Other domains and independent async
+  operations retain their own admission eligibility.
+- The application provides its own tick/frame source and domain adapter.
+  An `on_signal` trigger supports explicitly released outer ticks; there is
+  **no runtime wall-clock source, catch-up policy, jitter guarantee or
+  automatic loop**. A `DelegatedFrame` is one outer graph node, not a
+  fabricated list of internal ECS systems.
+- This opt-in declaration can coordinate *Riesel-admitted operations*;
+  it cannot intercept opaque Rust callbacks that omit/misstate the domain,
+  independently spawned threads, or an external domain's undisclosed work.
+  Domain adapters must enforce their internal ownership and lifecycle.
+  Session-local mode matching is **not authorization** for privileged
+  inspection or control, nor #113's run/attempt safe-point identity.
+
+The real thread-affine actor fixture below now uses these declarations
+for both policies and continues to verify equal final world semantics,
+cooperative cancellation after a committed tick, and independent async
+work. A future accepted clock/pacing policy and #113 safe-point controls
+can build on this same explicit boundary without creating a second
+provider resolver, ECS scheduler or process owner.
+
 ## Runnable headless workflow and session shutdown
 
 Run `cargo run --locked -p riesel --features async-tcp --example execution_graph`. The example executes two deliberately overlapping async branches, an explicit `start` signal and a completion join, using a single real `Application::run` session. It awaits the entire graph on the caller-owned Tokio executor **before** `Application::run` tears down the session. It neither performs a second provider-resolution pass nor creates a second Riesel application.
