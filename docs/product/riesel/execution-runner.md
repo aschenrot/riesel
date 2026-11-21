@@ -38,7 +38,12 @@ automatic fixed-rate clocks or permissions to control an ECS.
   modes atomically when a runner is created. Another outstanding run cannot
   claim the opposing mode for the same named domain. The typed
   `GraphRunError::ConflictingDomainAuthority` fails **before any callback**.
-  Releasing every existing runner for a domain permits a later mode change.
+  The mode claim remains pinned by any still-active graph-owned Tokio
+  callback lease even if its outer runner future is abruptly dropped;
+  only after these leases are released may Riesel admit a different
+  declared owner. Actual external/domain-native work may continue after
+  its async adapter is dropped: the application/domain must independently
+  establish a safe handoff before using that newly available mode.
 - Each operation declaring the same domain is admitted exclusively, **even
   without a manually declared read/write resource key**, across runs in the
   same Riesel application session. Other domains and independent async
