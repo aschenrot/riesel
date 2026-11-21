@@ -479,6 +479,7 @@ dependencies = [
  "riesel_counter",
  "riesel_counter_component",
  "riesel_protocol",
+ "serde",
  "serde_json",
  "tokio",
 ]
