@@ -694,7 +694,10 @@ mod tests {
                 loop {
                     let has_pending_watchers = {
                         let state = tasks.inner.state.lock().unwrap();
-                        state.handles.iter().any(|(_, watcher)| !watcher.is_finished())
+                        state
+                            .handles
+                            .iter()
+                            .any(|(_, watcher)| !watcher.is_finished())
                     };
                     if !has_pending_watchers {
                         break;
