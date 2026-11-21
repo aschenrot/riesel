@@ -26,7 +26,7 @@ jobs:
       - name: Install isolated Linux X11/OpenGL research requirements
         run: |
           sudo apt-get update
-          sudo apt-get install -y xvfb xdotool x11-utils libxcb-render0-dev libxcb-shape0-dev libxcb-xfixes0-dev libxkbcommon-dev libssl-dev libgl1-mesa-dev libegl1-mesa-dev libx11-dev libxi-dev
+          sudo apt-get install -y xvfb xdotool x11-utils libxcb-render0-dev libxcb-shape0-dev libxcb-xfixes0-dev libxkbcommon-dev libxkbcommon-x11-0 libxkbcommon-x11-dev libssl-dev libgl1-mesa-dev libegl1-mesa-dev libx11-dev libxi-dev
       - name: Build existing headless Riesel facade and isolated GUI
         run: |
           cargo build -p riesel_counter_example --bin counter_resolved_facade_host
