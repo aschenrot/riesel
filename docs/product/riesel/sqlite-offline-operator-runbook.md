@@ -4,12 +4,12 @@
 
 ## Build the application-specific maintenance entrypoint
 
-Author historical and current `RieselModel` Rust types with the same persistent model name. Construct the complete `ModelEvolution` with deliberate typed transforms and, where necessary, registered cross-model invariants. Supply a finite `EvolutionLimits` reflecting the actual deployment to `run_operator_maintenance_cli`. Do not introduce an independent schema file. The reusable [example](../../../packages/storage/sqlite/examples/offline_evolution.rs) demonstrates the command wiring for a **sample** task model, not arbitrary SQLite databases.
+Author historical and current `RieselModel` Rust types with the same persistent model name. Construct the complete `ModelEvolution` with deliberate typed transforms and, where necessary, registered cross-model invariants. Supply a finite `EvolutionLimits` reflecting the actual deployment to `run_operator_maintenance_cli`. Do not introduce an independent schema file. The reusable [independent Rust-derived example](../../../examples/sqlite-maintenance/README.md) demonstrates the command wiring for a **sample** task model, not arbitrary SQLite databases.
 
 ```sh
-cargo run -p riesel_storage_sqlite --example offline_evolution -- preview /trusted/app.db /trusted/source-backup.db
-cargo run -p riesel_storage_sqlite --example offline_evolution -- execute /trusted/app.db /trusted/source-backup.db
-cargo run -p riesel_storage_sqlite --example offline_evolution -- restore /trusted/app.db /trusted/source-backup.db /trusted/pre-restore.db
+cargo run -p riesel_sqlite_maintenance_example -- preview /trusted/app.db /trusted/source-backup.db
+cargo run -p riesel_sqlite_maintenance_example -- execute /trusted/app.db /trusted/source-backup.db
+cargo run -p riesel_sqlite_maintenance_example -- restore /trusted/app.db /trusted/source-backup.db /trusted/pre-restore.db
 ```
 
 These paths are illustrative. The database must already exist with **exact historical metadata** for preview/execute. Restore requires an existing **healthy, evolved target database** and the verified historical archive. Use a project-specific executable with its *actual* historical/current models; do not apply the sample plan to unrelated files.

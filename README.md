@@ -87,6 +87,7 @@ See the [async execution contract](docs/product/riesel/async-execution-contract.
 | `examples/hello/` | Minimal Rust-first application |
 | `examples/counter/` | Independent capability, shared-state component and local/managed tests |
 | `examples/todo/` | Typed Todo reference, persistent CLI and local browser application |
+| `examples/sqlite-maintenance/` | Application-authored offline migration CLI using derived Rust model schemas |
 | `tools/xtask/` | Validation and executable smoke-test tasks |
 | `docs/product/` | Product definitions, accepted architecture contracts and active roadmap |
 

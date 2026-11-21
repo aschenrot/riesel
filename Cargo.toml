@@ -2,6 +2,7 @@
 resolver = "3"
 members = [
   "examples/hello",
+  "examples/sqlite-maintenance",
   "examples/todo",
   "examples/counter/app",
   "packages/storage/memory",
