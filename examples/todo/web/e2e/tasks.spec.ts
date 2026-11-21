@@ -38,8 +38,7 @@ test('browser creates, edits, completes, reopens and deletes a task', async ({ p
   await page.getByRole('button', { name: 'Add task' }).click();
   await expect(page.getByText('Plan release', { exact: true })).toBeVisible();
 
-  await page.getByRole('button', { name: 'Actions for Plan release' }).click();
-  await page.getByRole('button', { name: 'Edit task' }).click();
+  await page.getByRole('button', { name: 'Edit Plan release', exact: true }).click();
   await page.getByRole('textbox', { name: 'Edit task title' }).fill('Ship release');
   await page.getByRole('button', { name: 'Save' }).click();
   await expect(page.getByText('Ship release', { exact: true })).toBeVisible();
@@ -48,8 +47,7 @@ test('browser creates, edits, completes, reopens and deletes a task', async ({ p
   await expect(page.getByRole('status')).toContainText('Task completed');
   await page.getByRole('checkbox', { name: 'Mark Ship release incomplete' }).uncheck();
 
-  await page.getByRole('button', { name: 'Actions for Ship release' }).click();
-  await page.getByRole('button', { name: 'Remove task' }).click();
+  await page.getByRole('button', { name: 'Delete Ship release' }).click();
   await page.getByRole('button', { name: 'Delete' }).click();
   await expect(page.getByText('No tasks yet')).toBeVisible();
 });
@@ -176,23 +174,23 @@ test('success feedback uses a dismissible toast without moving the list', async 
   await expect(page.getByText('Toast example', { exact: true })).toBeVisible();
 });
 
-test('task actions are keyboard accessible; Escape returns focus to trigger', async ({ page }) => {
+test('direct task edit/delete controls are keyboard accessible and Escape restores focus', async ({ page }) => {
   await page.goto('/');
   await page.getByRole('textbox', { name: 'New task' }).fill('Keyboard actions');
   await page.getByRole('button', { name: 'Add task' }).click();
-  const trigger = page.getByRole('button', { name: 'Actions for Keyboard actions' });
+  const trigger = page.getByRole('button', { name: 'Edit Keyboard actions', exact: true });
   await trigger.focus();
   await page.keyboard.press('Enter');
-  await expect(page.getByRole('button', { name: 'Edit task' })).toBeFocused();
+  await expect(page.getByRole('textbox', { name: 'Edit task title' })).toBeFocused();
   await page.keyboard.press('Escape');
   await expect(trigger).toBeFocused();
 
-  await page.keyboard.press('Enter');
-  await page.getByRole('button', { name: 'Remove task' }).click();
+  const deleteAction = page.getByRole('button', { name: 'Delete Keyboard actions' });
+  await deleteAction.click();
   await expect(page.getByRole('button', { name: 'Delete' })).toBeVisible();
   await page.getByRole('button', { name: 'Cancel' }).click();
   await expect(page.getByText('Keyboard actions', { exact: true })).toBeVisible();
-  await expect(trigger).toBeFocused();
+  await expect(deleteAction).toBeFocused();
 });
 
 test('mobile layout keeps task action on the row without horizontal overflow', async ({ page }) => {
@@ -200,7 +198,7 @@ test('mobile layout keeps task action on the row without horizontal overflow', a
   await page.goto('/');
   await page.getByRole('textbox', { name: 'New task' }).fill('Small-screen example');
   await page.getByRole('button', { name: 'Add task' }).click();
-  await expect(page.getByRole('button', { name: 'Actions for Small-screen example' })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Delete Small-screen example' })).toBeVisible();
   await expect(page.locator('li.task')).toHaveCSS('flex-wrap', 'nowrap');
   expect(await page.evaluate(() => document.documentElement.scrollWidth > window.innerWidth + 1)).toBe(false);
 });
@@ -233,9 +231,9 @@ test('capture desktop and mobile UI for visual review', async ({ page }) => {
     animations: 'disabled'
   });
   await page.getByRole('button', { name: 'Dismiss notification' }).click();
-  await page.getByRole('button', { name: 'Actions for Refine Todo layout' }).click();
+  await page.getByRole('button', { name: 'Delete Refine Todo layout' }).click();
   await page.screenshot({
-    path: 'test-results/visual-review/todo-action-menu-1280.png',
+    path: 'test-results/visual-review/todo-delete-confirm-1280.png',
     fullPage: true,
     animations: 'disabled'
   });
@@ -245,6 +243,14 @@ test('capture desktop and mobile UI for visual review', async ({ page }) => {
     fullPage: true,
     animations: 'disabled'
   });
+  await page.getByRole('button', { name: 'Select tasks' }).click();
+  await page.getByRole('button', { name: 'Select all loaded' }).click();
+  await page.screenshot({
+    path: 'test-results/visual-review/todo-selection-desktop-1280.png',
+    fullPage: true,
+    animations: 'disabled'
+  });
+  await page.getByRole('button', { name: 'Cancel selection' }).click();
   await page.setViewportSize({ width: 375, height: 812 });
   await expect(page.getByRole('heading', { name: 'Tasks' })).toBeVisible();
   expect(await page.evaluate(() => document.documentElement.scrollWidth > window.innerWidth + 1)).toBe(false);
@@ -253,6 +259,14 @@ test('capture desktop and mobile UI for visual review', async ({ page }) => {
     fullPage: true,
     animations: 'disabled'
   });
+  await page.getByRole('button', { name: 'Select tasks' }).click();
+  await page.getByRole('checkbox', { name: 'Select Review architecture' }).check();
+  await page.screenshot({
+    path: 'test-results/visual-review/todo-selection-mobile-375.png',
+    fullPage: true,
+    animations: 'disabled'
+  });
+  await page.getByRole('button', { name: 'Cancel selection' }).click();
   await page.emulateMedia({ colorScheme: 'dark' });
   await page.setViewportSize({ width: 1280, height: 800 });
   await page.screenshot({
@@ -277,10 +291,10 @@ test('capture desktop and mobile UI for visual review', async ({ page }) => {
     animations: 'disabled'
   });
   await page.getByRole('button', { name: 'Dismiss notification' }).click();
-  await page.getByRole('button', { name: 'Actions for Dark visual feedback' }).click();
-  await expect(page.getByRole('button', { name: 'Edit task' })).toBeVisible();
+  await page.getByRole('button', { name: 'Delete Dark visual feedback' }).click();
+  await expect(page.getByRole('button', { name: 'Delete', exact: true })).toBeVisible();
   await page.screenshot({
-    path: 'test-results/visual-review/todo-dark-action-menu-1280.png',
+    path: 'test-results/visual-review/todo-dark-delete-confirm-1280.png',
     fullPage: true,
     animations: 'disabled'
   });
@@ -356,8 +370,7 @@ test('connection failure while editing preserves the draft until explicit cancel
   await page.goto('/');
   await page.getByRole('textbox', { name: 'New task' }).fill('Original title');
   await page.getByRole('button', { name: 'Add task' }).click();
-  await page.getByRole('button', { name: 'Actions for Original title' }).click();
-  await page.getByRole('button', { name: 'Edit task' }).click();
+  await page.getByRole('button', { name: 'Edit Original title', exact: true }).click();
   const title = page.getByRole('textbox', { name: 'Edit task title' });
   await title.fill('Unsaved title');
   await page.route('**/api/v1/tasks/*', (route) => {
@@ -380,8 +393,7 @@ test('revision conflict explicitly permits reloading a stale edit', async ({ pag
   await page.goto('/');
   await page.getByRole('textbox', { name: 'New task' }).fill('Stale title');
   await page.getByRole('button', { name: 'Add task' }).click();
-  await page.getByRole('button', { name: 'Actions for Stale title' }).click();
-  await page.getByRole('button', { name: 'Edit task' }).click();
+  await page.getByRole('button', { name: 'Edit Stale title', exact: true }).click();
   await page.getByRole('textbox', { name: 'Edit task title' }).fill('My version');
 
   const task = (await (await request.get(api)).json()).records[0];
@@ -499,11 +511,11 @@ test('system dark theme preserves readable completed rows, feedback, and focus',
   await expect(page.getByRole('status')).toContainText('Task created');
   await page.getByRole('checkbox', { name: 'Mark Dark task complete' }).check();
   await expect(page.locator('.done .task-title')).toHaveCSS('text-decoration-line', 'line-through');
-  const trigger = page.getByRole('button', { name: 'Actions for Dark task' });
+  const trigger = page.getByRole('button', { name: 'Edit Dark task', exact: true });
   await trigger.focus();
   await expect(trigger).toBeFocused();
   await page.keyboard.press('Enter');
-  await expect(page.getByRole('button', { name: 'Edit task' })).toBeFocused();
+  await expect(page.getByRole('textbox', { name: 'Edit task title' })).toBeFocused();
   await page.keyboard.press('Escape');
   await expect(trigger).toBeFocused();
 });
@@ -580,4 +592,177 @@ test('forced-colors mode retains visible focus and native color adjustment', asy
   await button.focus();
   await expect(button).toHaveCSS('outline-style', 'solid');
   await expect(button).toHaveCSS('forced-color-adjust', 'auto');
+});
+
+test('selection is distinct from completion and filters clear selected task IDs', async ({ page, request }) => {
+  await page.goto('/');
+  for (const title of ['Selection first', 'Selection second', 'Selection third']) {
+    await page.getByRole('textbox', { name: 'New task' }).fill(title);
+    await page.getByRole('button', { name: 'Add task' }).click();
+    await expect(page.getByText(title, { exact: true })).toBeVisible();
+  }
+  await page.getByRole('button', { name: 'Select tasks' }).click();
+  await expect(page.getByRole('checkbox', { name: 'Mark Selection first complete' })).toHaveCount(0);
+  const selectionBox = page.getByRole('checkbox', { name: 'Select Selection first' });
+  await expect(selectionBox).toHaveCSS('border-radius', '50%');
+  await selectionBox.check();
+  await expect(page.getByText('1 selected')).toBeVisible();
+  const state = (await (await request.get(api)).json()).records;
+  expect(state.every((t: { completed: boolean }) => !t.completed)).toBe(true);
+  await page.getByRole('button', { name: 'Open', exact: true }).click();
+  await expect(page.getByRole('button', { name: 'Select tasks' })).toBeVisible();
+  await page.getByRole('checkbox', { name: 'Mark Selection first complete' }).check();
+  await expect(page.getByRole('status')).toContainText('Task completed');
+});
+
+test('Shift-click range and Ctrl/Cmd-click title use explicit loaded selection', async ({ page }) => {
+  await page.goto('/');
+  for (const name of ['Range one', 'Range two', 'Range three', 'Range four', 'Range five']) {
+    await page.getByRole('textbox', { name: 'New task' }).fill(name);
+    await page.getByRole('button', { name: 'Add task' }).click();
+    await expect(page.getByText(name, { exact: true })).toBeVisible();
+  }
+  const titles = await page.locator('li.task .task-title-button').allTextContents();
+  await page.getByRole('button', { name: 'Edit ' + titles[0].trim() + ' title' })
+    .click({ modifiers: ['Control'] });
+  await expect(page.getByText('1 selected')).toBeVisible();
+  await page.getByRole('checkbox', { name: 'Select ' + titles[3].trim() })
+    .click({ modifiers: ['Shift'] });
+  await expect(page.getByText('4 selected')).toBeVisible();
+  await expect(page.getByRole('textbox', { name: 'Edit task title' })).toHaveCount(0);
+  const input = page.getByRole('textbox', { name: 'New task' });
+  await input.fill('Text field should remain editable');
+  await input.focus();
+  await page.keyboard.press('Control+a');
+  await expect(page.getByText('4 selected')).toBeVisible();
+  await page.getByRole('checkbox', { name: 'Select ' + titles[3].trim() }).focus();
+  await page.keyboard.press('Control+a');
+  await expect(page.getByText('5 selected')).toBeVisible();
+  await page.keyboard.press('Escape');
+  await expect(page.getByRole('button', { name: 'Select tasks' })).toBeVisible();
+  await expect(page.getByRole('checkbox', { name: 'Mark ' + titles[0].trim() + ' complete' })).toBeVisible();
+});
+
+test('Select all loaded does not silently select unseen cursor pages', async ({ page, request }) => {
+  for (let index = 0; index < 33; index++) {
+    const result = await request.post(api, {
+      headers: { Origin: origin() }, data: { title: 'Selection page ' + index }
+    });
+    expect(result.status()).toBe(201);
+  }
+  await page.goto('/');
+  await expect(page.getByText('32 loaded', { exact: false })).toBeVisible();
+  await page.getByRole('button', { name: 'Select tasks' }).click();
+  await page.getByRole('button', { name: 'Select all loaded' }).click();
+  await expect(page.getByText('32 selected')).toBeVisible();
+  await page.getByRole('button', { name: 'Load more tasks' }).click();
+  await expect(page.getByText('33 loaded', { exact: false })).toBeVisible();
+  await expect(page.getByText('32 selected')).toBeVisible();
+  await page.getByRole('button', { name: 'Select all loaded' }).click();
+  await expect(page.getByText('33 selected')).toBeVisible();
+});
+
+test('batch Mark done and Reopen distinguish changed from already matching records', async ({ page, request }) => {
+  await page.goto('/');
+  for (const name of ['Batch one', 'Batch two', 'Batch three']) {
+    await page.getByRole('textbox', { name: 'New task' }).fill(name);
+    await page.getByRole('button', { name: 'Add task' }).click();
+    await expect(page.getByText(name, { exact: true })).toBeVisible();
+  }
+  await page.getByRole('checkbox', { name: 'Mark Batch one complete' }).check();
+  await page.getByRole('button', { name: 'Select tasks' }).click();
+  await page.getByRole('button', { name: 'Select all loaded' }).click();
+  await page.getByRole('button', { name: 'Mark done' }).click();
+  await expect(page.getByRole('status')).toContainText('2 tasks marked done');
+  let items = (await (await request.get(api)).json()).records;
+  expect(items.every((r: { completed: boolean }) => r.completed)).toBe(true);
+  await page.getByRole('button', { name: 'Select tasks' }).click();
+  await page.getByRole('button', { name: 'Select all loaded' }).click();
+  await page.getByRole('button', { name: 'Reopen' }).click();
+  await expect(page.getByRole('status')).toContainText('3 tasks reopened');
+  items = (await (await request.get(api)).json()).records;
+  expect(items.every((r: { completed: boolean }) => !r.completed)).toBe(true);
+});
+
+test('batch partial conflict keeps failed items selected and never overwrites newer revisions', async ({ page, request }) => {
+  await page.goto('/');
+  for (const name of ['Batch stale', 'Batch safe']) {
+    await page.getByRole('textbox', { name: 'New task' }).fill(name);
+    await page.getByRole('button', { name: 'Add task' }).click();
+    await expect(page.getByText(name, { exact: true })).toBeVisible();
+  }
+  await page.getByRole('button', { name: 'Select tasks' }).click();
+  await page.getByRole('button', { name: 'Select all loaded' }).click();
+  const items = (await (await request.get(api)).json()).records;
+  const stale = items.find((record: { title: string }) => record.title === 'Batch stale');
+  const external = await request.patch(api + '/' + stale.id, {
+    headers: { Origin: origin() },
+    data: { revision: stale.revision, title: 'Externally changed' }
+  });
+  expect(external.status()).toBe(200);
+  await page.getByRole('button', { name: 'Mark done' }).click();
+  await expect(page.getByRole('alert')).toContainText('1 failed');
+  await expect(page.getByText('1 selected')).toBeVisible();
+  await expect(page.getByRole('checkbox', { name: 'Select Batch stale' })).toBeChecked();
+  const finalItems = (await (await request.get(api)).json()).records;
+  expect(finalItems.find((r: { title: string }) => r.title === 'Externally changed').completed).toBe(false);
+  expect(finalItems.find((r: { title: string }) => r.title === 'Batch safe').completed).toBe(true);
+  await page.getByRole('button', { name: 'Refresh tasks' }).last().click();
+  await expect(page.getByRole('button', { name: 'Select tasks' })).toBeVisible();
+  await expect(page.getByText('Externally changed', { exact: true })).toBeVisible();
+});
+
+test('batch network failure reports partial success without blindly retrying', async ({ page, request }) => {
+  const originals = [];
+  for (const name of ['Network A', 'Network B']) {
+    const response = await request.post(api, {
+      headers: { Origin: origin() }, data: { title: name }
+    });
+    originals.push(await response.json());
+  }
+  await page.goto('/');
+  await page.getByRole('button', { name: 'Select tasks' }).click();
+  await page.getByRole('button', { name: 'Select all loaded' }).click();
+  await page.route('**/api/v1/tasks/' + originals[0].id, (route) => {
+    if (route.request().method() === 'PATCH') return route.abort();
+    return route.continue();
+  });
+  await page.getByRole('button', { name: 'Mark done' }).click();
+  await expect(page.getByRole('alert')).toContainText('1 failed');
+  const records = (await (await request.get(api)).json()).records;
+  expect(records.find((r: { id: string }) => r.id === originals[0].id).completed).toBe(false);
+  expect(records.find((r: { id: string }) => r.id === originals[1].id).completed).toBe(true);
+  await page.unroute('**/api/v1/tasks/' + originals[0].id);
+});
+
+test('selection and direct task controls have no 320px horizontal overflow', async ({ page }) => {
+  await page.setViewportSize({ width: 320, height: 740 });
+  await page.goto('/');
+  await page.getByRole('textbox', { name: 'New task' }).fill('Narrow controls');
+  await page.getByRole('button', { name: 'Add task' }).click();
+  await expect(page.getByRole('button', { name: 'Delete Narrow controls' })).toBeVisible();
+  expect(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth + 1)).toBe(false);
+  await page.getByRole('button', { name: 'Delete Narrow controls' }).click();
+  await expect(page.getByRole('button', { name: 'Delete', exact: true })).toBeVisible();
+  expect(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth + 1)).toBe(false);
+  await page.getByRole('button', { name: 'Cancel', exact: true }).click();
+  await page.getByRole('button', { name: 'Select tasks' }).click();
+  await page.getByRole('checkbox', { name: 'Select Narrow controls' }).check();
+  await expect(page.getByRole('button', { name: 'Mark done' })).toBeVisible();
+  expect(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth + 1)).toBe(false);
+});
+
+test('selection indicator retains native semantics in forced-colors mode', async ({ page }) => {
+  await page.emulateMedia({ forcedColors: 'active' });
+  await page.goto('/');
+  await page.getByRole('textbox', { name: 'New task' }).fill('Accessible selection');
+  await page.getByRole('button', { name: 'Add task' }).click();
+  await expect(page.getByText('Accessible selection', { exact: true })).toBeVisible();
+  await page.getByRole('button', { name: 'Select tasks' }).click();
+  const selection = page.getByRole('checkbox', { name: 'Select Accessible selection' });
+  await expect(selection).toHaveCSS('appearance', 'auto');
+  await selection.focus();
+  await expect(selection).toHaveCSS('outline-style', 'solid');
+  await selection.check();
+  await expect(selection).toBeChecked();
 });
