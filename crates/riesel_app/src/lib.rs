@@ -27,7 +27,8 @@ pub use execution_plan::{
 };
 #[cfg(feature = "async-tcp")]
 pub use execution_runner::{
-    AsyncOperation, ExecutionGraphRunner, GraphRunError, GraphRunReport, GraphSignalSender,
+    AsyncOperation, ExecutionGraphRunner, GraphExecutionFailure, GraphRunError, GraphRunReport,
+    GraphSignalSender,
     OperationFuture, OperationOutcome, OperationState, async_operation,
 };
 pub use resolver::{InstanceIdentity, ProviderRegistry, ResolutionError, ResolvedCapability};
