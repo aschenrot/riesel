@@ -87,7 +87,23 @@ For **GUI integration**, either a generated facade component or an explicit SDK 
 
 A product specification may accept independently verifiable work that **does not depend** on the shared decision. The relevant product gate must link #75 only for semantic changes that otherwise risk incompatible identity/readiness/exposure contracts. Avoid turning this research issue into a blanket dependency for all CLI, Manager or GUI work.
 
-## 7. Gate B recommendation and exclusions
+## 7. Tested independent-Cargo inspection boundary (2026-11-21)
+
+**Research-only evidence:** [PR #79](https://github.com/aschenrot/riesel/pull/79), executable test fixture [`research/operational-inspection`](../../../research/operational-inspection/README.md), and the [Linux validation/smoke run 44857666582](https://github.com/aschenrot/riesel/actions/runs/44857666582) on code head `2986ef46`. The CI log shows Cargo compiled the separate Rust application in an external `/tmp` directory; the test ran against the local SDK and did **not** inherit the Riesel repository's Cargo workspace or aliases. The fixture deliberately uses temporary, disposable Cargo resolution; it is not a model for distributed application dependency pinning.
+
+| Tested operation | Application setup marker | Handler marker | Result/interpretation |
+| --- | --- | --- | --- |
+| Execute `--print-definition` | Present | Absent | Valid SDK-derived JSON, but executing the *binary* ran user setup before Riesel's pure preflight |
+| Execute `--help` | Present | Absent | App help also runs setup, not the handler |
+| Execute unsupported infrastructure option | Present | Absent | Strict CLI failure happens **after** executable setup, before the handler |
+| Ordinary application run | Present | Present | Both setup and handler run normally |
+| Read cached JSON metadata from a file | Absent | Absent | Passive file inspection; no proof of artifact provenance, freshness or runtime readiness |
+
+**Finding:** an operator/developer tool must not describe arbitrary `binary --print-definition` inspection as passive or side-effect-free. Its **execution authority** is a distinct concern from the SDK's internal *preflight purity*. A future design may use (A) deliberately authorized process execution, (B) validated cached/generated metadata, or (C) an authorized live app inspection interface. Compare the three against the same product requirements; this experiment **does not choose one**.
+
+**Remaining untested contracts:** attested metadata/version binding; provider versus app/public-interface readiness; externally represented session generation; public facade authorization, disconnect and stale in-flight mutations; Manager/OS process-tree lifecycle ownership. No new Riesel runtime protocol or SDK interface was created by this evidence.
+
+## 8. Gate B recommendation and exclusions
 
 **Recommend a comparative Gate B**, evaluating B as an important reusable-foundation candidate alongside A and C under the same product-wide outcomes, integration tests and growth costs. **Do not accept any mechanism** before its concrete identity, readiness, trust and lifecycle semantics are compared. Product-owner acceptance is required for any shared public app/operational contract, implementation Issue, crate boundary, daemon or protocol.
 
