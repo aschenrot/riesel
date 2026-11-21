@@ -312,6 +312,49 @@ class RealSystemdOwnerResearch(unittest.TestCase):
                 run("systemctl", "--user", "--no-pager", "reset-failed", unit, check=False)
 
 
+    def test_unique_attempt_units_isolate_stop_but_allow_duplicate(self):
+        # Alternative owner namespace: each attempt has an immutable unit name.
+        # A stale stop for one unit cannot address another unit by name, but
+        # systemd alone does NOT enforce one attempt per app registration.
+        verify_real_manager()
+        with tempfile.TemporaryDirectory(prefix="riesel-sysd-attempts-59-") as root:
+            units = [
+                PREFIX + uuid.uuid4().hex[:12] + ".service",
+                PREFIX + uuid.uuid4().hex[:12] + ".service",
+            ]
+            markers = [Path(root) / "attempt-A", Path(root) / "attempt-B"]
+            try:
+                start(units[0], markers[0])
+                first = eventually(lambda: owner_state(units[0], markers[0]))
+                self.assertIsNotNone(first)
+                start(units[1], markers[1])
+                second = eventually(lambda: owner_state(units[1], markers[1]))
+                self.assertIsNotNone(second)
+
+                # Both OS-owned services run the *same* underlying executable.
+                # Without an atomic registration gate, unique names admit both.
+                self.assertNotEqual(first[0]["Id"], second[0]["Id"])
+                self.assertNotEqual(first[1]["pid"], second[1]["pid"])
+                print("RESEARCH_SYSTEMD_UNIQUE_ATTEMPT_NAMES_ALLOW_DUPLICATES", flush=True)
+
+                self.assertEqual(
+                    stop_if_current(units[0], first[0]["InvocationID"]),
+                    "stop_requested",
+                )
+                self.assertTrue(eventually(
+                    lambda: proc_birth(first[1]["pid"]) != first[1]["birth"]
+                ))
+                self.assertEqual(show(units[1])["InvocationID"], second[0]["InvocationID"])
+                self.assertEqual(
+                    proc_birth(second[1]["pid"]), second[1]["birth"]
+                )
+                print("RESEARCH_SYSTEMD_ATTEMPT_NAMES_ISOLATE_OLD_STOP", flush=True)
+            finally:
+                for unit in units:
+                    run("systemctl", "--user", "--no-pager", "stop", unit, check=False)
+                    run("systemctl", "--user", "--no-pager", "reset-failed", unit, check=False)
+
+
 if __name__ == "__main__":
     if len(sys.argv) >= 2 and sys.argv[1] == "--child":
         child_mode(Path(sys.argv[2]))
