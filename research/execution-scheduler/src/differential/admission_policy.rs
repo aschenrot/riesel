@@ -282,3 +282,97 @@ async fn partial_domain_cancellation_is_currently_misclassified_as_graph_complet
     // Production should not adopt this adapter mapping: a domain cancellation
     // has a committed prefix and a distinct terminal reason, not plain success.
 }
+
+
+/// Bias control: a *centralized* graph can also admit unrelated async work
+/// while ECS ticks wait for cooperative gate permits. A global one-operation
+/// debugger budget from the previous test intentionally postpones unrelated
+/// work, but it is NOT an inherent C scheduling limitation.
+#[tokio::test(flavor = "current_thread")]
+async fn central_graph_can_process_unrelated_async_while_tick_admission_is_paused() {
+    let ecs = EcsOwner::start(TickOwner::Kernel);
+    let gate = Arc::new(tokio::sync::Semaphore::new(0));
+    let sender_1 = ecs.sender.clone();
+    let sender_2 = ecs.sender.clone();
+    let permit_1 = Arc::clone(&gate);
+    let permit_2 = Arc::clone(&gate);
+    let seen = Arc::new(Mutex::new(Vec::<EcsSnapshot>::new()));
+    let seen_1 = Arc::clone(&seen);
+    let seen_2 = Arc::clone(&seen);
+    let joined = Arc::new(AtomicUsize::new(0));
+
+    let mut nodes = vec![
+        Node::new("read_input", &[], vec![], noop()),
+        Node::new("tick_1", &["read_input"], vec![Access::Write("ecs-world")],
+            operation(move || {
+                let sender = sender_1.clone();
+                let gate = Arc::clone(&permit_1);
+                let seen = Arc::clone(&seen_1);
+                async move {
+                    // Gate is separate from the domain's internal ECS system
+                    // admission. Never claim control of RunenECS's scheduler.
+                    gate.acquire_owned().await.map_err(|_| "tick admission closed")?
+                        .forget();
+                    let tick = domain_tick(sender, INPUT).await?;
+                    seen.lock().unwrap().push(tick);
+                    Ok(())
+                }
+            })),
+        Node::new("tick_2", &["tick_1"], vec![Access::Write("ecs-world")],
+            operation(move || {
+                let sender = sender_2.clone();
+                let gate = Arc::clone(&permit_2);
+                let seen = Arc::clone(&seen_2);
+                async move {
+                    gate.acquire_owned().await.map_err(|_| "tick admission closed")?
+                        .forget();
+                    let tick = domain_tick(sender, INPUT).await?;
+                    seen.lock().unwrap().push(tick);
+                    Ok(())
+                }
+            })),
+    ];
+    nodes.extend(workflow_nodes(Arc::clone(&joined)));
+    nodes.push(Node::new("final", &["tick_2", "async_join"], vec![], noop()));
+    let plan = Arc::new(Plan::validate(nodes).unwrap());
+
+    let running = tokio::spawn(async move {
+        let mut run = Run::new(plan, GENERATION, 23, 3, Trace::new(true, 64));
+        run.fire("message");
+        run.advance(usize::MAX).await;
+        (
+            run.state("final"),
+            run.trace.retained.iter().filter(|e|
+                e.node.starts_with("tick_") && e.status == Status::Completed
+            ).count(),
+        )
+    });
+
+    // Both IO branches must join before ANY simulation tick is permitted.
+    tokio::time::timeout(Duration::from_secs(2), async {
+        while joined.load(Ordering::SeqCst) == 0 {
+            tokio::task::yield_now().await;
+        }
+    }).await.expect("centralized admission must not block independent async work");
+    assert!(seen.lock().unwrap().is_empty());
+    assert!(!running.is_finished());
+    gate.add_permits(1); // admit exactly the first tick
+    tokio::time::timeout(Duration::from_secs(2), async {
+        loop {
+            let count = seen.lock().unwrap().len();
+            if count == 1 { break; }
+            tokio::task::yield_now().await;
+        }
+    }).await.expect("one permitted kernel-owned tick did not complete");
+    assert_eq!(*seen.lock().unwrap(), vec![expected_first()]);
+    assert!(!running.is_finished(), "second tick has not been admitted");
+
+    gate.add_permits(1); // admit the remaining bounded catch-up tick
+    let (status, tick_events) =
+        tokio::time::timeout(Duration::from_secs(2), running)
+            .await.expect("central graph should finish").unwrap();
+    assert_eq!(status, Some(Status::Completed));
+    assert_eq!(tick_events, 2);
+    assert_eq!(*seen.lock().unwrap(), vec![expected_first(), expected_second()]);
+    assert_eq!(joined.load(Ordering::SeqCst), 1);
+}
