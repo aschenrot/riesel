@@ -479,3 +479,7 @@ async fn slow_domain_observer_cannot_stall_tick_execution() {
     assert_eq!(result.ticks.len(), 3);
     assert_eq!(result.ticks.last().unwrap().tick, 3);
 }
+
+// Gate H: a discriminating mixed-domain central-vs-domain admission probe.
+#[cfg(test)]
+mod admission_policy;
