@@ -40,28 +40,76 @@ def start_time() -> int:
     return int(raw[raw.rfind(")") + 2:].split()[19])
 
 
-def check(action: str, unit: str, verb: str) -> subprocess.CompletedProcess[str]:
-    identity = f"{os.getpid()},{start_time()},{os.getuid()}"
-    return run(["pkcheck", "--action-id", action, "--process", identity,
-                "--detail", "unit", unit, "--detail", "verb", verb])
-
-
-def client(action: str, unit: str, verb: str, role: str, expected: int) -> None:
+def subject(action: str, unit: str) -> None:
+    # This is an unprivileged client. A rule's action details cannot be
+    # supplied directly by an untrusted polkit caller; we verified the
+    # PolicyKit daemon returns NotAuthorized (not a normal policy NO).
     if os.geteuid() == 0:
-        raise AssertionError("polkit test client unexpectedly root")
+        raise AssertionError("research subject unexpectedly privileged")
     with open("/proc/self/status", encoding="utf-8") as f:
         caps = next(line for line in f if line.startswith("CapEff:"))
     if int(caps.split(":", 1)[1], 16):
-        raise AssertionError("client has effective Linux capabilities")
-    result = check(action, unit, verb)
+        raise AssertionError("subject has effective Linux capabilities")
+    identity = f"{os.getpid()},{start_time()},{os.getuid()}"
+    direct = run(["pkcheck", "--action-id", action, "--process", identity,
+                  "--detail", "unit", unit, "--detail", "verb", "stop"])
+    if direct.returncode != 127 or "NotAuthorized" not in direct.stderr:
+        raise AssertionError(
+            f"expected untrusted detail rejection; rc={direct.returncode}, "
+            f"stderr={direct.stderr!r}"
+        )
+    print("RESEARCH_M59_POLKIT_UNTRUSTED_DIRECT_DETAILS_REJECTED", flush=True)
+    print(f"READY {os.getpid()} {start_time()} {os.getuid()}", flush=True)
+    sys.stdin.readline()  # remain alive for protected, trusted root check
+
+
+def verified_subject(process: subprocess.Popen[str], timeout: float = 8.0) -> str:
+    import select
+    assert process.stdout is not None
+    ready, _, _ = select.select([process.stdout], [], [], timeout)
+    if not ready:
+        raise AssertionError("unprivileged polkit subject did not report status")
+    marker = process.stdout.readline().strip()
+    if marker != "RESEARCH_M59_POLKIT_UNTRUSTED_DIRECT_DETAILS_REJECTED":
+        raise AssertionError(f"unexpected untrusted detail status: {marker!r}")
+    # Python's text-mode readline may have buffered the next line.
+    identity = process.stdout.readline().strip().split()
+    if len(identity) != 4 or identity[0] != "READY":
+        raise AssertionError(f"invalid polkit subject identity: {identity!r}")
+    pid, tick, uid = map(int, identity[1:])
+    if pid <= 1 or pid != process.pid and process.args[0] != "sudo":
+        raise AssertionError("unexpected process pid")
+    if uid == 0:
+        raise AssertionError("polkit subject retained root")
+    # The running fixture keeps this /proc identity available. Both
+    # observed UID and start-time come from the kernel-owned procfs.
+    stat = Path(f"/proc/{pid}/stat").read_text()
+    observed_tick = int(stat[stat.rfind(")") + 2:].split()[19])
+    if tick != observed_tick:
+        raise AssertionError("subject PID/start-time changed")
+    return f"{pid},{tick},{uid}"
+
+
+def trusted_check(action: str, identity: str, unit: str, verb: str,
+                  expected: int, role: str) -> None:
+    # Only a trusted mechanism (root in this research) can supply
+    # the action's unit/verb details to polkit. A real Manager must
+    # derive them from the authoritative registration, not client JSON.
+    result = run(["sudo", "-n", "pkcheck", "--action-id", action,
+                  "--process", identity, "--detail", "unit", unit,
+                  "--detail", "verb", verb])
     if expected == 0 and result.returncode != 0:
         raise AssertionError(
-            f"{role} expected authorized: rc={result.returncode}; err={result.stderr}"
+            f"{role} expected authorized: rc={result.returncode}; "
+            f"stderr={result.stderr}"
         )
     if expected == 1 and result.returncode == 0:
         raise AssertionError(f"{role} unexpectedly authorized")
-    if result.returncode == 127:
-        raise AssertionError(f"polkit client error, not a security result: {result.stderr}")
+    if result.returncode in (126, 127):
+        raise AssertionError(
+            f"{role} invalid/rejected polkit check, not policy evidence: "
+            f"{result.stderr}"
+        )
     print(f"RESEARCH_M59_POLKIT_{role}_RC_{result.returncode}", flush=True)
 
 
@@ -137,20 +185,7 @@ def main() -> None:
                 raise AssertionError(f"install research policy failed: {result.stderr}")
             installed.append(dest)
 
-        def invoke(role: str, verb: str, target: str, expected: int, other: bool = False):
-            args = [sys.executable, str(code), "--client", action, target, verb,
-                    role, str(expected)]
-            if other:
-                args = ["sudo", "-n", "setpriv", f"--reuid={OTHER_UID}",
-                        f"--regid={OTHER_UID}", "--clear-groups",
-                        "/usr/bin/python3", str(code), "--client", action,
-                        target, verb, role, str(expected)]
-            res = run(args)
-            if res.returncode:
-                raise AssertionError(f"{role} failed: {res.stderr[:600]!r}, out={res.stdout!r}")
-            return res.stdout
-
-        # Observe policy/action visibility on a real polkit daemon.
+        # Observe policy/action visibility on the actual polkit daemon.
         ready = False
         for _ in range(25):
             result = run(["pkaction", "--action-id", action])
@@ -159,24 +194,66 @@ def main() -> None:
                 break
             time.sleep(0.2)
         if not ready:
-            raise AssertionError("actual polkit action was not registered")
+            raise AssertionError("actual polkit action not registered")
 
-        # All roles are separate short-lived process PIDs. The "operator"
-        # role is a *test label*, not a trusted OS code identity.
-        trusted = invoke("OPERATOR", "stop", unit, 0)
-        hostile = invoke("HOSTILE_SAME_UID", "stop", unit, 0)
-        for output in (trusted, hostile):
-            if "_RC_0" not in output:
-                raise AssertionError(f"expected actual polkit success: {output}")
-        print("RESEARCH_M59_POLKIT_SAME_UID_CLIENTS_BOTH_AUTHORIZED", flush=True)
+        # Real PID/start-time/UID subjects, each a separate non-root process.
+        # The root checker receives only kernel-verified subject information,
+        # while the trusted operation/target comes from the test's own policy.
+        clients = []
+        try:
+            def spawn(role: str, other: bool = False):
+                cmd = [sys.executable, "-u", str(code), "--subject", action, unit]
+                if other:
+                    cmd = ["sudo", "-n", "setpriv",
+                           f"--reuid={OTHER_UID}", f"--regid={OTHER_UID}",
+                           "--clear-groups", "/usr/bin/python3", "-u",
+                           str(code), "--subject", action, unit]
+                p = subprocess.Popen(cmd, stdin=subprocess.PIPE,
+                                     stdout=subprocess.PIPE,
+                                     stderr=subprocess.PIPE, text=True,
+                                     cwd="/tmp")
+                clients.append(p)
+                return verified_subject(p)
 
-        forbidden1 = invoke("WRONG_UNIT", "stop", unit + ".other", 1)
-        forbidden2 = invoke("WRONG_VERB", "restart", unit, 1)
-        foreign = invoke("FOREIGN_UID", "stop", unit, 1, other=True)
-        if "_RC_0" in forbidden1 + forbidden2 + foreign:
-            raise AssertionError("polkit wrong-detail or foreign subject was accepted")
-        print("RESEARCH_M59_POLKIT_ACTION_DETAILS_AND_OTHER_UID_DENIED", flush=True)
-        print("RESEARCH_M59_POLKIT_USER_POLICY_NO_CLIENT_ATTESTATION_PASS", flush=True)
+            legit = spawn("OPERATOR")
+            hostile = spawn("HOSTILE_SAME_UID")
+            foreign = spawn("FOREIGN_UID", other=True)
+            if legit == hostile:
+                raise AssertionError("subject identities must differ")
+            if legit.split(",")[2] != hostile.split(",")[2]:
+                raise AssertionError("same-UID subjects not same user")
+            if legit.split(",")[2] == foreign.split(",")[2]:
+                raise AssertionError("foreign-UID subject not distinct")
+
+            trusted_check(action, legit, unit, "stop", 0, "OPERATOR")
+            trusted_check(action, hostile, unit, "stop", 0,
+                          "HOSTILE_SAME_UID")
+            print("RESEARCH_M59_POLKIT_SAME_UID_CLIENTS_BOTH_AUTHORIZED",
+                  flush=True)
+
+            trusted_check(action, hostile, unit + ".other", "stop", 1,
+                          "WRONG_UNIT")
+            trusted_check(action, hostile, unit, "restart", 1,
+                          "WRONG_VERB")
+            trusted_check(action, foreign, unit, "stop", 1,
+                          "FOREIGN_UID")
+            print("RESEARCH_M59_POLKIT_ACTION_DETAILS_AND_OTHER_UID_DENIED",
+                  flush=True)
+            print("RESEARCH_M59_POLKIT_USER_POLICY_NO_CLIENT_ATTESTATION_PASS",
+                  flush=True)
+        finally:
+            for p in clients:
+                try:
+                    if p.stdin is not None:
+                        p.stdin.close()
+                    p.wait(timeout=5)
+                except (subprocess.TimeoutExpired, OSError):
+                    p.kill()
+                    p.wait(timeout=5)
+                if p.stdout is not None:
+                    p.stdout.close()
+                if p.stderr is not None:
+                    p.stderr.close()
     finally:
         # Remove exact random files only; never wildcard policy actions or
         # change systemd units, admins, sudoers, or other polkit rules.
@@ -188,8 +265,7 @@ def main() -> None:
 if __name__ == "__main__":
     if len(sys.argv) == 1:
         main()
-    elif len(sys.argv) == 7 and sys.argv[1] == "--client":
-        _, _, action, unit, verb, role, expected = sys.argv
-        client(action, unit, verb, role, int(expected))
+    elif len(sys.argv) == 4 and sys.argv[1] == "--subject":
+        subject(sys.argv[2], sys.argv[3])
     else:
         raise SystemExit("invalid research mode")
