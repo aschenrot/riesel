@@ -332,7 +332,7 @@ async fn central_policy() -> (Vec<Snapshot>, GraphRunReport) {
 
     signals.fire("tick.one").unwrap();
     tokio::time::timeout(Duration::from_secs(3), async {
-        while snapshots.lock().unwrap().len() < 1 {
+        while snapshots.lock().unwrap().is_empty() {
             tokio::task::yield_now().await;
         }
     })
