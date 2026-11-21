@@ -1,0 +1,4 @@
+# This is a CI/research fixture, not a distributed application. Cargo resolves
+# dependencies offline from the validated repository's cache.
+Cargo.lock
+target/

@@ -20,6 +20,7 @@ mod authoring;
 mod counter;
 mod fixtures;
 mod inspection;
+mod operational;
 mod storage;
 
 use authoring::verify_documented_entrypoints;
@@ -28,6 +29,7 @@ use counter::{
 };
 use fixtures::{TemporaryConfig, binary, output_with_timeout, wait_for};
 use inspection::verify_deployment_preflight;
+use operational::verify_independent_inspection;
 use storage::{verify_graceful_storage_exit, verify_multi_service_rollback};
 
 pub fn run() -> TaskResult {
@@ -61,6 +63,10 @@ pub fn run() -> TaskResult {
     println!("\n==> Verifying documented Hello and Todo authoring entrypoints");
     verify_documented_entrypoints()?;
     println!("\nHello and Todo authoring examples passed.");
+
+    println!("\n==> Probing independent Cargo workspace inspection side effects");
+    verify_independent_inspection()?;
+    println!("\nIndependent app inspection boundary passed.");
 
     // No pre-bind/drop reservation race and no fixed port in deployment.
     let path = env::temp_dir().join(format!("riesel-managed-smoke-{}.json", std::process::id()));
