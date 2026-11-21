@@ -257,3 +257,61 @@ fn drain_from_cursor(todo: &Todo, cursor: Uuid) -> Vec<Uuid> {
     }
     panic!("cursor traversal did not exhaust within four pages");
 }
+
+#[test]
+fn sqlite_status_predicate_can_use_an_expression_index_in_a_scratch_database() {
+    // Read/write only an isolated temporary research DB. This is NOT an
+    // approved physical-index migration for existing Todo installations.
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("tasks.db");
+    let (todo, store) = setup(Provider::Sqlite, &path);
+    let ids = seed(&todo, &store, Provider::Sqlite, 10_000, &[9_999]);
+    drop(todo);
+    drop(store); // Release Riesel's cooperative owner before SQL-only research.
+
+    let connection = rusqlite::Connection::open(&path).unwrap();
+    const STATUS_QUERY: &str = "SELECT id FROM records
+        WHERE model=?1 AND json_extract(CAST(data AS TEXT), '$.completed')=0
+        ORDER BY id LIMIT 32";
+    const PLAN_QUERY: &str = "EXPLAIN QUERY PLAN SELECT id FROM records
+        WHERE model=?1 AND json_extract(CAST(data AS TEXT), '$.completed')=0
+        ORDER BY id LIMIT 32";
+
+    let before: String = connection
+        .query_row(PLAN_QUERY, ["task"], |row| row.get(3))
+        .unwrap();
+    let unindexed = sample_sql_query(&connection, STATUS_QUERY, ids[9_999]);
+    connection
+        .execute_batch(
+            "CREATE INDEX todo_status_research_idx
+             ON records(model, json_extract(CAST(data AS TEXT), '$.completed'), id)",
+        )
+        .unwrap();
+    let after: String = connection
+        .query_row(PLAN_QUERY, ["task"], |row| row.get(3))
+        .unwrap();
+    assert!(after.contains("todo_status_research_idx"), "{after}");
+    let indexed = sample_sql_query(&connection, STATUS_QUERY, ids[9_999]);
+
+    println!(
+        "status_research sql_only_rows=10000 unindexed_plan={before:?} indexed_plan={after:?}          unindexed_median_us={unindexed} indexed_median_us={indexed}"
+    );
+}
+
+fn sample_sql_query(connection: &rusqlite::Connection, sql: &str, expected: Uuid) -> u128 {
+    // Multiple warmed samples, not a controlled benchmark or performance SLA.
+    let mut samples = Vec::new();
+    for _ in 0..11 {
+        let started = Instant::now();
+        let mut statement = connection.prepare_cached(sql).unwrap();
+        let values = statement
+            .query_map(["task"], |row| row.get::<_, Vec<u8>>(0))
+            .unwrap()
+            .map(|record| Uuid::from_slice(&record.unwrap()).unwrap())
+            .collect::<Vec<_>>();
+        samples.push(started.elapsed().as_micros());
+        assert_eq!(values, vec![expected]);
+    }
+    samples.sort_unstable();
+    samples[5]
+}

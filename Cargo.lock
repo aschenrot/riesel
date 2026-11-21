@@ -423,6 +423,7 @@ dependencies = [
  "riesel_storage",
  "riesel_storage_component",
  "riesel_storage_sqlite",
+ "rusqlite",
  "serde",
  "serde_json",
  "tempfile",

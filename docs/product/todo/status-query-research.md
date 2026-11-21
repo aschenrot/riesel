@@ -32,6 +32,10 @@ All candidates must preserve application-owned task semantics, stable IDs and re
 
 An additional browser integration fixture `examples/todo/web/e2e/status-query-research.spec.ts` seeds 33 records through the accepted local HTTP API with the first 32 UUIDs completed. It confirms the current Open tab displays its **loaded-page-only** placeholder while the sole Open task remains behind `Load more tasks`, then appears after cursor continuation. A screenshot records the partial empty state. This fixture is evidence of current behavior, not an acceptance test for a redesigned list.
 
+## Read-only SQL predicate / temporary-index comparison
+
+A fifth, **scratch-database-only** Rust test uses the same SQLite file seeded by the actual linked Todo provider at 10,000 records, then releases the provider's cooperative owner. It measures a `json_extract(CAST(data AS TEXT),'$.completed')` status predicate with UUID ordering, before and after creating a temporary expression index in that **isolated research database**. It reports SQLite `EXPLAIN QUERY PLAN` and the median of 11 in-process SQL-only timings, and asserts result identity. This compares query strategies but does **not** implement an accessible Riesel capability, include app transport/session costs, or establish an approved physical migration procedure for user databases.
+
 ## Decision gate
 
 Before implementing UX groups, choose one complete semantic model:
