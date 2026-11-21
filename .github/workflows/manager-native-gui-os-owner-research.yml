@@ -34,6 +34,10 @@ jobs:
             libgl1-mesa-dev libegl1-mesa-dev libx11-dev libxi-dev
           test "$(ps -p 1 -o comm=)" = systemd
           sudo -n systemctl --system show --property=Version --value
+          for d in /tmp /run /opt; do
+            echo "RESEARCH_M59_MOUNT_PATH=$d"
+            findmnt -T "$d" -no TARGET,OPTIONS
+          done
       - name: Fetch pinned, already verified independent Counter native GUI (PR #90)
         env:
           PINNED_SHA: 5201e61cc74bab778dfc63a3788f1708b2530f21
