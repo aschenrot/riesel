@@ -218,3 +218,34 @@ Under a constrained first **single-trusted-user** local threat model, same-UID p
 6. Record transport/version compatibility and metadata provenance choices; fail closed on unknown versions rather than silently accepting a different contract.
 
 Existing #79/#81/#82 evidence establishes only the indicated subsets. The new [POSIX process probe](../../../research/process-ownership/process_tree_probe.py) is a research comparator, **not** Riesel or systemd validation. Keep #75 OPEN and request maintainer **ACCEPT / REVISE / DEFER / REJECT** for the *shared semantic invariant*, separately from any particular exporter/daemon or implementation milestone.
+## 12. Verified negative two-process lifecycle tests — 2026-11-21
+
+**Research-only evidence:** [draft PR #87](https://github.com/aschenrot/riesel/pull/87), fixture head `6a316c632cd120bb45e25f6ce40bff196bacf344`, passed [Linux validation and executable smoke run 44875546632](https://github.com/aschenrot/riesel/actions/runs/44875546632) (Windows skipped under the manual release policy). The run printed `RESEARCH_FACADE_STALE_REBIND_PROVEN (unsafe baseline)` and `RESEARCH_FACADE_UNKNOWN_MUTATION_OUTCOME_PROVEN`. These are **deliberate negative demonstrations** of current external-interface behavior, not implementations of a safe exporter or an accepted public API.
+
+### 12.1 Old external typed client mutates a fresh application process
+
+The [resolved-facade research host](../../../examples/counter/app/tests/fixtures/counter_resolved_facade_host.rs) still resolves `AsyncCapability<AsyncCounterContract>` through Riesel's actual application registry and session. The [smoke harness](../../../tools/xtask/src/smoke/facade.rs) now holds **one external client process and unchanged generated typed binding** while the first application process finishes cleanly, then launches a new application process with fresh in-memory provider state on the *same loopback address*. The stale client reads initial value 0 and successfully performs `add(2)` and `add(3)` on the **new** process. Both hosts independently exit after checking the value 5. The harness waits for bounded announcements and process exits and checks the exact same endpoint was reused; it does not use application metadata to authenticate the replacement.
+
+The source mechanism explains the observed result: `AsyncTcpRpcTransport::new` creates a **client-local** `SessionToken`, and each request opens a new TCP socket. Without a server-issued generation, the old transport cannot know that the Riesel application session behind the address changed. An *in-process* session revocation is not an *external* session fence.
+
+**Proved:** same-endpoint **whole-OS-process restart** does not revoke an unchanged external typed binding, and the binding can mutate the replacement backend. **Not proved:** recovery within one unchanged app OS process/PID, an authenticated caller, hostile same-UID separation, general endpoint discovery, or any positive server-side epoch check. Deliberate test-only port reuse is not a recommended identity mechanism.
+
+### 12.2 Applied mutation with unavailable success response
+
+In a separate bounded host mode, the manual facade awaits the real Riesel-resolved `counter.add(3)` before **withholding the handler's RPC result**. The external client receives `CallError::Rpc(RpcError::Transport(_))` on its timed-out operation; a subsequent explicit `value()` reads 3. The client then deliberately calls `add(2)` once and observes value 5. This distinguishes a completed domain mutation from a reported transport failure without adding implicit retries. It does **not** model durable operation journaling, network packet loss, a crashed persisted provider or exactly-once delivery.
+
+**Decision implication:** a timeout is **unknown command outcome**, not proof that the operation failed or was reversed. Reconnect should reauthenticate, retrieve a fresh session attachment and reconcile authoritative state before the user decides on another mutation. Mutation retry/idempotency would need an independently accepted operation protocol and durable status mechanism.
+
+### 12.3 Remaining Gate B evidence and architectural consequence
+
+The negative probes materially strengthen the need for *server-validated*, application-session-scoped external exports: an externally represented fresh generation on every whole-session recovery (even without OS PID changes), explicit contract/version and app identity, revocation before a successor is callable, and per-operation authorization **before** dispatch. Client-local `SessionToken`, loopback address and capability metadata alone cannot deliver that. The previous generated and manual comparators still require caller authentication and repeated adapter code; neither should be promoted as a public application exporter.
+
+**Still required, not inferred from #87:**
+
+1. A positive SDK-resolved, app-owned two-process export experiment where an old descriptor **fails closed before mutation** after both same-process whole-session recovery and full process replacement; the fresh authenticated client succeeds. Test wrong app/contract/version and missing/forbidden principal separately from epoch mismatch.
+2. A declared local threat model, including explicitly handled or excluded hostile same-UID processes, and malformed/oversized request limits before privileged operations.
+3. Verifiable readiness **after authenticated callable interface probing**, not just listener bind or provider handshake; attached clients must report stale/unknown observations.
+4. Comparison of a bounded reusable SDK exporter against current manual/generator/HTTP approaches for two separately authored applications, preserving domain versus RPC error channels and avoiding a second resolver.
+5. Separate Manager and native-host process/lifecycle tests owned by #59/#60; this fixture proves no OS service-manager guarantee or real GUI event loop.
+
+**Status:** #75 remains OPEN. The shared semantic direction has the product owner's approval, but these negative experiments do not approve the exporter architecture, credential mechanism or implementation. See the [direction review PR #86](https://github.com/aschenrot/riesel/pull/86).
