@@ -18,7 +18,7 @@ This research now tests the contrasting **system** service with a **separate app
 
 [Script](system_protected_owner_probe.py), executed on an ephemeral Ubuntu 24.04 runner with actual systemd PID 1:
 
-1. An unprivileged CI coordinator uses disposable runner-only `sudo -n` to submit an actual `systemd-run --system` **transient Type=exec unit**. The unit runs `/usr/bin/sleep 100` under **numeric service UID/GID 60081**. No permanent service or OS account is installed. Its unit name includes a random 12-digit hex attempt identifier under an exact test prefix.
+1. An unprivileged CI coordinator uses disposable runner-only `sudo -n` to submit an actual `systemd-run --system` **transient Type=exec unit**. The unit runs `/usr/bin/sleep 100` under **a distinct systemd-assigned temporary service UID (`DynamicUser=yes`)**. No permanent service or OS account is installed. Its unit name includes a random 12-digit hex attempt identifier under an exact test prefix.
 2. The initiating controller calls `os._exit(23)`. A separate controller subsequently observes systemd's `MainPID`, `InvocationID`, `ActiveState`, and kernel-reported process UID.
 3. **Two independent untrusted clients running under the same numeric UID/GID 60090**, each with zero effective capabilities and no passwordless sudo, try: direct `SIGTERM` to that exact PID, actual **system-manager** `systemctl stop/restart/kill` without interactive password prompting, and writes to an explicitly protected **root-owned 0700/0600 temporary registration**.
 4. Every forbidden effect must be denied; confirm the exact PID, `InvocationID` and liveness **remain unchanged** after *each* client. This must not depend solely on nonzero return codes.
@@ -41,6 +41,8 @@ Expected evidence markers:
 - `RESEARCH_MANAGER_ROOT_OWNED_REGISTRY_UNMODIFIED`
 - `RESEARCH_MANAGER_PRIVILEGED_SYSTEM_OWNER_STOP_CONFIRMED`
 - `RESEARCH_MANAGER_SYSTEM_OWNER_S1_DIFFERENTIAL_PASS`
+
+**Fixture correction from executed Linux CI:** Initial systemd service creation failed before testing isolation: `User=60081` could not be resolved on the hosted runner, with `status=217/USER`. That result is an account-resolution limitation, **not security evidence**. The revised fixture uses systemd `DynamicUser=yes` with an ephemeral service principal and checks its **actual kernel UID**, avoiding permanent accounts; this hypothesis requires a passing exact-head CI run before it is treated as verified.
 
 ## Strict interpretation and threat-model gaps
 
