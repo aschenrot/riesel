@@ -160,9 +160,8 @@ impl SessionGraphAdmission {
         if state.operations.len() >= MAX_SESSION_PARALLEL_OPERATIONS
             || state.operations.values().any(|active| {
                 conflicts(&active.accesses, accesses)
-                    || domain.is_some_and(|boundary| {
-                        active.domain.as_deref() == Some(boundary.domain())
-                    })
+                    || domain
+                        .is_some_and(|boundary| active.domain.as_deref() == Some(boundary.domain()))
             })
         {
             return None;
