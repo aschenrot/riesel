@@ -137,7 +137,7 @@ def runner():
         loaded = True
         print("RESEARCH_M59_APPARMOR_DISPOSABLE_PROFILE_LOADED", flush=True)
 
-        def run_case(client_command, expected, suffix):
+        def run_case(client_command, expected, suffix, observed_label=None):
             endpoint = root / f"socket-{suffix}.sock"
             owner = subprocess.Popen(
                 sudo("/usr/bin/python3", "-u", str(script),
@@ -159,6 +159,10 @@ def runner():
                     )
                 if expected == "ALLOW" and profile not in res.stdout:
                     raise AssertionError("kernel security context not inherited")
+                if observed_label is not None and observed_label not in res.stdout:
+                    raise AssertionError(
+                        f"{suffix} not in declared OS profile: {res.stdout!r}"
+                    )
                 rc = owner.wait(timeout=8)
                 tail = owner.stdout.read()
                 if rc != 0:
@@ -224,7 +228,7 @@ def runner():
             "/usr/bin/python3", str(script), "--client"
         )
         run_case([*restricted, str(root / "socket-restricted.sock")],
-                 "DENY", "restricted")
+                 "DENY", "restricted", observed_label=attacker_profile)
         print("RESEARCH_M59_APPARMOR_CONFINED_ATTACKER_SAME_UID_DENIED",
               flush=True)
 
@@ -241,8 +245,20 @@ def runner():
                 "attacker confined without transition rights nevertheless "
                 f"entered trusted profile: stdout={blocked.stdout!r}"
             )
+        stderr = blocked.stderr.lower()
+        # A missing executable, path, account, parser, or profile is a
+        # fixture error; an actual AppArmor security policy rejection is
+        # evidence. Require a concrete permission-denied error, not merely
+        # a nonzero return code from aa-exec.
+        if "permission denied" not in stderr and "operation not permitted" not in stderr:
+            raise AssertionError(
+                f"restricted transition failed without permission denial: "
+                f"rc={blocked.returncode}, stderr={blocked.stderr[:1100]!r}"
+            )
         if profile in blocked.stdout and attacker_profile not in blocked.stdout:
             raise AssertionError("rejected attempt unexpectedly used trusted label")
+        print("RESEARCH_M59_APPARMOR_CONFINED_SWITCH_PERMISSION_DENIED",
+              flush=True)
         print("RESEARCH_M59_APPARMOR_CONFINED_ATTACKER_PROFILE_SWITCH_DENIED",
               flush=True)
         print("RESEARCH_M59_APPARMOR_CONDITIONAL_RESTRICTED_DOMAIN_PASS",
