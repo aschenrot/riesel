@@ -213,6 +213,8 @@ This addendum is a **reviewable proposed specification, not acceptance**. It inc
 
 **Interface choice:** start with a local browser frontend consuming the same operations as CLI, because it works while headless and does not depend on #60's native toolkit. A native Manager client is a replaceable future consumer, not a prerequisite or competing backend. A dashboard displays stale/unknown with explicit timestamps and never conflates registration, process, app session, provider and interface readiness.
 
+**Application shutdown integration is a separate contract:** `ProcessRegistry::enable_graceful_shutdown` is opt-in after a managed provider's readiness handshake; it does not prove a top-level Riesel application supports that stdin control. The existing Todo HTTP app waits on `tokio::signal::ctrl_c()` instead. A Manager or systemd unit stopping an arbitrary app therefore needs an **app-level verified graceful-stop interface or tested signal policy**; SIGTERM, SIGINT, provider stdin shutdown and force-kill must not be conflated. Add a stop test demonstrating application-owned task/provider drain and explicit timeout/escalation, rather than verifying only that the OS process disappeared.
+
 ### 10.4 Executable acceptance and work decomposition after acceptance
 
 1. **M1 — registration and passive inspection:** canonical ID, duplicate/path swap rejection, cached artifact provenance and exact SDK definition, no spawn on list/inspect, explicit executable-inspection side-effect marker. Test independent Cargo-built app and Todo.
