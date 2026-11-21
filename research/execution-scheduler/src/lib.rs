@@ -38,19 +38,30 @@ fn conflicts(left: &[Access], right: &[Access]) -> bool {
 }
 
 pub struct Node {
-    pub id: &'static str,
-    pub depends_on: Vec<&'static str>,
+    pub id: String,
+    pub depends_on: Vec<String>,
     pub access: Vec<Access>,
-    pub signal: Option<&'static str>,
+    pub signal: Option<String>,
     pub invoke: Operation,
 }
 
 impl Node {
     pub fn new(id: &'static str, deps: &[&'static str], access: Vec<Access>, invoke: Operation) -> Self {
-        Self { id, depends_on: deps.to_vec(), access, signal: None, invoke }
+        Self { id: id.to_owned(), depends_on: deps.iter().map(|d| (*d).to_owned()).collect(), access, signal: None, invoke }
+    }
+
+    /// Research-only bridge from runtime-owned, validated logical node IDs.
+    /// The operation body stays a separate Rust callback, never deserialized.
+    pub fn owned(id: String, depends_on: Vec<String>, access: Vec<Access>, invoke: Operation) -> Self {
+        Self { id, depends_on, access, signal: None, invoke }
     }
 
     pub fn triggered(mut self, signal: &'static str) -> Self {
+        self.signal = Some(signal.to_owned());
+        self
+    }
+
+    pub fn triggered_owned(mut self, signal: String) -> Self {
         self.signal = Some(signal);
         self
     }
@@ -63,9 +74,9 @@ pub struct Plan {
 #[derive(Debug, PartialEq, Eq)]
 pub enum InvalidPlan {
     EmptyId,
-    DuplicateId(&'static str),
-    MissingDependency(&'static str),
-    DuplicateDependency(&'static str),
+    DuplicateId(String),
+    MissingDependency(String),
+    DuplicateDependency(String),
     Cycle,
 }
 
@@ -76,18 +87,18 @@ impl Plan {
             if node.id.is_empty() {
                 return Err(InvalidPlan::EmptyId);
             }
-            if !ids.insert(node.id) {
-                return Err(InvalidPlan::DuplicateId(node.id));
+            if !ids.insert(node.id.as_str()) {
+                return Err(InvalidPlan::DuplicateId(node.id.clone()));
             }
         }
         for node in &nodes {
             let mut used = HashSet::new();
             for dep in &node.depends_on {
                 if !ids.contains(dep) {
-                    return Err(InvalidPlan::MissingDependency(dep));
+                    return Err(InvalidPlan::MissingDependency(dep.clone()));
                 }
                 if !used.insert(dep) {
-                    return Err(InvalidPlan::DuplicateDependency(dep));
+                    return Err(InvalidPlan::DuplicateDependency(dep.clone()));
                 }
             }
         }
@@ -97,7 +108,7 @@ impl Plan {
             let before = seen.len();
             for node in &nodes {
                 if node.depends_on.iter().all(|dep| seen.contains(dep)) {
-                    seen.insert(node.id);
+                    seen.insert(node.id.as_str());
                 }
             }
             if seen.len() == nodes.len() {
@@ -109,8 +120,8 @@ impl Plan {
         }
     }
 
-    pub fn describe(&self) -> Vec<(&'static str, Vec<&'static str>, Option<&'static str>)> {
-        self.nodes.iter().map(|n| (n.id, n.depends_on.clone(), n.signal)).collect()
+    pub fn describe(&self) -> Vec<(&str, Vec<&str>, Option<&str>)> {
+        self.nodes.iter().map(|n| (n.id.as_str(), n.depends_on.iter().map(String::as_str).collect(), n.signal.as_deref())).collect()
     }
 }
 
@@ -129,7 +140,7 @@ pub struct Event {
     pub sequence: u64,
     pub session: u64,
     pub run: u64,
-    pub node: &'static str,
+    pub node: String,
     pub attempt: u64,
     pub status: Status,
 }
@@ -159,12 +170,12 @@ impl Trace {
         self.subscriber = Some(sender);
     }
 
-    fn transition(&mut self, session: u64, run: u64, node: &'static str, attempt: u64, status: Status) {
+    fn transition(&mut self, session: u64, run: u64, node: &str, attempt: u64, status: Status) {
         if !self.enabled {
             return;
         }
         self.next_sequence += 1;
-        let event = Event { sequence: self.next_sequence, session, run, node, attempt, status };
+        let event = Event { sequence: self.next_sequence, session, run, node: node.to_owned(), attempt, status };
         if self.capacity == 0 {
             self.evicted += 1;
         } else {
@@ -193,7 +204,7 @@ pub struct Run {
     plan: Arc<Plan>,
     state: Vec<Status>,
     attempts: Vec<u64>,
-    signals: BTreeSet<&'static str>,
+    signals: BTreeSet<String>,
     session: u64,
     run: u64,
     attempt: u64,
@@ -218,12 +229,12 @@ impl Run {
         self.plan.nodes.iter().position(|n| n.id == id).map(|idx| self.state[idx])
     }
 
-    pub fn snapshot(&self) -> Vec<(&'static str, Status)> {
-        self.plan.nodes.iter().zip(&self.state).map(|(n, s)| (n.id, *s)).collect()
+    pub fn snapshot(&self) -> Vec<(&str, Status)> {
+        self.plan.nodes.iter().zip(&self.state).map(|(n, s)| (n.id.as_str(), *s)).collect()
     }
 
     pub fn fire(&mut self, signal: &'static str) {
-        self.signals.insert(signal);
+        self.signals.insert(signal.to_owned());
     }
 
     pub fn cancel(&self) {
@@ -244,7 +255,7 @@ impl Run {
                     }
                     let node = &self.plan.nodes[idx];
                     if self.state[idx] != Status::Pending
-                        || node.signal.is_some_and(|s| !self.signals.contains(s))
+                        || node.signal.as_ref().is_some_and(|s| !self.signals.contains(s))
                         || !node.depends_on.iter().all(|d| self.state[
                             self.plan.nodes.iter().position(|other| other.id == *d)
                                 .expect("validated dependency")
@@ -258,7 +269,7 @@ impl Run {
                     self.attempts[idx] = self.attempt;
                     self.launched += 1;
                     remaining -= 1;
-                    self.trace.transition(self.session, self.run, node.id, self.attempt, Status::Running);
+                    self.trace.transition(self.session, self.run, &node.id, self.attempt, Status::Running);
                     let invoke = Arc::clone(&node.invoke);
                     let handle = jobs.spawn(async move { (idx, (invoke)().await) });
                     task_indices.insert(handle.id(), idx);
@@ -288,14 +299,14 @@ impl Run {
             }
             self.state[idx] = status;
             self.trace.transition(
-                self.session, self.run, self.plan.nodes[idx].id, self.attempts[idx], status
+                self.session, self.run, &self.plan.nodes[idx].id, self.attempts[idx], status
             );
         }
         if failed || self.cancellation.load(Ordering::Acquire) {
             for idx in 0..self.state.len() {
                 if self.state[idx] == Status::Pending {
                     self.state[idx] = if failed { Status::Blocked } else { Status::Cancelled };
-                    self.trace.transition(self.session, self.run, self.plan.nodes[idx].id, 0, self.state[idx]);
+                    self.trace.transition(self.session, self.run, &self.plan.nodes[idx].id, 0, self.state[idx]);
                 }
             }
         }
@@ -314,3 +325,6 @@ mod bevy_comparator;
 
 #[cfg(test)]
 mod ecs_parallel;
+
+#[cfg(test)]
+mod plan_document;
