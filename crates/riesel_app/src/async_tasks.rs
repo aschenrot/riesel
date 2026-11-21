@@ -122,14 +122,18 @@ impl AsyncTasks {
         let stopping = Arc::clone(&self.inner);
         let worker = executor.spawn(async move {
             let (report, stopped) = runner.execute_until(stopping.stop_requested()).await;
-            if stopped {
+            // Session revocation (for example a managed-service crash) is
+            // already owned by the original failure. Do not create a
+            // secondary named graph failure merely because it was cancelled.
+            if stopped || report.session_expired {
                 None
             } else if report.succeeded() {
                 Some(Ok(()))
             } else {
-                Some(Err(Box::new(
-                    crate::execution_runner::GraphExecutionFailure { report },
-                ) as ConnectorError))
+                Some(Err(
+                    Box::new(crate::execution_runner::GraphExecutionFailure { report })
+                        as ConnectorError,
+                ))
             }
         });
         let watcher = self.watch(&executor, name.clone(), worker);
