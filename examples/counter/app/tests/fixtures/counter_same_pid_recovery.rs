@@ -54,8 +54,9 @@ fn request(state: &Mutex<PublishedSession>, stop: &AtomicBool, msg: Value) -> Va
             return denied("not_ready");
         }
         #[cfg(feature = "research-runtime-epoch")]
-        let _admission = match current
-            .runtime_session
+        let session_for_attach = current.runtime_session.clone();
+        #[cfg(feature = "research-runtime-epoch")]
+        let _admission = match session_for_attach
             .as_ref()
             .and_then(|token| token.research_admit(&current.generation))
         {
@@ -89,8 +90,9 @@ fn request(state: &Mutex<PublishedSession>, stop: &AtomicBool, msg: Value) -> Va
     // this short synchronous dispatched operation. The runtime's invalidation
     // uses the corresponding write lock, so its completion fences new calls.
     #[cfg(feature = "research-runtime-epoch")]
-    let _admission = match current
-        .runtime_session
+    let session_for_call = current.runtime_session.clone();
+    #[cfg(feature = "research-runtime-epoch")]
+    let _admission = match session_for_call
         .as_ref()
         .and_then(|token| token.research_admit(msg["generation"].as_str().unwrap_or_default()))
     {
