@@ -45,6 +45,12 @@ The existing `RecordStore::update` supports CAS on **one record only**, not a co
 
 [Research PR #204](https://github.com/aschenrot/riesel/pull/204) tested 6/6 targeted actual OS-process SQLite transaction scenarios, including opposing semantic/layout writers, pre-/post-commit process kill and source fencing. This made a **portable, app-owned revision repository protocol with an optional local SQLite reference adapter** an evidence-supported first implementation. It is not evidence for a universal mandatory SQLite backend.
 
+## Checked source-handoff coverage diagnostics
+
+`PlanSourceCoverageReport::compare_rust_to_s2(original, document, registry, limits)` reports **each** identifiable incompatibility before a deliberate Rust→document or document→Rust authoring transfer. Findings distinguish plan ID/revision mismatch, missing or additional nodes, registered handler/version or editor-policy-version mismatch, changed control prerequisites/triggers/resources/domain admission, and failures from the real A2/production plan binder. A complete report requires exact serialized semantic projection identity with the original validated plan. This is a conservative **fail-closed** contract: it may reject differently ordered but apparently equivalent authoring sources instead of silently reinterpreting them.
+
+The checked `CheckedSourceHandoff` constructors enforce a complete coverage report before returning a transferable proof. This does not reverse-compile Rust closure code, prove callback resource aliasing or authorize a caller; the application/domain owner still controls which source receives authority, and the durable store still atomically fences the former writer. The report can later drive actionable UI diagnostics without a GUI dependency or an independent execution validator.
+
 ## Verification and explicit remaining work
 
 Focused production adapter tests target independent OS processes racing the actual `SqlitePlanRevisionRepository` semantic and layout operations, immutable plan history, independent layout streams, invalid anchor rebase, checked code↔document source handoffs, stale-writer fences across reopen, installed-build stamp mismatch and unknown on-disk version rejection. Preserve exact-head `cargo validate --check` and `cargo smoke` evidence for the implementation PR, not just the research fixtures.
