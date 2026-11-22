@@ -61,6 +61,14 @@ impl AsyncTasks {
         self.inner.session.internal_publication_session()
     }
 
+    /// Internal-only read-only reference to the actual owner, for #158
+    /// adapter-local observation. Not an identity or authorization grant.
+    #[cfg(feature = "internal-publication")]
+    #[doc(hidden)]
+    pub fn internal_session_token(&self) -> SessionToken {
+        self.inner.session.clone()
+    }
+
     pub(crate) fn new(session: SessionToken, cancellation: CancellationToken) -> Self {
         Self {
             inner: Arc::new(AsyncTaskGroup {
