@@ -184,6 +184,10 @@ mod tests {
                         ObservationSource::ApplicationAdapter
                     );
                     assert_eq!(
+                        observed.generation_evidence(),
+                        GenerationEvidence::AdapterReferenceOnly
+                    );
+                    assert_eq!(
                         observed.state_of(
                             &ObservationSubject::AuthorizedApplicationOperation,
                             std::time::Instant::now()
