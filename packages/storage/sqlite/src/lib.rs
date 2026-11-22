@@ -21,7 +21,7 @@ pub use execute::{EvolutionAuthorization, EvolutionReceipt};
 pub use invariants::{EvolutionRecord, EvolutionRecords};
 pub use maintenance::{SnapshotBudget, SqliteMaintenance, VerifiedSnapshot};
 pub use operator::{OperatorOutcome, run_operator_maintenance_cli};
-pub use plan_revisions::SqlitePlanRevisionRepository;
+pub use plan_revisions::{SqlitePlanRevisionRepository, V2SnapshotBudget, VerifiedV2Snapshot};
 #[cfg(feature = "v2-fault-injection")]
 pub use plan_revisions::V2FaultStage;
 pub use restore::{RestoreAuthorization, RestoreReceipt};
