@@ -127,7 +127,10 @@ fn pending_signal_at_prefix_does_not_block_independent_ready_work() {
         let mut plan = ExecutionPlanDraft::new("gated-prefix", 1)
             .operation(OperationNode::new("gated", key("gated")).on_signal("release"));
         for index in 0..INDEPENDENT {
-            plan = plan.operation(OperationNode::new(format!("op-{index}"), key("independent")));
+            plan = plan.operation(OperationNode::new(
+                format!("op-{index}"),
+                key("independent"),
+            ));
         }
         let owner = owner();
         let runner = owner
@@ -147,7 +150,10 @@ fn pending_signal_at_prefix_does_not_block_independent_ready_work() {
         .await
         .unwrap();
         assert_eq!(observer.snapshot().phase, GraphRunPhase::Running);
-        assert_eq!(observer.snapshot().operations["gated"].state, OperationState::Pending);
+        assert_eq!(
+            observer.snapshot().operations["gated"].state,
+            OperationState::Pending
+        );
         assert_eq!(observer.snapshot().operations["gated"].attempt, 0);
         signals.fire("release").unwrap();
         let report = tokio::time::timeout(Duration::from_secs(5), task)
