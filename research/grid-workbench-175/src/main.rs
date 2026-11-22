@@ -155,7 +155,7 @@ fn key(name: &str) -> OperationKey {
     OperationKey::new(name, 1).expect("fixed application operation key")
 }
 
-fn register_nodes(config: Config) -> Result<TypedOperationRegistry, Box<dyn std::error::Error>> {
+fn register_nodes(config: Config) -> Result<TypedOperationRegistry, Box<dyn std::error::Error + Send + Sync>> {
     let mut registry = TypedOperationRegistry::new();
     registry.register(
         TypedOperationSpec {
@@ -365,7 +365,7 @@ fn register_nodes(config: Config) -> Result<TypedOperationRegistry, Box<dyn std:
     Ok(registry)
 }
 
-fn run_workbench(config: Config) -> Result<WorkbenchResult, Box<dyn std::error::Error>> {
+fn run_workbench(config: Config) -> Result<WorkbenchResult, Box<dyn std::error::Error + Send + Sync>> {
     let config = config.validate()?;
     let result = Arc::new(Mutex::new(None));
     let output_for_app = Arc::clone(&result);
@@ -433,7 +433,7 @@ fn run_workbench(config: Config) -> Result<WorkbenchResult, Box<dyn std::error::
         .ok_or_else(|| std::io::Error::other("Riesel did not publish a headless workbench result").into())
 }
 
-fn main() -> Result<(), Box<dyn std::error::Error>> {
+fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     let config = Config::parse_args()?;
     let result = run_workbench(config)?;
     let last = result.history.steps.last().expect("initial snapshot");
