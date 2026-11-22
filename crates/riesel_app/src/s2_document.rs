@@ -6,7 +6,7 @@
 //! Future executable features are opaque/read-only to this S2 reader.
 
 use crate::{
-    AccessMode, BoundExecutionPlan, DomainAdmissionMode, EditorCatalogError, ExecutionPlanDraft,
+    AccessMode, BoundExecutionPlan, EditorCatalogError, ExecutionPlanDraft,
     ExecutionPlanError, OperationKey, OperationNode, OperationRegistry, ValidatedExecutionPlan,
 };
 use serde::{Deserialize, Serialize};
@@ -72,17 +72,12 @@ pub struct S2OperationBinding {
     pub descriptor_version: u32,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
 #[serde(tag = "kind", content = "signal", rename_all = "snake_case")]
 pub enum S2DocumentTrigger {
+    #[default]
     Immediate,
     Signal(String),
-}
-
-impl Default for S2DocumentTrigger {
-    fn default() -> Self {
-        Self::Immediate
-    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
