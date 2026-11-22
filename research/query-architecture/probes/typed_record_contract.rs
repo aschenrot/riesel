@@ -232,11 +232,20 @@ fn typed_predicates_preserve_full_width_numbers_and_optional_presence() {
         let highest = query(Filter::EqU64 { field:"big".into(), value:u64::MAX });
         assert_eq!(highest.records.len(), 1);
         assert_eq!(highest.records[0].id, ids[0]);
-        assert!(highest.exhausted, "global match count is known only after exhaustive scan");
+        assert!(!highest.exhausted, "the first bounded scan cannot claim complete results");
+        let last_highest = page(store, ResearchMetadata::MODEL_NAME, &model,
+            &Filter::EqU64 {field:"big".into(), value:u64::MAX},
+            highest.next,77,32,64).unwrap();
+        assert_eq!(last_highest.records.len(), 0);
+        assert!(last_highest.exhausted);
 
         let nulls = query(Filter::Null { field:"note".into() });
         assert_eq!(nulls.records.iter().map(|v| v.id).collect::<Vec<_>>(), vec![ids[0],ids[2]]);
-        assert!(nulls.exhausted);
+        assert!(!nulls.exhausted);
+        let final_nulls = page(store, ResearchMetadata::MODEL_NAME, &model,
+            &Filter::Null {field:"note".into()}, nulls.next,77,32,64).unwrap();
+        assert_eq!(final_nulls.records.len(),0);
+        assert!(final_nulls.exhausted);
 
         let missing = query(Filter::Missing { field:"note".into() });
         assert_eq!(missing.records.len(), 32);
