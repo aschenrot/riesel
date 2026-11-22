@@ -10,7 +10,8 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use riesel_app::{ComponentDefinition, ConnectorError, LocalProviderFactory};
 use riesel_storage::{
-    RecordQuery, RecordQueryContract, RecordQueryRpcDispatcher, RecordStore, RecordStoreRpcDispatcher,
+    RecordQuery, RecordQueryContract, RecordQueryRpcDispatcher, RecordStore,
+    RecordStoreRpcDispatcher,
 };
 use std::sync::Arc;
 
