@@ -42,6 +42,8 @@ mod application;
 mod records;
 mod rpc_connector;
 
+#[cfg(feature = "records")]
+pub use application::ModelRead;
 pub use application::{
     Application, ApplicationHandler, ApplicationModule, ApplicationParam, Capability, Context,
     HandlerParams, PreparedApplication, Result, SdkError,
@@ -52,8 +54,6 @@ pub use application::{
 };
 #[cfg(feature = "records")]
 pub use records::{Record, RecordPage, Records};
-#[cfg(feature = "records")]
-pub use application::ModelRead;
 #[cfg(feature = "async-tcp")]
 pub use riesel_app::{
     AsyncOperation, ExecutionGraphRunner, GraphControlError, GraphControlMode, GraphControlTarget,
