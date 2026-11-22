@@ -44,8 +44,10 @@ execution**. The [fixed-step admission policy](execution-runner.md) can
 supply an explicitly bounded number of tick proposals per externally
 sampled frame; it is not an automatic graph loop or proof of committed
 side effects. Session-wide domain authority and resource admission
-continue to apply separately to each runner. Distinct run identity,
-attempt correlation and authoritative effects belong to #113.
+continue to apply separately to each runner. Runtime-issued run identity and attempt correlation are implemented by
+the read-only #113 observer. Explicit owner-confirmed cumulative effect
+prefixes are being verified as a separate #113 increment; a claimed tick
+proposal or successful callback is not proof of an external mutation.
 
 ## Boundaries and next steps
 
