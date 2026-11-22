@@ -117,11 +117,11 @@ fn admitted_async_work_is_joined_before_new_app_session_and_ordinary_stop() {
 
 #[test]
 fn runtime_publication_graph_nested_and_linked_record_owners_remain_distinct() {
+    use crate::NestedDomainOwner;
     use crate::execution_plan::{
         ExecutionPlanDraft, OperationKey, OperationNode, OperationRegistry,
     };
     use crate::execution_runner::{AsyncOperation, OperationOutcome, async_operation};
-    use crate::NestedDomainOwner;
     use std::num::NonZeroUsize;
 
     fn no_provider_graph() -> crate::BoundExecutionPlan<AsyncOperation> {
@@ -192,8 +192,7 @@ fn runtime_publication_graph_nested_and_linked_record_owners_remain_distinct() {
         "graph-run identity is not an application publication credential"
     );
     assert_ne!(
-        domain_epoch,
-        first_generation,
+        domain_epoch, first_generation,
         "nested domain ownership is not the Riesel publication generation"
     );
     drop(graph_a);
@@ -230,7 +229,9 @@ fn runtime_publication_graph_nested_and_linked_record_owners_remain_distinct() {
         InternalAdmissionError::Expired,
     );
     assert!(
-        second_publication.try_admit(&second_generation.to_string()).is_ok(),
+        second_publication
+            .try_admit(&second_generation.to_string())
+            .is_ok(),
         "the new app publication can admit without changing query or nested owner roles"
     );
 
