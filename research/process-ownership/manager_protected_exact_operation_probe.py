@@ -323,7 +323,15 @@ def main(pinned):
                 cwd="/tmp", stdin=subprocess.DEVNULL, stdout=log, stderr=log,
             )
             for _ in range(80):
-                if (root / "public.sock").exists() and (root / "private/admin.sock").exists():
+                # The ordinary coordinator MUST NOT stat inside the 0700
+                # root-only directory. Ask its separate fixture setup
+                # authority to test socket existence without leaking access
+                # to the unprivileged test clients.
+                private_ready = run(
+                    sudo("test", "-S", str(root / "private/admin.sock")),
+                    check=False,
+                ).returncode == 0
+                if (root / "public.sock").exists() and private_ready:
                     break
                 if broker_proc.poll() is not None:
                     log.seek(0)
