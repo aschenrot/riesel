@@ -438,6 +438,32 @@ impl<'a> StartupState<'a> {
     }
 
     pub(super) fn finish(mut self) -> Result<RunningApp, RuntimeError> {
+        // Preflight compared planned registrations. After attachment ensure the
+        // actual capability handles belong to the one cached linked instance
+        // for the active application session before exposing RunningApp.
+        let linked: Vec<_> = self
+            .app
+            .definition()
+            .record_query_links
+            .iter()
+            .map(|(model, link)| (model.clone(), link.clone()))
+            .collect();
+        for (model, link) in linked {
+            let valid = self.selected.get(&link.reader).is_some_and(|provider| {
+                self.local_instances.contains_key(provider)
+                    && self.services.contains_key(&link.reader)
+                    && link.writer.as_ref().is_none_or(|writer| {
+                        self.selected.get(writer) == Some(provider)
+                            && self.services.contains_key(writer)
+                    })
+            });
+            if !valid {
+                return Err(self.rollback(RuntimeError::LinkedRecordRuntimeMismatch {
+                    model,
+                    requirement: link.reader,
+                }));
+            }
+        }
         let mut resolved = match self.registry.resolve(self.app.definition(), &self.selected) {
             Ok(resolved) => resolved,
             Err(error) => return Err(self.rollback(error.into())),

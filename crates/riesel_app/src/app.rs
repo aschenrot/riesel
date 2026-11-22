@@ -63,11 +63,11 @@ mod tests {
     #[test]
     fn rejects_invalid_json_and_unsupported_schema() {
         assert!(matches!(App::from_schema("{"), Err(AppError::Json(_))));
-        let invalid = r#"{"version":2,"app":{"name":"Todo"},"models":{}}"#;
+        let invalid = r#"{"version":3,"app":{"name":"Todo"},"models":{}}"#;
         assert!(matches!(
             App::from_schema(invalid),
             Err(AppError::Schema(SchemaError::UnsupportedVersion {
-                version: 2
+                version: 3
             }))
         ));
     }

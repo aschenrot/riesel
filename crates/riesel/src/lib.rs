@@ -42,6 +42,8 @@ mod application;
 mod records;
 mod rpc_connector;
 
+#[cfg(feature = "records")]
+pub use application::ModelRead;
 pub use application::{
     Application, ApplicationHandler, ApplicationModule, ApplicationParam, Capability, Context,
     HandlerParams, PreparedApplication, Result, SdkError,
@@ -98,7 +100,7 @@ pub mod prelude {
     #[cfg(feature = "async-tcp")]
     pub use super::{AsyncCapability, AsyncTasks};
     #[cfg(feature = "records")]
-    pub use super::{Record, Records};
+    pub use super::{ModelRead, Record, Records};
 }
 pub use riesel_schema as schema;
 #[cfg(feature = "records")]
