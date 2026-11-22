@@ -36,6 +36,8 @@ print(f"Todo authored HTTP route functions: {route_functions} / 5 routes")
 print("Interpretation: app-specific behavior/routes are not semantically equivalent to generated RPC operations.")
 
 # The GraphRead facade is one generated typed query, not a complete GUI schema.
-graph_query = len(re.findall(r"async fn snapshot\\(", fixture))
+graph_trait = re.search(r"pub trait GraphRead\\s*\\{(.*?)^\\}", fixture, re.S | re.M)
+assert graph_trait, "GraphRead contract definition not found"
+graph_query = len(re.findall(r"async fn snapshot\\(", graph_trait.group(1)))
 print(f"GraphRead declared snapshot operations: {graph_query} / 1 expected")
 print("No equivalent app-level user operation count or generalized savings percentage can be inferred.")
