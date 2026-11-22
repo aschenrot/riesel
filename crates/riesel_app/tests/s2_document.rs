@@ -253,7 +253,9 @@ fn duplicate_nodes_and_dependencies_are_rejected_by_the_real_validator() {
     ));
 
     let mut duplicate_edge = fixture();
-    duplicate_edge.operations[1].dependencies.push("load".into());
+    duplicate_edge.operations[1]
+        .dependencies
+        .push("load".into());
     assert!(matches!(
         bind_s2_document(&duplicate_edge, &handlers, S2DocumentLimits::default()),
         Err(S2DocumentError::InvalidPlan(_))
