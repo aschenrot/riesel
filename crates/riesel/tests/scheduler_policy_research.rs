@@ -82,9 +82,7 @@ fn repeated_signal_messages_do_not_reexecute_one_shot_node() {
             signals.fire("frame"),
             Err(GraphRunError::SignalQueueClosed)
         ));
-        eprintln!(
-            "research #226: two pre-run signals -> one admitted operation, no recurring run"
-        );
+        eprintln!("research #226: two pre-run signals -> one admitted operation, no recurring run");
     });
 }
 
