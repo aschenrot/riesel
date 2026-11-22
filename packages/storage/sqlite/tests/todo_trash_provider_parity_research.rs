@@ -265,3 +265,76 @@ fn memory_real_native_query_matches_sqlite_sparse_lifecycle_bounds() {
         }
     }
 }
+
+fn verify_restore_behind_live_cursor<S: RecordStore + RecordQuery>(store: &S) {
+    let mut rows = Vec::new();
+    for index in 0..33 {
+        rows.push(
+            store
+                .create(
+                    "task",
+                    json!({
+                        "title": format!("Trashed {index}"),
+                        "completed": false,
+                        "trashed": true,
+                    }),
+                )
+                .unwrap(),
+        );
+    }
+    rows.sort_by_key(|row| row.id);
+    let earliest = &rows[0];
+
+    // A live scan inspects the first trashed task but returns no match.
+    let page = store.query_page(request("trashed", 32, 1, None)).unwrap();
+    assert_eq!(page.inspected, 1);
+    assert!(page.records.is_empty());
+    assert!(!page.exhausted);
+    let mut cursor = page.next_cursor;
+
+    // Independently restore the already-examined task before continuing.
+    let restored = store
+        .update(
+            "task",
+            earliest.id,
+            earliest.revision,
+            json!({
+                "title": earliest.data["title"],
+                "completed": false,
+                "trashed": false,
+            }),
+        )
+        .unwrap();
+    assert_eq!(restored.id, earliest.id);
+    assert_eq!(restored.revision, earliest.revision + 1);
+
+    // No continuation may pretend to be a snapshot or revisit the old UUID.
+    loop {
+        let page = store.query_page(request("trashed", 32, 1, cursor)).unwrap();
+        assert!(
+            page.records.is_empty(),
+            "restored row behind an advanced cursor must not reappear"
+        );
+        if page.exhausted {
+            break;
+        }
+        cursor = Some(page.next_cursor.expect("partial page must continue"));
+    }
+
+    // A deliberate fresh scan sees the restored row with its new revision.
+    let fresh = store.query_page(request("trashed", 32, 256, None)).unwrap();
+    assert!(fresh.exhausted);
+    assert_eq!(fresh.records.len(), 1);
+    assert_eq!(fresh.records[0].id, earliest.id);
+    assert_eq!(fresh.records[0].revision, restored.revision);
+}
+
+#[test]
+fn memory_and_sqlite_restore_behind_cursor_requires_a_fresh_scan() {
+    let memory_store = memory();
+    verify_restore_behind_live_cursor(&memory_store);
+
+    let dir = tempfile::tempdir().unwrap();
+    let store = sqlite(&dir.path().join("live-restore.db"));
+    verify_restore_behind_live_cursor(&store);
+}
