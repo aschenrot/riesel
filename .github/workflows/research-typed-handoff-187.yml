@@ -33,5 +33,9 @@ jobs:
           rustc --version
       - name: Measure local value sharing, copies and JSON boundaries (release)
         run: cargo run --release --manifest-path research/typed-handoff-187/Cargo.toml --bin value_costs
+      - name: Verify exact-float JSON codec alternative
+        run: cargo test --manifest-path research/typed-handoff-187/Cargo.toml --features json-float-roundtrip --bin value_costs
+      - name: Measure exact-float JSON codec alternative (release)
+        run: cargo run --release --manifest-path research/typed-handoff-187/Cargo.toml --features json-float-roundtrip --bin value_costs
       - name: Measure production S2 no-data graph execution baseline (release)
         run: cargo run --release --manifest-path research/typed-handoff-187/Cargo.toml --bin graph_costs
