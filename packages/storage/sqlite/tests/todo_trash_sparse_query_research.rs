@@ -110,7 +110,11 @@ fn balanced_sparse_lifecycle_requires_many_v1_native_pages_at_33_100_and_10000()
         for (field, result) in [("completed", &completed), ("trashed", &active)] {
             let (calls, inspected, returned, matching) = result;
             assert_eq!(*inspected, count, "{field} scans every candidate once");
-            assert_eq!(matching.as_slice(), &[target.id], "{field} found exact target");
+            assert_eq!(
+                matching.as_slice(),
+                &[target.id],
+                "{field} found exact target"
+            );
             assert!(
                 *returned >= count / 2,
                 "{field} returns at least half the records as first-field matches"
