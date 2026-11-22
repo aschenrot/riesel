@@ -1,0 +1,51 @@
+name: Research #59/#75 — real Riesel uncertain OS mutation and durable reconciliation
+
+permissions:
+  contents: read
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - ".github/workflows/manager-durable-unknown-outcome-research.yml"
+      - "research/process-ownership/manager_durable_unknown_outcome_probe.py"
+      - "research/process-ownership/DURABLE-UNKNOWN-OUTCOMES.md"
+  workflow_dispatch:
+
+jobs:
+  linux-real-app-unknown-command-outcome:
+    name: Linux real Riesel Counter, crash windows and restart reconciliation
+    runs-on: ubuntu-24.04
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+      - name: Check research fixture prerequisites
+        run: |
+          set -euo pipefail
+          test "$(id -u)" != 0
+          test "$(id -u)" != 60090
+          test "$(ps -p 1 -o comm=)" = systemd
+          command -v setpriv
+          command -v sqlite3 || true
+          sudo -n true
+          sudo -n systemctl --system show --property=Version --value
+          python3 -m py_compile research/process-ownership/manager_durable_unknown_outcome_probe.py
+      - name: Build pinned real Riesel Counter, independent from proposed research architecture
+        env:
+          PINNED_SHA: 5201e61cc74bab778dfc63a3788f1708b2530f21
+        run: |
+          set -euo pipefail
+          rustup toolchain install 1.100.0 --profile minimal
+          rustup default 1.100.0
+          git fetch --no-tags --depth=1 origin refs/pull/90/head
+          test "$(git rev-parse FETCH_HEAD)" = "$PINNED_SHA"
+          git worktree add --detach "$RUNNER_TEMP/pinned-riesel-pr90" "$PINNED_SHA"
+          echo "PINNED_COUNTER_ROOT=$RUNNER_TEMP/pinned-riesel-pr90" >> "$GITHUB_ENV"
+          cd "$RUNNER_TEMP/pinned-riesel-pr90"
+          cargo build --locked -p riesel_counter_example --bin counter_resolved_facade_host
+      - name: Exercise real crash before and after OS operation, persistent journal and attempt fencing
+        run: |
+          set -euo pipefail
+          timeout 160 python3 research/process-ownership/manager_durable_unknown_outcome_probe.py --exercise "$PINNED_COUNTER_ROOT"
