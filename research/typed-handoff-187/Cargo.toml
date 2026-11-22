@@ -10,3 +10,5 @@ publish = false
 [dependencies]
 riesel = { path = "../../crates/riesel", features = ["async-tcp"] }
 tokio = { version = "=1.54.1", features = ["rt", "time", "sync"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
