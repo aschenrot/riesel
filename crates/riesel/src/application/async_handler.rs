@@ -206,7 +206,11 @@ where
             run_scoped(
                 context.session_token(),
                 Some(context.async_tasks()),
-                lifecycle.execute(context, || handler.invoke(context, &aliases)),
+                lifecycle.execute(context, || async {
+                    #[cfg(feature = "internal-publication")]
+                    let _entrypoint = context.internal_enter_entrypoint()?;
+                    handler.invoke(context, &aliases).await
+                }),
             )
         })
     }
@@ -224,7 +228,11 @@ where
                 run_scoped(
                     context.session_token(),
                     Some(context.async_tasks()),
-                    lifecycle.execute(context, || handler.invoke(context, &aliases)),
+                    lifecycle.execute(context, || async {
+                    #[cfg(feature = "internal-publication")]
+                    let _entrypoint = context.internal_enter_entrypoint()?;
+                    handler.invoke(context, &aliases).await
+                }),
                 )
             })?;
         }
