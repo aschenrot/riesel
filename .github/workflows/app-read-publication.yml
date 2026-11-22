@@ -11,6 +11,10 @@ on:
       - "crates/riesel/**"
       - "crates/riesel_protocol/**"
       - "docs/product/riesel/application-publication-usage.md"
+      - "examples/todo/src/public_read.rs"
+      - "examples/todo/src/lib.rs"
+      - "examples/todo/tests/t1_publication.rs"
+      - "examples/todo/Cargo.toml"
       - ".github/workflows/app-read-publication.yml"
   workflow_dispatch:
 
@@ -34,5 +38,9 @@ jobs:
         run: cargo test --locked -p riesel_app --features app-publication-unix --test app_publication_unix -- --nocapture
       - name: Compile optional Unix facade in the SDK
         run: cargo check --locked -p riesel --features app-publication-unix
+      - name: Verify actual Todo domain read-only public summary and OS-client recovery
+        run: |
+          cargo test --locked -p todo --features t1-public-summary --lib public_read::tests -- --nocapture
+          cargo test --locked -p todo --features t1-public-summary --test t1_publication -- --nocapture
       - name: Real graph read contract, independent OS client and trace overflow
         run: cargo test --locked -p riesel --features app-publication-unix --test graph_publication_unix -- --nocapture
