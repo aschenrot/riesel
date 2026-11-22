@@ -12,6 +12,8 @@ http = ["dep:axum", "dep:tokio", "dep:tower-http"]
 e2e-fixture = []
 # Test-only #158 semantics; never enabled by normal HTTP builds.
 internal-observation = ["riesel/internal-publication"]
+# Optional example-only non-sensitive summary on the shared local T1 read boundary.
+t1-public-summary = ["riesel/app-publication-unix", "dep:tokio"]
 
 [dependencies]
 riesel = { workspace = true, features = ["dev-memory-storage", "sqlite-storage", "async-tcp"] }

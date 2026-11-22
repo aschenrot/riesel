@@ -173,3 +173,38 @@ require the revision last observed by the caller. Storage compares that
 revision atomically with the stored record and rejects stale writes rather
 than silently refreshing the revision and overwriting a concurrent edit.
 This is a domain/API correctness improvement, not durable persistence.
+
+
+## Optional shared app-publication T1 read regression
+
+The gated `t1-public-summary` feature demonstrates one deliberately selected,
+**non-sensitive** Todo read model over the same app-owned publication and
+`UnixReadServer`/`UnixReadClient` facility used by Counter and the graph
+inspector. It is a **test/demo-specific capability**, not an HTTP replacement
+or permission to expose a user's personal Todo database.
+
+`example.todo.public_summary@1` exposes only `summary()` with aggregate
+`total`, `completed` and `pending` counts over at most one bounded
+64-record page. If that page is incomplete, it reports `Incomplete` rather
+than a misleading total. No task title, record identity, private metadata,
+create/edit/delete/complete method or storage handle is published.
+
+The real application fixture declares the actual Rust `TaskData` model,
+resolves `Records<TaskData>` from the SDK's in-memory provider and opts in
+to the read-only facade. A second OS process connects to its local Unix
+socket, verifies aggregates, denial of a delete request and absence of task
+titles, then the same process/application runtime restarts and old session
+descriptors are rejected. The feature is disabled by default; the existing
+Todo HTTP/browser, SQLite, Query and CLI behavior is unchanged.
+
+```sh
+cargo test --locked -p todo --features t1-public-summary --lib public_read::tests
+cargo test --locked -p todo --features t1-public-summary --test t1_publication -- --nocapture
+```
+
+**T1 limitation:** applications must independently decide whether aggregate
+counts are non-sensitive for their users and intended context. Tests use
+explicitly public sample tasks and a disposable in-memory provider. Same-OS-
+user programs are trusted by T1 rather than individually authenticated.
+Do not use this example as a way to export a private Todo dataset or authorize
+writes, and do not conflate it with protected client/server authentication.
