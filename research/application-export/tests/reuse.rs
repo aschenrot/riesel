@@ -12,7 +12,7 @@ use riesel_counter::{AsyncCounterContract, CounterError};
 use riesel_counter_component::AsyncMemoryCounter;
 use riesel_macros::{RieselType, capability};
 use riesel_protocol::{AsyncRpcFuture, AsyncRpcHandler, CallError, RpcError};
-use riesel_schema::{CapabilityContract, CapabilityDescriptor};
+use riesel_schema::CapabilityContract;
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use std::error::Error;
@@ -434,7 +434,7 @@ fn graph_uses_same_gateway_with_sdk_run_and_read_only_generated_contract() -> Te
             .build()
             .expect("research Tokio runtime");
         executor.block_on(async {
-            let initial: GraphReadSummary = success(
+            let initial: GraphReadSummary = success::<GraphReadSummary, GraphReadError>(
                 gateway
                     .invoke(&attached, "snapshot", json!({}))
                     .await
@@ -449,7 +449,7 @@ fn graph_uses_same_gateway_with_sdk_run_and_read_only_generated_contract() -> Te
             assert!(!initial.trace_truncated);
             let report = runner.execute().await;
             assert!(report.succeeded());
-            let finished: GraphReadSummary = success(
+            let finished: GraphReadSummary = success::<GraphReadSummary, GraphReadError>(
                 gateway
                     .invoke(&attached, "snapshot", json!({}))
                     .await
