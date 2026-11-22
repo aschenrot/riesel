@@ -61,6 +61,9 @@ pub use riesel_app::{
     GraphObservedOperation, GraphRunChange, GraphRunController, GraphRunError, GraphRunIdentity,
     GraphRunObserver, GraphRunPhase, GraphRunReport, GraphRunSnapshot, GraphRunTransition,
     GraphRunTransitions, GraphSignalSender, MAX_GRAPH_EFFECT_STREAMS, MAX_GRAPH_TRANSITIONS,
+    MAX_NESTED_TRANSITIONS, NestedCursor, NestedDescription, NestedDomainOwner,
+    NestedDomainRegistration, NestedHeaderObserver, NestedObservationError, NestedObserver,
+    NestedParent, NestedPublisher, NestedSnapshot, NestedStatus, NestedTransitions, NestedViewInfo,
     OperationFuture, OperationOutcome, OperationState, async_operation,
     async_operation_with_effects,
 };

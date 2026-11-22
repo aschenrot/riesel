@@ -74,6 +74,117 @@ The managed-child crash test verifies this same observation path under
 real session revocation, preserving the confirmed completed prefix and
 classifying the dispatched crash operation as unknown.
 
+## Optional trusted-local nested observation (#153; implementation increment)
+
+The accepted [B+F domain-owner observation contract](execution-plan-contract.md)
+allows a **participating** delegated domain to expose a versioned, typed,
+**read-only** view of its inner work without giving Riesel its ECS scheduler,
+world, native-thread affinity, or system-level controls. Nonparticipating
+applications retain the unchanged outer-only `GraphRunObserver`. This facility
+is independent of #60/#75 external app publication and #114 graphical UI.
+
+A domain coordinator creates a non-clonable `NestedDomainOwner::new("domain.id")`
+within its own lifetime. `registration()` returns only a **weak, trusted-local**
+registration ticket: keeping it does not keep the owner alive or authenticate
+an external principal. The owner generation is a new random UUID on replacement,
+independent of a Riesel application session or immutable plan revision.
+
+An operation declared `delegated_frame("domain.id")` can opt in through
+`async_operation_with_effects`. On **actual graph dispatch**, its already
+attempt-fenced `GraphEffectRecorder::attach_nested::<T>(&registration, version)`
+binds the exact runner-issued session/plan/revision/run/operation/attempt to
+the matching live domain registration. This returns a single
+`NestedPublisher<T>` to be **moved to the native domain owner**. Only the owner
+publishes **owned immutable copies** via `publisher.publish(snapshot)`.
+Before the first such publish the view is `Unpublished`, with no invented
+initial ECS state. The attached publisher can continue reporting actual
+domain facts after the outer callback's reply is lost or its attempt has
+ended; it **cannot** report or alter outer graph confirmed prefixes.
+The normal `effects.confirm_prefix` must still only follow a real
+acknowledgement within its active graph attempt.
+
+A trusted in-process reader uses
+`observer.nested_description("frame")` to discover the optional view and
+its owner generation / parent address / payload version. A **generic** reader
+may instead use `observer.nested_header("frame")`, whose
+`NestedHeaderObserver::snapshot()` exposes owner-attributed
+`NestedViewInfo { description, latest, status }` and whose
+`changes_since(NestedCursor { owner_generation, attachment_id, sequence })` handles
+the same bounded owner-local event-loss semantics **without knowing `T`**.
+This is the reusable common status/timeline envelope; it does not reveal
+an engine-specific payload or an internal scheduler.
+
+A known typed view is acquired by
+`observer.nested::<T>("frame", version)`; absence returns
+`None`, unsupported versions and mismatched Rust payload types are explicit
+errors. `NestedObserver<T>` likewise supports `snapshot()` and
+`changes_since(NestedCursor { owner_generation, attachment_id, sequence })`, with no
+publisher or control authority. A typed snapshot contains the latest
+`Option<Arc<T>>` and owner-local high-water sequence; its state is
+`Unpublished`, `Current`, `OwnerClosed`, `Superseded`, or
+`SessionExpired`. Replacement invalidates older attachments and old
+publishers. Closing the domain does **not** erase an already copied last
+snapshot; expiring the Riesel session also invalidates subsequent publisher
+updates and is visible independently to both generic and typed readers.
+
+- **Bounded notifications:** each attached source retains at most
+  `MAX_NESTED_TRANSITIONS = 64` increasing sequence numbers (no copies of
+  effects or payloads in the ring). On overflow `truncated: true` requires
+  a fresh authoritative owner snapshot. The cursor binds both the
+  **domain-owner generation and a unique nested attachment ID**: two frames
+  served by one long-lived domain owner have distinct histories, so a cursor
+  from one outer attempt is rejected by another. Obtain a cursor from the
+  owner-authored `NestedViewInfo.latest` header, not from a fabricated
+  sequence or a previous run. Future sequence requests fail.
+  A reader retains only its own `Arc<T>` snapshots. Each graph operation
+  has at most one current attachment, bounded by the validated plan's node
+  limit, rather than an unbounded per-frame history.
+- **Payload limits:** the SDK retains one latest, owner-provided typed
+  payload per attached operation, but does **not** impose a universal
+  serialized size or deep-memory budget on arbitrary `T`. Domain authors
+  must bound snapshot construction/size and choose publish frequency for
+  their workload; detached readers may retain their own older
+  `Arc<T>` copies. **The `Send + Sync` type bound does not forbid
+  interior mutability**: a domain must publish detached, owner-immutable
+  projection data, not an `Arc<Mutex<_>>` or another mutable alias to its
+  authoritative native world. The trusted-local API does not enforce this
+  deeper property or provide a serialized isolation boundary.
+  Snapshot allocation and destruction happen outside the observation
+  mutex; the latest pointer and bounded sequence ring are exchanged under
+  that mutex. However, domain-provided snapshot copying/destructors and
+  lock acquisition are **not** real-time guaranteed.
+  A slow reader never applies queue backpressure to the native schedule.
+  No global synchronization or transaction combines an outer graph
+  snapshot with an inner domain snapshot.
+- **Authority and failures:** view attachments fail for an unsupported
+  non-delegated graph boundary, mismatched domain, stale/nonrunning attempt,
+  closed owner, duplicate same-generation registration or invalid version.
+  Replacement atomically marks the previous view `Superseded` under
+  that view's publication mutex: already in-flight publications finish
+  before revocation completes, and new publications then reject. This
+  does not forcibly terminate or roll back native domain work.
+  These checks are local cooperative
+  correctness, **not** hostile-process authentication, authenticated
+  producer provenance, persistent duplicate suppression, durable mutation
+  reconciliation or a guarantee that a revoked native worker stopped.
+- **Outcome preservation:** after cancellation or unknown outer
+  acknowledgement the owner snapshot may show more actual inner progress
+  than the outer attempt-scoped `GraphRunReport.confirmed_prefixes`.
+  Never infer additional outer effects, retry unknown mutations or synthesize
+  child graph nodes. `GraphRunController` continues rejecting delegated
+  `RieselDomainTicks` control as `UnsupportedDomainAuthority`.
+
+Regression commands: `cargo test -p riesel --features async-tcp
+--test execution_nested` plus the ordinary `cargo validate --check` and
+`cargo smoke`. Real Bevy ECS and pinned RunenECS cross-domain proof uses
+the **isolated test-only workspace**
+`research/nested-observation-acceptance/` with `cargo test --locked
+--manifest-path research/nested-observation-acceptance/Cargo.toml`; the two
+engines are not dependencies of the production `riesel_app` or `riesel`
+crates. Tests additionally check a non-ECS multi-stage owner and lost
+notifications. No external exporter, ECS-system debugger, nested pause/step,
+new runtime, viewer authorization or publication wire format is provided.
+
 ## Attempt-scoped owner-confirmed effect prefixes (#113 increment)
 
 A registered operation may use `async_operation_with_effects(|effects| async move { ... })` instead of `async_operation(|| async { ... })`. Only **after** the authoritative owner confirms a committed result may it call `effects.confirm_prefix("simulation.ticks", cumulative)`. The first confirmed tick is `1`, then `2` and so on **within one operation attempt**. This is not a global tick number, general unordered mutation ledger, or a synthetic RPC acknowledgement. Callbacks that never report effects remain supported.

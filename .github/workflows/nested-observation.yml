@@ -1,0 +1,54 @@
+name: Nested Observation Acceptance
+
+# Only the optional nested observation boundary and its fixture trigger the
+# external test-only ECS dependency resolution; ordinary Riesel CI remains
+# independent of Bevy and GPL-3.0-only RunenECS.
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - crates/riesel_app/src/execution_nested.rs
+      - crates/riesel_app/src/execution_observation.rs
+      - crates/riesel_app/src/execution_runner.rs
+      - crates/riesel_app/src/execution_plan.rs
+      - crates/riesel_app/src/lib.rs
+      - crates/riesel/src/lib.rs
+      - crates/riesel/tests/execution_nested.rs
+      - research/nested-observation-acceptance/**
+      - docs/product/riesel/execution-runner.md
+      - .github/workflows/nested-observation.yml
+  push:
+    branches: [main]
+    paths:
+      - crates/riesel_app/src/execution_nested.rs
+      - crates/riesel_app/src/execution_observation.rs
+      - crates/riesel_app/src/execution_runner.rs
+      - crates/riesel_app/src/execution_plan.rs
+      - crates/riesel_app/src/lib.rs
+      - crates/riesel/src/lib.rs
+      - crates/riesel/tests/execution_nested.rs
+      - research/nested-observation-acceptance/**
+      - docs/product/riesel/execution-runner.md
+      - .github/workflows/nested-observation.yml
+
+permissions:
+  contents: read
+
+concurrency:
+  group: nested-observation-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  nested-ecs-linux:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install Rust 1.100.0
+        run: |
+          rustup toolchain install 1.100.0 --profile minimal --component rustfmt --component clippy
+          rustup default 1.100.0
+      - name: Verify real Bevy ECS and RunenECS domain-owned nested views
+        run: |
+          cargo fmt --manifest-path research/nested-observation-acceptance/Cargo.toml -- --check
+          cargo clippy --locked --manifest-path research/nested-observation-acceptance/Cargo.toml --all-targets -- -D warnings
+          cargo test --locked --manifest-path research/nested-observation-acceptance/Cargo.toml -- --nocapture
