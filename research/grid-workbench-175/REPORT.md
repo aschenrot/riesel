@@ -76,7 +76,7 @@ Therefore compare:
 
 **Gate 2 — Real domain correctness:** use the *actual* grid/topology implementation, not duplicate private code, in an authorized isolated environment. Seeded scalar 64x64 samples -> explicit threshold -> 4 configurable synchronous CA steps with mixed initial border values -> 65x65 visual corner output. Test exact replay per declared determinism profile, protected cells after *each* iteration, OOB read alternatives, 16 topology mask cases, invalid configs and stale revisions.
 
-**Gate 3 — Cross-boundary cost:** measure linked DTO vs direct call, then a managed provider where permitted, at 64, 512 and a justified larger dimension. Report the exact toolchain, CPU/platform, source SHAs, payload bounds, serialized bytes, wall-clock and memory; never infer performance from raw byte arithmetic. If private grid access is not available to Riesel CI, keep the experiment in an authorized isolated/private environment and publish only non-sensitive results.
+**Gate 3 — Cross-boundary cost:** quantify linked DTO vs direct call, then provider-managed preflight and latency/memory costs where permitted, at 64, 512 and a justified larger dimension. Report the exact toolchain, CPU/platform, source SHAs, payload bounds, serialized bytes, wall-clock and memory; never infer performance from raw byte arithmetic. If private grid access is not available to Riesel CI, keep the experiment in an authorized isolated/private environment and publish only non-sensitive results.
 
 **Gate 4 — Native preview:** use a distinct, tested RunenRender 2D descriptor-to-geometry adapter with actual RunenGPU host presentation. Verify frame/surface lifetime, input/zoom/pan, updates, size limits and failure/disconnection handling before choosing a reusable rendering capability contract. No production independent UI export/authorization is implied.
 
@@ -103,7 +103,7 @@ cargo test --manifest-path research/grid-workbench-175/Cargo.toml -- --nocapture
 cargo run --manifest-path research/grid-workbench-175/Cargo.toml
 ```
 
-**Exact test evidence:** [Linux Research Grid Workbench workflow 44994122494](https://github.com/aschenrot/riesel/actions/runs/44994122494) **PASS**, source SHA `f8dce80badf02fff49d29253d4b61d81fcf76f98`. All **8 tests passed**, including separate/coarse semantic equality, strict thresholding, invalid dimensions/non-finite values, CA read-boundary alternatives, preserved mixed borders after *every* step, synchronous transition ordering, invalid rules and measured payload serialization. The real Riesel application launched and printed `Riesel #175 SDK composition + rule CA proof: 64x64 cells`. Tests do not establish local/managed performance parity, production grid domain behavior, replay after crash or S3 executable dataflow. The first fixture commit failed because macro-required direct Cargo dependencies were omitted; subsequent revisions fixed that and passed.
+**Exact test evidence:** [Linux Research Grid Workbench workflow 44994302679](https://github.com/aschenrot/riesel/actions/runs/44994302679) **PASS**, source SHA `b3aa6062a4159b9c5e1f12cd757b32417400086b`. All **9 tests passed**, including separate/coarse semantic equality, strict thresholding, invalid dimensions/non-finite values, CA read-boundary alternatives, preserved mixed borders after *every* step, synchronous transition ordering, invalid rules, measured payload serialization and a real two-endpoint generated asynchronous TCP RPC test. The linked-provider Riesel application launched and printed `Riesel #175 SDK composition + rule CA proof: 64x64 cells`. Tests do not establish local/managed performance parity, production grid domain behavior, authorized remote clients, replay after crash or S3 executable dataflow. The first fixture commit failed because macro-required direct Cargo dependencies were omitted; subsequent revisions fixed that and passed.
 
 ### Gate 3 partial — real serialized size evidence and framed limit
 
@@ -111,10 +111,12 @@ The test emitted the following **Serde JSON DTO bytes**, for a deterministic rep
 
 | Artifact | Measured serialized size | Source |
 | --- | ---: | --- |
-| 64x64 `ScalarGridDto` | **81,956 bytes** | [same CI 44994122494](https://github.com/aschenrot/riesel/actions/runs/44994122494) |
-| 512x512 `ScalarGridDto` | **5,242,918 bytes** | [same CI 44994122494](https://github.com/aschenrot/riesel/actions/runs/44994122494) |
+| 64x64 `ScalarGridDto` | **81,956 bytes** | [same CI 44994122494](https://github.com/aschenrot/riesel/actions/runs/44994302679) |
+| 512x512 `ScalarGridDto` | **5,242,918 bytes** | [same CI 44994122494](https://github.com/aschenrot/riesel/actions/runs/44994302679) |
 
-The current Riesel `crates/riesel_protocol/src/tcp/wire.rs` sets `MAX_FRAME_BYTES = 4 * 1024 * 1024`, and asynchronous client/server paths reject oversized framed request/response JSON. Therefore, **this valid 512x512 scalar DTO cannot fit into one current RPC frame**. Some other grids or encodings can fit; no universal dimension limit or automatic zero-copy is inferred. 64x64 fits the raw payload bound; managed provider integration and end-to-end frame success are still untested.
+The current Riesel `crates/riesel_protocol/src/tcp/wire.rs` sets `MAX_FRAME_BYTES = 4 * 1024 * 1024`, and asynchronous client/server paths reject oversized framed request/response JSON. Therefore, **this valid 512x512 scalar DTO cannot fit into one current RPC frame**. Some other grids or encodings can fit; no universal dimension limit or automatic zero-copy is inferred.
+
+**Real transport experiment:** The fixture created *two independent loopback TCP listeners* with actual generated `NoiseGenerationAsyncRpcDispatcher` and `CellularAutomataAsyncRpcDispatcher`. An independent generated Noise client retrieved a 64x64 scalar grid, the ordinary-Rust threshold conversion produced typed occupancy data, and an independent generated CA client returned a 64x64 result matching the direct algorithm. A separate full-precision Noise provider returned a 512x512 scalar grid and the actual remote client observed a `CallError::Rpc(RpcError::Transport(_))` when the oversized response was rejected. This test is **actual RPC**, not a simulated framing assertion, but uses intentionally unauthenticated test-only loopback clients; it is not an application-managed provider-selection, retry, authenticated-export, stream/chunk protocol, benchmark, cross-platform guarantee or domain-library integration.
 
 This directly illustrates why capability providers should not require routine transfer of every intermediate domain grid over IPC. Preserving local typed values, an owner-side coarse pipeline, bounded chunking/streaming or separate typed data transfer may be considered if evidence justifies them. Do not bypass frame limits or silently replace typed binary semantics with arbitrary JSON.
 
@@ -125,7 +127,7 @@ A separate **private draft grid research PR** exists, testing the real existing 
 ### Remaining work before owner decision
 
 - Run the actual private grid-domain tests on an authorized Rust environment, then evaluate integration with live Riesel handles without copying private source into this public repository.
-- Compare **developer authoring cost**, local data ownership, DTO copying, bounded managed provider transfer and failure semantics for A, B and C. The separate/coarse parity fixture establishes semantics, not comparative measured performance.
+- Compare **developer authoring cost**, local data ownership, DTO copying, Riesel-managed provider placement and failure semantics for A, B and C. Separate/coarse parity and generated two-endpoint TCP tests establish interoperability/bounds, not comparative measured performance or managed-process orchestration.
 - Demonstrate a second consumer not limited to room layouts, define noise sampling and field/grid coordinates, algorithm versions, snapshot/recompute authority and stage configuration.
 - Establish the separate RunenRender 2D/native-host proof only against its accepted product scope and enforce #60/#75 external-session authorization requirements when relevant.
 - Record the owner accept/revise/defer decision in #175. Maintain #111's one semantic plan-author and S2->S3 compatibility without asserting executable typed value edges today.
