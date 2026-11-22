@@ -9,7 +9,7 @@ use super::{
 };
 use riesel_app::{
     OperationRegistry, PlanAuthoringHead, PlanAuthoringSource, PlanRevisionError,
-    PlanRevisionRepository, PlanSemanticCandidate, S2DocumentLimits, S2SourceDocument,
+    PlanSemanticCandidate, S2DocumentLimits, S2SourceDocument,
     ValidatedExecutionPlan, inspect_s2_source,
 };
 use rusqlite::{Connection, OpenFlags, OptionalExtension, TransactionBehavior, params};
