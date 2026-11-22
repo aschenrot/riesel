@@ -21,6 +21,9 @@ serde_json.workspace = true
 serde.workspace = true
 riesel_schema = { workspace = true, optional = true }
 thiserror = { workspace = true, optional = true }
+
+[dev-dependencies]
+tempfile = "3.23"
 tokio.workspace = true
 
 # Research-only application/interface fixture. These are not released app APIs.
