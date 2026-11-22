@@ -71,7 +71,9 @@ impl Drop for Publication {
 }
 
 fn rows(connection: &Connection, query: &str) -> Result<u64, PlanRevisionError> {
-    let count: i64 = connection.query_row(query, [], |row| row.get(0)).map_err(storage)?;
+    let count: i64 = connection
+        .query_row(query, [], |row| row.get(0))
+        .map_err(storage)?;
     u64::try_from(count).map_err(storage)
 }
 
@@ -95,17 +97,23 @@ fn audit(
         .pragma_query_value(None, "integrity_check", |row| row.get(0))
         .map_err(storage)?;
     if integrity != "ok" {
-        return Err(PlanRevisionError::Storage("snapshot integrity check failed".into()));
+        return Err(PlanRevisionError::Storage(
+            "snapshot integrity check failed".into(),
+        ));
     }
     if rows(connection, "SELECT count(*) FROM pragma_foreign_key_check")? != 0 {
-        return Err(PlanRevisionError::Storage("snapshot foreign-key check failed".into()));
+        return Err(PlanRevisionError::Storage(
+            "snapshot foreign-key check failed".into(),
+        ));
     }
     let tables = rows(
         connection,
         "SELECT count(*) FROM sqlite_schema WHERE type='table' AND name NOT LIKE 'sqlite_%'",
     )?;
     if tables != 5 {
-        return Err(PlanRevisionError::Storage("unknown or incomplete V2 store schema".into()));
+        return Err(PlanRevisionError::Storage(
+            "unknown or incomplete V2 store schema".into(),
+        ));
     }
     let mismatched: i64 = connection
         .query_row(
@@ -140,7 +148,9 @@ fn audit(
         .and_then(|value| value.checked_add(handoffs))
         .ok_or_else(|| PlanRevisionError::Invalid("snapshot row count overflow".into()))?;
     if total > budget.max_rows {
-        return Err(PlanRevisionError::Invalid("snapshot row budget exceeded".into()));
+        return Err(PlanRevisionError::Invalid(
+            "snapshot row budget exceeded".into(),
+        ));
     }
     Ok(SnapshotAudit {
         plan_count,
@@ -167,7 +177,9 @@ fn verify(
 ) -> Result<VerifiedV2Snapshot, PlanRevisionError> {
     let bytes = fs::metadata(path).map_err(storage)?.len();
     if bytes > budget.max_snapshot_bytes {
-        return Err(PlanRevisionError::Invalid("snapshot byte budget exceeded".into()));
+        return Err(PlanRevisionError::Invalid(
+            "snapshot byte budget exceeded".into(),
+        ));
     }
     let connection = open_snapshot(path)?;
     let audited = audit(&connection, expected_stamp, budget)?;
@@ -195,7 +207,10 @@ fn compare_table_rows(
     let mut original = source_stmt.query([]).map_err(storage)?;
     let mut snapshot = copied_stmt.query([]).map_err(storage)?;
     loop {
-        match (original.next().map_err(storage)?, snapshot.next().map_err(storage)?) {
+        match (
+            original.next().map_err(storage)?,
+            snapshot.next().map_err(storage)?,
+        ) {
             (None, None) => return Ok(()),
             (Some(left), Some(right)) => {
                 for column in 0..column_count {
@@ -216,11 +231,23 @@ fn compare_exact_content(
     snapshot: &Connection,
 ) -> Result<(), PlanRevisionError> {
     for (table, columns) in [
-        ("plan_heads", "plan_id, semantic_revision, source_kind, source_generation, registration_stamp"),
-        ("semantic_revisions", "plan_id, revision, inspection, node_ids, source_document"),
+        (
+            "plan_heads",
+            "plan_id, semantic_revision, source_kind, source_generation, registration_stamp",
+        ),
+        (
+            "semantic_revisions",
+            "plan_id, revision, inspection, node_ids, source_document",
+        ),
         ("layout_heads", "plan_id, layout_id, revision"),
-        ("layout_revisions", "plan_id, layout_id, revision, semantic_anchor, layout_json"),
-        ("source_handoffs", "plan_id, generation, source_kind, semantic_anchor, source_document"),
+        (
+            "layout_revisions",
+            "plan_id, layout_id, revision, semantic_anchor, layout_json",
+        ),
+        (
+            "source_handoffs",
+            "plan_id, generation, source_kind, semantic_anchor, source_document",
+        ),
     ] {
         compare_table_rows(source, snapshot, table, columns)?;
     }
@@ -233,11 +260,11 @@ fn pending_path(destination: &Path) -> PathBuf {
     PathBuf::from(filename)
 }
 
-fn publish(
-    pending: &Path,
-    destination: &Path,
-) -> Result<(), PlanRevisionError> {
-    File::open(pending).map_err(storage)?.sync_all().map_err(storage)?;
+fn publish(pending: &Path, destination: &Path) -> Result<(), PlanRevisionError> {
+    File::open(pending)
+        .map_err(storage)?
+        .sync_all()
+        .map_err(storage)?;
     // Hard-link publication fails atomically if the destination already
     // exists. This never replaces an existing app-owned revision database.
     fs::hard_link(pending, destination).map_err(storage)?;
@@ -264,8 +291,7 @@ impl SqlitePlanRevisionRepository {
         destination: impl AsRef<Path>,
         budget: V2SnapshotBudget,
     ) -> Result<VerifiedV2Snapshot, PlanRevisionError> {
-        let destination =
-            output_path(destination.as_ref(), &self.path).map_err(storage)?;
+        let destination = output_path(destination.as_ref(), &self.path).map_err(storage)?;
         let source = self.connection()?;
         let before_version: i64 = source
             .pragma_query_value(None, "data_version", |row| row.get(0))
@@ -273,10 +299,12 @@ impl SqlitePlanRevisionRepository {
         let before = audit(&source, &self.trusted_registration_stamp, budget)?;
         let pending = pending_path(&destination);
         let cleanup = Pending(pending.clone());
-        let path_str = pending
-            .to_str()
-            .ok_or_else(|| PlanRevisionError::Invalid("snapshot destination is not UTF-8".into()))?;
-        source.execute("VACUUM INTO ?1", params![path_str]).map_err(storage)?;
+        let path_str = pending.to_str().ok_or_else(|| {
+            PlanRevisionError::Invalid("snapshot destination is not UTF-8".into())
+        })?;
+        source
+            .execute("VACUUM INTO ?1", params![path_str])
+            .map_err(storage)?;
         let after_version: i64 = source
             .pragma_query_value(None, "data_version", |row| row.get(0))
             .map_err(storage)?;
@@ -294,7 +322,10 @@ impl SqlitePlanRevisionRepository {
         drop(source);
         publish(&pending, &destination)?;
         drop(cleanup);
-        Ok(VerifiedV2Snapshot { path: destination, ..verified })
+        Ok(VerifiedV2Snapshot {
+            path: destination,
+            ..verified
+        })
     }
 
     /// Read-only snapshot inspection: checks SQLite integrity, V2 schema,
@@ -337,6 +368,9 @@ impl SqlitePlanRevisionRepository {
         drop(restored);
         publish(&pending, &destination)?;
         drop(cleanup);
-        Ok(VerifiedV2Snapshot { path: destination, ..copied })
+        Ok(VerifiedV2Snapshot {
+            path: destination,
+            ..copied
+        })
     }
 }
