@@ -94,6 +94,33 @@ mod provider_tests {
     use super::*;
 
     #[test]
+    fn read_only_query_factory_does_not_advertise_mutating_storage() {
+        use riesel_schema::TypeRef;
+
+        let models = BTreeMap::from([(
+            "task".into(),
+            ModelDefinition {
+                fields: BTreeMap::from([("completed".into(), TypeRef::Bool)]),
+            },
+        )]);
+        let readable = BTreeSet::from(["task".into()]);
+        let only = memory_record_query_provider_with_models(models.clone(), readable.clone())
+            .unwrap()
+            .definition()
+            .unwrap();
+        let both = memory_record_query_and_storage_provider_with_models(models, readable)
+            .unwrap()
+            .definition()
+            .unwrap();
+        let read = RecordQueryContract::definition().unwrap().capability;
+        let write = RecordStoreContract::definition().unwrap().capability;
+        assert!(only.capabilities.contains(&read));
+        assert!(!only.capabilities.contains(&write));
+        assert!(both.capabilities.contains(&read));
+        assert!(both.capabilities.contains(&write));
+    }
+
+    #[test]
     fn memory_provider_matches_generated_storage_contract() {
         let provider = memory_provider_definition().unwrap();
         provider.validate().unwrap();
