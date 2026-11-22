@@ -5,6 +5,7 @@
 //! Neither the trace nor its cursor authorizes operations or executes a graph.
 use crate::execution_plan::OperationNode;
 use crate::execution_runner::OperationState;
+use riesel_protocol::SessionToken;
 use std::collections::{BTreeMap, VecDeque};
 use std::sync::{Arc, Mutex, PoisonError};
 use thiserror::Error;
@@ -192,13 +193,18 @@ impl GraphRunObserver {
 /// external rollback, completed callback or successful downstream operation.
 pub(crate) struct GraphRunPublication {
     observer: GraphRunObserver,
+    session: SessionToken,
     nodes: Vec<String>,
     dependencies: Vec<Vec<usize>>,
     finished: bool,
 }
 
 impl GraphRunPublication {
-    pub(crate) fn new(identity: GraphRunIdentity, nodes: &[OperationNode]) -> Self {
+    pub(crate) fn new(
+        identity: GraphRunIdentity,
+        nodes: &[OperationNode],
+        session: SessionToken,
+    ) -> Self {
         let names: Vec<String> = nodes.iter().map(|node| node.id().to_owned()).collect();
         let index: BTreeMap<_, _> = names
             .iter()
@@ -241,6 +247,7 @@ impl GraphRunPublication {
             },
             nodes: names,
             dependencies,
+            session,
             finished: false,
         }
     }
@@ -250,7 +257,13 @@ impl GraphRunPublication {
     }
 
     pub(crate) fn identity(&self) -> GraphRunIdentity {
-        self.observer.snapshot().identity
+        self.observer
+            .state
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .snapshot
+            .identity
+            .clone()
     }
 
     pub(crate) fn start(&mut self) {
@@ -365,6 +378,14 @@ impl Drop for GraphRunPublication {
             if matches!(self.current(index), OperationState::Pending) {
                 self.transition(index, OperationState::Cancelled);
             }
+        }
+        {
+            let mut state = self
+                .observer
+                .state
+                .lock()
+                .unwrap_or_else(PoisonError::into_inner);
+            state.snapshot.session_expired = !self.session.is_active();
         }
         self.phase(GraphRunPhase::Abandoned);
     }
