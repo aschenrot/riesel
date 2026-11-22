@@ -10,6 +10,8 @@ on:
       - crates/riesel_app/src/execution_nested.rs
       - crates/riesel_app/src/execution_observation.rs
       - crates/riesel_app/src/execution_runner.rs
+      - crates/riesel_app/src/execution_plan.rs
+      - crates/riesel_app/src/lib.rs
       - crates/riesel/src/lib.rs
       - crates/riesel/tests/execution_nested.rs
       - research/nested-observation-acceptance/**
@@ -21,6 +23,8 @@ on:
       - crates/riesel_app/src/execution_nested.rs
       - crates/riesel_app/src/execution_observation.rs
       - crates/riesel_app/src/execution_runner.rs
+      - crates/riesel_app/src/execution_plan.rs
+      - crates/riesel_app/src/lib.rs
       - crates/riesel/src/lib.rs
       - crates/riesel/tests/execution_nested.rs
       - research/nested-observation-acceptance/**
