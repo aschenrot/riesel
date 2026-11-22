@@ -157,13 +157,16 @@ where
     ) -> Result<crate::QueryPage<T>> {
         use riesel_storage::RecordQuery;
 
-        let result = self.capability.service().query_page(riesel_storage::RecordQueryRequest {
-            model: T::MODEL_NAME.into(),
-            predicate,
-            limit,
-            scan_budget,
-            cursor,
-        })?;
+        let result = self
+            .capability
+            .service()
+            .query_page(riesel_storage::RecordQueryRequest {
+                model: T::MODEL_NAME.into(),
+                predicate,
+                limit,
+                scan_budget,
+                cursor,
+            })?;
         let records = result
             .records
             .into_iter()
