@@ -1,0 +1,45 @@
+name: Research S3 Typed Handoff #187
+
+permissions:
+  contents: read
+
+on:
+  pull_request:
+    branches:
+      - main
+    paths:
+      - "research/typed-handoff-187/**"
+      - ".github/workflows/research-typed-handoff-187.yml"
+  workflow_dispatch:
+
+jobs:
+  actual-riesel-runner:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install Rust 1.100.0
+        run: |
+          rustup toolchain install 1.100.0 --profile minimal
+          rustup default 1.100.0
+      - name: Test actual runner / typed-domain handoff
+        run: cargo test --locked --manifest-path research/typed-handoff-187/Cargo.toml -- --nocapture
+      - name: Verify pinned standalone dependency resolution
+        run: git diff --exit-code -- research/typed-handoff-187/Cargo.lock
+      - name: Run headless example
+        run: cargo run --locked --manifest-path research/typed-handoff-187/Cargo.toml --bin riesel-typed-handoff-187-research
+      - name: Run actual Riesel delegated !Send domain owner proof
+        run: cargo run --locked --manifest-path research/typed-handoff-187/Cargo.toml --bin affine_domain
+      - name: Record controlled runner context
+        run: |
+          uname -a
+          lscpu | grep -E 'Model name:|CPU\(s\):|Architecture:' || true
+          free -h || true
+          rustc --version
+      - name: Measure local value sharing, copies and JSON boundaries (release)
+        run: cargo run --release --locked --manifest-path research/typed-handoff-187/Cargo.toml --bin value_costs
+      - name: Verify exact-float JSON codec alternative
+        run: cargo test --locked --manifest-path research/typed-handoff-187/Cargo.toml --features json-float-roundtrip --bin value_costs
+      - name: Measure exact-float JSON codec alternative (release)
+        run: cargo run --release --locked --manifest-path research/typed-handoff-187/Cargo.toml --features json-float-roundtrip --bin value_costs
+      - name: Measure production S2 no-data graph execution baseline (release)
+        run: cargo run --release --locked --manifest-path research/typed-handoff-187/Cargo.toml --bin graph_costs
