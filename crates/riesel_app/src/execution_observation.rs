@@ -454,6 +454,7 @@ impl GraphRunController {
 #[derive(Clone)]
 pub struct GraphEffectRecorder {
     state: Arc<Mutex<ObservationState>>,
+    session: SessionToken,
     operation_id: String,
     attempt: u64,
     // Set by the immutable validated plan, never accepted from caller input.
@@ -491,6 +492,9 @@ impl GraphEffectRecorder {
         registration: &NestedDomainRegistration,
         view_version: u32,
     ) -> Result<NestedPublisher<T>, NestedObservationError> {
+        if !self.session.is_active() {
+            return Err(NestedObservationError::SessionExpired);
+        }
         let expected = self
             .delegated_domain
             .as_ref()
@@ -817,6 +821,7 @@ impl GraphRunPublication {
         (
             GraphEffectRecorder {
                 state: Arc::clone(&self.observer.state),
+                session: self.session.clone(),
                 operation_id: operation_id.clone(),
                 attempt,
                 delegated_domain: self.delegated_domains[index].clone(),
