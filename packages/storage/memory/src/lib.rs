@@ -6,10 +6,12 @@ pub use server::run_storage_server;
 
 use riesel_schema::{ModelDefinition, ProviderDefinition};
 use riesel_storage::RecordStoreContract;
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 
 use riesel_app::{ComponentDefinition, ConnectorError, LocalProviderFactory};
-use riesel_storage::{RecordStore, RecordStoreRpcDispatcher};
+use riesel_storage::{
+    RecordQuery, RecordQueryContract, RecordQueryRpcDispatcher, RecordStore, RecordStoreRpcDispatcher,
+};
 use std::sync::Arc;
 
 /// Metadata for the reference provider comes from its typed registration.
@@ -38,6 +40,53 @@ fn component(
         |state| state as Arc<dyn RecordStore + Send + Sync>,
         RecordStoreRpcDispatcher::new,
     )
+}
+
+/// Read-only linked record Query provider, with no mutating Storage RPC
+/// contract advertised to a read-only application.
+pub fn memory_record_query_provider_with_models(
+    models: BTreeMap<String, ModelDefinition>,
+    readable: BTreeSet<String>,
+) -> Result<ComponentDefinition<MemoryStore>, ConnectorError> {
+    query_component(models, readable, false)
+}
+
+/// One linked state owner co-exposing independent read-only Query and
+/// writable Storage v2 contracts for confirmed sequential read-your-writes.
+pub fn memory_record_query_and_storage_provider_with_models(
+    models: BTreeMap<String, ModelDefinition>,
+    readable: BTreeSet<String>,
+) -> Result<ComponentDefinition<MemoryStore>, ConnectorError> {
+    query_component(models, readable, true)
+}
+
+fn query_component(
+    models: BTreeMap<String, ModelDefinition>,
+    readable: BTreeSet<String>,
+    writable: bool,
+) -> Result<ComponentDefinition<MemoryStore>, ConnectorError> {
+    let declared: BTreeSet<String> = models.keys().cloned().collect();
+    if !readable.is_subset(&declared) || readable.is_empty() {
+        return Err(Box::new(std::io::Error::new(
+            std::io::ErrorKind::InvalidInput,
+            "Query reader models must be a nonempty subset of registered schemas",
+        )));
+    }
+    let provider = ComponentDefinition::new("riesel.storage.memory", move || {
+        MemoryStore::with_query_models(models.clone(), readable.clone())
+    })
+    .exposes::<RecordQueryContract, _>(
+        |state| state as Arc<dyn RecordQuery + Send + Sync>,
+        RecordQueryRpcDispatcher::new,
+    )?;
+    if writable {
+        provider.exposes::<RecordStoreContract, _>(
+            |state| state as Arc<dyn RecordStore + Send + Sync>,
+            RecordStoreRpcDispatcher::new,
+        )
+    } else {
+        Ok(provider)
+    }
 }
 
 #[cfg(test)]
