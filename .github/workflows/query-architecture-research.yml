@@ -15,6 +15,8 @@ jobs:
       - name: Reproduce scratch-only live keyset continuity counterexamples
         run: python3 research/query-architecture/probes/sqlite_live_keyset.py
       - name: Install pinned Rust toolchain
-        uses: dtolnay/rust-toolchain@1.100.0
+        run: |
+          rustup toolchain install 1.100.0 --profile minimal --component rustfmt --component clippy
+          rustup default 1.100.0
       - name: Verify research-only semantic predicate and cursor contract on real providers
         run: cargo test -p todo --test query_architecture_research -- --nocapture
