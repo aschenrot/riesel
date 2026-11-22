@@ -8,6 +8,7 @@ use riesel_app::{
     ConnectorError, ConnectorRegistry, DeploymentConfig, ExecutionPlanDraft, GraphRunError,
     GraphRunPhase, OperationKey, OperationNode, OperationOutcome, OperationRegistry,
     OperationState, RunningApp, RuntimeError, ServiceEndpoint, async_operation,
+    async_operation_with_effects,
 };
 use riesel_protocol::SessionToken;
 use riesel_schema::{
@@ -133,7 +134,7 @@ fn crash_plan(
     handlers
         .register(
             OperationKey::new("commit", 1).unwrap(),
-            async_operation(move || {
+            async_operation_with_effects(move |effects| {
                 let confirmed = Arc::clone(&confirmed);
                 async move {
                     let Ok(mut stream) = tokio::net::TcpStream::connect(endpoint).await else {
@@ -146,6 +147,9 @@ fn crash_plan(
                     match stream.read_exact(&mut reply).await {
                         Ok(_) if &reply == b"ACK\n" => {
                             confirmed.fetch_add(1, Ordering::SeqCst);
+                            // This real child explicitly acknowledged COMMIT.
+                            // Do not infer a confirmation for its later CRASH.
+                            effects.confirm_prefix("provider.acknowledged", 1).unwrap();
                             OperationOutcome::Completed
                         }
                         _ => OperationOutcome::OutcomeUnknown,
@@ -244,6 +248,8 @@ fn managed_process_crash_fences_run_and_preserves_confirmed_prefix() {
     });
     assert!(result.session_expired);
     assert_eq!(result.operations["commit"], OperationState::Completed);
+    assert_eq!(result.confirmed_prefixes["commit"]["provider.acknowledged"], 1);
+    assert!(!result.confirmed_prefixes.contains_key("crash"));
     assert_eq!(result.operations["crash"], OperationState::OutcomeUnknown);
     assert_eq!(result.operations["successor"], OperationState::Blocked);
     // The same runner owns the authoritative snapshot even after a genuine
@@ -258,6 +264,11 @@ fn managed_process_crash_fences_run_and_preserves_confirmed_prefix() {
         OperationState::Completed
     );
     assert_eq!(snapshot.operations["commit"].attempt, 1);
+    assert_eq!(
+        snapshot.operations["commit"].confirmed_prefixes["provider.acknowledged"],
+        1
+    );
+    assert!(snapshot.operations["crash"].confirmed_prefixes.is_empty());
     assert_eq!(
         snapshot.operations["crash"].state,
         OperationState::OutcomeUnknown
@@ -320,6 +331,7 @@ fn structured_graph_drains_after_managed_child_crash_without_secondary_failure()
         )
         .unwrap();
 
+    let observer = runner.observer();
     let tasks = running.async_tasks();
     execution().block_on(async {
         tasks.begin_scope().unwrap();
@@ -333,6 +345,11 @@ fn structured_graph_drains_after_managed_child_crash_without_secondary_failure()
     assert_eq!(dispatched.load(Ordering::SeqCst), 1);
     assert!(dropped.load(Ordering::SeqCst));
     assert_eq!(successor.load(Ordering::SeqCst), 0);
+    assert_eq!(
+        observer.snapshot().operations["commit"].confirmed_prefixes["provider.acknowledged"],
+        1
+    );
+    assert!(observer.snapshot().operations["crash"].confirmed_prefixes.is_empty());
     assert!(matches!(
         running.check_processes(),
         Err(RuntimeError::ServiceExited { requirement, .. }) if requirement == "managed"
