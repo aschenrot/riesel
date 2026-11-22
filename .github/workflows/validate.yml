@@ -36,15 +36,6 @@ jobs:
       # Run branch-specific research first for fast failure feedback; the
       # normal workspace validation and smoke gates remain mandatory below.
       # No research-only dependency enters default main CI.
-      # Temporary, research-branch-only resolution to review and commit the
-      # exact new Bevy comparator graph. Remove this step after pinning it.
-      - name: Capture updated Bevy research lockfile
-        if: ${{ github.event_name == 'pull_request' && github.head_ref == 'research/146-nested-domain-contract' }}
-        run: |
-          cargo generate-lockfile --manifest-path research/nested-execution/Cargo.toml
-          echo RESEARCH_LOCKFILE_BEGIN
-          cat research/nested-execution/Cargo.lock
-          echo RESEARCH_LOCKFILE_END
       - name: Verify Issue 146 nested execution research
         if: ${{ github.event_name == 'pull_request' && github.head_ref == 'research/146-nested-domain-contract' }}
         run: |
