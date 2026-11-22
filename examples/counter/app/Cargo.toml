@@ -8,7 +8,7 @@ publish = false
 
 [features]
 # Test-only internal session publication; no general external client API.
-internal-publication = ["riesel/internal-publication"]
+internal-publication = ["riesel/internal-publication", "dep:riesel_app"]
 
 [dependencies]
 riesel = { workspace = true, features = ["async-tcp"] }
