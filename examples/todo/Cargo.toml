@@ -47,3 +47,8 @@ required-features = ["http"]
 name = "todo_seed_status"
 path = "src/bin/todo_seed_status.rs"
 required-features = ["e2e-fixture"]
+
+[[bin]]
+name = "todo_t1_read_host"
+path = "src/bin/todo_t1_read_host.rs"
+required-features = ["t1-public-read"]
