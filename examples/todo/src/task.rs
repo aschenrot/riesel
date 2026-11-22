@@ -1,7 +1,9 @@
-use riesel::storage::{RecordCompare, RecordPredicate, RecordQueryContract, RecordQueryError, StoreError};
+use riesel::storage::{
+    RecordCompare, RecordPredicate, RecordQueryContract, RecordQueryError, StoreError,
+};
 use riesel::{ModelRead, QueryPage, Record, Records, RieselModel, SdkError};
-use std::sync::Arc;
 use serde::{Deserialize, Serialize};
+use std::sync::Arc;
 use thiserror::Error;
 use uuid::Uuid;
 
