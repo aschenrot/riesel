@@ -490,8 +490,7 @@ fn rolling_short_runs_compete_with_existing_cold_waiter_without_service_guarante
                 .unwrap();
             let hot_plan = ExecutionPlanDraft::new("rolling-hot", 1)
                 .operation(
-                    OperationNode::new("hot", key("hot"))
-                        .access("shared", AccessMode::Write),
+                    OperationNode::new("hot", key("hot")).access("shared", AccessMode::Write),
                 )
                 .validate()
                 .unwrap()
@@ -499,8 +498,7 @@ fn rolling_short_runs_compete_with_existing_cold_waiter_without_service_guarante
                 .unwrap();
             let cold_plan = ExecutionPlanDraft::new("rolling-cold", 1)
                 .operation(
-                    OperationNode::new("cold", key("cold"))
-                        .access("shared", AccessMode::Write),
+                    OperationNode::new("cold", key("cold")).access("shared", AccessMode::Write),
                 )
                 .validate()
                 .unwrap()
