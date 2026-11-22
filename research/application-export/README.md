@@ -31,6 +31,11 @@ python3 research/application-export/measure.py
 CI must verify the **exact PR head** and the default Linux Validate/smoke.
 The research workspace has its own manifest and is not a new SDK crate.
 
+The gateway's atomic accepting flag only verifies **sequential** withdrawal.
+Concurrent revocation can race the subsequent dispatch; the real #157
+runtime-owned ingress permit and a synchronized grant admission policy would
+be necessary for a production guarantee.
+
 This test proves *policy-shape reuse*, not wire security or process attachment.
 It demonstrates three explicit versioned interfaces with one gateway
 implementation; generated facade dispatch can avoid the per-operation relay
