@@ -30,6 +30,8 @@ pub enum ReadExposure {
 pub struct ReadPublicationDescriptor {
     pub application: String,
     pub interface: String,
+    /// Per-publication correlation ID, not an authentication credential.
+    pub publication_id: String,
     pub contract: CapabilityRef,
     pub generation: String,
     pub allowed_queries: Vec<String>,
@@ -47,6 +49,8 @@ pub enum ReadPublicationError {
     WrongInterface,
     #[error("versioned capability contract does not match the selected publication")]
     WrongContract,
+    #[error("publication instance is stale or not the selected publication")]
+    WrongPublication,
     #[error("application runtime generation is stale")]
     StaleGeneration,
     #[error("publication was withdrawn")]
@@ -95,9 +99,15 @@ impl AppReadPublication {
         selected_queries: impl IntoIterator<Item = String>,
     ) -> Result<Self, ReadPublicationError> {
         for field in [&application, &interface] {
-            if field.is_empty() || field.len() > MAX_PUBLIC_ID_BYTES || field.trim() != field {
+            if field.is_empty()
+                || field.len() > MAX_PUBLIC_ID_BYTES
+                || !field.bytes().enumerate().all(|(index, ch)| {
+                    ch.is_ascii_alphanumeric()
+                        || (index > 0 && matches!(ch, b'.' | b'_' | b'-'))
+                })
+            {
                 return Err(ReadPublicationError::Invalid(
-                    "application/interface name absent, oversized or not normalized".into(),
+                    "application/interface name must be bounded ASCII identifiers".into(),
                 ));
             }
         }
@@ -128,6 +138,7 @@ impl AppReadPublication {
         let descriptor = ReadPublicationDescriptor {
             application,
             interface,
+            publication_id: uuid::Uuid::new_v4().to_string(),
             contract: contract.capability.clone(),
             generation: runtime_ingress.generation(),
             allowed_queries: allowed.iter().cloned().collect(),
@@ -176,6 +187,9 @@ impl AppReadPublication {
         }
         if requested.contract != self.descriptor.contract {
             return Err(ReadPublicationError::WrongContract);
+        }
+        if requested.publication_id != self.descriptor.publication_id {
+            return Err(ReadPublicationError::WrongPublication);
         }
         if requested.generation != self.descriptor.generation {
             return Err(ReadPublicationError::StaleGeneration);
@@ -382,6 +396,8 @@ mod tests {
         wrong_version.contract.version += 1;
         let mut wrong_epoch = descriptor.clone();
         wrong_epoch.generation.push('x');
+        let mut wrong_publication = descriptor.clone();
+        wrong_publication.publication_id.push('x');
         let mut wrong_app = descriptor.clone();
         wrong_app.application.push('x');
 
@@ -404,6 +420,10 @@ mod tests {
             assert!(matches!(
                 publication.query(&wrong_epoch, "count", json!({})).await,
                 Err(ReadPublicationError::StaleGeneration)
+            ));
+            assert!(matches!(
+                publication.query(&wrong_publication, "count", json!({})).await,
+                Err(ReadPublicationError::WrongPublication)
             ));
             assert!(matches!(
                 publication.query(&wrong_app, "count", json!({})).await,
@@ -460,6 +480,7 @@ mod tests {
             .unwrap();
         let fresh = successor.descriptor();
         assert_ne!(stale.generation, fresh.generation);
+        assert_ne!(stale.publication_id, fresh.publication_id);
         runtime().block_on(async {
             assert!(matches!(
                 prior.query(&stale, "count", json!({})).await,
