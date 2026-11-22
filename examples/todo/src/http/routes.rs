@@ -24,6 +24,7 @@ pub(super) enum ApiError {
     UnsupportedMedia,
     MethodNotAllowed,
     Unavailable,
+    OutcomeUnknown,
     Internal,
 }
 
@@ -76,6 +77,13 @@ impl IntoResponse for ApiError {
                 StatusCode::SERVICE_UNAVAILABLE,
                 "unavailable",
                 "Service unavailable",
+            ),
+            // Do not collapse an accepted but unconfirmed mutation into
+            // "not executed". The HTTP client may reconcile by reading.
+            Self::OutcomeUnknown => (
+                StatusCode::SERVICE_UNAVAILABLE,
+                "outcome_unknown",
+                "Request outcome could not be confirmed",
             ),
             Self::Internal => (
                 StatusCode::INTERNAL_SERVER_ERROR,

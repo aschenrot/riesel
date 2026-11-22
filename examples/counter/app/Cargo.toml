@@ -6,6 +6,10 @@ license.workspace = true
 repository.workspace = true
 publish = false
 
+[features]
+# Test-only internal session publication; no general external client API.
+internal-publication = ["riesel/internal-publication"]
+
 [dependencies]
 riesel = { workspace = true, features = ["async-tcp"] }
 riesel_counter.workspace = true

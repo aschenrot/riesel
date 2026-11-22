@@ -1,0 +1,38 @@
+name: Runtime session ingress (#157) research verification
+
+permissions:
+  contents: read
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - "crates/riesel_protocol/**"
+      - "crates/riesel_app/**"
+      - "crates/riesel/src/application/context.rs"
+      - "crates/riesel/Cargo.toml"
+      - "examples/counter/app/**"
+      - "research/operational-contract/probe_internal_publication.py"
+      - ".github/workflows/internal-publication-ingress.yml"
+  workflow_dispatch:
+
+jobs:
+  linux:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install Rust 1.100.0
+        run: |
+          rustup toolchain install 1.100.0 --profile minimal --component rustfmt --component clippy
+          rustup default 1.100.0
+      - name: Internal session generation, admission and finite drain tests
+        run: cargo test --locked -p riesel_protocol --features internal-publication
+      - name: App-owned async ingress, cancellation, teardown and successor fencing
+        run: cargo test --locked -p riesel_app --features internal-publication
+      - name: Compile the genuine recovering Riesel Counter
+        run: |
+          cargo build --locked -p riesel_counter_example --bin counter_crash_fixture
+          cargo build --locked -p riesel_counter_example --bin counter_recovery_client --features internal-publication
+      - name: Test real same-PID Counter session replacement and stale-effect rejection
+        run: python3 research/operational-contract/probe_internal_publication.py
