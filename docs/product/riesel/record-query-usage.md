@@ -1,12 +1,12 @@
-# Linked Record Query — proposed first implementation profile
+# Linked Record Query — first trusted linked implementation profile
 
-**Status:** implementation under review in [PR #177](https://github.com/aschenrot/riesel/pull/177), **not yet released**.  
+**Status:** first linked-profile implementation and its integration evidence are tracked in [PR #177](https://github.com/aschenrot/riesel/pull/177) and [#161](https://github.com/aschenrot/riesel/issues/161). This is not an independent-process publication or general production-readiness claim.  
 **Owner-accepted architecture:** [Linked Record Query contract](record-query-architecture.md), [#138](https://github.com/aschenrot/riesel/issues/138).  
 **Implementation acceptance:** [#161](https://github.com/aschenrot/riesel/issues/161), dependent on the merged [#160](https://github.com/aschenrot/riesel/issues/160) typed model/owner foundation.
 
 ## Read-only and read/write composition
 
-The proposed `riesel.query.records@1` capability exposes **one read operation** (`query_page`), independently versioned from Storage v2. It has **no** create, update or delete methods. A Rust model is registered by the existing `ModelRead<T, RecordQueryContract>` parameter or explicit `record_query_at::<T, RecordQueryContract>()` builder. A registered model does not imply a write grant or exported endpoint.
+The first linked `riesel.query.records@1` capability exposes **one read operation** (`query_page`), independently versioned from Storage v2. It has **no** create, update or delete methods. A Rust model is registered by the existing `ModelRead<T, RecordQueryContract>` parameter or explicit `record_query_at::<T, RecordQueryContract>()` builder. A registered model does not imply a write grant or exported endpoint.
 
 A Query-only model handler is declared in Rust:
 
@@ -70,4 +70,4 @@ A handler needing mutations composes `ModelRead<Task, RecordQueryContract>` with
 
 The **first profile is trusted linked, same-application-session only**. The link relation cannot authorize a separate process, browser, GUI or managed/external reader. Loopback addresses, matching paths, provider IDs, same UID or app type equality are **not** credentials. Independent publication/authorization needs #75/#60's separately accepted identity, grants and epoch/revocation semantics. Specialized ECS, graph, spatial, streaming, game and analytical domains are **not** required to adopt this record contract or implementation; they may share typed semantics with their domain-owned evaluator.
 
-Memory and SQLite each own physical query execution, model-scoped visibility, bounded effort and cursor state. Shared typed predicate validation is a semantic conformance helper, not a universal execution engine. Existing Storage v2 applications are unchanged if they do not opt into Query. Before this PR becomes deliverable, require exact-head Linux validation, native provider and SDK tests, an architecture/compatibility review and normal protected-main integration; Windows remains a manual pre-release check.
+Memory and SQLite each own physical query execution, model-scoped visibility, bounded effort and cursor state. Shared typed predicate validation is a semantic conformance helper, not a universal execution engine. Existing Storage v2 applications are unchanged if they do not opt into Query. Delivery requires exact-head Linux validation, native provider and SDK tests, an architecture/compatibility review and normal protected-main integration; the evidence is linked from PR #177. Windows remains a manual pre-release check.
