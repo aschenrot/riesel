@@ -503,6 +503,11 @@ impl ExecutionGraphRunner {
         let mut active = HashMap::<Id, usize>::new();
         let mut session_expired = false;
         let mut stopped_by_owner = false;
+        // An immutable plan starts with all nodes Pending. A successful
+        // completion cannot block dependents, and a single validated
+        // topological pass propagates every new non-success terminal result.
+        // Avoid rescanning the entire plan after ordinary successful wakes.
+        let mut needs_blocking_scan = false;
         let mut stop = std::pin::pin!(stop);
         self.publication.start();
 
@@ -522,7 +527,10 @@ impl ExecutionGraphRunner {
             while let Ok(signal) = self.signal_rx.try_recv() {
                 self.fired.insert(signal);
             }
-            self.block_dependents();
+            if needs_blocking_scan {
+                self.block_dependents();
+                needs_blocking_scan = false;
+            }
             if !self.session.is_active() {
                 session_expired = true;
                 break;
@@ -564,6 +572,7 @@ impl ExecutionGraphRunner {
                     Ok((id, (index, outcome))) => {
                         let owned = active.remove(&id);
                         debug_assert_eq!(owned, Some(index));
+                        needs_blocking_scan |= !matches!(outcome, OperationOutcome::Completed);
                         self.states[index] = match outcome {
                             OperationOutcome::Completed => OperationState::Completed,
                             OperationOutcome::Failed(message) => OperationState::Failed(message),
@@ -574,6 +583,7 @@ impl ExecutionGraphRunner {
                             .transition(index, self.states[index].clone());
                     }
                     Err(error) => {
+                        needs_blocking_scan = true;
                         let index = active
                             .remove(&error.id())
                             .expect("tracked operation task identity");
