@@ -5,8 +5,8 @@
 //! and the bounded, lossy transition ring share one authoritative mutex.
 //! Neither the trace nor its cursor authorizes operations or executes a graph.
 use crate::execution_nested::{
-    NestedAttachment, NestedDescription, NestedDomainRegistration, NestedObservationError,
-    NestedObserver, NestedParent, NestedPublisher,
+    NestedAttachment, NestedDescription, NestedDomainRegistration, NestedHeaderObserver,
+    NestedObservationError, NestedObserver, NestedParent, NestedPublisher,
 };
 use crate::execution_plan::{DomainAdmissionMode, DomainBoundary, OperationNode};
 use crate::execution_runner::OperationState;
@@ -255,6 +255,17 @@ pub struct GraphRunObserver {
 }
 
 impl GraphRunObserver {
+    /// A payload-agnostic, owner-authoritative nested status and lossy cursor.
+    /// A generic inspector needs no knowledge of ECS/system/pipeline payloads.
+    pub fn nested_header(&self, operation: &str) -> Option<NestedHeaderObserver> {
+        self.state
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .nested
+            .get(operation)
+            .map(|entry| entry.header(self.session.clone()))
+    }
+
     /// Discover an opt-in nested view without guessing an ECS internal node.
     /// None means this plan/run does not publish a view for this operation.
     pub fn nested_description(&self, operation: &str) -> Option<NestedDescription> {
@@ -538,7 +549,7 @@ impl GraphEffectRecorder {
             owner_generation: generation,
             view_version,
         };
-        let (attachment, publisher) = NestedPublisher::attach(description, owner);
+        let (attachment, publisher) = NestedPublisher::attach(description, owner, self.session.clone());
         state.nested.insert(self.operation_id.clone(), attachment);
         Ok(publisher)
     }
