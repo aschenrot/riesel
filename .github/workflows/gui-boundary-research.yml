@@ -8,6 +8,7 @@ on:
     branches: [main]
     paths:
       - "crates/riesel/examples/execution_graph_inspection_export.rs"
+      - "crates/riesel/Cargo.toml"
       - "research/gui-boundary/**"
       - ".github/workflows/gui-boundary-research.yml"
 
@@ -38,10 +39,22 @@ jobs:
         env:
           GUI_SCREENSHOT: /tmp/gui-boundary-inspector.png
         run: node research/gui-boundary/browser-test.mjs "$RUNNER_TEMP/graph.json"
-      - name: Retain actual rendered GUI screenshot
+      - name: Verify real live graph and independent browser reconnection
+        env:
+          GUI_LIVE_SCREENSHOT: /tmp/gui-boundary-live.png
+        run: |
+          target/debug/examples/execution_graph_inspection_export --live 15 > "$RUNNER_TEMP/live.log" 2>&1 &
+          app_pid=$!
+          trap 'kill "$app_pid" 2>/dev/null || true' EXIT
+          node research/gui-boundary/live-browser-test.mjs "$RUNNER_TEMP/live.log" || { cat "$RUNNER_TEMP/live.log"; exit 1; }
+          wait "$app_pid"
+          trap - EXIT
+      - name: Retain actual rendered GUI screenshots
         uses: actions/upload-artifact@v4
         with:
           name: gui-boundary-research-inspector
-          path: /tmp/gui-boundary-inspector.png
+          path: |
+            /tmp/gui-boundary-inspector.png
+            /tmp/gui-boundary-live.png
           retention-days: 14
           if-no-files-found: error
