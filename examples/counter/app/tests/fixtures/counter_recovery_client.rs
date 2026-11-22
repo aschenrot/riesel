@@ -64,6 +64,10 @@ fn main() -> riesel::Result<()> {
                     observed.generation(),
                     ctx.internal_publication_session().generation()
                 );
+                assert_eq!(
+                    observed.generation_evidence(),
+                    GenerationEvidence::RuntimeIssued
+                );
                 let binding_index = observed
                     .facts()
                     .iter()
