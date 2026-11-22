@@ -357,8 +357,12 @@ pub enum AdapterOperationEvidence {
     /// The owning domain returned a typed failure. A failure does not imply
     /// no effects unless the domain separately guarantees atomicity.
     DomainConfirmedFailure,
-    /// A reply was lost after work was admitted. Dispatch may have occurred,
-    /// including a persisted mutation; retrying is not justified.
+    /// A read-only operation was admitted but its result was not received.
+    /// The data is unavailable to the caller; this is not an uncertain write
+    /// or a confirmed empty result. Any retry still needs an explicit policy.
+    AdmittedReadResultLost,
+    /// A *mutation* reply was lost after admission. Dispatch may have occurred,
+    /// including a persisted effect; retrying is not justified.
     AdmittedReplyLost,
     /// An app-owned multi-stage operation can prove at least one effect but
     /// cannot claim the entire intended operation succeeded. Reconcile first.
@@ -370,6 +374,7 @@ pub enum OperationDisposition {
     RejectedBeforeDispatch,
     ConfirmedSuccess,
     ConfirmedDomainFailure,
+    ReadUnavailable,
     OutcomeUnknown,
     PartialNeedsReconciliation,
 }
@@ -380,6 +385,7 @@ impl AdapterOperationEvidence {
             Self::RejectedBeforeDomainDispatch => OperationDisposition::RejectedBeforeDispatch,
             Self::DomainConfirmedSuccess => OperationDisposition::ConfirmedSuccess,
             Self::DomainConfirmedFailure => OperationDisposition::ConfirmedDomainFailure,
+            Self::AdmittedReadResultLost => OperationDisposition::ReadUnavailable,
             Self::AdmittedReplyLost => OperationDisposition::OutcomeUnknown,
             Self::ConfirmedPartialRequiresReconciliation => {
                 OperationDisposition::PartialNeedsReconciliation
@@ -755,6 +761,10 @@ mod tests {
             (
                 AdapterOperationEvidence::DomainConfirmedFailure,
                 OperationDisposition::ConfirmedDomainFailure,
+            ),
+            (
+                AdapterOperationEvidence::AdmittedReadResultLost,
+                OperationDisposition::ReadUnavailable,
             ),
             (
                 AdapterOperationEvidence::AdmittedReplyLost,
