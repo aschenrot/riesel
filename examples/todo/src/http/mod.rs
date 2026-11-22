@@ -45,8 +45,19 @@ impl HttpState {
                 Ok(())
             })
             .map_err(|_| ApiError::Unavailable)?;
-        receiver.await.map_err(|_| ApiError::Unavailable)?
+        receive_owned_result(receiver).await
     }
+}
+
+
+/// An accepted blocking operation may have changed persistent data even if
+/// its result sender disappears (worker failure, cancellation or teardown).
+/// Unlike synchronous task-admission refusal, this outcome is ambiguous.
+/// Never automatically replay the command merely because its reply was lost.
+async fn receive_owned_result<R>(
+    receiver: tokio::sync::oneshot::Receiver<Result<R, ApiError>>,
+) -> Result<R, ApiError> {
+    receiver.await.map_err(|_| ApiError::OutcomeUnknown)?
 }
 
 fn router(state: HttpState, directory: Option<&std::path::Path>) -> axum::Router {
@@ -152,6 +163,49 @@ mod tests {
                 assert!(matches!(result, Err(ApiError::Unavailable)));
                 assert!(!executed.load(Ordering::SeqCst));
                 Ok::<(), std::io::Error>(())
+            })
+            .unwrap()
+            .development()
+            .unwrap()
+            .run()
+            .unwrap();
+    }
+
+    /// A real accepted Todo mutation can commit before its reply disappears.
+    /// The HTTP outcome must be explicitly unknown rather than a definite
+    /// pre-dispatch capacity rejection, and must never be replayed.
+    #[test]
+    fn lost_reply_after_committed_todo_write_is_outcome_unknown() {
+        Application::new("Todo HTTP lost response after effect")
+            .async_handler(|records: Records<TaskData>, tasks: AsyncTasks| async move {
+                let writer = records.clone();
+                let (sender, receiver) =
+                    tokio::sync::oneshot::channel::<Result<(), ApiError>>();
+                tasks.spawn_blocking("committed-lost-reply", move |_cancellation| {
+                    Todo::new(writer).create_task("Applied exactly once")?;
+                    // The worker completed the real Storage operation but
+                    // did not deliver a response. Do not infer rollback.
+                    drop(sender);
+                    Ok(())
+                })?;
+                assert!(matches!(
+                    receive_owned_result(receiver).await,
+                    Err(ApiError::OutcomeUnknown)
+                ));
+                let tasks_after = Todo::new(records).list_tasks()?;
+                assert_eq!(tasks_after.len(), 1);
+                assert_eq!(tasks_after[0].value.title, "Applied exactly once");
+
+                let response = ApiError::OutcomeUnknown.into_response();
+                assert_eq!(response.status(), axum::http::StatusCode::SERVICE_UNAVAILABLE);
+                let body = axum::body::to_bytes(response.into_body(), 1024).await?;
+                let json: serde_json::Value = serde_json::from_slice(&body)?;
+                assert_eq!(json["error"]["code"], "outcome_unknown");
+                assert_eq!(
+                    json["error"]["message"],
+                    "Request outcome could not be confirmed"
+                );
+                Ok::<(), Box<dyn std::error::Error + Send + Sync>>(())
             })
             .unwrap()
             .development()
