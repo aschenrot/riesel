@@ -69,8 +69,7 @@ fn main() -> riesel::Result<()> {
                 let observer = runner.observer();
                 let report = executor.block_on(runner.execute());
                 if report.confirmed_prefixes["tick"]["simulation.ticks"] != 1
-                    || observer.snapshot().operations["tick"].confirmed_prefixes
-                        ["simulation.ticks"]
+                    || observer.snapshot().operations["tick"].confirmed_prefixes["simulation.ticks"]
                         != 1
                 {
                     return Err(std::io::Error::other(
