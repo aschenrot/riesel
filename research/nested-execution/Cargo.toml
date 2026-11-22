@@ -1,0 +1,12 @@
+[package]
+name = "riesel-nested-domain-research"
+version = "0.0.0"
+edition = "2024"
+publish = false
+
+# Independent research workspace. Not a production Riesel SDK crate or API.
+[workspace]
+
+[dev-dependencies]
+riesel = { path = "../../crates/riesel", features = ["async-tcp"] }
+tokio = { version = "=1.54.1", features = ["rt", "sync", "time"] }
