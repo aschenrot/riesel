@@ -55,5 +55,8 @@ pub fn store(path: &Path, stamp: &str) -> SqlitePlanRevisionRepository {
 }
 
 pub fn old_heads(store: &SqlitePlanRevisionRepository) -> [PlanAuthoringHead; 2] {
-    [store.head(CODE_ID).unwrap(), store.head(DOCUMENT_ID).unwrap()]
+    [
+        store.head(CODE_ID).unwrap(),
+        store.head(DOCUMENT_ID).unwrap(),
+    ]
 }
