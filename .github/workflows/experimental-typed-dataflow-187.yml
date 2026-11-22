@@ -1,0 +1,31 @@
+name: Experimental Local S3 Typed Graph #187
+
+permissions:
+  contents: read
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - "crates/riesel_app/**"
+      - "crates/riesel/**"
+      - ".github/workflows/experimental-typed-dataflow-187.yml"
+  workflow_dispatch:
+
+jobs:
+  local-typed-runner:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install Rust 1.100.0
+        run: |
+          rustup toolchain install 1.100.0 --profile minimal --component rustfmt
+          rustup default 1.100.0
+      - name: Check formatting
+        run: cargo fmt --all -- --check
+      - name: Test actual session-owned typed operations
+        run: cargo test --locked -p riesel --features experimental-typed-dataflow --test typed_dataflow -- --nocapture
+      - name: Test typed SDK core and default graph nonregression
+        run: |
+          cargo test --locked -p riesel_app --features experimental-typed-dataflow --lib
+          cargo test --locked -p riesel --features async-tcp --test execution_runner

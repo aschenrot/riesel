@@ -12,6 +12,7 @@ records = ["dep:riesel_storage"]
 dev-memory-storage = ["records", "dep:riesel_storage_component"]
 sqlite-storage = ["records", "dep:riesel_storage_sqlite"]
 async-tcp = ["riesel_protocol/async-tcp", "riesel_app/async-tcp", "dep:tokio"]
+experimental-typed-dataflow = ["async-tcp", "riesel_app/experimental-typed-dataflow"]
 # Intentionally unstable test-only adapter, not the accepted #60 exporter API.
 internal-publication = ["async-tcp", "riesel_protocol/internal-publication", "riesel_app/internal-publication"]
 

@@ -69,6 +69,17 @@ impl Context<'_> {
         self.running.execution_graph(plan, max_in_flight)
     }
 
+    /// Run a separately validated, opt-in typed graph on the same session
+    /// admission owner as the existing S2 graph. No additional scheduler.
+    #[cfg(feature = "experimental-typed-dataflow")]
+    pub fn typed_execution_graph(
+        &self,
+        prepared: crate::PreparedTypedExecution,
+        max_in_flight: std::num::NonZeroUsize,
+    ) -> std::result::Result<crate::TypedExecutionGraphRunner, crate::GraphRunError> {
+        self.running.typed_execution_graph(prepared, max_in_flight)
+    }
+
     /// Start work owned by this application. On service failure or shutdown
     /// the task's cancellation token is signalled; all tasks must finish
     /// before managed providers can be torn down or restarted.
