@@ -253,11 +253,7 @@ impl ObservationSnapshot {
     }
 
     /// No missing fact can be interpreted as an observed success.
-    pub fn state_of(
-        &self,
-        subject: &ObservationSubject,
-        at: Instant,
-    ) -> ObservationState {
+    pub fn state_of(&self, subject: &ObservationSubject, at: Instant) -> ObservationState {
         self.facts
             .iter()
             .position(|fact| &fact.subject == subject)
@@ -309,10 +305,13 @@ mod tests {
             ObservationState::Unsupported
         );
         assert_eq!(
-            frame.state_of(&ObservationSubject::LocalApplicationListener {
-                interface: "counter".into(),
-                address: "127.0.0.1:9999".parse().unwrap(),
-            }, Instant::now()),
+            frame.state_of(
+                &ObservationSubject::LocalApplicationListener {
+                    interface: "counter".into(),
+                    address: "127.0.0.1:9999".parse().unwrap(),
+                },
+                Instant::now()
+            ),
             ObservationState::Unknown
         );
     }
@@ -325,16 +324,25 @@ mod tests {
         let next = ObservationSnapshot::runtime(b.clone(), &[], true).unwrap();
         assert_ne!(old.generation(), next.generation());
         a.invalidate();
-        assert_eq!(old.state_at(0, Instant::now()), Some(ObservationState::Stale));
+        assert_eq!(
+            old.state_at(0, Instant::now()),
+            Some(ObservationState::Stale)
+        );
         assert_eq!(
             next.state_at(0, Instant::now()),
             Some(ObservationState::Observed)
         );
         assert_eq!(
-            next.state_at(0, next.observed_at() + MAX_OBSERVATION_AGE + Duration::from_nanos(1)),
+            next.state_at(
+                0,
+                next.observed_at() + MAX_OBSERVATION_AGE + Duration::from_nanos(1)
+            ),
             Some(ObservationState::Stale)
         );
-        assert_eq!(next.state_at(2, Instant::now()), Some(ObservationState::Unsupported));
+        assert_eq!(
+            next.state_at(2, Instant::now()),
+            Some(ObservationState::Unsupported)
+        );
     }
 
     #[test]
@@ -342,23 +350,38 @@ mod tests {
         let socket = TcpListener::bind("127.0.0.1:0").unwrap();
         let address = socket.local_addr().unwrap();
         let session = SessionToken::new();
-        let frame = ObservationSnapshot::local_listener(session.clone(), "todo.http", address)
-            .unwrap();
-        assert_eq!(frame.facts()[0].source, ObservationSource::ApplicationAdapter);
-        assert_eq!(frame.state_at(0, Instant::now()), Some(ObservationState::Observed));
+        let frame =
+            ObservationSnapshot::local_listener(session.clone(), "todo.http", address).unwrap();
         assert_eq!(
-            frame.state_of(&ObservationSubject::AuthorizedApplicationOperation, Instant::now()),
+            frame.facts()[0].source,
+            ObservationSource::ApplicationAdapter
+        );
+        assert_eq!(
+            frame.state_at(0, Instant::now()),
+            Some(ObservationState::Observed)
+        );
+        assert_eq!(
+            frame.state_of(
+                &ObservationSubject::AuthorizedApplicationOperation,
+                Instant::now()
+            ),
             ObservationState::Unsupported
         );
         drop(socket);
         // After closing the socket, a *snapshot* of a past bind does not
         // become evidence of an active listener; freshness is bounded.
         assert_eq!(
-            frame.state_at(0, frame.observed_at() + MAX_OBSERVATION_AGE + Duration::from_secs(1)),
+            frame.state_at(
+                0,
+                frame.observed_at() + MAX_OBSERVATION_AGE + Duration::from_secs(1)
+            ),
             Some(ObservationState::Stale)
         );
         session.invalidate();
-        assert_eq!(frame.state_at(0, Instant::now()), Some(ObservationState::Stale));
+        assert_eq!(
+            frame.state_at(0, Instant::now()),
+            Some(ObservationState::Stale)
+        );
     }
 
     #[test]
@@ -374,18 +397,28 @@ mod tests {
             Err(ObservationError::InvalidLabel)
         ));
         assert!(matches!(
-            ObservationSnapshot::local_listener(session.clone(), "bad", "0.0.0.0:8080".parse().unwrap()),
+            ObservationSnapshot::local_listener(
+                session.clone(),
+                "bad",
+                "0.0.0.0:8080".parse().unwrap()
+            ),
             Err(ObservationError::InvalidLoopbackListener)
         ));
         assert!(matches!(
             ObservationSnapshot::runtime(
                 session,
-                &vec![ResolvedCapability {
-                    requirement: "c".into(),
-                    capability: CapabilityRef { id: "example.c".into(), version: 1 },
-                    provider: "p".into(),
-                    instance: None,
-                }; MAX_OPERATIONAL_FACTS - 2],
+                &vec![
+                    ResolvedCapability {
+                        requirement: "c".into(),
+                        capability: CapabilityRef {
+                            id: "example.c".into(),
+                            version: 1
+                        },
+                        provider: "p".into(),
+                        instance: None,
+                    };
+                    MAX_OPERATIONAL_FACTS - 2
+                ],
                 true,
             ),
             Err(ObservationError::TooManyFacts)
@@ -397,13 +430,25 @@ mod tests {
         let session = SessionToken::new();
         let bound = ResolvedCapability {
             requirement: "counter".into(),
-            capability: CapabilityRef { id: "example.counter".into(), version: 1 },
+            capability: CapabilityRef {
+                id: "example.counter".into(),
+                version: 1,
+            },
             provider: "test".into(),
             instance: None,
         };
         let snapshot = ObservationSnapshot::runtime(session, &[bound], false).unwrap();
-        assert_eq!(snapshot.state_at(0, Instant::now()), Some(ObservationState::Unknown));
-        assert_eq!(snapshot.state_at(1, Instant::now()), Some(ObservationState::Unknown));
-        assert_eq!(snapshot.state_at(2, Instant::now()), Some(ObservationState::Unsupported));
+        assert_eq!(
+            snapshot.state_at(0, Instant::now()),
+            Some(ObservationState::Unknown)
+        );
+        assert_eq!(
+            snapshot.state_at(1, Instant::now()),
+            Some(ObservationState::Unknown)
+        );
+        assert_eq!(
+            snapshot.state_at(2, Instant::now()),
+            Some(ObservationState::Unsupported)
+        );
     }
 }
