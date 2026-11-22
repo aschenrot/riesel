@@ -3,9 +3,13 @@
 //! This deliberately matches the existing real RunenECS fixture's world
 //! effects, per-owner-epoch controls, partial effects and uncertain outcomes.
 
-use super::*;
+use super::{
+    Error, GraphControlError, GraphControlTarget, Kind, OperationState, OWNER_EPOCH, WAIT, cancel,
+    executor, grant, setup, until,
+};
 use bevy_ecs::prelude::*;
 use bevy_ecs::schedule::{ScheduleLabel, SingleThreadedExecutor, Stepping};
+use std::{cell::Cell, rc::Rc, sync::atomic::Ordering};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, ScheduleLabel)]
 struct Simulation;
