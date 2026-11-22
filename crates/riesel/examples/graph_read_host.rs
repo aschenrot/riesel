@@ -19,17 +19,16 @@ mod unix {
 
     pub fn run() -> Result<(), Box<dyn std::error::Error>> {
         let args: Vec<String> = std::env::args().skip(1).collect();
-        let hold = match args.as_slice() {
-            [] => 20,
-            [seconds] => {
-                let n = seconds.parse::<u64>()?;
-                if !(5..=600).contains(&n) {
-                    return Err("hold seconds must be in 5..=600".into());
-                }
-                n
-            }
-            _ => return Err("usage: graph_read_host [HOLD_SECONDS]".into()),
+        let (seconds, wide) = match args.as_slice() {
+            [] => ("20".to_owned(), false),
+            [seconds] => (seconds.clone(), false),
+            [seconds, flag] if flag == "--wide" => (seconds.clone(), true),
+            _ => return Err("usage: graph_read_host [HOLD_SECONDS] [--wide]".into()),
         };
+        let hold = seconds.parse::<u64>()?;
+        if !(5..=600).contains(&hold) {
+            return Err("hold seconds must be in 5..=600".into());
+        }
         let rt = tokio::runtime::Builder::new_current_thread()
             .enable_all()
             .build()?;
@@ -41,26 +40,48 @@ mod unix {
             let socket = path.join("read.sock");
             let mut app = App::from_schema(SCHEMA)?.start_local(&ConnectorRegistry::new())?;
             let mut operations = OperationRegistry::<AsyncOperation>::new();
-            for name in ["left", "right", "join"] {
-                operations.register(
-                    OperationKey::new(name, 1)?,
-                    async_operation(move || async move {
-                        if name != "join" {
-                            tokio::time::sleep(Duration::from_secs(3)).await;
-                        }
-                        OperationOutcome::Completed
-                    }),
-                )?;
-            }
-            let plan = ExecutionPlanDraft::new("example.graph_inspector", 1)
-                .operation(OperationNode::new("left", OperationKey::new("left", 1)?))
-                .operation(OperationNode::new("right", OperationKey::new("right", 1)?))
-                .operation(
-                    OperationNode::new("join", OperationKey::new("join", 1)?)
-                        .after("left")
-                        .after("right"),
-                )
-                .validate()?;
+            let plan = if wide {
+                // Actual 80-node plan creates >128 authoritative observer events,
+                // exercising the supported resnapshot after retained trace loss.
+                let mut draft = ExecutionPlanDraft::new("example.graph_inspector", 1);
+                let mut previous: Option<String> = None;
+                for i in 0..80 {
+                    let name = format!("node_{i:03}");
+                    let key = OperationKey::new(&name, 1)?;
+                    operations.register(
+                        key.clone(),
+                        async_operation(|| async { OperationOutcome::Completed }),
+                    )?;
+                    let mut node = OperationNode::new(&name, key);
+                    if let Some(before) = &previous {
+                        node = node.after(before);
+                    }
+                    draft = draft.operation(node);
+                    previous = Some(name);
+                }
+                draft.validate()?
+            } else {
+                for name in ["left", "right", "join"] {
+                    operations.register(
+                        OperationKey::new(name, 1)?,
+                        async_operation(move || async move {
+                            if name != "join" {
+                                tokio::time::sleep(Duration::from_secs(3)).await;
+                            }
+                            OperationOutcome::Completed
+                        }),
+                    )?;
+                }
+                ExecutionPlanDraft::new("example.graph_inspector", 1)
+                    .operation(OperationNode::new("left", OperationKey::new("left", 1)?))
+                    .operation(OperationNode::new("right", OperationKey::new("right", 1)?))
+                    .operation(
+                        OperationNode::new("join", OperationKey::new("join", 1)?)
+                            .after("left")
+                            .after("right"),
+                    )
+                    .validate()?
+            };
             let runner =
                 app.execution_graph(plan.bind(&operations)?, NonZeroUsize::new(2).unwrap())?;
             let facade = ExecutionGraphReadFacade::new(&plan, runner.observer())?;
