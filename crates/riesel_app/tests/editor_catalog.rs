@@ -181,6 +181,27 @@ fn unsafe_publisher_descriptors_are_rejected_before_handler_registration() {
 }
 
 #[test]
+fn publisher_required_signal_cannot_be_removed_for_immediate_admission() {
+    let mut registry = OperationRegistry::<Handler>::new();
+    registry
+        .register_editor_operation(
+            EditorOperationDescriptor::new(key("editor.signal", 1))
+                .require_signal("clock"),
+            Arc::new(|| {}),
+        )
+        .unwrap();
+
+    let immediate = plan(OperationNode::new("step", key("editor.signal", 1)));
+    assert!(matches!(
+        registry.bind_editor_plan(&immediate),
+        Err(EditorCatalogError::DisallowedNode { .. })
+    ));
+    let correctly_signalled =
+        plan(OperationNode::new("step", key("editor.signal", 1)).on_signal("clock"));
+    assert!(registry.bind_editor_plan(&correctly_signalled).is_ok());
+}
+
+#[test]
 fn duplicate_editor_registration_fails_without_replacing_existing_callback() {
     let counter = Arc::new(AtomicUsize::new(0));
     let mut registry = registry(Arc::clone(&counter));
