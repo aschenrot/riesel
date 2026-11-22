@@ -43,6 +43,15 @@ try {
   assert.equal(await page.locator('#graph img').count(), 0);
   assert.equal(await page.locator('#detail img').count(), 0);
 
+  // Missing source evidence cannot be silently presented as an intact
+  // transition history or a current application session.
+  const missingEvidence = structuredClone(original);
+  delete missingEvidence.trace_truncated;
+  const missing = path.join(tmp, 'missing-evidence.json');
+  fs.writeFileSync(missing, JSON.stringify(missingEvidence));
+  await page.locator('#file').setInputFiles(missing);
+  assert.match(await page.locator('#node-list').innerText(), /Unsupported/);
+
   // Unsupported schema fails closed; it cannot masquerade as an executable
   // S2 document or an accepted public GUI connection format.
   uncertain.schema = 'riesel.future.execution.v99';
