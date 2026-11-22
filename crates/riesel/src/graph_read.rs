@@ -146,6 +146,15 @@ impl ExecutionGraphReadFacade {
         if plan.description().operations().len() > MAX_GRAPH_READ_NODES {
             return Err(GraphReadError::TooManyNodes);
         }
+        if current.operations.len() != plan.description().operations().len()
+            || plan
+                .description()
+                .operations()
+                .iter()
+                .any(|node| !current.operations.contains_key(node.id()))
+        {
+            return Err(GraphReadError::SourceMismatch);
+        }
         let nodes = plan
             .description()
             .operations()
@@ -233,15 +242,16 @@ impl ExecutionGraphRead for ExecutionGraphReadFacade {
         run_sequence: u64,
         cursor: u64,
     ) -> Result<GraphReadChanges, GraphReadError> {
+        let observed_run = self.observer.snapshot().identity;
+        if observed_run.session_generation().to_string() != session_generation
+            || observed_run.run_sequence() != run_sequence
+        {
+            return Err(GraphReadError::StaleRun);
+        }
         let changes = self
             .observer
             .changes_since(cursor)
             .map_err(|_| GraphReadError::FutureCursor)?;
-        if changes.identity.session_generation().to_string() != session_generation
-            || changes.identity.run_sequence() != run_sequence
-        {
-            return Err(GraphReadError::StaleRun);
-        }
         let events = if changes.truncated {
             Vec::new()
         } else {
