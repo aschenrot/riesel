@@ -275,7 +275,7 @@ fn changed_layout_or_incomplete_expected_heads_rejects_without_partial_adoption(
     assert!(
         adopt(
             &new,
-            &[code.clone()],
+            std::slice::from_ref(&code),
             &snapshot,
             &handlers(1),
             &[rust_plan(1, AccessMode::Write)],
