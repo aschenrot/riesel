@@ -12,6 +12,8 @@ on:
       - "crates/riesel/src/application/context.rs"
       - "crates/riesel/Cargo.toml"
       - "examples/counter/app/**"
+      - "examples/todo/Cargo.toml"
+      - "examples/todo/src/http/mod.rs"
       - "research/operational-contract/probe_internal_publication.py"
       - ".github/workflows/internal-publication-ingress.yml"
   workflow_dispatch:
@@ -30,6 +32,8 @@ jobs:
         run: cargo test --locked -p riesel_protocol --features internal-publication
       - name: App-owned async ingress, cancellation, teardown and successor fencing
         run: cargo test --locked -p riesel_app --features internal-publication
+      - name: Verify real persistent Todo listener observation
+        run: cargo test --locked -p todo --features http --lib http::tests::real_todo_sqlite_listener_has_only_adapter_evidence -- --exact
       - name: Compile the genuine recovering Riesel Counter
         run: |
           cargo build --locked -p riesel_counter_example --bin counter_crash_fixture
