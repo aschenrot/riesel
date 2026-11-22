@@ -257,3 +257,248 @@ impl RunningApp {
         )
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::{App, ConnectorRegistry};
+    use riesel_protocol::AsyncRpcFuture;
+    use riesel_schema::{OperationDefinition, TypeRef};
+    use serde_json::json;
+    use std::collections::BTreeMap;
+    use std::sync::atomic::{AtomicUsize, Ordering};
+
+    const SCHEMA: &str =
+        r#"{"version":1,"app":{"name":"PublishedReadTests"},"models":{},"requires":[]}"#;
+
+    struct Domain {
+        reads: AtomicUsize,
+        commands: AtomicUsize,
+    }
+
+    impl Domain {
+        fn new() -> Self {
+            Self {
+                reads: AtomicUsize::new(0),
+                commands: AtomicUsize::new(0),
+            }
+        }
+    }
+
+    impl AsyncRpcHandler for Domain {
+        fn contract(&self) -> Result<CapabilityContract, RpcError> {
+            Ok(CapabilityContract {
+                capability: CapabilityRef {
+                    id: "research.app_public_read".into(),
+                    version: 1,
+                },
+                operations: BTreeMap::from([
+                    (
+                        "count".into(),
+                        OperationDefinition {
+                            kind: OperationKind::Query,
+                            description: "Read an app-owned counter".into(),
+                            inputs: Vec::new(),
+                            output: TypeRef::U64,
+                            error: TypeRef::Unit,
+                        },
+                    ),
+                    (
+                        "update".into(),
+                        OperationDefinition {
+                            kind: OperationKind::Command,
+                            description: "Mutate the app-owned counter".into(),
+                            inputs: Vec::new(),
+                            output: TypeRef::U64,
+                            error: TypeRef::Unit,
+                        },
+                    ),
+                ]),
+                types: BTreeMap::new(),
+            })
+        }
+
+        fn dispatch<'a>(&'a self, operation: &'a str, _arguments: Value) -> AsyncRpcFuture<'a> {
+            Box::pin(async move {
+                match operation {
+                    "count" => {
+                        self.reads.fetch_add(1, Ordering::SeqCst);
+                        Ok(json!(7))
+                    }
+                    "update" => {
+                        self.commands.fetch_add(1, Ordering::SeqCst);
+                        Ok(json!(8))
+                    }
+                    _ => Err(RpcError::UnknownOperation(operation.into())),
+                }
+            })
+        }
+    }
+
+    fn runtime() -> tokio::runtime::Runtime {
+        tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .unwrap()
+    }
+
+    fn app() -> RunningApp {
+        App::from_schema(SCHEMA)
+            .unwrap()
+            .start_local(&ConnectorRegistry::new())
+            .unwrap()
+    }
+
+    #[test]
+    fn app_explicit_query_selection_never_exposes_internal_commands() {
+        let mut running = app();
+        let domain = Arc::new(Domain::new());
+
+        let unsafe_publication = running.publish_local_reads(
+            "research.app",
+            "graph.visible",
+            ReadExposure::NonSensitiveSharedUser,
+            domain.clone(),
+            ["count".into(), "update".into()],
+        );
+        assert!(matches!(
+            unsafe_publication,
+            Err(ReadPublicationError::NotReadOnly(name)) if name == "update"
+        ));
+
+        let publication = running
+            .publish_local_reads(
+                "research.app",
+                "graph.visible",
+                ReadExposure::NonSensitiveSharedUser,
+                domain.clone(),
+                ["count".into()],
+            )
+            .unwrap();
+        let descriptor = publication.descriptor();
+        assert_eq!(descriptor.contract.version, 1);
+        assert_eq!(descriptor.exposure, ReadExposure::NonSensitiveSharedUser);
+        assert_eq!(descriptor.allowed_queries, ["count"]);
+        let mut wrong_version = descriptor.clone();
+        wrong_version.contract.version += 1;
+        let mut wrong_epoch = descriptor.clone();
+        wrong_epoch.generation.push('x');
+        let mut wrong_app = descriptor.clone();
+        wrong_app.application.push('x');
+
+        runtime().block_on(async {
+            assert_eq!(
+                publication.query(&descriptor, "count", json!({})).await.unwrap(),
+                json!(7)
+            );
+            assert!(matches!(
+                publication.query(&descriptor, "update", json!({})).await,
+                Err(ReadPublicationError::NotPublished)
+            ));
+            assert!(matches!(
+                publication.query(&wrong_version, "count", json!({})).await,
+                Err(ReadPublicationError::WrongContract)
+            ));
+            assert!(matches!(
+                publication.query(&wrong_epoch, "count", json!({})).await,
+                Err(ReadPublicationError::StaleGeneration)
+            ));
+            assert!(matches!(
+                publication.query(&wrong_app, "count", json!({})).await,
+                Err(ReadPublicationError::WrongInterface)
+            ));
+            assert!(matches!(
+                publication.query(
+                    &descriptor, "count",
+                    Value::String("x".repeat(MAX_REQUEST_BYTES + 1)),
+                ).await,
+                Err(ReadPublicationError::OverBudget)
+            ));
+            assert_eq!(domain.reads.load(Ordering::SeqCst), 1);
+            assert_eq!(domain.commands.load(Ordering::SeqCst), 0);
+            publication.withdraw();
+            assert!(matches!(
+                publication.query(&descriptor, "count", json!({})).await,
+                Err(ReadPublicationError::Withdrawn)
+            ));
+        });
+        running.shutdown().unwrap();
+    }
+
+    #[test]
+    fn real_same_pid_runtime_replacement_fences_old_publication() {
+        let mut old = app();
+        let domain = Arc::new(Domain::new());
+        let prior = old
+            .publish_local_reads(
+                "research.app",
+                "graph.visible",
+                ReadExposure::NonSensitiveSharedUser,
+                domain.clone(),
+                ["count".into()],
+            )
+            .unwrap();
+        let stale = prior.descriptor();
+        let pid = std::process::id();
+        old.shutdown().unwrap();
+
+        let mut next = app();
+        assert_eq!(std::process::id(), pid);
+        let successor = next
+            .publish_local_reads(
+                "research.app",
+                "graph.visible",
+                ReadExposure::NonSensitiveSharedUser,
+                domain.clone(),
+                ["count".into()],
+            )
+            .unwrap();
+        let fresh = successor.descriptor();
+        assert_ne!(stale.generation, fresh.generation);
+        runtime().block_on(async {
+            assert!(matches!(
+                prior.query(&stale, "count", json!({})).await,
+                Err(ReadPublicationError::Expired)
+            ));
+            assert!(matches!(
+                successor.query(&stale, "count", json!({})).await,
+                Err(ReadPublicationError::StaleGeneration)
+            ));
+            assert_eq!(
+                successor.query(&fresh, "count", json!({})).await.unwrap(),
+                json!(7)
+            );
+        });
+        assert_eq!(domain.reads.load(Ordering::SeqCst), 1);
+        assert_eq!(domain.commands.load(Ordering::SeqCst), 0);
+        next.shutdown().unwrap();
+    }
+
+    #[test]
+    fn validation_rejects_empty_unsafe_or_unbounded_publication() {
+        let mut running = app();
+        let domain = Arc::new(Domain::new());
+        for selected in [
+            Vec::<String>::new(),
+            vec!["unregistered".into()],
+            (0..129).map(|n| format!("count{n}")).collect(),
+        ] {
+            assert!(running
+                .publish_local_reads(
+                    "research.app", "graph.visible",
+                    ReadExposure::NonSensitiveSharedUser,
+                    domain.clone(), selected
+                )
+                .is_err());
+        }
+        assert!(running
+            .publish_local_reads(
+                "", "graph.visible", ReadExposure::NonSensitiveSharedUser,
+                domain.clone(), ["count".into()]
+            )
+            .is_err());
+        assert_eq!(domain.reads.load(Ordering::SeqCst), 0);
+        assert_eq!(domain.commands.load(Ordering::SeqCst), 0);
+        running.shutdown().unwrap();
+    }
+}
