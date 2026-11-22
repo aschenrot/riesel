@@ -24,7 +24,7 @@ jobs:
       - name: Test actual runner / typed-domain handoff
         run: cargo test --manifest-path research/typed-handoff-187/Cargo.toml -- --nocapture
       - name: Run headless example
-        run: cargo run --manifest-path research/typed-handoff-187/Cargo.toml
+        run: cargo run --manifest-path research/typed-handoff-187/Cargo.toml --bin riesel-typed-handoff-187-research
       - name: Record controlled runner context
         run: |
           uname -a
