@@ -160,7 +160,7 @@ fn main() -> riesel::Result<()> {
         }
         if let Mode::File(output) = &mode {
             let document = inspection_document(&inspected_plan, &initial, &observer)?;
-            std::fs::write(&output, serde_json::to_vec_pretty(&document)?)?;
+            std::fs::write(output, serde_json::to_vec_pretty(&document)?)?;
         }
         println!(
             "execution graph {} revision {}: {} operations completed",
