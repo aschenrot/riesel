@@ -45,6 +45,18 @@ Confirm whether the accepted requirements or implementation have changed
 since the dated research baseline; distinguish intended outcomes from tests
 that prove only current reference behavior.
 
+**Documentation-status discrepancy to reconcile:** at the audited `main`
+revision, `docs/product/riesel/riesel.md` and the introductory status in
+`durable-record-storage-architecture-proposal.md` still describe the
+operator preview/consent workflow as undelivered, while the
+`implementation-roadmap.md` says its bounded first supported increment
+was delivered and [implementation #51](https://github.com/aschenrot/riesel/issues/51)
+is closed with merged-main CI evidence. For any proposed index/physical
+migration, verify exact accepted invariants and implemented behavior
+against the issue, commit and tests; do not silently choose the more
+convenient status statement. This is a documentation-consistency finding,
+not authorization for automatic index migration or a new query provider.
+
 **Terminology trap:** Riesel's `#[query]` / `OperationKind::Query` classifies
 a capability **operation**. It is not evidence that Riesel has, or needs,
 a generic selection/query language. An execution-plan graph, an ECS
