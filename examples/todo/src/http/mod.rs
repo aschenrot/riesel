@@ -138,7 +138,7 @@ mod tests {
     #[cfg(feature = "internal-observation")]
     #[test]
     fn real_todo_sqlite_listener_has_only_adapter_evidence() {
-        use riesel_app::operational_observation::{
+        use riesel::internal_observation::{
             ObservationSnapshot, ObservationSource, ObservationState, ObservationSubject,
             MAX_OBSERVATION_AGE,
         };
