@@ -641,9 +641,20 @@ fn replacing_owner_generation_retires_old_readers_and_publishers() {
             Err(NestedObservationError::UnsupportedVersion { .. })
         ));
         let new = observer.nested::<i32>("frame", 2).unwrap().unwrap();
-        let replacement_writer = tokio::time::timeout(WAIT, replacement_rx).await.unwrap().unwrap();
+        let replacement_writer = tokio::time::timeout(WAIT, replacement_rx)
+            .await
+            .unwrap()
+            .unwrap();
         assert_eq!(new.snapshot().status, NestedStatus::Current);
-        assert_eq!(observer.nested_header("frame").unwrap().snapshot().latest.sequence, 1);
+        assert_eq!(
+            observer
+                .nested_header("frame")
+                .unwrap()
+                .snapshot()
+                .latest
+                .sequence,
+            1
+        );
         assert_eq!(*new.snapshot().payload.unwrap(), 42);
         assert_ne!(
             new.snapshot().description.owner_generation,
