@@ -173,3 +173,31 @@ require the revision last observed by the caller. Storage compares that
 revision atomically with the stored record and rejects stale writes rather
 than silently refreshing the revision and overwriting a concurrent edit.
 This is a domain/API correctness improvement, not durable persistence.
+
+## Optional non-sensitive T1 read-only application facade
+
+The existing Todo CLI, SQLite database commands and local browser HTTP
+routes remain independent of Riesel's GUI publication facility. For a
+**separate ephemeral demo only**, the opt-in `t1-public-read` feature
+provides a versioned `riesel.todo.public_summary@1` query-only facade
+over the real Todo domain/Storage provider. It publishes **only one
+bounded page of status counts**, never titles, task IDs, record data,
+storage access or mutations. The first page is not an exact global
+total when more records remain.
+
+```sh
+cargo run --locked -p todo --features t1-public-read --bin todo_t1_read_host -- 45
+```
+
+The Unix application prints a fresh local `TODO_T1_SOCKET` path;
+independently running native clients can connect using Riesel's
+`UnixReadClient`. The reusable policy tests also verify an actual
+separate operating-system client. Neither this option nor the
+browser-specific Todo routes creates a required Riesel GUI frontend.
+
+The feature is disabled by default and demonstrates **T1 only**:
+same-OS-user processes are assumed trusted, not individually authenticated.
+Never publish sensitive task information or any write/privileged operation
+through T1; a stronger identity/grant profile requires separate design
+and acceptance.
+
