@@ -1,6 +1,6 @@
-mod task;
 #[cfg(feature = "t1-public-summary")]
 pub mod public_read;
+mod task;
 
 pub use task::{Task, TaskData, Todo, TodoError};
 
