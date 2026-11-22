@@ -6,8 +6,8 @@
 //! Future executable features are opaque/read-only to this S2 reader.
 
 use crate::{
-    AccessMode, BoundExecutionPlan, EditorCatalogError, ExecutionPlanDraft,
-    ExecutionPlanError, OperationKey, OperationNode, OperationRegistry, ValidatedExecutionPlan,
+    AccessMode, BoundExecutionPlan, EditorCatalogError, ExecutionPlanDraft, ExecutionPlanError,
+    OperationKey, OperationNode, OperationRegistry, ValidatedExecutionPlan,
 };
 use serde::{Deserialize, Serialize};
 use std::fmt;
