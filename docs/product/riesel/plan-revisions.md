@@ -59,7 +59,7 @@ The default V2 storage build has **no fault hooks**. An explicitly opt-in `riese
 - Semantic revision immediately **after** the new row and head update, **before** commit; and immediately **after** successful commit, **before** returning the result.
 - Layout revision immediately **after** the new layout row and layout-head update, **before** commit; and immediately **after** successful commit, **before** returning the result.
 
-The [Linux Validate workflow](../../../../.github/workflows/validate.yml) runs the dedicated integration test with:
+The [Linux Validate workflow](../../../.github/workflows/validate.yml) runs the dedicated integration test with:
 
 ```sh
 cargo test --locked -p riesel_storage_sqlite --features v2-fault-injection --test v2_process_crash
