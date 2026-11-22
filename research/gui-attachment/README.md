@@ -39,6 +39,24 @@ no second graph runner, provider resolver or alternative state owner.
 A dedicated *test-owner stdin* channel controls `REVOKE`,
 `RESTART`, `RESUME`, `STOP`; no socket client has those operations.
 
+The same test-only host can run an 80-node dependent graph after a
+new owner-session restart (`OVERFLOW` on the test-owner stdin).
+Its real graph observer retains at most 128 transitions. A client
+requests `cursor_status` with its last sequence; a cursor older than
+retained history reports `truncated=true`. A fresh `snapshot`
+then returns all 80 authoritative operation states and the new run
+identity. `cursor_status` is **only a loss/sequence diagnostic**:
+it deliberately does not export event payloads or implement streaming.
+This proves an explicit resnapshot fallback, not a complete GUI event
+protocol or a validated operation-detail schema.
+
+After the legitimate host exits, the test client itself binds the
+previous socket pathname and responds with a copy of the old
+`describe` fields (`app`, `interface`, `generation`, `pid`).
+A naive client accepts the counterfeit announcement. This is
+**negative server-identity evidence**: no trusted server
+attestation, registration or per-peer credential exists in the fixture.
+
 The server accepts bounded JSON test requests over Unix sockets. This
 is a **disposable research protocol**, not a Riesel protocol or public
 schema. `research_pause=before/after` is a controlled test
@@ -63,6 +81,13 @@ internal providers or plan activation.
   discover the generation and read the graph, despite having no
   separately verified GUI principal/grant. **This is expected negative
   evidence**, not successful protected client authentication.
+- An actual 80-node graph overruns the retained transition ring;
+  stale history is detected, and the independent client can retrieve
+  all current operation states from the authority, without inferring
+  missing events or treating a future cursor as valid.
+- Another process can impersonate the stopped owner's endpoint
+  announcement by reusing its socket pathname and copied descriptor
+  fields; server identity is unverified.
 - Closing external test clients does not shut down the app. The
   process and socket remain until their test-owner shutdown.
 
@@ -79,7 +104,10 @@ attestation, Manager control or cross-platform parity is delivered.
 It does not implement an `AsyncTasks`-owned continuous listener,
 multi-session supervisor, general client discovery, revocable
 per-client grants, bounded event subscriptions or full graph
-descriptor. The test fixture has a fixed 4 KiB request budget and
+descriptor/dependency layout. The bounded snapshot here carries
+operation state names and run identity, while the cursor diagnostic
+does not carry transition payloads; it is not a full frontend
+synchronization protocol. The test fixture has a fixed 4 KiB request budget and
 16 request-thread admission slots; those are **not production sizing
 results**. Its read-only replies are not transaction receipts.
 No security guarantee follows from the test-only `research_pause`
