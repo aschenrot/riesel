@@ -1,6 +1,6 @@
 # #158 — Internal source-qualified observation slice
 
-**Status:** Proposed implementation, subject to exact-revision Linux validation, real Counter crash/recovery and persistent Todo test CI. **Contract owner:** [Shared operational semantics #75](../../docs/product/riesel/operational-contract.md), [implementation acceptance #158](https://github.com/aschenrot/riesel/issues/158). This is not a production/public observer service.
+**Status:** Internal trusted-local reference implementation; exact-revision acceptance evidence belongs to its reviewed PR and GitHub CI. Not an external/public observer release. **Contract owner:** [Shared operational semantics #75](../../docs/product/riesel/operational-contract.md), [implementation acceptance #158](https://github.com/aschenrot/riesel/issues/158). This is not a production/public observer service.
 
 ## Implementation, ownership and reason for reusing a type
 
