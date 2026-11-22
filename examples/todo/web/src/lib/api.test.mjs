@@ -77,3 +77,78 @@ test('response body is optional only for successful no-content responses', async
   const mock = async () => new Response(null, { status: 204 });
   assert.equal(await removeTask(record, mock), undefined);
 });
+
+test('lost mutation transport replies remain outcome-unknown and are never retried', async () => {
+  const dispatched = [];
+  const mock = async (_url, init) => {
+    dispatched.push(init.method);
+    throw new TypeError('connection closed after request');
+  };
+  for (const operation of [
+    () => createTask('Possibly created', mock),
+    () => updateTask(record, { title: 'Possibly changed' }, mock),
+    () => removeTask(record, mock)
+  ]) {
+    await assert.rejects(
+      operation(),
+      (error) => error instanceof ApiError &&
+        error.code === 'outcome_unknown' &&
+        error.status === 0 &&
+        error.message.includes('may have been applied')
+    );
+  }
+  assert.deepEqual(dispatched, ['POST', 'PATCH', 'DELETE']);
+});
+
+test('a confirmed pre-dispatch refusal is distinct from a lost post-dispatch reply', async () => {
+  let calls = 0;
+  const unavailable = async () => {
+    calls++;
+    return Response.json(
+      { error: { code: 'unavailable', message: 'Service unavailable' } },
+      { status: 503 }
+    );
+  };
+  await assert.rejects(
+    createTask('Denied', unavailable),
+    (error) => error instanceof ApiError &&
+      error.code === 'unavailable' &&
+      error.status === 503
+  );
+  const uncertain = async () => {
+    calls++;
+    return Response.json(
+      { error: { code: 'outcome_unknown', message: 'Request outcome could not be confirmed' } },
+      { status: 503 }
+    );
+  };
+  await assert.rejects(
+    updateTask(record, { completed: true }, uncertain),
+    (error) => error instanceof ApiError &&
+      error.code === 'outcome_unknown' &&
+      error.status === 503
+  );
+  assert.equal(calls, 2);
+});
+
+test('a successful mutation with an unreadable response does not mean no effect', async () => {
+  let calls = 0;
+  const mock = async () => {
+    calls++;
+    return new Response('invalid-json', { status: 201 });
+  };
+  await assert.rejects(
+    createTask('Response lost after success', mock),
+    (error) => error instanceof ApiError &&
+      error.code === 'outcome_unknown' &&
+      error.status === 201
+  );
+  assert.equal(calls, 1);
+});
+
+test('a malformed GET response stays a read error rather than mutation uncertainty', async () => {
+  await assert.rejects(
+    listPage(null, async () => new Response('invalid-json', { status: 200 })),
+    (error) => error instanceof ApiError && error.code === 'invalid_response'
+  );
+});
