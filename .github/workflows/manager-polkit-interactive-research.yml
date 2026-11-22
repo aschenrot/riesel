@@ -35,3 +35,7 @@ jobs:
         run: |
           set -euo pipefail
           timeout 100 python3 research/process-ownership/manager_polkit_interactive_challenge_probe.py
+      - name: Exercise dangerous _KEEP cached detail substitution (negative control)
+        run: |
+          set -euo pipefail
+          timeout 100 python3 research/process-ownership/manager_polkit_interactive_challenge_probe.py --keep
