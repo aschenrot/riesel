@@ -1,0 +1,21 @@
+[package]
+name = "riesel-gui-attachment-research"
+version = "0.0.0"
+edition = "2024"
+publish = false
+
+# Isolated research crate. Nothing is installed in the Riesel SDK.
+[workspace]
+
+[dependencies]
+riesel_app = { path = "../../crates/riesel_app", features = ["internal-publication"] }
+riesel_protocol = { path = "../../crates/riesel_protocol", features = ["internal-publication", "async-tcp"] }
+serde_json = "1"
+tokio = { version = "=1.54.1", features = ["rt", "time", "sync"] }
+
+[dev-dependencies]
+tempfile = "3.23"
+
+[[bin]]
+name = "attachment_host"
+path = "src/bin/attachment_host.rs"
