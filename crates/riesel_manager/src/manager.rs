@@ -3,6 +3,8 @@ use std::io::{self, Write};
 use std::process::{Child, ChildStdout, Command, ExitStatus};
 use std::thread;
 use std::time::{Duration, Instant};
+#[cfg(feature = "internal-observation")]
+use std::sync::{Arc, Weak, atomic::{AtomicU8, Ordering}};
 
 /// Uniquely identifies a process instance owned by this registry.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
@@ -26,6 +28,76 @@ pub enum ProcessStatus {
 struct ManagedProcess {
     child: Child,
     graceful_timeout: Option<Duration>,
+    #[cfg(feature = "internal-observation")]
+    attempt: Arc<AtomicU8>,
+}
+
+/// The local ProcessRegistry has a real OS child handle for this observation,
+/// not a globally unique process attempt ID or a protected Manager grant.
+#[cfg(feature = "internal-observation")]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum OwnedAttemptPhase {
+    Running,
+    ExitedSuccess,
+    ExitedFailure,
+}
+
+#[cfg(feature = "internal-observation")]
+impl OwnedAttemptPhase {
+    fn value(self) -> u8 {
+        match self {
+            Self::Running => 0,
+            Self::ExitedSuccess => 1,
+            Self::ExitedFailure => 2,
+        }
+    }
+}
+
+/// A read-only, attempt-scoped snapshot of a child owned by *this* registry.
+///
+/// Retains a Weak lifetime fence so removing or replacing the same ProcessKey
+/// can never promote the earlier attempt. No process handle or OS command is
+/// exposed; future aliveness, PID provenance, reattachment after owner death
+/// and remote principal identity are deliberately not claimed.
+#[cfg(feature = "internal-observation")]
+#[doc(hidden)]
+#[derive(Clone, Debug)]
+pub struct OwnedAttemptEvidence {
+    key: ProcessKey,
+    phase: OwnedAttemptPhase,
+    observed_at: Instant,
+    owner: Weak<AtomicU8>,
+}
+
+#[cfg(feature = "internal-observation")]
+impl OwnedAttemptEvidence {
+    pub fn key(&self) -> &ProcessKey {
+        &self.key
+    }
+
+    pub fn phase(&self) -> OwnedAttemptPhase {
+        self.phase
+    }
+
+    pub fn observed_at(&self) -> Instant {
+        self.observed_at
+    }
+
+    pub fn same_owned_attempt_as(&self, other: &Self) -> bool {
+        Weak::ptr_eq(&self.owner, &other.owner)
+    }
+
+    /// Reading a snapshot cannot poll the OS a second time. Its evidence
+    /// becomes stale when the registry drops/replaces the owned process,
+    /// when a later owner poll witnesses a different phase, or on timeout.
+    pub fn is_current_at(&self, now: Instant, max_age: Duration) -> bool {
+        if now < self.observed_at || now.duration_since(self.observed_at) > max_age {
+            return false;
+        }
+        self.owner.upgrade().is_some_and(|owner| {
+            owner.load(Ordering::Acquire) == self.phase.value()
+        })
+    }
 }
 
 /// Owns explicitly launched child processes. This is a local process
@@ -56,6 +128,8 @@ impl ProcessRegistry {
             ManagedProcess {
                 child,
                 graceful_timeout: None,
+                #[cfg(feature = "internal-observation")]
+                attempt: Arc::new(AtomicU8::new(OwnedAttemptPhase::Running.value())),
             },
         );
         self.start_order.push(key);
@@ -108,9 +182,39 @@ impl ProcessRegistry {
             )
         })?;
 
-        Ok(match process.child.try_wait()? {
+        let status = match process.child.try_wait()? {
             Some(status) => ProcessStatus::Exited(status),
             None => ProcessStatus::Running,
+        };
+        #[cfg(feature = "internal-observation")]
+        if let ProcessStatus::Exited(exit) = &status {
+            let phase = if exit.success() {
+                OwnedAttemptPhase::ExitedSuccess
+            } else {
+                OwnedAttemptPhase::ExitedFailure
+            };
+            process.attempt.store(phase.value(), Ordering::Release);
+        }
+        Ok(status)
+    }
+
+    /// Feature-gated evidence from this registry's **actual retained Child**
+    /// handle. A missing key or OS query failure remains an error, not
+    /// synthesized proof that a process stopped. No global attempt token.
+    #[cfg(feature = "internal-observation")]
+    #[doc(hidden)]
+    pub fn observe_owned_attempt(&mut self, key: &ProcessKey) -> io::Result<OwnedAttemptEvidence> {
+        let phase = match self.status(key)? {
+            ProcessStatus::Running => OwnedAttemptPhase::Running,
+            ProcessStatus::Exited(exit) if exit.success() => OwnedAttemptPhase::ExitedSuccess,
+            ProcessStatus::Exited(_) => OwnedAttemptPhase::ExitedFailure,
+        };
+        let process = self.processes.get(key).expect("status verified the same registry key");
+        Ok(OwnedAttemptEvidence {
+            key: key.clone(),
+            phase,
+            observed_at: Instant::now(),
+            owner: Arc::downgrade(&process.attempt),
         })
     }
 
