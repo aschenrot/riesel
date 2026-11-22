@@ -305,6 +305,12 @@ mod tests {
 
     #[test]
     fn child_waits_for_shutdown() {
+        if std::env::var_os("RIESEL_PROCESS_TEST_EXIT_ON_STDIN").is_some() {
+            let mut release = String::new();
+            std::io::stdin().read_line(&mut release).unwrap();
+            assert_eq!(release, "FINISH\n");
+            return;
+        }
         if std::env::var_os("RIESEL_PROCESS_MANAGER_TEST_CHILD").is_some() {
             if std::env::var_os("RIESEL_PROCESS_GRACEFUL").is_some() {
                 let mut request = String::new();
@@ -368,10 +374,18 @@ mod tests {
     fn real_child_exit_invalidates_prior_running_evidence() {
         let key = ProcessKey::new(102, Some("oneshot".into()));
         let mut command = test_child();
-        command.env_remove("RIESEL_PROCESS_MANAGER_TEST_CHILD");
+        command
+            .env("RIESEL_PROCESS_TEST_EXIT_ON_STDIN", "1")
+            .stdin(Stdio::piped());
         let mut registry = ProcessRegistry::new();
         registry.spawn(key.clone(), &mut command).unwrap();
         let first = registry.observe_owned_attempt(&key).unwrap();
+        assert_eq!(first.phase(), OwnedAttemptPhase::Running);
+        // Child remains blocked on its private stdin, so a startup delay
+        // cannot cause an accidental already-exited first observation.
+        let mut release = registry.processes.get_mut(&key).unwrap().child.stdin.take().unwrap();
+        release.write_all(b"FINISH\n").unwrap();
+        drop(release);
         let deadline = Instant::now() + Duration::from_secs(4);
         let exited = loop {
             let observed = registry.observe_owned_attempt(&key).unwrap();
