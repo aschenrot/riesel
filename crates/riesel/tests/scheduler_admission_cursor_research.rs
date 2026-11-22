@@ -164,6 +164,7 @@ fn pending_signal_at_prefix_does_not_block_independent_ready_work() {
         assert_eq!(report.started, INDEPENDENT + 1);
     });
 }
+
 #[test]
 fn topology_changes_ready_tie_break_after_shared_signal() {
     runtime().block_on(async {
@@ -210,16 +211,8 @@ fn topology_changes_ready_tie_break_after_shared_signal() {
         // B, Y, A, X and chooses Y then X. Both are legal dependency orders,
         // but a mechanism change must not silently promise identical order.
         let plan = ExecutionPlanDraft::new("ready-tie-break", 1)
-            .operation(
-                OperationNode::new("x", key("x"))
-                    .after("a")
-                    .on_signal("go"),
-            )
-            .operation(
-                OperationNode::new("y", key("y"))
-                    .after("b")
-                    .on_signal("go"),
-            )
+            .operation(OperationNode::new("x", key("x")).after("a").on_signal("go"))
+            .operation(OperationNode::new("y", key("y")).after("b").on_signal("go"))
             .operation(OperationNode::new("b", key("b")))
             .operation(OperationNode::new("a", key("a")))
             .validate()
@@ -253,6 +246,9 @@ fn topology_changes_ready_tie_break_after_shared_signal() {
             vec!["x", "y"]
         };
         assert_eq!(order, expected);
-        eprintln!("research #226 tie_break topology={} order={order:?}", std::env::var_os("RIESEL_RESEARCH_TOPO_CURSOR").is_some());
+        eprintln!(
+            "research #226 tie_break topology={} order={order:?}",
+            std::env::var_os("RIESEL_RESEARCH_TOPO_CURSOR").is_some()
+        );
     });
 }
