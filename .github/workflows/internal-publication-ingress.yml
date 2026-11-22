@@ -35,10 +35,9 @@ jobs:
         run: cargo test --locked -p riesel_protocol --features internal-publication
       - name: App-owned async ingress, cancellation, teardown and successor fencing
         run: cargo test --locked -p riesel_app --features internal-publication
-      - name: Verify real persistent Todo listener observation
-        run: cargo test --locked -p todo --features http,internal-observation --lib http::tests::real_todo_sqlite_listener_has_only_adapter_evidence -- --exact
-      - name: Verify SDK handler phase excludes Todo startup and shutdown hooks
-        run: cargo test --locked -p todo --features http,internal-observation --lib http::tests::sdk_async_handler_phase_excludes_start_and_stop_hooks -- --exact
+      - name: Verify actual Todo adapter outcomes, linked SQLite and handler lifecycle
+        run: |
+          cargo test --locked -p todo --features http,internal-observation --lib http::tests:: -- --nocapture
       - name: Compile the genuine recovering Riesel Counter
         run: |
           cargo build --locked -p riesel_counter_example --bin counter_crash_fixture
