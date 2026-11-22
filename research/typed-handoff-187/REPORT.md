@@ -100,3 +100,50 @@ An additional test now runs **two actual `context.execution_graph` instances** f
 The experiment proves an app author *can* protect a local result cache when multiple graph runs overlap, but **the existing S2 runner does not itself provide the artifact slot, check the producer's output revision, or decide which completed result becomes current**. No true S3 per-run port values, persistent source/plan CAS, authenticated publisher or automatically safe recomputation follows. Different operations lacking declared shared resources may run concurrently by design; this test is not evidence of an SDK scheduling defect.
 
 **Focused verification:** [CI #44997722305](https://github.com/aschenrot/riesel/actions/runs/44997722305) **PASS**, **13/13 tests and headless application run** at the exact source SHA `f42c8fc392edd689868730d8ab15d790b3da6759`. This expands the earlier 11/11 typed-port test run and 12/12 S2 fail-closed test run. Final report/head normal Linux Validate/smoke evidence must be checked separately before any integration.
+
+
+## 11. Controlled 2D scalar value-movement and real S2 scheduling measurements
+
+**Independent research executables:**
+- `src/bin/value_costs.rs`: on one CI host compare an `Arc<ScalarGridDto>` immutable ref-clone, a full Rust `ScalarGridDto::clone()`, `serde_json::to_vec`, and `serde_json::from_slice`. Source data are synthetic high-precision finite `f64` (not production `fastnoise-lite` or a representative exhaustive float distribution). Run the same benchmark once with the **default** serde_json float parser and once with the opt-in `json-float-roundtrip` Cargo feature, which enables `serde_json/float_roundtrip` for the entire local Cargo build.
+- `src/bin/graph_costs.rs`: in an actual Riesel `Application` session, register a no-op `AsyncOperation`, construct/validate/bind immutable S2 plans with 1/16/64 nodes, then execute each 50 times in five measured batches (10 runs/batch) after two warm-up runs. Independent fan-out/chain shapes use max parallelism 32 (actual SDK rejects 64). This is a **real S2-only runner baseline**, not an S3 typed dataflow benchmark.
+
+The value probe uses release Rust 1.100, `std::hint::black_box`, 3 warm-ups and median of 5 batches. Each operation has its own iterations, included in emitted logs. Data sizes report raw scalar bytes (excluding allocator/header/snapshots) and serialized DTO JSON bytes (excluding RPC envelope). Timings are **one GitHub Linux runner's intra-process wall clock observations**, not a portable throughput SLA, peak RSS, provider-host benchmark or end-to-end IPC test.
+
+**Executed evidence:** [research CI #44998634617](https://github.com/aschenrot/riesel/actions/runs/44998634617), source `8a4a1aadd5a704a172845c8b7dc1595f78924bc6`, **PASS all steps** on AMD EPYC 9V74 x86_64 Linux, rustc 1.100.0. The pinned lockfile and `--locked` workflow are added in subsequent commits and must be independently verified. The benchmark's first revision failed an overly strong bit-exact JSON assertion; a later CI run exercised the corrected, explicitly measured precision contract. An intermediate release-graph benchmark requested unsupported max parallelism 64; the correction uses the actual max 32 and passed. These were research fixture corrections, not Riesel product bugs.
+
+### Value-movement data (median elapsed per operation)
+
+| Dimension | Raw `f64` scalar bytes | JSON DTO bytes | `Arc` share | Deep Rust clone | JSON encode | Default JSON decode | Exact-float JSON decode |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| 64×64 | 32,768 | 81,956 | 4 ns | 619 ns | 88,421 ns | 95,691 ns | 160,525 ns |
+| 512×512 | 2,097,152 | 5,242,918 | 3 ns | 43,987 ns | 5,648,267 ns | 6,113,282 ns | 10,245,600 ns |
+| 1024×1024 | 8,388,608 | 20,971,560 | 3 ns | 202,585 ns | 32,430,179 ns | 24,521,594 ns | 40,923,580 ns |
+
+These are not equivalent transport operations: `Arc::clone` shares one immutable allocation within one Rust process and cannot cross unrelated OS processes or `!Send`/GPU thread domains by itself. Deep clone allocates and copies the value; JSON serialize/deserialize parses decimal values, allocates buffers and has wire-format overhead. The JSON test does **not** include kernel I/O, TCP socket, authorization, routing or execution scheduling. Absolute numbers and speedups will vary with data distribution, allocator, CPU, cache and build settings.
+
+The raw 512×512 high-precision JSON DTO exceeds the **existing 4 MiB Riesel TCP JSON frame limit**: `MAX_FRAME_BYTES = 4 * 1024 * 1024` in `crates/riesel_protocol/src/tcp/wire.rs`, including frame newline/envelope. The source precision and encoding here are `f64`; the current actual Grid noise sampling uses `f32`, and no universal per-dimension size claim for all scalar codecs follows. A large grid could use local typed data, an owner-side coarse operation or a separately versioned bounded artifact/streaming protocol after its safety proof.
+
+### High-precision correctness: default JSON parsing is not always bit-exact
+
+For this repeated sample set, default `serde_json` encoding/decoding changed **1,700/4,096**, **108,800/262,144**, **435,200/1,048,576** scalar `f64` bit patterns at 64/512/1024 respectively, with largest observed error **1 ULP**, about `1.388e-17` in absolute value. The opt-in `float_roundtrip` feature produced **zero** changed values in the tested sample set, but raised 512×512 decode median from **6.11 ms** to **10.25 ms**. The source/test `strict_threshold_can_flip_after_a_non_exact_json_handoff` demonstrates that a threshold at a representable numerical boundary can give different occupancy classification across a non-exact transfer. Ordinary thresholds away from sample boundaries may be unaffected; this is not a claim that current upstream Grid's production outputs have visibly changed.
+
+**Architectural implication:** separate (a) application algorithm/replay determinism, (b) semantic value encoding with explicit precision and version, and (c) transport framing/placement. Choosing a scalar DTO with `f64` does not by itself guarantee bit-identical replay through an arbitrary JSON decoder. Cargo's feature unification is also not a remotely negotiated wire contract: an app and independently built provider can use different feature settings unless the *protocol* declares and verifies the compatibility. Do not silently freeze `f64`, enable the feature in all production crates or select a binary format from this bounded one-host experiment alone.
+
+### S2 control-only runner cost (no data edges)
+
+| Existing Riesel plan | Median time for a complete run |
+| --- | ---: |
+| 1 no-op operation | 2,987 ns |
+| 16 independent no-op operations | 29,437 ns |
+| 16 chained no-op operations | 42,428 ns |
+| 64 independent no-op operations | 129,657 ns |
+| 64 chained no-op operations | 279,151 ns |
+
+These include per-run `context.execution_graph` construction, runtime admission/execution and report inspection **within one already initialized application session**. These do not benchmark startup or process overhead and do not represent a latency bound for game frames. The S2 control graph remains the accepted execution authority and this baseline is the reference for future S3 no-value-edge non-regression, *not proof of S3 overhead*.
+
+### Bias and next gated evidence
+
+The local `Arc` advantage is large for immutable in-process CPU grids, but it is **not** a proof that Riesel should hardcode an `Arc<dyn Any>` graph registry. Node outputs can be streamed, backed by GPU/native main-thread-owned memory, pinned to remote provider-owned generations, or transformed by domain-local engines. The comparison still needs `!Send` and native-affinity rejection/owner delegation, explicit per-run artifact lifetime and producer failure/unknown semantics, bounded backpressure and byte accounting, cross-process identity/authorization, and a second non-room workload with genuine upstream data. At least one real Grid source algorithm and the independent-window host must be separately validated before claiming a complete Workbench.
+
+**Stop condition / next owner gate:** retain this measured cost and semantic counterexample in #187's accepted decision comparison; do not manufacture a generic S3 public ABI or create production issues without owner acceptance. The first useful production Workbench increment may remain app/domain-owned typed values with truthful inspection, but it must not be mislabeled as a genuinely editable reusable S3 graph.
