@@ -81,6 +81,7 @@ pub use riesel_app::{
     AccessMode, App, AppError, AppRunError, BoundExecutionPlan, CancellationToken,
     CapabilityConnector, CatalogError, ConnectedProvider, ConnectorError, ConnectorRegistry,
     DeclarativeComponent, DeploymentConfig, DeploymentError, DomainAdmissionMode, DomainBoundary,
+    EditorAffinity, EditorCatalogError, EditorOperationDescriptor,
     ExecutionPlanDescription, ExecutionPlanDraft, ExecutionPlanError, FixedStepAdmission,
     FixedStepBacklog, FixedStepError, FixedStepFrame, FixedStepPolicy, HookFailure, HookPhase,
     LifecycleFailure, LocalProviderFactory, MAX_FIXED_TICK_BACKLOG, MAX_FIXED_TICKS_PER_FRAME,
