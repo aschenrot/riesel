@@ -216,7 +216,13 @@ impl SqlitePlanRevisionRepository {
             params![old_registration_stamp, self.trusted_registration_stamp],
         )
         .map_err(storage)?;
+        // Read the committed receipt candidate from the same transaction;
+        // an independent post-commit read could race another accepted writer.
+        let updated = plan_ids
+            .iter()
+            .map(|id| read_head(&tx, id))
+            .collect::<Result<Vec<_>, _>>()?;
         tx.commit().map_err(storage)?;
-        plan_ids.iter().map(|id| self.head(id)).collect()
+        Ok(updated)
     }
 }
