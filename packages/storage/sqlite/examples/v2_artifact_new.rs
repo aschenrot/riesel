@@ -1,4 +1,5 @@
 //! Separate compiled compatible replacement artifact adopts every stored plan.
+#[allow(dead_code)] // Shared fixture API is intentionally a subset in each binary.
 mod v2_artifact_shared;
 
 use riesel_app::{
