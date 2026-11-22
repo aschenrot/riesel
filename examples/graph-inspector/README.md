@@ -62,6 +62,25 @@ consume the same app-owned versioned publication through their own
 permitted adapters. Graph semantic and GUI layout revisions remain
 separate; the browser does not rewrite the executable source.
 
+## Reproduce a real lost-history/disconnected view
+
+The optional headless example can run a distinct 80-node dependent graph
+whose >128 authoritative transitions overflow the bounded observer ring:
+
+```sh
+cargo run --locked -p riesel --features app-publication-unix --example graph_read_host -- 30 --wide
+```
+
+Start the independent browser client against the printed `GRAPH_SOCKET`
+as above. After the graph completes, the UI must show all 80 operation
+states from its authoritative snapshot and clearly indicate that the
+transition history was truncated rather than presenting a partial event
+list as exhaustive. The wide graph scrolls horizontally; an accessible
+operation list remains available. If the backend process terminates,
+the previously viewed graph is visibly marked **disconnected/stale**;
+it is not silently treated as current or rebound to a different run.
+This test does not simulate an event stream or infer any missing events.
+
 ## Verified workflow
 
 The [#114 browser workflow](../../.github/workflows/graph-browser-client.yml)
