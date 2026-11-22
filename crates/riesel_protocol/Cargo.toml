@@ -8,6 +8,8 @@ repository.workspace = true
 [features]
 default = []
 async-tcp = ["dep:tokio"]
+# Internal bounded application-session ingress experiment. No public exporter.
+internal-publication = ["async-tcp", "dep:uuid"]
 
 [dependencies]
 riesel_schema.workspace = true
@@ -15,6 +17,7 @@ serde.workspace = true
 serde_json.workspace = true
 thiserror.workspace = true
 tokio = { workspace = true, optional = true }
+uuid = { workspace = true, optional = true }
 
 [[bin]]
 name = "riesel_async_host_fixture"
