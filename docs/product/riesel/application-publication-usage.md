@@ -168,3 +168,34 @@ requires its own classification and stronger separately authorized
 profile before exporting private information. T1's trusted-same-user
 assumption remains unchanged.
 
+
+## Reproducible same-OS-user endpoint impersonation limit
+
+An explicit OS-process negative test under `crates/riesel_app/tests/app_publication_unix.rs`
+demonstrates the **deliberate absence** of protected endpoint identity
+in T1. After an app-owned `UnixReadServer` closes and removes its
+original socket, a second process running under the **same UID** can
+bind the same endpoint path. It can return forged app/interface/contract
+and session/publication identifiers as well as a fabricated successful
+read. The ordinary `UnixReadClient` accepts those values because T1
+does **not** authenticate an individual server principal.
+
+Reproduce on Unix:
+
+```sh
+cargo test --locked -p riesel_app --features app-publication-unix \
+  --test app_publication_unix same_uid_endpoint_rebinding -- --nocapture
+```
+
+This is an **expected limitation test**, not a vulnerability fix
+or a claimed guarantee against same-UID attackers. The normal
+read-publication policy still prevents unselected mutations when
+talking to the *genuine* app server. It cannot prevent a counterfeit
+same-user endpoint from lying to its client. Read-only, non-sensitive
+data classification and trusted same-user peers are therefore
+essential prerequisites of T1. Sensitive information and mutations
+require a separately accepted **protected application endpoint,
+individual caller identity and authorized operation grant**; neither
+a UUID, a Unix UID, a socket pathname nor an HTTP Host/Origin check
+may be promoted to such a grant.
+
