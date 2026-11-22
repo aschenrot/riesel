@@ -12,8 +12,6 @@ mod execution_observation;
 mod execution_plan;
 #[cfg(feature = "async-tcp")]
 mod execution_runner;
-#[cfg(feature = "experimental-typed-dataflow")]
-mod typed_dataflow;
 mod fixed_step;
 #[cfg(all(test, feature = "internal-publication"))]
 mod internal_publication_tests;
@@ -29,6 +27,8 @@ mod s2_document;
 mod source_coverage;
 mod supervisor;
 mod tasks;
+#[cfg(feature = "experimental-typed-dataflow")]
+mod typed_dataflow;
 
 pub use app::{App, AppError};
 #[cfg(feature = "async-tcp")]
@@ -60,14 +60,6 @@ pub use execution_plan::{
     ExecutionPlanDraft, ExecutionPlanError, OperationKey, OperationNode, OperationRegistry,
     OperationTrigger, PlanRevisionCatalog, ResourceAccess, ValidatedExecutionPlan,
 };
-#[cfg(feature = "experimental-typed-dataflow")]
-pub use typed_dataflow::{
-    AsyncTypedOperation, LocalPort, LocalPortType,
-    PreparedTypedExecution, TypedEdge, TypedExecutionGraphRunner, TypedExecutionPlan,
-    TypedGraphError, TypedGraphRunReport, TypedInputs, TypedOperationFuture,
-    TypedOperationOutcome, TypedOperationRegistry, TypedOperationSpec, TypedOutputs,
-    typed_operation,
-};
 #[cfg(feature = "async-tcp")]
 pub use execution_runner::{
     AsyncOperation, ExecutionGraphRunner, GraphExecutionFailure, GraphRunError, GraphRunReport,
@@ -81,6 +73,13 @@ pub use fixed_step::{
 pub use resolver::{InstanceIdentity, ProviderRegistry, ResolutionError, ResolvedCapability};
 #[cfg(feature = "async-tcp")]
 pub use riesel_protocol::{ProviderBlocking, ProviderBlockingError, ProviderCancellation};
+#[cfg(feature = "experimental-typed-dataflow")]
+pub use typed_dataflow::{
+    AsyncTypedOperation, LocalPort, LocalPortType, PreparedTypedExecution, TypedEdge,
+    TypedExecutionGraphRunner, TypedExecutionPlan, TypedGraphError, TypedGraphRunReport,
+    TypedInputs, TypedOperationFuture, TypedOperationOutcome, TypedOperationRegistry,
+    TypedOperationSpec, TypedOutputs, typed_operation,
+};
 
 pub use runtime::{
     AppRunError, CapabilityConnector, ConnectedProvider, ConnectorError, ConnectorRegistry,
