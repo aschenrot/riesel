@@ -51,6 +51,16 @@ pub struct AsyncTasks {
 }
 
 impl AsyncTasks {
+    /// Internal-only bridge to the application's actual runtime generation.
+    /// The returned nonsecret value grants no exported operation permission.
+    #[cfg(feature = "internal-publication")]
+    #[doc(hidden)]
+    pub fn internal_publication_session(
+        &self,
+    ) -> riesel_protocol::session::InternalPublicationSession {
+        self.inner.session.internal_publication_session()
+    }
+
     pub(crate) fn new(session: SessionToken, cancellation: CancellationToken) -> Self {
         Self {
             inner: Arc::new(AsyncTaskGroup {
