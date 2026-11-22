@@ -140,15 +140,23 @@ updates and is visible independently to both generic and typed readers.
   serialized size or deep-memory budget on arbitrary `T`. Domain authors
   must bound snapshot construction/size and choose publish frequency for
   their workload; detached readers may retain their own older
-  `Arc<T>` copies. Copy/allocation and mutex acquisition are not real-time
-  guaranteed. A slow reader never applies queue backpressure to the native
-  schedule. No global synchronization or transaction combines an outer
-  graph snapshot with an inner domain snapshot.
+  `Arc<T>` copies. **The `Send + Sync` type bound does not forbid
+  interior mutability**: a domain must publish detached, owner-immutable
+  projection data, not an `Arc<Mutex<_>>` or another mutable alias to its
+  authoritative native world. The trusted-local API does not enforce this
+  deeper property or provide a serialized isolation boundary.
+  Copy/allocation and mutex acquisition are not real-time guaranteed.
+  A slow reader never applies queue backpressure to the native schedule.
+  No global synchronization or transaction combines an outer graph
+  snapshot with an inner domain snapshot.
 - **Authority and failures:** view attachments fail for an unsupported
   non-delegated graph boundary, mismatched domain, stale/nonrunning attempt,
   closed owner, duplicate same-generation registration or invalid version.
-  Replacement marks the previous view `Superseded`; its old publisher
-  cannot update a current view. These checks are local cooperative
+  Replacement atomically marks the previous view `Superseded` under
+  that view's publication mutex: already in-flight publications finish
+  before revocation completes, and new publications then reject. This
+  does not forcibly terminate or roll back native domain work.
+  These checks are local cooperative
   correctness, **not** hostile-process authentication, authenticated
   producer provenance, persistent duplicate suppression, durable mutation
   reconciliation or a guarantee that a revoked native worker stopped.
