@@ -4,8 +4,7 @@
 #![cfg(all(unix, feature = "t1-public-read"))]
 
 use riesel::{
-    Application, ReadExposure, UnixReadClient, UnixReadServer,
-    storage::RecordStoreContract,
+    Application, ReadExposure, UnixReadClient, UnixReadServer, storage::RecordStoreContract,
 };
 use serde_json::{Value, json};
 use std::{
@@ -53,14 +52,20 @@ fn independent_todo_summary_process() {
         assert_eq!(descriptor.contract.id, "riesel.todo.public_summary");
         assert_eq!(descriptor.contract.version, 1);
         assert_eq!(descriptor.allowed_queries, ["snapshot"]);
-        let value = reader.query(&descriptor, "snapshot", json!({})).await.unwrap();
+        let value = reader
+            .query(&descriptor, "snapshot", json!({}))
+            .await
+            .unwrap();
         let summary = decode(value.clone());
         assert_eq!(summary.inspected, 2);
         assert_eq!(summary.open_in_page, 1);
         assert_eq!(summary.completed_in_page, 1);
         assert!(!summary.more_available);
         assert!(!value.to_string().contains("SECRET_NOT_FOR_T1_READERS"));
-        let forbidden = reader.query(&descriptor, "delete", json!({})).await.unwrap();
+        let forbidden = reader
+            .query(&descriptor, "delete", json!({}))
+            .await
+            .unwrap();
         assert_eq!(forbidden["status"], "error");
         assert_eq!(forbidden["code"], "not_published");
         println!("REAL_TODO_T1_SUMMARY_ONLY");
@@ -100,14 +105,18 @@ fn actual_todo_provider_owner_selected_summary_no_task_contents() {
                 let active = Arc::clone(&publication);
                 tasks
                     .spawn("todo-t1-read", async move {
-                        server.serve(active).await.map_err(|error| -> riesel::ConnectorError {
-                            Box::new(error)
-                        })
+                        server
+                            .serve(active)
+                            .await
+                            .map_err(|error| -> riesel::ConnectorError { Box::new(error) })
                     })
                     .unwrap();
                 let client = UnixReadClient::new(&socket);
                 let descriptor = client.describe().await.unwrap();
-                let first = client.query(&descriptor, "snapshot", json!({})).await.unwrap();
+                let first = client
+                    .query(&descriptor, "snapshot", json!({}))
+                    .await
+                    .unwrap();
                 let first_summary = decode(first.clone());
                 assert_eq!(first_summary.inspected, 2);
                 assert_eq!(first_summary.open_in_page, 1);
@@ -144,8 +153,15 @@ fn actual_todo_provider_owner_selected_summary_no_task_contents() {
                 // Domain owner changes actual stored state without any
                 // public write method. The client sees a fresh read result.
                 let latest = domain.get_task(private.id).unwrap().unwrap();
-                domain.set_completed(latest.id, latest.revision, false).unwrap();
-                let changed = decode(client.query(&descriptor, "snapshot", json!({})).await.unwrap());
+                domain
+                    .set_completed(latest.id, latest.revision, false)
+                    .unwrap();
+                let changed = decode(
+                    client
+                        .query(&descriptor, "snapshot", json!({}))
+                        .await
+                        .unwrap(),
+                );
                 assert_eq!(changed.open_in_page, 2);
                 assert_eq!(changed.completed_in_page, 0);
 
@@ -154,7 +170,12 @@ fn actual_todo_provider_owner_selected_summary_no_task_contents() {
                 for index in 0..34 {
                     domain.create_task(format!("private-{index}")).unwrap();
                 }
-                let page = decode(client.query(&descriptor, "snapshot", json!({})).await.unwrap());
+                let page = decode(
+                    client
+                        .query(&descriptor, "snapshot", json!({}))
+                        .await
+                        .unwrap(),
+                );
                 assert_eq!(page.inspected, 32);
                 assert_eq!(page.open_in_page + page.completed_in_page, 32);
                 assert!(page.more_available);
@@ -162,10 +183,16 @@ fn actual_todo_provider_owner_selected_summary_no_task_contents() {
                 wrong.application.push_str(".other");
                 let denied = client.query(&wrong, "snapshot", json!({})).await.unwrap();
                 assert_eq!(denied["code"], "wrong_interface");
-                let denied = client.query(&descriptor, "create", json!({"title":"new"})).await.unwrap();
+                let denied = client
+                    .query(&descriptor, "create", json!({"title":"new"}))
+                    .await
+                    .unwrap();
                 assert_eq!(denied["code"], "not_published");
                 publication.withdraw();
-                let denied = client.query(&descriptor, "snapshot", json!({})).await.unwrap();
+                let denied = client
+                    .query(&descriptor, "snapshot", json!({}))
+                    .await
+                    .unwrap();
                 assert_eq!(denied["code"], "withdrawn");
                 tasks.finish_scope().await.unwrap();
                 assert!(!socket.exists(), "server must withdraw owned Unix socket");
