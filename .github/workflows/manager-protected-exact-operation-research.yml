@@ -1,0 +1,50 @@
+name: Research #59 — protected exact-operation admission against same-UID callers
+
+permissions:
+  contents: read
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - "research/process-ownership/manager_protected_exact_operation_probe.py"
+      - "research/process-ownership/PROTECTED-EXACT-OPERATION.md"
+      - ".github/workflows/manager-protected-exact-operation-research.yml"
+  workflow_dispatch:
+
+jobs:
+  linux-exact-operation-protected-test-authority:
+    name: Linux real Riesel app, protected broker and hostile same-UID callers
+    runs-on: ubuntu-24.04
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+      - name: Check actual systemd and independent unprivileged identity
+        run: |
+          set -euo pipefail
+          test "$(ps -p 1 -o comm=)" = systemd
+          test "$(id -u)" != 0
+          command -v setpriv
+          sudo -n true
+          sudo -n systemctl --system show --property=Version --value
+          test "$(id -u)" != 60090
+      - name: Reuse already verified real Riesel Counter from exact PR #90 source
+        env:
+          PINNED_SHA: 5201e61cc74bab778dfc63a3788f1708b2530f21
+        run: |
+          set -euo pipefail
+          rustup toolchain install 1.100.0 --profile minimal
+          rustup default 1.100.0
+          git fetch --no-tags --depth=1 origin refs/pull/90/head
+          test "$(git rev-parse FETCH_HEAD)" = "$PINNED_SHA"
+          git worktree add --detach "$RUNNER_TEMP/pinned-riesel-pr90" "$PINNED_SHA"
+          echo "PINNED_COUNTER_ROOT=$RUNNER_TEMP/pinned-riesel-pr90" >> "$GITHUB_ENV"
+          cd "$RUNNER_TEMP/pinned-riesel-pr90"
+          cargo build --locked -p riesel_counter_example --bin counter_resolved_facade_host
+      - name: Execute exact-action authorization differential on real OS-owned Counter
+        run: |
+          set -euo pipefail
+          python3 -m py_compile research/process-ownership/manager_protected_exact_operation_probe.py
+          timeout 155 python3 research/process-ownership/manager_protected_exact_operation_probe.py --exercise "$PINNED_COUNTER_ROOT"
