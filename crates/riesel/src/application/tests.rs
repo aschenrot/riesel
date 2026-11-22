@@ -152,7 +152,12 @@ fn typed_record_query_metadata_model_is_not_todo_specific() {
     }
 
     let contract = RecordQueryContract::definition().unwrap();
-    assert!(contract.operations.values().all(|op| op.kind == riesel_schema::OperationKind::Query));
+    assert!(
+        contract
+            .operations
+            .values()
+            .all(|op| op.kind == riesel_schema::OperationKind::Query)
+    );
 }
 
 #[cfg(feature = "dev-memory-storage")]
