@@ -181,6 +181,40 @@ fn reclassified_task_behind_cursor_requires_refresh_not_fake_snapshot() {
     });
 }
 
+#[test]
+fn provider_cursor_is_filter_scoped_and_one_use_across_http_like_reads() {
+    use riesel::storage::RecordQueryError;
+
+    for_each_provider(|name, store| {
+        seed_done(store, 33);
+        let first = query(store, false, None, 32);
+        let token = first.next_cursor.expect("partial page cursor");
+
+        let request = |completed: bool, cursor: String| RecordQueryRequest {
+            model: TaskData::MODEL_NAME.into(),
+            predicate: Some(RecordPredicate {
+                field: "completed".into(),
+                operator: RecordCompare::Eq,
+                value: Some(json!(completed)),
+            }),
+            limit: 32,
+            scan_budget: 32,
+            cursor: Some(cursor),
+        };
+
+        let wrong_filter = store.query_page(request(true, token.clone()));
+        assert!(matches!(wrong_filter, Err(RecordQueryError::InvalidCursor)), "{name}");
+
+        // Rejected wrong-filter use does not consume a valid cursor. A
+        // successful use does consume it, including if the HTTP reply is lost.
+        let resumed = store.query_page(request(false, token.clone())).unwrap();
+        assert!(resumed.exhausted, "{name}");
+        assert!(resumed.records.is_empty(), "{name}");
+        let replayed = store.query_page(request(false, token));
+        assert!(matches!(replayed, Err(RecordQueryError::InvalidCursor)), "{name}");
+    });
+}
+
 /// Slow, explicit growth-horizon research; run in the dedicated workflow,
 /// not in routine workspace tests. Timings omit browser/HTTP cost, are not
 /// reproducible SLAs, and must never be used as promised UI performance.
