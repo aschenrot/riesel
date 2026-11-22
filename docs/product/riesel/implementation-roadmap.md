@@ -102,6 +102,20 @@ The [execution-plan contract](execution-plan-contract.md) accepts **headless exe
 
 The [accepted specification #83](https://github.com/aschenrot/riesel/issues/83) records the owner decision and [research PR #84](https://github.com/aschenrot/riesel/pull/84) supplies experimental evidence, not a public format or production guarantee. External mutation uncertainty, untrusted IPC authorization and native/noncooperative thread preemption remain outside the delivered graph runner. Implementation Issues, PRs and exact tested commits track remaining gates under the [delivery workflow](../../project/delivery.md).
 
+## Accepted node-workbench outcome and optional S3 architecture — separate delivery gates
+
+**Direction accepted on 22 November 2026:** [#175 bounded node-based Grid Workbench](https://github.com/aschenrot/riesel/issues/175#issuecomment-7076113507) and [#187 optional typed-value execution with explicit domain ownership](https://github.com/aschenrot/riesel/issues/187#issuecomment-7076117427). Both specification issues **remain open** for decision-critical remaining interfaces and verified integration; these are **not delivered**, nor does acceptance authorize merging their isolated research PRs. This direction builds on, and does not replace, the completed #111 C+S2+V2+A2+B2+C3 architecture and existing S2 implementation issues.
+
+| Delivery boundary | Prerequisite / exit evidence | Current state |
+| --- | --- | --- |
+| Neutral upstream Grid algorithms | Review scalar noise sampling/precision/seed/space separately from threshold; configurable synchronous CA protected-write and OOB-read semantics; preserve authoritative dual-grid mask/topology/dirty corners, all 16 cases, and exact-version domain CI | Upstream Grid research/contract gate unresolved; local owner-reported tests are not successful private GitHub Actions execution |
+| Independent headless Grid Workbench | Use real pinned Grid library as a separate Cargo application; typed scalar → occupancy → CA → dual-grid outputs; deterministic per-stage/iteration snapshots, branch consumer, stale-result and resource validation | Accepted target; actual production Grid APIs and integration proof pending |
+| Reusable S3 executable typed ports | Finalize app-attested exact handler type/port binding, data-ready/failure/unknown admission, version/feature gates, ownership/affinity, fan-out/retention/backpressure and unchanged low-cost S2; one existing graph runner | Architectural direction accepted, specification #187 still open, no public S3 implementation |
+| Editable graph experience | Rust/document authoring uses one authoritative plan source, immutable semantic/layout revisions, typed connector validation, selective recomputation and inspectable errors; first S2 editor and #60/#75 external grants are independent prerequisites when relevant | Product goal accepted, node editor not implemented; a read-only projection or S2 control-only composer is insufficient |
+| Optional RunenRender preview/host | Use canonical topology as source, adapt to real rendering host, verify actual independent GUI lifecycle and policy as claimed | Not implemented; optional to headless delivery |
+
+**Order:** settle upstream Grid neutral operation contracts and #187 required semantic gates in parallel; validate real headless Grid app using supported outer runner and domain-owned typed artifacts; deliver a truly editable typed graph once the relevant authoring/execution contract is accepted; add rendering as an optional separately verified consumer. Create production implementation issues only once the respective behavior/ownership/compatibility boundaries are concrete and owner-accepted. Do not gate existing S2 implementation on speculative S3 delivery, and do not require a Manager or renderer to run a headless Grid Workbench.
+
 ## Validation, risk and release rules
 
 ```sh

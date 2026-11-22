@@ -49,6 +49,7 @@ export async function collectUntilMatch(
         (!page.exhausted && !page.next_cursor) ||
         (page.exhausted && page.next_cursor !== null) ||
         (page.records.length === 0 && !page.exhausted && page.inspected === 0) ||
+        page.inspected < page.records.length ||
         page.records.some((record) => record.completed !== completed)) {
       throw new Error('Backend returned an inconsistent status Query page');
     }

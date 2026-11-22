@@ -9,6 +9,7 @@ mod invariants;
 mod maintenance;
 mod operator;
 mod owner;
+mod plan_revisions;
 mod query;
 mod records;
 mod restore;
@@ -20,6 +21,7 @@ pub use execute::{EvolutionAuthorization, EvolutionReceipt};
 pub use invariants::{EvolutionRecord, EvolutionRecords};
 pub use maintenance::{SnapshotBudget, SqliteMaintenance, VerifiedSnapshot};
 pub use operator::{OperatorOutcome, run_operator_maintenance_cli};
+pub use plan_revisions::SqlitePlanRevisionRepository;
 pub use restore::{RestoreAuthorization, RestoreReceipt};
 pub use review::{EvolutionReview, ReviewedEvolutionAuthorization};
 

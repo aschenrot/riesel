@@ -1013,3 +1013,23 @@ test('focused Undo remains actionable when toast timeout elapses, and dismiss cl
   await page.clock.fastForward(7100);
   await expect(undo).toHaveCount(0);
 });
+
+test('Stop checking aborts an in-flight native Query and permits a fresh scan', async ({ page }) => {
+  let release!: () => void;
+  const hold = new Promise<void>((resolve) => { release = resolve; });
+  await page.route('**/api/v1/tasks/query?*', async (route) => {
+    if (route.request().method() === 'GET') {
+      await hold;
+    }
+    try { await route.continue(); } catch { /* Browser may already have cancelled the GET. */ }
+  });
+  await page.goto('/');
+  await expect(page.getByRole('button', { name: 'Stop checking' })).toBeVisible();
+  await page.getByRole('button', { name: 'Stop checking' }).click();
+  await expect(page.getByText('Scan stopped', { exact: false })).toBeVisible();
+  release();
+  await page.unroute('**/api/v1/tasks/query?*');
+  await expect(page.getByRole('button', { name: 'Refresh tasks' })).toBeEnabled();
+  await page.getByRole('button', { name: 'Check from start' }).click();
+  await expect(page.getByText('No open tasks found')).toBeVisible();
+});

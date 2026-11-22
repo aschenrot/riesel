@@ -47,9 +47,11 @@ async function stop(child) {
 const seedExecutable = path.join(root, 'target', 'debug',
   process.platform === 'win32' ? 'todo_seed_status.exe' : 'todo_seed_status');
 
-async function runPlaywright(spec, baseURL) {
+async function runPlaywright(spec, baseURL, outputDir = null) {
   const command = process.platform === 'win32' ? 'npx.cmd' : 'npx';
-  const tests = spawn(command, ['playwright', 'test', '--config', 'playwright.config.ts', ...[spec].flat()], {
+  const args = ['playwright', 'test', '--config', 'playwright.config.ts', ...[spec].flat()];
+  if (outputDir) args.push('--output', outputDir);
+  const tests = spawn(command, args, {
     cwd: webDir,
     stdio: 'inherit',
     env: { ...process.env, TODO_E2E_BASE_URL: baseURL }
@@ -112,7 +114,9 @@ try {
     });
     const sparseBaseURL = await awaitReady(backend, errors);
     console.log('Real sparse 10k browser E2E using ' + sparseBaseURL);
-    result = await runPlaywright('e2e/sparse-status.spec.ts', sparseBaseURL);
+    // Separate output directory keeps screenshots produced by the normal
+    // suite available for mandatory CI visual-review artifact upload.
+    result = await runPlaywright('e2e/sparse-status.spec.ts', sparseBaseURL, 'test-results-sparse');
   }
 } catch (error) {
   console.error('Todo browser E2E could not run:', error);

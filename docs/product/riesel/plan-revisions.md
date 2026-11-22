@@ -1,0 +1,52 @@
+# Trusted-local V2 execution-plan revision persistence — first implementation
+
+**Status:** first independently verified, local application-owned **persistence foundation** for accepted [#111 C/S2/V2/A2/B2/C3](execution-plan-contract.md), tracked by [#193](https://github.com/aschenrot/riesel/issues/193). Not the complete #193 feature, external editor exporter, verified remote publisher identity, activation journal or power-loss guarantee.
+
+## Scope and ownership
+
+The SDK defines `PlanRevisionRepository`, `PlanSemanticCandidate`, `PlanLayoutDraft`, `PlanAuthoringHead` and `CheckedSourceHandoff` in `riesel_app`, also available through the `riesel` facade. The first **optional implementation**, `SqlitePlanRevisionRepository` in `riesel_storage_sqlite`, is opened explicitly by a trusted Rust application against its own dedicated file. It does **not** modify a `RecordStore` database and does **not** add an SQLite dependency to the runtime graph runner or require Riesel Manager/GUI. Future backends can implement the same conditional repository protocol.
+
+The caller supplies a local `trusted_registration_stamp` describing the installed app/operation-catalog build. The store fences mismatched **trusted local registrations** on mutation. **This stamp is not an authenticator:** any independent client with OS write access to the database can copy it or directly modify SQLite. The database must be protected by the application/OS owner. Never expose these repository methods as unauthenticated RPC, use a copied stamp as a per-client grant, or claim hostile same-UID protection. [#75](operational-contract.md), [#60](https://github.com/aschenrot/riesel/issues/60) and [#195](https://github.com/aschenrot/riesel/issues/195) govern the deliberately published application-authorized interface and activation semantics.
+
+## Semantic and layout revisions
+
+- **Semantic candidate:** `PlanSemanticCandidate::from_rust` accepts an already validated Rust plan but stores only its Serialize-only `ExecutionPlanDescription` **inspection projection**. `from_s2` requires the actual `OperationRegistry` with trusted exact-version A2 editor descriptors, strictly checks and binds the S2 document, and retains an approved document source. A stored inspection projection is **not** independently executable code.
+- **Durable initialization and append:** `initialize` records an immutable first semantic revision, authoring source and generation. `append(expected_head, candidate)` checks exact semantic predecessor, source kind/generation and installed registration stamp in an SQLite `BEGIN IMMEDIATE` transaction before inserting a new immutable row. It does not change the active application runner.
+- **Independent layouts:** `save_layout(expected_head, previous_layout_version, draft)` performs an independent compare-and-set on a named presentation stream. Layout coordinates are `i32` and may refer only to operation IDs present in the exact **historical semantic anchor**. A layout-only save never edits semantic dependencies, triggers, resources, domain, binding or semantic revision. Rebase requires the caller to specify the new anchor and pass checked node references; an unknown/removed node rejects rather than being silently dropped. Historical layouts are readable.
+- **Source handoff:** trusted Rust application code constructs a `CheckedSourceHandoff` from the *actual* old validated plan plus exact S2 registered-descriptor binding, or from a document plus an exactly matching intended Rust plan. Unsupported/missing/unsafe registered operations or unequal plan projections reject before transfer. A conditional `handoff` increments the source generation atomically without rewriting old semantic history and retains the document source for the new generation. All stale semantic and layout writers subsequently fail. The linked application must still authenticate any external transfer request and confirm it has authority to relinquish or adopt the source.
+- **Failure semantics:** local writes either commit a complete SQLite transaction or roll back. Independent readers can reopen persisted accepted revisions; a failed or stale CAS does not mutate accepted revisions. Schema `user_version` is explicitly checked; foreign/unknown schema versions reject without an automatic migration. Local SQLite WAL and `synchronous=FULL` are checked and busy timeout is bounded (5 seconds).
+
+## Example (trusted Rust process)
+
+```rust
+use riesel::{
+    AccessMode, ExecutionPlanDraft, OperationKey, OperationNode,
+    PlanAuthoringSource, PlanRevisionRepository, PlanSemanticCandidate,
+};
+use riesel_storage_sqlite::SqlitePlanRevisionRepository;
+
+let key = OperationKey::new("app.load", 1)?;
+let plan = ExecutionPlanDraft::new("app.pipeline", 1)
+    .operation(OperationNode::new("load", key).access("state", AccessMode::Write))
+    .validate()?;
+let candidate = PlanSemanticCandidate::from_rust(&plan)?;
+let store = SqlitePlanRevisionRepository::open(
+    "/app-owned-data/plan-revisions.sqlite", "trusted-app-build-1"
+)?;
+let head = store.initialize(&candidate, PlanAuthoringSource::Rust, "trusted-app-build-1")?;
+assert_eq!(head.semantic_revision, 1);
+```
+
+Use this example as a conceptual trusted-local call site; the storage location must be real, writable and app-owned, and the sample's hard-coded build correlation is not a security credential.
+
+## Alternatives and why this first slice
+
+The existing `RecordStore::update` supports CAS on **one record only**, not a coherent transaction spanning immutable semantic history, independent layouts, source generations and future activation receipts. A giant single-record aggregate would create coupling and write contention across unrelated layout streams. A filesystem lock/rename or append-only log could also satisfy these goals, but needs independently verified multi-process CAS, crash sync/fencing and replay/compaction. A mandatory Manager store violates headless Rust-first ownership.
+
+[Research PR #204](https://github.com/aschenrot/riesel/pull/204) tested 6/6 targeted actual OS-process SQLite transaction scenarios, including opposing semantic/layout writers, pre-/post-commit process kill and source fencing. This made a **portable, app-owned revision repository protocol with an optional local SQLite reference adapter** an evidence-supported first implementation. It is not evidence for a universal mandatory SQLite backend.
+
+## Verification and explicit remaining work
+
+Focused production adapter tests target independent OS processes racing the actual `SqlitePlanRevisionRepository` semantic and layout operations, immutable plan history, independent layout streams, invalid anchor rebase, checked code↔document source handoffs, stale-writer fences across reopen, installed-build stamp mismatch and unknown on-disk version rejection. Preserve exact-head `cargo validate --check` and `cargo smoke` evidence for the implementation PR, not just the research fixtures.
+
+**Not yet proved or delivered:** killing a process *inside each actual production adapter transaction* before/after commit, OS crash/power-loss guarantees, backups and schema migrations, quantified high-frequency layout contention, issuer-verified artifact/client identity, permissioned authoring/transfer across independent principals, ownership after application replacement, real runtime activation, receipts/unknown-effect reconciliation, typed S3 dataflow and a graphical editor. These remain [#193](https://github.com/aschenrot/riesel/issues/193), [#195](https://github.com/aschenrot/riesel/issues/195), [#196](https://github.com/aschenrot/riesel/issues/196) and [#187](https://github.com/aschenrot/riesel/issues/187) acceptance work. Do not close #193 based only on this first local implementation increment.

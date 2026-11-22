@@ -35,6 +35,9 @@
   let openScan = $state<ScanState>(newScan());
   let completedScan = $state<ScanState>(newScan());
   let completedExpanded = $state(false);
+  // Imperative cancellation ownership belongs to each live status request.
+  let openAbort: AbortController | null = null;
+  let completedAbort: AbortController | null = null;
   let loading = $state(true);
   let refreshing = $state(false);
   let refreshNotice = $state('');
@@ -126,6 +129,10 @@
   }
 
   function invalidateStatusCursors() {
+    openAbort?.abort();
+    completedAbort?.abort();
+    openAbort = null;
+    completedAbort = null;
     // A live UUID seek is not a snapshot: confirmed writes may reclassify a
     // record behind either cursor. Keep visible confirmed rows and Undo, but
     // never suggest the old continuation is still a complete status view.
@@ -141,6 +148,13 @@
   function stopScan(status: Status) {
     const state = status === 'open' ? openScan : completedScan;
     if (!state.scanning) return;
+    if (status === 'open') {
+      openAbort?.abort();
+      openAbort = null;
+    } else {
+      completedAbort?.abort();
+      completedAbort = null;
+    }
     state.generation += 1;
     state.scanning = false;
     state.cursor = null;
@@ -152,6 +166,9 @@
     const state = status === 'open' ? openScan : completedScan;
     if (state.scanning || (!fresh && (state.exhausted || !state.cursor))) return false;
     const generation = ++state.generation;
+    const controller = new AbortController();
+    if (status === 'open') openAbort = controller;
+    else completedAbort = controller;
     const completed = status === 'completed';
     const initialCursor = fresh ? null : state.cursor;
     const previousInspected = fresh ? 0 : state.inspected;
@@ -168,7 +185,11 @@
       const result = await collectUntilMatch(
         completed,
         initialCursor,
-        (wanted, cursor) => statusPage(wanted, cursor),
+        (wanted, cursor) => statusPage(
+          wanted,
+          cursor,
+          (input, init) => fetch(input, { ...init, signal: controller.signal })
+        ),
         (progress) => {
           if (state.generation !== generation) return;
           if (fresh && !replaced) {
@@ -200,7 +221,11 @@
         : 'Could not check this task section. Start a fresh scan.';
       return false;
     } finally {
-      if (state.generation === generation) state.scanning = false;
+      if (state.generation === generation) {
+        state.scanning = false;
+        if (status === 'open') openAbort = null;
+        else completedAbort = null;
+      }
     }
   }
 

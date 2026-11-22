@@ -83,6 +83,7 @@ jobs:
           name: todo-web-browser-failure
           path: |
             examples/todo/web/test-results
+            examples/todo/web/test-results-sparse
             examples/todo/web/playwright-report
           retention-days: 7
           if-no-files-found: ignore
