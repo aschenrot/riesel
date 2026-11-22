@@ -32,7 +32,8 @@ pub enum V2FaultStage {
 mod backup;
 pub use backup::{V2SnapshotBudget, VerifiedV2Snapshot};
 
-const FORMAT: i64 = 1;
+const LEGACY_FORMAT: i64 = 1;
+const FORMAT: i64 = 2;
 
 const SCHEMA: &str = "
 CREATE TABLE plan_heads(
@@ -73,6 +74,16 @@ CREATE TABLE source_handoffs(
     source_kind TEXT NOT NULL CHECK(source_kind IN ('rust','document')),
     semantic_anchor INTEGER NOT NULL,
     source_document BLOB,
+    PRIMARY KEY(plan_id,generation),
+    FOREIGN KEY(plan_id,semantic_anchor) REFERENCES semantic_revisions(plan_id,revision)
+) WITHOUT ROWID;
+CREATE TABLE artifact_revisions(
+    plan_id TEXT NOT NULL,
+    generation INTEGER NOT NULL CHECK(generation>0),
+    previous_registration TEXT NOT NULL,
+    next_registration TEXT NOT NULL,
+    semantic_anchor INTEGER NOT NULL CHECK(semantic_anchor>0),
+    source_kind TEXT NOT NULL CHECK(source_kind IN ('rust','document')),
     PRIMARY KEY(plan_id,generation),
     FOREIGN KEY(plan_id,semantic_anchor) REFERENCES semantic_revisions(plan_id,revision)
 ) WITHOUT ROWID;
@@ -226,9 +237,10 @@ impl SqlitePlanRevisionRepository {
                 tx.pragma_update(None, "user_version", FORMAT)
                     .map_err(storage)?;
             }
-            FORMAT => {
-                // Existing format is verified by requiring the declared tables.
-                // No silent destructive automatic upgrade of unknown versions.
+            LEGACY_FORMAT | FORMAT => {
+                // Format 1 remains supported but is NEVER silently migrated.
+                // A separate explicit, verified backup-backed operation is
+                // required before format 2 artifact registration changes.
                 for name in [
                     "plan_heads",
                     "semantic_revisions",
@@ -246,6 +258,18 @@ impl SqlitePlanRevisionRepository {
                     if exists != 1 {
                         return Err(PlanRevisionError::Storage(
                             "incomplete V2 database schema".into(),
+                        ));
+                    }
+                }
+                if version == FORMAT {
+                    let history_table: i64 = tx.query_row(
+                        "SELECT count(*) FROM sqlite_schema WHERE type='table' AND name='artifact_revisions'",
+                        [],
+                        |row| row.get(0),
+                    ).map_err(storage)?;
+                    if history_table != 1 {
+                        return Err(PlanRevisionError::Storage(
+                            "format 2 artifact history table is missing".into(),
                         ));
                     }
                 }
@@ -294,7 +318,7 @@ impl SqlitePlanRevisionRepository {
         let version: i64 = connection
             .pragma_query_value(None, "user_version", |row| row.get(0))
             .map_err(storage)?;
-        if version != FORMAT {
+        if version != FORMAT && version != LEGACY_FORMAT {
             return Err(PlanRevisionError::UnsupportedFormat(version));
         }
         Ok(connection)
