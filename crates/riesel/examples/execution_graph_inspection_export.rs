@@ -48,7 +48,9 @@ fn main() -> riesel::Result<()> {
         },
         [path] if !path.starts_with("--") => Mode::File(path.into()),
         _ => {
-            eprintln!("usage: execution_graph_inspection_export OUTPUT.json | --live [HOLD_SECONDS]");
+            eprintln!(
+                "usage: execution_graph_inspection_export OUTPUT.json | --live [HOLD_SECONDS]"
+            );
             std::process::exit(2);
         }
     };
@@ -187,24 +189,29 @@ fn inspection_document(
     // protocol nor a credential. Snapshot wins over the bounded event history.
     let snapshot = observer.snapshot();
     let changes = observer.changes_since(0).map_err(std::io::Error::other)?;
-    let nodes: Vec<_> = plan.description().operations().iter().map(|node| {
-        let before = initial.operations.get(node.id());
-        let now = snapshot.operations.get(node.id());
-        serde_json::json!({
-            "id": node.id(),
-            "depends_on": node.dependencies(),
-            "operation": node.binding().name(),
-            "operation_version": node.binding().version(),
-            "initial": before.map(|state| state_name(&state.state)),
-            "final": now.map(|state| state_name(&state.state)),
-            "attempt": now.map(|state| state.attempt).unwrap_or(0),
-            "error": now.and_then(|state| match &state.state {
-                OperationState::Failed(message) => Some(message.as_str()),
-                _ => None,
-            }),
-            "confirmed_prefixes": now.map(|state| &state.confirmed_prefixes),
+    let nodes: Vec<_> = plan
+        .description()
+        .operations()
+        .iter()
+        .map(|node| {
+            let before = initial.operations.get(node.id());
+            let now = snapshot.operations.get(node.id());
+            serde_json::json!({
+                "id": node.id(),
+                "depends_on": node.dependencies(),
+                "operation": node.binding().name(),
+                "operation_version": node.binding().version(),
+                "initial": before.map(|state| state_name(&state.state)),
+                "final": now.map(|state| state_name(&state.state)),
+                "attempt": now.map(|state| state.attempt).unwrap_or(0),
+                "error": now.and_then(|state| match &state.state {
+                    OperationState::Failed(message) => Some(message.as_str()),
+                    _ => None,
+                }),
+                "confirmed_prefixes": now.map(|state| &state.confirmed_prefixes),
+            })
         })
-    }).collect();
+        .collect();
     Ok(serde_json::json!({
         "schema": "riesel.research.graph-inspection.v1",
         "plan_id": snapshot.identity.plan_id(),
