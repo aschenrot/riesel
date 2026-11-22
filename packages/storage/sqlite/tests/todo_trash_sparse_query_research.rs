@@ -7,7 +7,6 @@ use riesel_storage::{
 use riesel_storage_sqlite::SqliteStore;
 use serde_json::json;
 use std::collections::{BTreeMap, BTreeSet};
-use std::time::Instant;
 
 fn model() -> BTreeMap<String, ModelDefinition> {
     BTreeMap::from([(
@@ -48,7 +47,9 @@ fn inspect_single_predicate(
         inspected += page.inspected;
         returned += page.records.len() as u64;
         for record in page.records {
-            if record.data["completed"] == false && record.data["trashed"] == false {
+            if record.data["completed"].as_bool() == Some(false)
+                && record.data["trashed"].as_bool() == Some(false)
+            {
                 matching.push(record.id);
             }
         }
@@ -101,16 +102,13 @@ fn balanced_sparse_lifecycle_requires_many_v1_native_pages_at_33_100_and_10000()
             )
             .unwrap();
         assert_eq!(target.id, last.id);
-        let started = Instant::now();
-
         // Q3 may choose whichever single-field prefilter looks more selective.
         // Both must still return approximately half the rows before the
         // domain can enforce "active AND open" in this balanced case.
         let completed = inspect_single_predicate(&store, "completed", false);
         let active = inspect_single_predicate(&store, "trashed", false);
-        for (field, (calls, inspected, returned, matching)) in
-            [("completed", &completed), ("trashed", &active)]
-        {
+        for (field, result) in [("completed", &completed), ("trashed", &active)] {
+            let (calls, inspected, returned, matching) = result;
             assert_eq!(*inspected, count, "{field} scans every candidate once");
             assert_eq!(matching.as_slice(), &[target.id], "{field} found exact target");
             assert!(
@@ -128,9 +126,8 @@ fn balanced_sparse_lifecycle_requires_many_v1_native_pages_at_33_100_and_10000()
                 );
             }
             eprintln!(
-                "todo #119 research: count={count} field={field} calls={calls} inspected={inspected} returned={returned} found={} elapsed_ms={}",
+                "todo #119 research: count={count} field={field} calls={calls} inspected={inspected} returned={returned} found={}",
                 matching.len(),
-                started.elapsed().as_millis(),
             );
         }
         // No second-field predicate, no provider-owned AND, no indexed Query
