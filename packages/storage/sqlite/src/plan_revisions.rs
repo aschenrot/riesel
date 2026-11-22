@@ -77,9 +77,10 @@ CREATE TABLE source_handoffs(
     PRIMARY KEY(plan_id,generation),
     FOREIGN KEY(plan_id,semantic_anchor) REFERENCES semantic_revisions(plan_id,revision)
 ) WITHOUT ROWID;
-CREATE TABLE artifact_revisions(
+CREATE TABLE plan_migrations(
     plan_id TEXT NOT NULL,
     generation INTEGER NOT NULL CHECK(generation>0),
+    kind TEXT NOT NULL CHECK(kind IN ('format','registration')),
     previous_registration TEXT NOT NULL,
     next_registration TEXT NOT NULL,
     semantic_anchor INTEGER NOT NULL CHECK(semantic_anchor>0),
@@ -263,7 +264,7 @@ impl SqlitePlanRevisionRepository {
                 }
                 if version == FORMAT {
                     let history_table: i64 = tx.query_row(
-                        "SELECT count(*) FROM sqlite_schema WHERE type='table' AND name='artifact_revisions'",
+                        "SELECT count(*) FROM sqlite_schema WHERE type='table' AND name='plan_migrations'",
                         [],
                         |row| row.get(0),
                     ).map_err(storage)?;
