@@ -123,6 +123,111 @@ fn production_does_not_silently_fall_back_to_memory() {
     ));
 }
 #[cfg(feature = "records")]
+use crate::storage::StoreError;
+
+#[cfg(feature = "records")]
+#[crate::capability(id = "research.test.record.reader", version = 1, client_trait)]
+trait TestRecordReader {
+    #[query]
+    fn count_records(&self, model: &str) -> std::result::Result<u64, StoreError>;
+}
+
+#[cfg(feature = "records")]
+#[test]
+fn typed_record_reader_and_storage_build_one_canonical_model_authority_link() {
+    use crate::ModelRead;
+
+    let from_handler = Application::new("RecordAuthority")
+        .handler_with_aliases(
+            |_reader: ModelRead<TodoModel, TestRecordReaderContract>,
+             _writer: crate::Records<TodoModel>|
+             -> std::result::Result<(), StoreError> { Ok(()) },
+            ["read", "writer"],
+        )
+        .unwrap();
+    let direct = Application::new("RecordAuthority")
+        .record_query_at::<TodoModel, TestRecordReaderContract>("read")
+        .unwrap()
+        .records_at::<TodoModel>("writer")
+        .unwrap();
+    let writer_first = Application::new("RecordAuthority")
+        .records_at::<TodoModel>("writer")
+        .unwrap()
+        .record_query_at::<TodoModel, TestRecordReaderContract>("read")
+        .unwrap();
+
+    assert_eq!(from_handler.definition_json().unwrap(), direct.definition_json().unwrap());
+    assert_eq!(direct.definition_json().unwrap(), writer_first.definition_json().unwrap());
+    let parsed = riesel_schema::parse_schema(&direct.definition_json().unwrap()).unwrap();
+    parsed.validate().unwrap();
+    assert_eq!(parsed.version, 2);
+    let link = &parsed.record_query_links["todo"];
+    assert_eq!(link.reader, "read");
+    assert_eq!(link.writer.as_deref(), Some("writer"));
+    assert_eq!(parsed.model_bindings["todo"], ["writer"]);
+    assert_eq!(parsed.requires.len(), 2);
+}
+
+#[cfg(feature = "records")]
+#[test]
+fn record_query_read_only_model_has_no_writable_storage_requirement() {
+    use crate::ModelRead;
+
+    let from_handler = Application::new("ReadOnly")
+        .handler(|_reader: ModelRead<TodoModel, TestRecordReaderContract>| {
+            Ok::<(), StoreError>(())
+        })
+        .unwrap();
+    let read_alias =
+        TestRecordReaderContract::definition().unwrap().capability.default_requirement_alias();
+    let direct = Application::new("ReadOnly")
+        .record_query_at::<TodoModel, TestRecordReaderContract>(&read_alias)
+        .unwrap();
+
+    assert_eq!(from_handler.definition_json().unwrap(), direct.definition_json().unwrap());
+    let schema = riesel_schema::parse_schema(&direct.definition_json().unwrap()).unwrap();
+    assert_eq!(schema.version, 2);
+    assert!(schema.model_bindings.is_empty());
+    assert!(schema.record_query_links["todo"].writer.is_none());
+    assert_eq!(schema.requires.len(), 1);
+    let contract = TestRecordReaderContract::definition().unwrap();
+    assert!(contract
+        .operations
+        .values()
+        .all(|op| op.kind == riesel_schema::OperationKind::Query));
+}
+
+#[cfg(feature = "records")]
+#[test]
+fn invalid_record_reader_contract_and_conflicting_writers_fail_during_authoring() {
+    let error = Application::new("InvalidRead")
+        .record_query_at::<TodoModel, RecordStoreContract>("read")
+        .err()
+        .unwrap();
+    assert!(matches!(error, SdkError::InvalidRecordQueryContract(_)));
+
+    let error = Application::new("ConflictingWriter")
+        .record_query_at::<TodoModel, TestRecordReaderContract>("read")
+        .unwrap()
+        .records_at::<TodoModel>("writer")
+        .unwrap()
+        .records_at::<TodoModel>("other_writer")
+        .err()
+        .unwrap();
+    assert!(matches!(error, SdkError::ConflictingRecordQueryLink(_)));
+
+    let error = Application::new("AmbiguousWriter")
+        .records_at::<TodoModel>("writer_a")
+        .unwrap()
+        .records_at::<TodoModel>("writer_b")
+        .unwrap()
+        .record_query_at::<TodoModel, TestRecordReaderContract>("read")
+        .err()
+        .unwrap();
+    assert!(matches!(error, SdkError::AmbiguousRecordQueryWriter(_)));
+}
+
+#[cfg(feature = "records")]
 #[test]
 fn sdk_generated_definition_round_trips_without_handwritten_json() {
     let app = Application::new("Todo").records::<TodoModel>().unwrap();
