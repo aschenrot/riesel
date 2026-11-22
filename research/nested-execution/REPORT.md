@@ -29,7 +29,7 @@ An outer-only inspector already works at the actual supported granularity. There
 | Owner-confirmed positive prefixes | `GraphEffectRecorder::confirm_prefix`, #141 | Scoped to the **running outer attempt**. Cloned reporters reject late reports; an unknown reply is **not** confirmed |
 | Safe outer step | `GraphRunController`, #144 | `RieselDomainTicks` rejected for a `DelegatedFrame`. Already-running nested work is never preempted |
 | Thread-confined domain simulation | `crates/riesel/tests/execution_domains.rs`, #128/#135/#136/#144 | One actor owns `Rc<Cell<_>>`; its real committed world can be finer-grained than its outer graph terminal report |
-| Real RunenECS differential | #84 `REPORT.md` §§14–15 and research code | Real `!Send` ECS execution and per-tick snapshots were tested, **but no common production nested observer/controller schema was integrated** |
+| Real RunenECS differential | #84 `REPORT.md` §§14–15; #146 adds the **same pinned RunenECS source** invoked from a real `RunningApp::execution_graph` delegated frame (pending final CI verification) | Actual ECS ownership remains on a dedicated `!Send` invoker thread; these are research-only read-only projections, **not an integrated public nested observation contract** |
 | External interface attachment | #60, #75, #114 | Open research/authorization gate: a graph generation, same UID, TCP loopback or locally known port is not an authenticated principal |
 
 A decisive negative case: a domain-owned frame may finish two actual mutations after the outer callback loses its response. Its **authoritative domain** may know the two commits, while the outer graph must retain `OutcomeUnknown` with **no inferred confirmed-prefix increase**. A future reconciliation facility must establish which authority can attest past effects after the attempt recorder is inactive; it cannot simply resynthesize a missing event or retry the command. A mutable domain object leaking to the inspector also violates affinity/ownership even when a graph metadata type is `Send`.
@@ -73,7 +73,7 @@ The demonstration uses this correlation vocabulary only inside a trusted researc
 
 ## 5. Reproducible isolated experiment
 
-`research/nested-execution/` is an independent Rust workspace using the real production `riesel` SDK and Tokio 1.54.1; no extra dependency enters the normal workspace. No new provider, Riesel application daemon, ECS adapter, scheduling crate, public SDK API, window host, or production trace format is introduced.
+`research/nested-execution/` is an independent Rust workspace using the real production `riesel` SDK, Tokio 1.54.1 and a **research-only, exact pinned** `runen-ecs` Git revision `5d6af86bfa7c58f1ad26ec73635590a72e89ef37` (the same revision verified in #84). A separate `Cargo.lock` retains the resolved research dependency graph. `--locked` must fail rather than silently resolve different indirect packages. No extra dependency enters the normal Riesel workspace. No new provider, Riesel application daemon, ECS adapter, scheduling crate, public SDK API, window host, or production trace format is introduced.
 
 Run on Rust 1.100.0:
 
@@ -81,21 +81,24 @@ Run on Rust 1.100.0:
 cargo validate --check
 cargo smoke
 cargo fmt --manifest-path research/nested-execution/Cargo.toml -- --check
-cargo clippy --manifest-path research/nested-execution/Cargo.toml --all-targets -- -D warnings
-cargo test --manifest-path research/nested-execution/Cargo.toml -- --nocapture
+cargo clippy --locked --manifest-path research/nested-execution/Cargo.toml --all-targets -- -D warnings
+cargo test --locked --manifest-path research/nested-execution/Cargo.toml -- --nocapture
 ```
 
 The #146 draft branch's CI executes the final three checks **only** on that research PR. Both normal workspace validation/smoke and isolated research checks are mandatory to call a revision verified; their execution order in CI does not weaken either gate. This deliberate isolation follows the #83 precedent.
 
-Experiment uses a **real** `RunningApp::execution_graph` run and `DelegatedFrame` plan; a bounded synchronous command channel to a dedicated native owner thread containing `Rc<Cell<i32>>`; real Tokio callbacks/response loss and the existing effect recorder; a separate domain-owned copied read-only state and four-event lossy ring. It never transfers the non-`Send` world to a graph Tokio task. A second non-ECS pipeline runs through the same owner-projection vocabulary but has distinct inner stages and effects.
+Experiment uses a **real** `RunningApp::execution_graph` run and `DelegatedFrame` plan; a bounded synchronous command channel to a dedicated native owner thread, real Tokio callbacks/response loss and the existing effect recorder; a separate domain-owned copied read-only state and four-event lossy ring. The baseline fixture owns `Rc<Cell<i32>>`; the added real-RunenECS variant constructs and runs an actual `World`, `Runtime`, `Schedule`, mutating position system, `TickCount` and `Rc<Cell<_>>` resource **inside the same native owner thread**. It never transfers the `!Send` world or a borrowed resource to a graph Tokio task. A non-ECS pipeline uses the same parent/projection vocabulary with different stages and effects. No new ECS system scheduler is created.
 
 | Probe | Verifiable assertions | Exclusions |
 | --- | --- | --- |
-| Real delegated frame, one committed tick then cancellation | Independent async graph node advances; wrong domain control and stale owner permit rejected; domain snapshot sees first commit before outer terminal; outer returns `Cancelled`, dependent `Blocked`, positive prefix 1; no synthetic graph tick node | The simulation world is intentionally a small `Rc<Cell>` actor, **not another real RunenECS run**; prior #84 covers that actual ECS |
+| Modeled delegated frame, one committed tick then cancellation | Independent async graph node advances; wrong domain control and stale owner permit rejected; domain snapshot sees first commit before outer terminal; outer returns `Cancelled`, dependent `Blocked`, positive prefix 1; no synthetic graph tick node | This baseline world is a small `Rc<Cell>` actor; additional actual RunenECS cases exercise the same boundary |
+| **Actual pinned RunenECS** frame after one tick then cancellation | The true ECS schedule updates an owned Position, count and invoker-thread-only resource; an unsupported operation kind is rejected; the domain snapshot confirms exactly one tick, outer frame remains `Cancelled` with prefix 1 and dependent `Blocked` | This does not prove generic RunenECS system-level pause/step or multi-threaded parallel performance |
+| **Actual pinned RunenECS** two ticks with lost reply | The owner world commits two schedule invocations while the callback gets no reply; outer graph stays `OutcomeUnknown` and records **no guessed prefix**, while the domain snapshot retains the true world and independent sequence | Owner snapshot after outer terminal is not a new retroactive effect confirmation or a durable reconciliation protocol |
 | Lost reply after two committed ticks | Owner snapshot reports two; graph returns `OutcomeUnknown`, no confirmed prefix in outer report, no success-only dependent and no retry | This does not provide an accepted later reconciliation path or independent remote identity attestation |
 | Non-ECS 12-stage processing | Same parent correlation/snapshot representation; independent branch completes; ring retains only four of 12 events; `truncated=true`, authoritative snapshot still proves 12 stages | A modeled batch coordinator, not a production media/data pipeline throughput benchmark |
 | Multiple delegated frames of one actual run | Two real sequential `DelegatedFrame` graph operations use the same domain actor, distinct parent operation IDs and per-attempt committed prefixes. Re-dispatching the same already-admitted parent attempt is rejected before mutation | The research actor's duplicate set is in-memory only, **not durable exactly-once** or external authorization |
 | Stale application/session run | Two real Riesel sessions produce different issued generations; owner rejects a frame stamped with the other run before mutating its world | A local in-process consistency test, **not** hostile same-UID caller authentication |
+| **Domain-owner replacement without app-session restart** | A replacement native owner issues a new internal epoch; an old permit is rejected **without an inner commit**, even though its outer plan/run/session identity is unchanged; a current-epoch cancellation releases the operation | Does **not** establish recoverable in-flight attempts or safe replay after owner restart. A locally held duplicate set is lost when the old owner disappears; production needs separate reconciliation/fencing |
 
 The tests establish **behavior of a research sketch**, not a verified shipping API or the correctness of arbitrary external domain implementations. The report must be updated with exact CI head and failing/passing gate evidence; tests not run are not passed.
 
@@ -126,7 +129,7 @@ If B/F is accepted, the first bounded implementation should be a *read-only, own
 ## 8. Open questions for acceptance
 
 - Is optional nested observation a shared Riesel outcome needed by multiple products, or should per-domain tooling suffice for #114’s first graphical inspector? P3 can already render genuine outer state without nested ECS events.
-- Who authenticates a domain owner’s claims once an independent process publishes nested state, and what is the expected revocation/attestation contract with #75?
+- Who authenticates a domain owner’s claims once an independent process publishes nested state, and what is the expected revocation/attestation contract with #75? In-process signed/declared parent identity and owner epochs are *local correlation and cooperative checks*, not cryptographic principal verification or persistent replay barriers.
 - Does B need one typed common read-only projection, or should Riesel transport only opaque owner-provided data and let registered inspector plugins render it? Which evolves better across domain schema versions and optional layout/data fields?
 - How much nested history should be retained by the owner, and what exact read consistency guarantees are required across the graph snapshot and domain snapshot **without** a global clock or transaction?
 - Which internal safe points, if any, may be called through a shared C controller? The actor’s native thread/system schedule must stay authoritative.
