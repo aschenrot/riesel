@@ -70,6 +70,8 @@ fn main() -> riesel::Result<()> {
         // owns startup and teardown; the caller owns and awaits its Tokio work.
         let runner = context.execution_graph(plan, NonZeroUsize::new(2).unwrap())?;
         let signal = runner.signal_sender();
+        let observer = runner.observer();
+        let initial = observer.snapshot();
         signal.fire("start")?;
         let executor = tokio::runtime::Builder::new_current_thread()
             .enable_all()
@@ -83,6 +85,19 @@ fn main() -> riesel::Result<()> {
             ))
             .into());
         }
+        let final_state = observer.snapshot();
+        if final_state.identity != report.identity
+            || final_state.phase != riesel::GraphRunPhase::Finished
+            || final_state.operations.len() != report.operations.len()
+        {
+            return Err(std::io::Error::other("observed state diverged from run report").into());
+        }
+        let transitions = observer
+            .changes_since(0)
+            .map_err(std::io::Error::other)?;
+        if transitions.truncated || transitions.events.is_empty() {
+            return Err(std::io::Error::other("short example lost its transition history").into());
+        }
         if joined.load(Ordering::SeqCst) != 2 {
             return Err(std::io::Error::other("expected both branches to complete").into());
         }
@@ -91,6 +106,14 @@ fn main() -> riesel::Result<()> {
             report.plan_id,
             report.revision,
             report.operations.len()
+        );
+        println!(
+            "session={} run={} initial-seq={} final-seq={} transitions={}",
+            report.identity.session_generation(),
+            report.identity.run_sequence(),
+            initial.latest_sequence,
+            final_state.latest_sequence,
+            transitions.events.len()
         );
         Ok(())
     })
