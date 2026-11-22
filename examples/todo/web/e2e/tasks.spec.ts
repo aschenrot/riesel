@@ -107,6 +107,69 @@ test('connection errors are visible and allow retry without losing tasks', async
 });
 
 
+test('lost mutation replies require reconciliation without silently retrying creation', async ({ page }) => {
+  await page.goto('/');
+  let writes = 0;
+  await page.route('**/api/v1/tasks', (route) => {
+    if (route.request().method() === 'POST') {
+      writes++;
+      return route.fulfill({
+        status: 503,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          error: { code: 'outcome_unknown', message: 'Request outcome could not be confirmed' }
+        })
+      });
+    }
+    return route.continue();
+  });
+
+  const input = page.getByRole('textbox', { name: 'New task' });
+  await input.fill('Possibly saved');
+  await page.getByRole('button', { name: 'Add task' }).click();
+  await expect(page.getByRole('alert')).toContainText('may have been applied');
+  await expect(input).toHaveValue('Possibly saved');
+  await expect(page.getByRole('button', { name: 'Check current tasks' })).toBeVisible();
+  expect(writes).toBe(1);
+
+  await page.unroute('**/api/v1/tasks');
+  await page.getByRole('button', { name: 'Check current tasks' }).click();
+  await expect(page.getByRole('alert')).toHaveCount(0);
+  expect(writes).toBe(1);
+  // Simulated uncertain response did not actually create a record.
+  // The UI cannot infer that until the user deliberately resynchronizes.
+  await expect(page.getByText('No tasks yet')).toBeVisible();
+});
+
+test('uncertain edit keeps its draft until the user explicitly discards it', async ({ page }) => {
+  await page.goto('/');
+  await page.getByRole('textbox', { name: 'New task' }).fill('Original');
+  await page.getByRole('button', { name: 'Add task' }).click();
+  await expect(page.getByText('Original', { exact: true })).toBeVisible();
+  await page.getByRole('button', { name: 'Edit Original', exact: true }).click();
+  const edit = page.getByRole('textbox', { name: 'Edit task title' });
+  await edit.fill('Possibly applied');
+  let writes = 0;
+  await page.route('**/api/v1/tasks/*', route => {
+    if (route.request().method() === 'PATCH') {
+      writes++;
+      return route.abort();
+    }
+    return route.continue();
+  });
+  await page.getByRole('button', { name: 'Save' }).click();
+  await expect(page.getByRole('alert')).toContainText('may have been applied');
+  await expect(edit).toHaveValue('Possibly applied');
+  await expect(page.getByRole('button', { name: 'Discard draft and check tasks' })).toBeVisible();
+  expect(writes).toBe(1);
+
+  await page.unroute('**/api/v1/tasks/*');
+  await page.getByRole('button', { name: 'Discard draft and check tasks' }).click();
+  await expect(page.getByRole('textbox', { name: 'Edit task title' })).toHaveCount(0);
+  await expect(page.getByText('Original', { exact: true })).toBeVisible();
+  expect(writes).toBe(1);
+});
+
 test('loading and domain validation are visible before accepting corrected input', async ({ page }) => {
   await page.route('**/api/v1/tasks*', async (route) => {
     if (route.request().method() === 'GET') {
