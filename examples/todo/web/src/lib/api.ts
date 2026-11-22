@@ -34,6 +34,10 @@ async function request<T>(
   init: RequestInit,
   fetcher: typeof fetch
 ): Promise<T> {
+  // A failed GET is an unavailable observation. A failed mutation
+  // transport may have crossed dispatch and applied an effect already.
+  // The browser cannot infer rollback from a lost response.
+  const mutation = init.method !== 'GET' && init.method !== 'HEAD';
   let response: Response;
   try {
     response = await fetcher(PREFIX + path, {
@@ -44,7 +48,13 @@ async function request<T>(
       headers: init.body !== undefined ? { 'Content-Type': 'application/json' } : undefined
     });
   } catch {
-    throw new ApiError('disconnected', 0, 'Cannot connect to the Todo backend.');
+    throw mutation
+      ? new ApiError(
+          'outcome_unknown',
+          0,
+          'The change may have been applied. Check current tasks before trying again.'
+        )
+      : new ApiError('disconnected', 0, 'Cannot connect to the Todo backend.');
   }
 
   if (!response.ok) {
@@ -62,7 +72,13 @@ async function request<T>(
   try {
     return (await response.json()) as T;
   } catch {
-    throw new ApiError('invalid_response', 0, 'The backend returned an invalid response.');
+    throw mutation
+      ? new ApiError(
+          'outcome_unknown',
+          response.status,
+          'The change may have been applied, but its response could not be read. Check current tasks.'
+        )
+      : new ApiError('invalid_response', 0, 'The backend returned an invalid response.');
   }
 }
 
