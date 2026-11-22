@@ -187,11 +187,11 @@ impl AppReadPublication {
         if requested.contract != self.descriptor.contract {
             return Err(ReadPublicationError::WrongContract);
         }
-        if requested.publication_id != self.descriptor.publication_id {
-            return Err(ReadPublicationError::WrongPublication);
-        }
         if requested.generation != self.descriptor.generation {
             return Err(ReadPublicationError::StaleGeneration);
+        }
+        if requested.publication_id != self.descriptor.publication_id {
+            return Err(ReadPublicationError::WrongPublication);
         }
         if !self.allowed.contains(operation)
             || requested.allowed_queries != self.descriptor.allowed_queries
