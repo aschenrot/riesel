@@ -19,6 +19,8 @@ riesel_counter_component = { workspace = true, features = ["async-tcp"] }
 riesel_protocol = { workspace = true, features = ["async-tcp"] }
 serde_json.workspace = true
 serde.workspace = true
+riesel_schema = { workspace = true, optional = true }
+thiserror = { workspace = true, optional = true }
 tokio.workspace = true
 
 # Research-only application/interface fixture. These are not released app APIs.
