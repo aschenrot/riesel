@@ -569,6 +569,7 @@ dependencies = [
  "riesel_app",
  "riesel_schema",
  "riesel_storage",
+ "riesel_storage_component",
  "rusqlite",
  "serde",
  "serde_json",
