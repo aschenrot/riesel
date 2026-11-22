@@ -205,6 +205,116 @@ fn record_query_read_only_model_has_no_writable_storage_requirement() {
     );
 }
 
+#[cfg(feature = "dev-memory-storage")]
+impl TestRecordReader for riesel_storage_component::MemoryStore {
+    fn count_records(&self, model: &str) -> std::result::Result<u64, StoreError> {
+        use crate::storage::RecordStore;
+        let mut count = 0;
+        let mut after = None;
+        loop {
+            // Test-only reference read through Storage v2 pages. Native
+            // provider execution and bounded predicates belong to #161.
+            let page = RecordStore::list_page(self, model, after, 32)?;
+            count += page.records.len() as u64;
+            match page.next_cursor {
+                Some(cursor) => after = Some(cursor),
+                None => return Ok(count),
+            }
+        }
+    }
+}
+
+#[cfg(feature = "dev-memory-storage")]
+#[test]
+fn generated_linked_reader_and_storage_reuse_one_live_provider_instance() {
+    use crate::storage::{RecordStore, RecordStoreRpcDispatcher};
+    use crate::{ModelRead, Records};
+    use riesel_app::ComponentDefinition;
+    use riesel_storage_component::MemoryStore;
+    use std::sync::Arc;
+    use std::sync::atomic::{AtomicUsize, Ordering};
+
+    let created = Arc::new(AtomicUsize::new(0));
+    let counter = Arc::clone(&created);
+    let models = std::collections::BTreeMap::from([(
+        TodoModel::MODEL_NAME.to_owned(),
+        TodoModel::model_definition(),
+    )]);
+    let shared = ComponentDefinition::new("research.test.record.owner", move || {
+        counter.fetch_add(1, Ordering::SeqCst);
+        MemoryStore::with_models(models.clone())
+    })
+    .exposes::<RecordStoreContract, _>(
+        |state| state as Arc<dyn RecordStore + Send + Sync>,
+        RecordStoreRpcDispatcher::new,
+    )
+    .unwrap()
+    .exposes::<TestRecordReaderContract, _>(
+        |state| state as Arc<dyn TestRecordReader + Send + Sync>,
+        TestRecordReaderRpcDispatcher::new,
+    )
+    .unwrap();
+
+    Application::new("LinkedModelReaderAndWriter")
+        .handler_with_aliases(
+            |reader: ModelRead<TodoModel, TestRecordReaderContract>,
+             writer: Records<TodoModel>|
+             -> std::result::Result<(), StoreError> {
+                assert_eq!(reader.model_name(), "todo");
+                assert_eq!(reader.count_records("todo")?, 0);
+                writer.create(TodoModel {
+                    title: "Confirmed".into(),
+                    completed: false,
+                })?;
+                assert_eq!(reader.count_records("todo")?, 1);
+                Ok(())
+            },
+            ["read", "writer"],
+        )
+        .unwrap()
+        .provider(shared)
+        .unwrap()
+        .run()
+        .unwrap();
+
+    assert_eq!(created.load(Ordering::SeqCst), 1);
+}
+
+#[cfg(feature = "dev-memory-storage")]
+#[test]
+fn typed_model_read_only_handler_works_with_a_read_only_local_provider() {
+    use crate::ModelRead;
+    use riesel_app::ComponentDefinition;
+    use riesel_storage_component::MemoryStore;
+    use std::sync::Arc;
+
+    let models = std::collections::BTreeMap::from([(
+        TodoModel::MODEL_NAME.to_owned(),
+        TodoModel::model_definition(),
+    )]);
+    let reader = ComponentDefinition::new("research.test.record.readeronly", move || {
+        MemoryStore::with_models(models.clone())
+    })
+    .exposes::<TestRecordReaderContract, _>(
+        |state| state as Arc<dyn TestRecordReader + Send + Sync>,
+        TestRecordReaderRpcDispatcher::new,
+    )
+    .unwrap();
+
+    let prepared = Application::new("LinkedModelReadOnly")
+        .handler(
+            |reader: ModelRead<TodoModel, TestRecordReaderContract>|
+             -> std::result::Result<(), StoreError> {
+                assert_eq!(reader.count_records("todo")?, 0);
+                Ok(())
+            },
+        )
+        .unwrap();
+    assert!(prepared.definition().model_bindings.is_empty());
+    assert_eq!(prepared.definition().requires.len(), 1);
+    prepared.provider(reader).unwrap().run().unwrap();
+}
+
 #[cfg(feature = "records")]
 #[test]
 fn invalid_record_reader_contract_and_conflicting_writers_fail_during_authoring() {
