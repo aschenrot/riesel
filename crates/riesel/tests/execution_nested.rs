@@ -740,3 +740,66 @@ fn ordinary_operations_cannot_create_domain_owned_nested_views() {
         assert!(observer.nested::<usize>("ordinary", 1).unwrap().is_none());
     });
 }
+
+
+#[test]
+fn same_domain_owner_does_not_alias_two_graph_attempts_event_cursors() {
+    executor().block_on(async {
+        // A long-lived domain owner can process multiple independent frames.
+        // Cursor namespaces belong to each attachment, not just its epoch.
+        let domain = NestedDomainOwner::new("world.owner");
+        let mut registry = OperationRegistry::<AsyncOperation>::new();
+        registry
+            .register(
+                key("frame"),
+                async_operation_with_effects({
+                    let registration = domain.registration();
+                    move |effects| {
+                        let registration = registration.clone();
+                        async move {
+                            let publisher = effects.attach_nested::<u64>(&registration, 1).unwrap();
+                            publisher.publish(1).unwrap();
+                            OperationOutcome::Completed
+                        }
+                    }
+                }),
+            )
+            .unwrap();
+        let plan = ExecutionPlanDraft::new("nested.repeat-owner", 7)
+            .operation(OperationNode::new("frame", key("frame")).delegated_frame("world.owner"))
+            .validate()
+            .unwrap()
+            .bind(&registry)
+            .unwrap();
+        let app = session();
+        let mut previous_cursor = None::<NestedCursor>;
+        let mut previous_run = None;
+        for _ in 0..2 {
+            let graph = app
+                .execution_graph(plan.clone(), NonZeroUsize::new(1).unwrap())
+                .unwrap();
+            let observer = graph.observer();
+            assert!(graph.execute().await.succeeded());
+            let header = observer.nested_header("frame").unwrap();
+            let info = header.snapshot();
+            assert_eq!(info.description.parent.attempt, 1);
+            assert_eq!(info.description.parent.run.plan_id(), "nested.repeat-owner");
+            assert_eq!(info.description.parent.run.revision(), 7);
+            assert_eq!(info.description.owner_generation, domain.generation());
+            assert_eq!(info.latest.sequence, 1);
+            if let Some(old) = previous_cursor {
+                assert_eq!(old.owner_generation, info.latest.owner_generation);
+                assert_ne!(old.attachment_id, info.latest.attachment_id);
+                assert!(matches!(
+                    header.changes_since(old),
+                    Err(NestedObservationError::StaleCursor)
+                ));
+            }
+            if let Some(old) = &previous_run {
+                assert_ne!(old, &info.description.parent.run);
+            }
+            previous_cursor = Some(info.latest);
+            previous_run = Some(info.description.parent.run);
+        }
+    });
+}
