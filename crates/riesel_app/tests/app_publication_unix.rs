@@ -22,6 +22,7 @@ use std::sync::{
     atomic::{AtomicUsize, Ordering},
 };
 use std::time::Duration;
+use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
 const SCHEMA: &str =
     r#"{"version":1,"app":{"name":"IndependentReadOwner"},"models":{},"requires":[]}"#;
@@ -167,6 +168,10 @@ fn real_owned_unix_client_attach_detach_and_recover() {
             })
             .unwrap();
 
+        assert_eq!(
+            fs::metadata(&path).unwrap().permissions().mode() & 0o777,
+            0o600
+        );
         let client = UnixReadClient::new(&path);
         let old_descriptor = client.describe().await.unwrap();
         assert_eq!(old_descriptor.allowed_queries, ["count"]);
@@ -176,6 +181,45 @@ fn real_owned_unix_client_attach_detach_and_recover() {
             .unwrap();
         assert_eq!(first_read["status"], "ok");
         assert_eq!(first_read["value"], 7);
+
+        // The wire boundary rejects unsupported protocol versions before
+        // interpreting any app descriptor or invoking the domain.
+        let mut raw = tokio::net::UnixStream::connect(&path).await.unwrap();
+        raw.write_all(br#"{"wire_version":99,"action":"describe"}"#)
+            .await.unwrap();
+        raw.shutdown().await.unwrap();
+        let mut wrong_version_reply = Vec::new();
+        raw.read_to_end(&mut wrong_version_reply).await.unwrap();
+        let wrong_reply: Value = serde_json::from_slice(&wrong_version_reply).unwrap();
+        assert_eq!(wrong_reply["status"], "error");
+        assert_eq!(wrong_reply["code"], "unsupported_wire_version");
+
+        // The client rejects oversize requests locally and the server may
+        // never invoke the domain on a raw disallowed command.
+        assert_eq!(
+            client.query(
+                &old_descriptor, "count", Value::String("x".repeat(200_000)),
+            ).await.unwrap_err().kind(),
+            std::io::ErrorKind::InvalidInput
+        );
+
+        // Multiple client connections use one application publication and
+        // one runtime admission owner, without requiring a GUI renderer.
+        let mut concurrent = Vec::new();
+        for _ in 0..8 {
+            let path = path.clone();
+            let descriptor = old_descriptor.clone();
+            concurrent.push(tokio::spawn(async move {
+                UnixReadClient::new(path)
+                    .query(&descriptor, "count", json!({}))
+                    .await
+            }));
+        }
+        for reader in concurrent {
+            let answer = reader.await.unwrap().unwrap();
+            assert_eq!(answer["status"], "ok");
+            assert_eq!(answer["value"], 7);
+        }
 
         // A second actual OS process acts as a GUI, without acquiring an
         // individual protected principal. This is T1's explicit same-user
@@ -218,6 +262,10 @@ fn real_owned_unix_client_attach_detach_and_recover() {
                 .unwrap()["status"],
             "ok"
         );
+        publication.withdraw();
+        let withdrawn = client.query(&old_descriptor, "count", json!({})).await.unwrap();
+        assert_eq!(withdrawn["status"], "error");
+        assert_eq!(withdrawn["code"], "withdrawn");
         tasks.finish_scope().await.unwrap();
         assert!(!path.exists(), "owned listener removed its exact socket");
         first.shutdown().unwrap();
