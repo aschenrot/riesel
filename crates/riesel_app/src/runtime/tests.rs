@@ -1033,6 +1033,48 @@ fn linked_record_query_rejects_split_owners_before_state_factory_runs() {
 }
 
 #[test]
+fn linked_record_query_denies_remote_read_placement_before_connecting() {
+    use std::sync::atomic::{AtomicUsize, Ordering};
+    let created = Arc::new(AtomicUsize::new(0));
+    let mut registry = ConnectorRegistry::new();
+    registry
+        .register(Dummy {
+            local_version: 1,
+            remote_version: 1,
+        })
+        .unwrap();
+    registry
+        .register_local(LinkedQueryFixture {
+            id: "example.record.writer",
+            reader: false,
+            writer: true,
+            mutating_reader: false,
+            created: Arc::clone(&created),
+        })
+        .unwrap();
+    let config = DeploymentConfig::new(BTreeMap::from([
+        (
+            "read".into(),
+            ServiceEndpoint::Tcp {
+                address: "127.0.0.1:47999".parse().unwrap(),
+            },
+        ),
+        (
+            "writer".into(),
+            ServiceEndpoint::Local {
+                provider: "example.record.writer".into(),
+            },
+        ),
+    ]));
+    assert!(matches!(
+        linked_query_app().preflight(&config, &registry),
+        Err(RuntimeError::UnsupportedLinkedRecordPlacement { model, requirement })
+            if model == "task" && requirement == "read"
+    ));
+    assert_eq!(created.load(Ordering::SeqCst), 0);
+}
+
+#[test]
 fn linked_record_query_rejects_mutating_read_surface_before_startup() {
     use std::sync::atomic::{AtomicUsize, Ordering};
     let created = Arc::new(AtomicUsize::new(0));
