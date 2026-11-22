@@ -526,39 +526,44 @@ fn rolling_short_runs_compete_with_existing_cold_waiter_without_service_guarante
             // Reuse the same immutable plan, but create and finish each hot
             // graph run separately. This is not one 33-node hot plan and
             // makes no assumptions about fairness between run boundaries.
-            let submitted = AtomicUsize::new(0);
-            let rolling_producer = async {
-                for _ in 0..ROLLING_RUNS {
-                    let runner = application
-                        .execution_graph(hot_plan.clone(), NonZeroUsize::new(1).unwrap())
-                        .unwrap();
-                    submitted.fetch_add(1, Ordering::SeqCst);
-                    let report = tokio::time::timeout(Duration::from_secs(5), runner.execute())
-                        .await
-                        .unwrap();
-                    assert!(report.succeeded());
-                    assert_eq!(report.started, 1);
+            let submitted = Arc::new(AtomicUsize::new(0));
+            let unblock_and_join = tokio::spawn({
+                let submitted = Arc::clone(&submitted);
+                let permits = Arc::clone(&permits);
+                async move {
+                    wait_for_one(&submitted).await;
+                    permits.add_permits(1);
+                    assert!(
+                        tokio::time::timeout(Duration::from_secs(5), first_task)
+                            .await
+                            .unwrap()
+                            .unwrap()
+                            .succeeded()
+                    );
+                    assert!(
+                        tokio::time::timeout(Duration::from_secs(5), cold_task)
+                            .await
+                            .unwrap()
+                            .unwrap()
+                            .succeeded()
+                    );
                 }
-            };
-            let unblock_and_join = async {
-                wait_for_one(&submitted).await;
-                permits.add_permits(1);
-                assert!(
-                    tokio::time::timeout(Duration::from_secs(5), first_task)
-                        .await
-                        .unwrap()
-                        .unwrap()
-                        .succeeded()
-                );
-                assert!(
-                    tokio::time::timeout(Duration::from_secs(5), cold_task)
-                        .await
-                        .unwrap()
-                        .unwrap()
-                        .succeeded()
-                );
-            };
-            let (_, ()) = tokio::join!(rolling_producer, unblock_and_join);
+            });
+            for _ in 0..ROLLING_RUNS {
+                let runner = application
+                    .execution_graph(hot_plan.clone(), NonZeroUsize::new(1).unwrap())
+                    .unwrap();
+                submitted.fetch_add(1, Ordering::SeqCst);
+                let report = tokio::time::timeout(Duration::from_secs(5), runner.execute())
+                    .await
+                    .unwrap();
+                assert!(report.succeeded());
+                assert_eq!(report.started, 1);
+            }
+            tokio::time::timeout(Duration::from_secs(10), unblock_and_join)
+                .await
+                .unwrap()
+                .unwrap();
             assert_eq!(hot_started.load(Ordering::SeqCst), ROLLING_RUNS + 1);
             assert_eq!(event_order.load(Ordering::SeqCst), ROLLING_RUNS + 2);
             let rank = cold_rank.load(Ordering::SeqCst);
