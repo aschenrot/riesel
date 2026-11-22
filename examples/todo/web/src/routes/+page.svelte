@@ -270,6 +270,7 @@
     try {
       const task = await createTask(submittedTitle);
       tasks = sortedUnique([...tasks, task]);
+      invalidateStatusCursors();
       // A user may start typing another task while this request is pending.
       // Clear only the submitted draft; never discard newer input.
       if (newTitle === submittedTitle) newTitle = '';
@@ -314,6 +315,7 @@
     try {
       const updated = await updateTask(task, { title: editDraft });
       tasks = tasks.map((value) => value.id === updated.id ? updated : value);
+      invalidateStatusCursors();
       editingId = null;
       // Re-enable the action trigger before restoring keyboard focus.
       actingId = null;
@@ -340,11 +342,21 @@
     clearFeedback();
     try {
       const updated = await updateTask(task, { completed: !task.completed });
-      tasks = tasks.map((value) => value.id === updated.id ? updated : value);
+      tasks = sortedUnique([...tasks.filter((value) => value.id !== updated.id), updated]);
+      invalidateStatusCursors();
       notify(updated.completed ? 'Task completed' : 'Task reopened', {
         changes: [{ current: updated, inverse: { completed: task.completed } }],
         partialFailures: 0
       });
+      // The completed row may disappear into a collapsed section.
+      // Transfer keyboard focus to its disclosure instead of losing it.
+      actingId = null;
+      await tick();
+      if (updated.completed && !completedExpanded) {
+        document.getElementById('completed-toggle')?.focus();
+      } else {
+        document.getElementById('task-check-' + updated.id)?.focus();
+      }
     } catch (error) {
       report(error);
     } finally {
@@ -359,6 +371,7 @@
     try {
       await removeTask(task);
       tasks = tasks.filter((value) => value.id !== task.id);
+      invalidateStatusCursors();
       confirmingDeleteId = null;
       notify('Task removed');
     } catch (error) {
@@ -454,7 +467,8 @@
         try {
           // Sequential, revision-checked commands: no atomic batch, no automatic retry.
           const updated = await updateTask(task, { completed });
-          tasks = tasks.map((value) => value.id === updated.id ? updated : value);
+          tasks = sortedUnique([...tasks.filter((value) => value.id !== updated.id), updated]);
+          invalidateStatusCursors();
           successful.push({ current: updated, inverse: { completed: task.completed } });
           changed++;
         } catch (error) {
@@ -512,7 +526,8 @@
         try {
           // The post-command revision fences newer edits from another client.
           const updated = await updateTask(change.current, change.inverse);
-          tasks = tasks.map((task) => task.id === updated.id ? updated : task);
+          tasks = sortedUnique([...tasks.filter((task) => task.id !== updated.id), updated]);
+          invalidateStatusCursors();
           reversed++;
         } catch (error) {
           failures.push({
