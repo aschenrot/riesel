@@ -20,9 +20,9 @@ A second session's ability to call the Counter is an **admission counterexample 
 - Drive Ctrl+I through the **actual X11 window** in A: Counter changes from 0 to 1 through original generated typed RPC, without moving the application runtime into the GUI.
 - Start second independent PAMName=login service B under the **same OS UID**. Require distinct actual logind scope, its own unchanged native GUI executable/PID/cgroup and another real X11 window. Give it only the deliberate research endpoint address; **no app-issued client capability, credential, Manager credential or OS root permission is provided**. Drive Ctrl+I in B and verify both B and A observe authoritative value 2. The backend's separately owned process/OS InvocationID remains the same.
 - Terminate **only session B** using a root **test** coordinator: GUI B must exit; GUI A and session-A-bound Counter must remain alive under unchanged PID/attempt. Drive Ctrl+I in GUI A again and observe value 3. Terminate **session A**: both the A GUI session process and its bound actual Counter must stop. No automatic replacement launch is allowed.
-- Cleanup strictly the test-only account, two PAM sessions, uniquely named systemd units, root-owned disposable app directory and temporary X11 permission; no other system services or user accounts are modified.
+- Cleanup strictly the test-only account, two PAM sessions, uniquely named systemd units, root-owned disposable app directory and temporary private Xauthority file; no other system services or user accounts are modified.
 
-The CI X11 server is owned by the GitHub runner and explicitly grants the disposable login account access through xhost +SI:localuser. **That permission is for a test display, not a security boundary.** The two real PAM/logind sessions are **not** display-manager-authenticated graphical logins, physical seats or independent trusted Wayland compositors, even though each launches a genuine native window. Neither the X11 input events nor the root runner's privileged test actions prove a human approved anything.
+The CI X11 server is owned by the GitHub runner and uses a test-only MIT-MAGIC-COOKIE. The disposable account cannot read the runner's original Xauthority file, so the fixture **provisions an independent, temporary cookie to that test UID** and proves a real X11 connection using xdpyinfo before native GUI startup. **Both test login sessions deliberately share this cookie**; it is an X11 display-access prerequisite, not an app-authentication credential or a trusted desktop isolation boundary. The two real PAM/logind sessions are **not** display-manager-authenticated graphical logins, physical seats or independent trusted Wayland compositors, even though each launches a genuine native window. Neither the X11 input events nor the root runner's privileged test actions prove a human approved anything.
 
 ## What the outcomes would mean
 
@@ -38,6 +38,8 @@ The CI X11 server is owned by the GitHub runner and explicitly grants the dispos
 
 **Critical independent obligations:** Distinguish (1) registered application identity, (2) OS executable/install and launch attempt, (3) login session scope, (4) actual Riesel runtime session generation, (5) graphical frontend process identity, and (6) a deliberately authorized exported capability grant. X11 input injection under [PR #134](https://github.com/aschenrot/riesel/pull/134) and polkit under [PR #142](https://github.com/aschenrot/riesel/pull/142) mean a mouse/keyboard event or password prompt inside an ordinary X11 session does **not** guarantee trusted human intent. Windows/macOS cannot be inferred from this Linux-only fixture. No app-level authorization API, protocol, public client grant or release promise follows automatically from this investigation.
 
+**First executable fixture result (not a security finding):** [Ubuntu research run 44974110169](https://github.com/aschenrot/riesel/actions/runs/44974110169) built both unchanged Riesel binaries and observed an actual session A and separately owned Counter, but **FAILED before GUI startup**: the account had no Xauthority credential and Xvfb denied the GUI's connection. This was a **test-display setup failure**, not evidence for either cross-session admission policy. The fixture now provisions a disposable Xauthority cookie and requires a real xdpyinfo connection test before counting a GUI result. Do not infer a new result until rerun at a tested source revision.
+
 ## Reproducible Linux research
 
 The dedicated [workflow](../../.github/workflows/manager-cross-session-native-gui-research.yml) builds both original pinned real binaries and executes [the main probe](manager_cross_session_native_gui_probe.py) and [the disposable PAM GUI launcher](manager_cross_session_gui_launcher.py) under actual Xvfb/systemd/logind. Execute only on disposable hosts with permitted root fixture setup and a trusted test X server.
@@ -45,7 +47,7 @@ The dedicated [workflow](../../.github/workflows/manager-cross-session-native-gu
 Expected markers are **test assertions, not verified claims until CI passes**:
 
 - RESEARCH_M59_PINNED_NATIVE_GUI_AND_SESSION_SOURCE_VERIFIED
-- RESEARCH_M59_XVFB_GUI_LOGIN_UID_DISPLAY_GRANTED
+- RESEARCH_M59_DISPOSABLE_X11_COOKIE_ADMISSION_VERIFIED
 - RESEARCH_M59_REAL_GUI_PAM_SESSION_A_SCOPE
 - RESEARCH_M59_REAL_COUNTER_PROTECTED_EXACT_GUI_SESSION_BOUND
 - RESEARCH_M59_REAL_SESSION_A_NATIVE_GUI_MODIFIED_COUNTER
