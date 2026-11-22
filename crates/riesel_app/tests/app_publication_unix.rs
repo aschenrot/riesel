@@ -186,7 +186,8 @@ fn real_owned_unix_client_attach_detach_and_recover() {
         // interpreting any app descriptor or invoking the domain.
         let mut raw = tokio::net::UnixStream::connect(&path).await.unwrap();
         raw.write_all(br#"{"wire_version":99,"action":"describe"}"#)
-            .await.unwrap();
+            .await
+            .unwrap();
         raw.shutdown().await.unwrap();
         let mut wrong_version_reply = Vec::new();
         raw.read_to_end(&mut wrong_version_reply).await.unwrap();
@@ -197,9 +198,11 @@ fn real_owned_unix_client_attach_detach_and_recover() {
         // The client rejects oversize requests locally and the server may
         // never invoke the domain on a raw disallowed command.
         assert_eq!(
-            client.query(
-                &old_descriptor, "count", Value::String("x".repeat(200_000)),
-            ).await.unwrap_err().kind(),
+            client
+                .query(&old_descriptor, "count", Value::String("x".repeat(200_000)),)
+                .await
+                .unwrap_err()
+                .kind(),
             std::io::ErrorKind::InvalidInput
         );
 
@@ -263,7 +266,10 @@ fn real_owned_unix_client_attach_detach_and_recover() {
             "ok"
         );
         publication.withdraw();
-        let withdrawn = client.query(&old_descriptor, "count", json!({})).await.unwrap();
+        let withdrawn = client
+            .query(&old_descriptor, "count", json!({}))
+            .await
+            .unwrap();
         assert_eq!(withdrawn["status"], "error");
         assert_eq!(withdrawn["code"], "withdrawn");
         tasks.finish_scope().await.unwrap();
