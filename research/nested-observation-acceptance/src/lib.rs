@@ -434,6 +434,8 @@ mod tests {
             let run = tokio::spawn(graph.execute());
             until(|| observer.nested_description("frame").is_some()).await;
             until(|| completed.load(Ordering::SeqCst) == 1).await;
+            let header = observer.nested_header("frame").unwrap();
+            assert_eq!(header.snapshot().status, NestedStatus::Unpublished);
             let view = observer.nested::<D::View>("frame", 1).unwrap().unwrap();
             let before = view.snapshot();
             assert_eq!(before.status, NestedStatus::Unpublished);
@@ -454,6 +456,8 @@ mod tests {
             assert_eq!(payload.ticks(), 1);
             assert_eq!(payload.position(), 2);
             assert_eq!(payload.owner_thread_calls(), 1);
+            assert_eq!(header.snapshot().latest.sequence, 1);
+            assert_eq!(header.snapshot().description.parent.run, observer.snapshot().identity);
             assert_eq!(
                 observer.snapshot().operations["frame"].state,
                 OperationState::Running
@@ -488,6 +492,7 @@ mod tests {
             let native = actor.worker.join().unwrap();
             assert_eq!(native.ticks(), if lost_ack { 2 } else { 1 });
             assert_eq!(view.snapshot().status, NestedStatus::OwnerClosed);
+            assert_eq!(header.snapshot().status, NestedStatus::OwnerClosed);
             assert_eq!(
                 observer.snapshot().operations["frame"].state,
                 report.operations["frame"]
