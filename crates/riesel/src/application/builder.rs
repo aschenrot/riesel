@@ -141,11 +141,14 @@ impl Application {
         self.records_at::<T>("storage")
     }
 
-    /// Register a Rust model and explicitly name its storage requirement.
-    /// Multiple storage aliases can coexist without implicit selection.
+    /// Register a Rust-derived model without requesting Storage mutation
+    /// authority or selecting any provider. A separate read-only Query facet
+    /// may later declare the capability and verified model/data owner.
+    ///
+    /// This preserves the same authoritative model definition used by
+    /// records_at, and does not grant query access by itself.
     #[cfg(feature = "records")]
-    pub fn records_at<T: RieselModel>(mut self, storage_alias: impl Into<String>) -> Result<Self> {
-        let storage_alias = storage_alias.into();
+    pub fn model<T: RieselModel>(mut self) -> Result<Self> {
         let name = T::MODEL_NAME.to_owned();
         let definition = T::model_definition();
         if let Some(previous) = self.definition.models.get(&name) {
@@ -153,15 +156,24 @@ impl Application {
                 return Err(SdkError::DuplicateModel(name));
             }
         } else {
-            self.definition.models.insert(name.clone(), definition);
+            self.definition.models.insert(name, definition);
         }
+        Ok(self)
+    }
 
-        self = self.rpc::<RecordStoreContract>(storage_alias.clone())?;
-        let bindings = self.definition.model_bindings.entry(name).or_default();
+    /// Register a Rust model and explicitly name its storage requirement.
+    /// Multiple storage aliases can coexist without implicit selection.
+    /// This is deliberately the writable Storage v2 authoring path.
+    #[cfg(feature = "records")]
+    pub fn records_at<T: RieselModel>(self, storage_alias: impl Into<String>) -> Result<Self> {
+        let storage_alias = storage_alias.into();
+        let name = T::MODEL_NAME.to_owned();
+        let mut app = self.model::<T>()?.rpc::<RecordStoreContract>(storage_alias.clone())?;
+        let bindings = app.definition.model_bindings.entry(name).or_default();
         if !bindings.contains(&storage_alias) {
             bindings.push(storage_alias);
         }
-        Ok(self)
+        Ok(app)
     }
 
     /// Register a single generated local capability without handwritten
