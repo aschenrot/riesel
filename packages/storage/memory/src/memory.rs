@@ -508,6 +508,56 @@ mod tests {
     }
 
     #[test]
+    fn live_cursor_sees_later_confirmed_mutation_without_claiming_snapshot() {
+        use riesel_schema::TypeRef;
+        use riesel_storage::{RecordCompare, RecordPredicate, RecordQueryRequest};
+        let store = MemoryStore::with_query_models(
+            BTreeMap::from([(
+                "task".into(),
+                ModelDefinition {
+                    fields: BTreeMap::from([("completed".into(), TypeRef::Bool)]),
+                },
+            )]),
+            BTreeSet::from(["task".into()]),
+        );
+        let mut records = Vec::new();
+        for _ in 0..3 {
+            records.push(store.create("task", json!({"completed":false})).unwrap());
+        }
+        records.sort_by_key(|record| record.id);
+        let mut request = RecordQueryRequest {
+            model: "task".into(),
+            predicate: Some(RecordPredicate {
+                field: "completed".into(),
+                operator: RecordCompare::Eq,
+                value: Some(json!(true)),
+            }),
+            limit: 1,
+            scan_budget: 1,
+            cursor: None,
+        };
+        let first = store.query_page(request.clone()).unwrap();
+        assert!(first.records.is_empty());
+        assert!(!first.exhausted);
+        request.cursor = first.next_cursor;
+
+        // The mutation happens after page 1. The provider must inspect the
+        // current live state on later pages, not invent a stable snapshot.
+        let last = records.last().unwrap();
+        store
+            .update("task", last.id, last.revision, json!({"completed":true}))
+            .unwrap();
+        let second = store.query_page(request.clone()).unwrap();
+        assert!(second.records.is_empty());
+        assert!(!second.exhausted);
+        request.cursor = second.next_cursor;
+        let last_page = store.query_page(request).unwrap();
+        assert_eq!(last_page.records.len(), 1);
+        assert_eq!(last_page.records[0].id, last.id);
+        assert_eq!(last_page.records[0].data["completed"], true);
+    }
+
+    #[test]
     fn native_query_rejects_undeclared_read_models_and_wrong_cursor_query() {
         use riesel_schema::TypeRef;
         use riesel_storage::{
