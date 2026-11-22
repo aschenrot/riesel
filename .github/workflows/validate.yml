@@ -43,6 +43,35 @@ jobs:
         run: cargo test --locked -p riesel_storage_sqlite --test v2_format_migration
       - name: Smoke test runtime and managed providers
         run: cargo smoke
+      - name: Research #226 ready-index equivalence (draft branch only)
+        if: ${{ github.event_name == 'pull_request' && github.head_ref == 'research/226-ready-index-differential' }}
+        run: |
+          cargo test -p riesel --features async-tcp --test scheduler_admission_cursor_research -- --test-threads=1
+          RIESEL_RESEARCH_READY_INDEX=1 cargo test -p riesel --features async-tcp --test scheduler_admission_cursor_research -- --nocapture --test-threads=1
+          RIESEL_RESEARCH_READY_INDEX=1 cargo test -p riesel --features async-tcp --test execution_runner
+          RIESEL_RESEARCH_READY_INDEX=1 cargo test -p riesel --features async-tcp --test execution_domains
+          RIESEL_RESEARCH_READY_INDEX=1 cargo test -p riesel --features async-tcp --test execution_nested
+      - name: Research #226 ready-index release A/B/B/A visit comparison
+        if: ${{ github.event_name == 'pull_request' && github.head_ref == 'research/226-ready-index-differential' }}
+        env:
+          RIESEL_RESEARCH_ADMISSION_COUNTERS: "1"
+        run: |
+          echo "research #226 ready-index A1 baseline"
+          cargo test -p riesel --release --features async-tcp --test scheduler_admission_cursor_research cursor_differential_shapes -- --nocapture --test-threads=1
+          echo "research #226 ready-index B1 indexed"
+          RIESEL_RESEARCH_READY_INDEX=1 cargo test -p riesel --release --features async-tcp --test scheduler_admission_cursor_research cursor_differential_shapes -- --nocapture --test-threads=1
+          echo "research #226 ready-index B2 indexed"
+          RIESEL_RESEARCH_READY_INDEX=1 cargo test -p riesel --release --features async-tcp --test scheduler_admission_cursor_research cursor_differential_shapes -- --nocapture --test-threads=1
+          echo "research #226 ready-index A2 baseline"
+          cargo test -p riesel --release --features async-tcp --test scheduler_admission_cursor_research cursor_differential_shapes -- --nocapture --test-threads=1
+          echo "research #226 negative gate A: 256 gated ready nodes"
+          cargo test -p riesel --release --features async-tcp --test scheduler_admission_cursor_research many_signal_gated_ready_nodes -- --nocapture --test-threads=1
+          echo "research #226 negative gate B: 256 gated ready nodes"
+          RIESEL_RESEARCH_READY_INDEX=1 cargo test -p riesel --release --features async-tcp --test scheduler_admission_cursor_research many_signal_gated_ready_nodes -- --nocapture --test-threads=1
+          echo "research #226 negative lock A: 256 conflicting writers"
+          cargo test -p riesel --release --features async-tcp --test scheduler_admission_cursor_research resource_contended_ready_nodes -- --nocapture --test-threads=1
+          echo "research #226 negative lock B: 256 conflicting writers"
+          RIESEL_RESEARCH_READY_INDEX=1 cargo test -p riesel --release --features async-tcp --test scheduler_admission_cursor_research resource_contended_ready_nodes -- --nocapture --test-threads=1
 
   windows:
     if: ${{ github.event_name == 'workflow_dispatch' && inputs.windows }}
