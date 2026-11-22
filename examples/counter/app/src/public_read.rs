@@ -1,7 +1,8 @@
 //! Explicit, optional non-sensitive Counter read facade using the actual
 //! SDK-selected provider (not another owned counter or a copied resolver).
-use riesel::{Capability, RieselType, capability};
-use riesel_counter::{Counter, CounterContract};
+use riesel::{RieselType, capability};
+use riesel_counter::Counter;
+use std::sync::Arc;
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
@@ -21,11 +22,11 @@ pub trait CounterT1Read {
 }
 
 pub struct CounterT1ReadFacade {
-    counter: Capability<CounterContract>,
+    counter: Arc<dyn Counter + Send + Sync>,
 }
 
 impl CounterT1ReadFacade {
-    pub fn new(counter: Capability<CounterContract>) -> Self {
+    pub fn new(counter: Arc<dyn Counter + Send + Sync>) -> Self {
         Self { counter }
     }
 }
