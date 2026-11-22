@@ -29,6 +29,7 @@ fn state_name(state: &OperationState) -> &'static str {
 fn main() -> riesel::Result<()> {
     let output = std::env::args_os()
         .nth(1)
+        .map(std::path::PathBuf::from)
         .ok_or_else(|| std::io::Error::other("expected output JSON path"))?;
     Application::new("Headless Execution Graph").run(move |context| {
         let joined = Arc::new(AtomicUsize::new(0));
@@ -85,6 +86,7 @@ fn main() -> riesel::Result<()> {
 
         // Construct within the actual application session. The application
         // owns startup and teardown; the caller owns and awaits its Tokio work.
+        let inspected_plan = plan.plan().clone();
         let runner = context.execution_graph(plan, NonZeroUsize::new(2).unwrap())?;
         let signal = runner.signal_sender();
         let observer = runner.observer();
@@ -119,8 +121,7 @@ fn main() -> riesel::Result<()> {
         // Research-only projection built from the real validated plan and
         // authoritative run snapshots. No exporter, remote principal,
         // network listener, executable document or public wire ABI exists.
-        let nodes: Vec<_> = plan
-            .plan()
+        let nodes: Vec<_> = inspected_plan
             .description()
             .operations()
             .iter()
