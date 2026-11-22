@@ -46,6 +46,8 @@ fn main() -> riesel::Result<()> {
     #[cfg(feature = "internal-publication")]
     let mut previous_publication: Option<(InternalPublicationSession, String, u32)> = None;
     let mut previous: Option<std::sync::Arc<dyn riesel_counter::Counter + Send + Sync>> = None;
+    #[cfg(feature = "internal-publication")]
+    let mut previous_observation: Option<ObservationSnapshot> = None;
     Application::new("RecoveryProbe")
         .rpc::<CounterContract>("counter")?
         .run_from_env(move |ctx| {
