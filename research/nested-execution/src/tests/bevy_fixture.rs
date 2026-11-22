@@ -4,7 +4,7 @@
 //! effects, per-owner-epoch controls, partial effects and uncertain outcomes.
 
 use super::{
-    Error, GraphControlError, GraphControlTarget, Kind, OperationState, OWNER_EPOCH, WAIT, cancel,
+    Error, GraphControlError, GraphControlTarget, Kind, OWNER_EPOCH, OperationState, WAIT, cancel,
     executor, grant, setup, until,
 };
 use bevy_ecs::prelude::*;
