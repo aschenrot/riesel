@@ -345,3 +345,134 @@ fn later_compatible_reader_runs_can_overtake_an_existing_waiting_writer() {
         }
     });
 }
+
+#[test]
+fn overlapping_read_handoffs_keep_writer_ungrantable_until_last_release() {
+    runtime().block_on(async {
+        const OVERLAPS: usize = 8;
+        const ROUNDS: usize = 4;
+        for round in 0..ROUNDS {
+            let app = owner();
+            let permits = (0..=OVERLAPS)
+                .map(|_| Arc::new(Semaphore::new(0)))
+                .collect::<Vec<_>>();
+            let started = (0..=OVERLAPS)
+                .map(|_| Arc::new(AtomicUsize::new(0)))
+                .collect::<Vec<_>>();
+            let writer_started = Arc::new(AtomicUsize::new(0));
+            let mut registry = OperationRegistry::<AsyncOperation>::new();
+            for i in 0..=OVERLAPS {
+                registry
+                    .register(
+                        key(&format!("reader-{i}")),
+                        async_operation({
+                            let permit = Arc::clone(&permits[i]);
+                            let started = Arc::clone(&started[i]);
+                            move || {
+                                let permit = Arc::clone(&permit);
+                                let started = Arc::clone(&started);
+                                async move {
+                                    started.fetch_add(1, Ordering::SeqCst);
+                                    let lease = permit.acquire().await.unwrap();
+                                    lease.forget();
+                                    OperationOutcome::Completed
+                                }
+                            }
+                        }),
+                    )
+                    .unwrap();
+            }
+            registry
+                .register(
+                    key("writer"),
+                    async_operation({
+                        let writer_started = Arc::clone(&writer_started);
+                        move || {
+                            let writer_started = Arc::clone(&writer_started);
+                            async move {
+                                writer_started.fetch_add(1, Ordering::SeqCst);
+                                OperationOutcome::Completed
+                            }
+                        }
+                    }),
+                )
+                .unwrap();
+
+            let build_reader = |i: usize| {
+                let plan = ExecutionPlanDraft::new(format!("overlap-read-{round}-{i}"), 1)
+                    .operation(
+                        OperationNode::new("read", key(&format!("reader-{i}")))
+                            .access("shared", AccessMode::Read),
+                    )
+                    .validate()
+                    .unwrap()
+                    .bind(&registry)
+                    .unwrap();
+                app.execution_graph(plan, NonZeroUsize::new(1).unwrap())
+                    .unwrap()
+            };
+            let mut previous_task = tokio::spawn(build_reader(0).execute());
+            has_started(&started[0]).await;
+            let writer = app
+                .execution_graph(
+                    ExecutionPlanDraft::new(format!("overlap-write-{round}"), 1)
+                        .operation(
+                            OperationNode::new("write", key("writer"))
+                                .access("shared", AccessMode::Write),
+                        )
+                        .validate()
+                        .unwrap()
+                        .bind(&registry)
+                        .unwrap(),
+                    NonZeroUsize::new(1).unwrap(),
+                )
+                .unwrap();
+            let observer = writer.observer();
+            let writer_task = tokio::spawn(writer.execute());
+            running(&observer).await;
+            assert_eq!(writer_started.load(Ordering::SeqCst), 0);
+
+            for i in 1..=OVERLAPS {
+                // The next reader acquires a compatible read lease *before*
+                // the preceding one is released. There is no interval when
+                // this resource can be granted exclusively to the writer.
+                let current_task = tokio::spawn(build_reader(i).execute());
+                has_started(&started[i]).await;
+                assert_eq!(writer_started.load(Ordering::SeqCst), 0);
+                permits[i - 1].add_permits(1);
+                let previous_report = tokio::time::timeout(Duration::from_secs(5), previous_task)
+                    .await
+                    .unwrap()
+                    .unwrap();
+                assert!(previous_report.succeeded());
+                assert_eq!(previous_report.started, 1);
+                previous_task = current_task;
+                assert_eq!(writer_started.load(Ordering::SeqCst), 0);
+            }
+            // The last read still owns the shared lease here, even though
+            // the original reader and all prior handoff readers completed.
+            assert_eq!(started[OVERLAPS].load(Ordering::SeqCst), 1);
+            assert_eq!(writer_started.load(Ordering::SeqCst), 0);
+            permits[OVERLAPS].add_permits(1);
+            assert!(
+                tokio::time::timeout(Duration::from_secs(5), previous_task)
+                    .await
+                    .unwrap()
+                    .unwrap()
+                    .succeeded()
+            );
+            assert!(
+                tokio::time::timeout(Duration::from_secs(5), writer_task)
+                    .await
+                    .unwrap()
+                    .unwrap()
+                    .succeeded()
+            );
+            assert_eq!(writer_started.load(Ordering::SeqCst), 1);
+            eprintln!(
+                "research #226 overlapping_read_handoffs round={round} completed_readers={} writer_after_final_release=true",
+                OVERLAPS + 1
+            );
+        }
+    });
+}
