@@ -275,7 +275,9 @@ impl Application {
     pub fn sqlite_record_query(self, path: impl Into<PathBuf>) -> Result<Self> {
         self.definition.validate()?;
         if self.definition.record_query_links.is_empty() {
-            return Err(SdkError::MissingCapability("record Query model relation".into()));
+            return Err(SdkError::MissingCapability(
+                "record Query model relation".into(),
+            ));
         }
         let expected_storage = RecordStoreContract::definition()?.capability;
         let writers = self
