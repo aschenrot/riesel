@@ -1,0 +1,78 @@
+name: Research #59/#60 — two logind-session native GUIs and app-export admission
+
+permissions:
+  contents: read
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - ".github/workflows/manager-cross-session-native-gui-research.yml"
+      - "research/process-ownership/manager_cross_session_gui_launcher.py"
+      - "research/process-ownership/manager_cross_session_native_gui_probe.py"
+      - "research/process-ownership/CROSS-SESSION-NATIVE-GUI-ADMISSION.md"
+  workflow_dispatch:
+
+jobs:
+  ubuntu-real-native-gui-across-logind:
+    name: Real Counter, two PAM logind GUI sessions, scoped app lifetime
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+      - name: Verify actual session/desktop test infrastructure and install X11 libraries
+        run: |
+          set -euo pipefail
+          test "$(id -u)" != 0
+          test "$(ps -p 1 -o comm=)" = systemd
+          command -v loginctl
+          command -v setpriv
+          sudo -n true
+          python3 -m py_compile \
+            research/process-ownership/manager_cross_session_gui_launcher.py \
+            research/process-ownership/manager_cross_session_native_gui_probe.py
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            xvfb xdotool x11-utils x11-xserver-utils \
+            libxcb-render0-dev libxcb-shape0-dev libxcb-xfixes0-dev \
+            libxkbcommon-dev libxkbcommon-x11-0 libxkbcommon-x11-dev \
+            libssl-dev libgl1-mesa-dev libegl1-mesa-dev libx11-dev libxi-dev
+          command -v xhost
+          command -v xvfb-run
+      - name: Fetch exact previously verified unchanged Counter GUI and session-owner sources
+        env:
+          GUI_SHA: 5201e61cc74bab778dfc63a3788f1708b2530f21
+          SESSION_SHA: c59fb50b398b16cae47de4a616ca2fc486df38b3
+        run: |
+          set -euo pipefail
+          git fetch --no-tags --depth=1 origin refs/pull/90/head
+          test "$(git rev-parse FETCH_HEAD)" = "$GUI_SHA"
+          git worktree add --detach "$RUNNER_TEMP/pinned-riesel-pr90" "$GUI_SHA"
+          echo "PINNED_NATIVE_GUI_ROOT=$RUNNER_TEMP/pinned-riesel-pr90" >> "$GITHUB_ENV"
+          git fetch --no-tags --depth=1 origin refs/pull/145/head
+          test "$(git rev-parse FETCH_HEAD)" = "$SESSION_SHA"
+          git worktree add --detach "$RUNNER_TEMP/pinned-riesel-pr145" "$SESSION_SHA"
+          echo "PINNED_SESSION_ROOT=$RUNNER_TEMP/pinned-riesel-pr145" >> "$GITHUB_ENV"
+          echo "RESEARCH_M59_PINNED_NATIVE_GUI_AND_SESSION_SOURCE_VERIFIED"
+      - name: Build real SDK-resolved Riesel Counter and unchanged independent eframe GUI
+        run: |
+          set -euo pipefail
+          rustup toolchain install 1.100.0 --profile minimal
+          rustup default 1.100.0
+          cd "$PINNED_NATIVE_GUI_ROOT"
+          cargo build --locked -p riesel_counter_example --bin counter_resolved_facade_host
+          cargo build --manifest-path research/native-gui-host/Cargo.toml
+      - name: Exercise real X11 GUI keyboard operations across two actual logind sessions
+        env:
+          LIBGL_ALWAYS_SOFTWARE: "1"
+          GALLIUM_DRIVER: llvmpipe
+        run: |
+          set -euo pipefail
+          xvfb-run -a -s "-screen 0 1280x900x24" bash -c '
+            set -euo pipefail
+            timeout 175 python3 research/process-ownership/manager_cross_session_native_gui_probe.py \
+              --exercise "$PINNED_NATIVE_GUI_ROOT" "$PINNED_SESSION_ROOT" \
+              research/process-ownership/manager_cross_session_gui_launcher.py
+          '
