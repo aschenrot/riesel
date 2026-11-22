@@ -18,6 +18,12 @@ Read the current repository delivery contract, product definition, accepted exec
 
 `PlanRevisionCatalog` is only a lifetime-local duplicate-revision guard, not durable publisher identity or global CAS. `ExecutionPlanDescription` is Serialize-only read-only. `AsyncOperation` currently returns `OperationOutcome` with no typed values. The delivered [#157](https://github.com/aschenrot/riesel/issues/157) internal runtime-session publication/ingress is not authenticated external editor publication; [#75](https://github.com/aschenrot/riesel/issues/75) has common semantics and product-specific adapters, not an accepted exporter protocol or cross-platform trusted client.
 
+### Existing metadata foundations — reuse versus duplication
+
+The public `riesel_schema::CapabilityContract` already contains versioned, Rust-generated capability operation signatures and input/output type descriptions, exposed via `CapabilityDescriptor::definition()`. `AppSchema` separately describes application requirements, models, linked record-query facets and provider dependencies. These mechanisms demonstrate that the platform can derive **inspectable typed metadata from Rust** instead of maintaining a second hand-written schema.
+
+However, they are **not interchangeable with registered execution-plan operations**: a graph `OperationKey` can identify an arbitrary Rust callback, may capture a resolved capability handle, and has resource/domain/affinity scheduling constraints; it is not a provider selector or the same thing as a capability method's request/response signature. A2 should reuse the existing versioned-definition and Rust-first derivation *pattern*, with explicit references to capability contracts where appropriate, instead of duplicating `AppSchema` or forcing every graph callback into a capability RPC operation. There is no production `OperationDescriptor` or editor-publisher permission catalog today. Reusing a type name without verifying these identity and ownership distinctions would be a migration hazard.
+
 ## 3. Alternatives on equal product scope
 
 | Concern | Alternative | Cost / advantage | Failure or future evolution |
@@ -44,7 +50,7 @@ cargo validate --check
 cargo smoke
 ```
 
-Normal Linux CI must verify these on the **exact PR synthetic integration tree** before marking the experiment passed. Any CI failure/revision is evidence, not authority to weaken the production plan validator or add a public exported API.
+**Verified result (2026-11-22):** [Linux Validate run 44993590466](https://github.com/aschenrot/riesel/actions/runs/44993590466) **PASSED** `cargo validate --check` and `cargo smoke` on exact GitHub synthetic merge `ee23f58` (research source head `b64434be9f4b2dcf00ce8e58c3920dc7400ab218`, then-main `a0500af86e0f53815ca0432f965a2232f9dcd6f2`). All **9/9 test cases** in `visual_authoring_authority_research.rs` passed. The additional runtime ingress research workflow [44993590464](https://github.com/aschenrot/riesel/actions/runs/44993590464) passed on the same source head. The first attempt [44993516660](https://github.com/aschenrot/riesel/actions/runs/44993516660) failed formatting only; the generated rustfmt diff was applied without changing intended assertions. Windows release validation and independent cargo execution outside GitHub Actions were **not** performed. These results verify in-process test semantics, not production remote authorization or crash-safe publication. This report may receive a docs-only follow-up commit, in which case that exact new head requires its own CI check before being considered current integration evidence.
 
 | Test | Positive/negative property | What it does **not** prove |
 | --- | --- | --- |
