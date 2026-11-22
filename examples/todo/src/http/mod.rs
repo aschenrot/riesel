@@ -127,6 +127,7 @@ pub async fn serve(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use axum::response::IntoResponse;
     use riesel::Application;
     use std::sync::atomic::AtomicBool;
     use std::time::Duration;
