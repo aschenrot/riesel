@@ -102,8 +102,7 @@ impl AppReadPublication {
             if field.is_empty()
                 || field.len() > MAX_PUBLIC_ID_BYTES
                 || !field.bytes().enumerate().all(|(index, ch)| {
-                    ch.is_ascii_alphanumeric()
-                        || (index > 0 && matches!(ch, b'.' | b'_' | b'-'))
+                    ch.is_ascii_alphanumeric() || (index > 0 && matches!(ch, b'.' | b'_' | b'-'))
                 })
             {
                 return Err(ReadPublicationError::Invalid(
@@ -434,11 +433,15 @@ mod tests {
                 Err(ReadPublicationError::StaleGeneration)
             ));
             assert!(matches!(
-                publication.query(&wrong_publication, "count", json!({})).await,
+                publication
+                    .query(&wrong_publication, "count", json!({}))
+                    .await,
                 Err(ReadPublicationError::WrongPublication)
             ));
             assert!(matches!(
-                publication.query(&second_descriptor, "count", json!({})).await,
+                publication
+                    .query(&second_descriptor, "count", json!({}))
+                    .await,
                 Err(ReadPublicationError::WrongPublication)
             ));
             assert!(matches!(
@@ -566,9 +569,8 @@ mod tests {
             let descriptor = publication.descriptor();
             let active = Arc::clone(&publication);
             let request = descriptor.clone();
-            let prior = tokio::spawn(async move {
-                active.query(&request, "count", json!({})).await
-            });
+            let prior =
+                tokio::spawn(async move { active.query(&request, "count", json!({})).await });
             started_rx.await.unwrap();
             assert_eq!(publication.runtime_ingress.in_flight(), 1);
             publication.withdraw();
