@@ -253,6 +253,9 @@ impl<T: Send + Sync + 'static> NestedPublisher<T> {
     /// Publish a domain-owned immutable copy. No queue sends or awaits occur
     /// while the native ECS world is borrowed. Old events are discarded.
     pub fn publish(&self, snapshot: T) -> Result<NestedCursor, NestedObservationError> {
+        // Allocate potentially large domain-provided data before acquiring
+        // the owner snapshot mutex; never retain historical payloads in ring.
+        let payload = Arc::new(snapshot);
         let mut state = self.source.lock().unwrap_or_else(PoisonError::into_inner);
         if state.retired.load(Ordering::Acquire) {
             return Err(NestedObservationError::Superseded);
@@ -268,7 +271,7 @@ impl<T: Send + Sync + 'static> NestedPublisher<T> {
             .sequence
             .checked_add(1)
             .ok_or(NestedObservationError::SequenceExhausted)?;
-        state.payload = Some(Arc::new(snapshot));
+        state.payload = Some(payload);
         let sequence = state.sequence;
         state.transitions.push_back(sequence);
         if state.transitions.len() > MAX_NESTED_TRANSITIONS {
