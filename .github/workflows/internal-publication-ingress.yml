@@ -9,6 +9,7 @@ on:
     paths:
       - "crates/riesel_protocol/**"
       - "crates/riesel_app/**"
+      - "crates/riesel_manager/**"
       - "crates/riesel/src/application/context.rs"
       - "crates/riesel/Cargo.toml"
       - "examples/counter/app/**"
@@ -28,6 +29,8 @@ jobs:
         run: |
           rustup toolchain install 1.100.0 --profile minimal --component rustfmt --component clippy
           rustup default 1.100.0
+      - name: Verify genuine OS child attempt, owner lifetime and same-key reuse
+        run: cargo test --locked -p riesel_manager --features internal-observation
       - name: Internal session generation, admission and finite drain tests
         run: cargo test --locked -p riesel_protocol --features internal-publication
       - name: App-owned async ingress, cancellation, teardown and successor fencing

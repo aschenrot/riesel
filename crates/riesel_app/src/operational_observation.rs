@@ -6,6 +6,7 @@
 //! authenticated/callable application operation. It neither polls nor retains
 //! history, includes no free-form error payload, and does not run user code.
 use crate::{InstanceIdentity, ResolvedCapability};
+use riesel_manager::{OwnedAttemptEvidence, OwnedAttemptPhase, ProcessKey, ProcessRegistry};
 use riesel_protocol::SessionToken;
 use std::net::SocketAddr;
 use std::time::{Duration, Instant};
@@ -22,6 +23,9 @@ const MAX_OBSERVATION_LABEL_BYTES: usize = 128;
 pub enum ObservationSource {
     Runtime,
     ApplicationAdapter,
+    /// The existing ProcessRegistry owns the actual local Child handle.
+    /// Not an authenticated installed Manager OS attempt.
+    ProcessOwner,
 }
 
 /// How the snapshot's runtime-generation reference was obtained. An
@@ -59,6 +63,7 @@ pub enum ObservationEvidence {
     RuntimeSessionValidated,
     VersionedProviderContractAttached,
     LocalListenerBound,
+    OwnedChildHandlePolled,
     SourceDoesNotVerify,
 }
 
@@ -282,12 +287,185 @@ impl ObservationSnapshot {
     }
 }
 
+/// Independently scoped source observation of the *actual owned OS Child*.
+/// Unlike a Riesel application snapshot it has no application generation:
+/// the process owner is a different authority and the two snapshots cannot
+/// be atomically joined or promoted to a shared global identity.
+///
+/// A ProcessKey is meaningful only within this ProcessRegistry's ownership
+/// lifetime. The privately held weak lease distinguishes repeated use of the
+/// same key without introducing a production Manager registration identity.
+#[derive(Clone, Debug)]
+pub struct ProcessOwnerSnapshot {
+    key: ProcessKey,
+    observed_at: Instant,
+    fact: ObservationFact,
+    owned: Option<OwnedAttemptEvidence>,
+}
+
+impl ProcessOwnerSnapshot {
+    /// Poll once via the *existing* registry's retained Child; never create
+    /// another process owner or bypass the registry. Missing/inaccessible
+    /// evidence becomes Unknown, not "exited", "stopped", or authenticated.
+    pub fn sample(
+        registry: &mut ProcessRegistry,
+        key: &ProcessKey,
+    ) -> Result<Self, ObservationError> {
+        if let Some(name) = &key.name {
+            ObservationSnapshot::check_label(name)?;
+        }
+        let owned = registry.observe_owned_attempt(key).ok();
+        let state = if owned.is_some() {
+            ObservationState::Observed
+        } else {
+            ObservationState::Unknown
+        };
+        Ok(Self {
+            key: key.clone(),
+            observed_at: Instant::now(),
+            fact: ObservationFact {
+                source: ObservationSource::ProcessOwner,
+                subject: ObservationSubject::OsLaunchAttempt,
+                evidence: if owned.is_some() {
+                    ObservationEvidence::OwnedChildHandlePolled
+                } else {
+                    ObservationEvidence::SourceDoesNotVerify
+                },
+                state,
+            },
+            owned,
+        })
+    }
+
+    pub fn registry_key(&self) -> &ProcessKey {
+        &self.key
+    }
+
+    pub fn observed_at(&self) -> Instant {
+        self.observed_at
+    }
+
+    pub fn fact(&self) -> &ObservationFact {
+        &self.fact
+    }
+
+    /// Running/Exited are statuses of one actual OS child **at the sampled
+    /// instant**, not the health of an application, its provider, or a grant.
+    pub fn observed_phase(&self) -> Option<OwnedAttemptPhase> {
+        self.owned.as_ref().map(OwnedAttemptEvidence::phase)
+    }
+
+    pub fn same_owned_attempt_as(&self, other: &Self) -> bool {
+        match (&self.owned, &other.owned) {
+            (Some(a), Some(b)) => a.same_owned_attempt_as(b),
+            _ => false,
+        }
+    }
+
+    pub fn state_at(&self, at: Instant) -> ObservationState {
+        match &self.owned {
+            Some(observed) if observed.is_current_at(at, MAX_OBSERVATION_AGE) => {
+                ObservationState::Observed
+            }
+            Some(_) => ObservationState::Stale,
+            None => ObservationState::Unknown,
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::InstanceIdentity;
     use riesel_schema::CapabilityRef;
     use std::net::TcpListener;
+
+    #[test]
+    fn process_owner_probe_child() {
+        if std::env::var_os("RIESEL_OPERATIONAL_CHILD").is_some() {
+            std::thread::sleep(Duration::from_secs(15));
+        }
+    }
+
+    fn owned_child() -> std::process::Command {
+        let mut command = std::process::Command::new(std::env::current_exe().unwrap());
+        command
+            .args([
+                "--exact",
+                "operational_observation::tests::process_owner_probe_child",
+            ])
+            .env("RIESEL_OPERATIONAL_CHILD", "1")
+            .stdin(std::process::Stdio::null())
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null());
+        command
+    }
+
+    #[test]
+    fn process_owned_attempt_has_no_riesel_runtime_or_interface_authority() {
+        let key = ProcessKey::new(82, Some("counter-foreground".into()));
+        let mut registry = ProcessRegistry::new();
+        registry.spawn(key.clone(), &mut owned_child()).unwrap();
+        let first = ProcessOwnerSnapshot::sample(&mut registry, &key).unwrap();
+        assert_eq!(first.observed_phase(), Some(OwnedAttemptPhase::Running));
+        assert_eq!(first.fact().source, ObservationSource::ProcessOwner);
+        assert_eq!(first.fact().subject, ObservationSubject::OsLaunchAttempt);
+        assert_eq!(
+            first.fact().evidence,
+            ObservationEvidence::OwnedChildHandlePolled
+        );
+        assert_eq!(first.state_at(Instant::now()), ObservationState::Observed);
+
+        // A missing registry child is *unknown* rather than stopped.
+        let missing = ProcessOwnerSnapshot::sample(
+            &mut registry,
+            &ProcessKey::new(83, Some("unowned".into())),
+        )
+        .unwrap();
+        assert_eq!(missing.state_at(Instant::now()), ObservationState::Unknown);
+        assert_eq!(missing.observed_phase(), None);
+
+        // Riesel's runtime does not acquire process-owner authority just
+        // because this same Rust program contains both observers.
+        let session = SessionToken::new();
+        let runtime = ObservationSnapshot::runtime(session.clone(), &[], true).unwrap();
+        assert_eq!(
+            runtime.state_of(&ObservationSubject::OsLaunchAttempt, Instant::now()),
+            ObservationState::Unsupported
+        );
+        assert_eq!(
+            runtime.state_of(
+                &ObservationSubject::AuthorizedApplicationOperation,
+                Instant::now()
+            ),
+            ObservationState::Unsupported
+        );
+
+        registry.stop(&key).unwrap();
+        assert_eq!(first.state_at(Instant::now()), ObservationState::Stale);
+        let no_longer_owned = ProcessOwnerSnapshot::sample(&mut registry, &key).unwrap();
+        assert_eq!(
+            no_longer_owned.state_at(Instant::now()),
+            ObservationState::Unknown
+        );
+
+        // Reuse of a human-readable ProcessKey in the same registry is not
+        // the previous OS attempt, and cannot refresh an old observation.
+        registry.spawn(key.clone(), &mut owned_child()).unwrap();
+        let second = ProcessOwnerSnapshot::sample(&mut registry, &key).unwrap();
+        assert!(!first.same_owned_attempt_as(&second));
+        assert_eq!(second.registry_key(), &key);
+        assert_eq!(second.observed_phase(), Some(OwnedAttemptPhase::Running));
+        assert_eq!(second.state_at(Instant::now()), ObservationState::Observed);
+        assert_eq!(first.state_at(Instant::now()), ObservationState::Stale);
+        assert_eq!(
+            second.state_at(second.observed_at() + MAX_OBSERVATION_AGE + Duration::from_nanos(1)),
+            ObservationState::Stale
+        );
+        registry.stop_all().unwrap();
+        assert_eq!(second.state_at(Instant::now()), ObservationState::Stale);
+        session.invalidate();
+    }
 
     #[test]
     fn verified_binding_does_not_authorize_an_interface_or_os_attempt() {
