@@ -1220,10 +1220,7 @@ fn confirmed_effect_prefixes_survive_failed_operation_without_unblocking_depende
                             effects.confirm_prefix("world.ticks", 0),
                             Err(GraphEffectError::ZeroProgress)
                         ));
-                        assert!(matches!(
-                            effects.confirm_prefix("world.ticks", 2),
-                            Ok(())
-                        ));
+                        assert!(matches!(effects.confirm_prefix("world.ticks", 2), Ok(())));
                         assert!(matches!(
                             effects.confirm_prefix("world.ticks", 1),
                             Err(GraphEffectError::RegressingPrefix {
@@ -1256,24 +1253,38 @@ fn confirmed_effect_prefixes_survive_failed_operation_without_unblocking_depende
         let observer = runner.observer();
         let report = runner.execute().await;
         assert!(!report.succeeded());
-        assert!(matches!(report.operations["partial"], OperationState::Failed(_)));
+        assert!(matches!(
+            report.operations["partial"],
+            OperationState::Failed(_)
+        ));
         assert_eq!(report.operations["dependent"], OperationState::Blocked);
         assert_eq!(report.confirmed_prefixes["partial"]["world.ticks"], 2);
         let snapshot = observer.snapshot();
-        assert_eq!(snapshot.operations["partial"].confirmed_prefixes["world.ticks"], 2);
-        assert!(snapshot.operations["dependent"].confirmed_prefixes.is_empty());
+        assert_eq!(
+            snapshot.operations["partial"].confirmed_prefixes["world.ticks"],
+            2
+        );
+        assert!(
+            snapshot.operations["dependent"]
+                .confirmed_prefixes
+                .is_empty()
+        );
         let updates = observer.changes_since(0).unwrap();
         assert!(!updates.truncated);
         assert_eq!(
-            updates.events.iter().filter(|event| matches!(
-                &event.change,
-                GraphRunChange::ConfirmedPrefix {
-                    operation_id,
-                    attempt: 1,
-                    stream,
-                    ..
-                } if operation_id == "partial" && stream == "world.ticks"
-            )).count(),
+            updates
+                .events
+                .iter()
+                .filter(|event| matches!(
+                    &event.change,
+                    GraphRunChange::ConfirmedPrefix {
+                        operation_id,
+                        attempt: 1,
+                        stream,
+                        ..
+                    } if operation_id == "partial" && stream == "world.ticks"
+                ))
+                .count(),
             2,
             "equal duplicate reports must not advance a confirmed prefix"
         );
@@ -1329,7 +1340,9 @@ fn abandoned_attempt_preserves_confirmed_prefix_but_not_unacknowledged_effects()
         tokio::time::timeout(Duration::from_secs(3), async {
             loop {
                 if observer.snapshot().operations["pending"]
-                    .confirmed_prefixes.get("world.ticks") == Some(&1)
+                    .confirmed_prefixes
+                    .get("world.ticks")
+                    == Some(&1)
                 {
                     break;
                 }
@@ -1342,8 +1355,14 @@ fn abandoned_attempt_preserves_confirmed_prefix_but_not_unacknowledged_effects()
         let _ = handle.await;
         let state = observer.snapshot();
         assert_eq!(state.phase, GraphRunPhase::Abandoned);
-        assert_eq!(state.operations["pending"].state, OperationState::OutcomeUnknown);
-        assert_eq!(state.operations["pending"].confirmed_prefixes["world.ticks"], 1);
+        assert_eq!(
+            state.operations["pending"].state,
+            OperationState::OutcomeUnknown
+        );
+        assert_eq!(
+            state.operations["pending"].confirmed_prefixes["world.ticks"],
+            1
+        );
         assert_eq!(state.operations["dependent"].state, OperationState::Blocked);
         let old = retained.lock().unwrap().take().unwrap();
         assert!(matches!(
@@ -1370,7 +1389,9 @@ fn effect_stream_limits_and_invalid_names_fail_without_ledger_mutation() {
                         Err(GraphEffectError::InvalidStream)
                     ));
                     for stream in 0..MAX_GRAPH_EFFECT_STREAMS {
-                        effects.confirm_prefix(&format!("stream.{stream}"), 1).unwrap();
+                        effects
+                            .confirm_prefix(&format!("stream.{stream}"), 1)
+                            .unwrap();
                     }
                     assert!(matches!(
                         effects.confirm_prefix("stream.extra", 1),
@@ -1397,10 +1418,15 @@ fn effect_stream_limits_and_invalid_names_fail_without_ledger_mutation() {
         let observer = runner.observer();
         let report = runner.execute().await;
         assert_eq!(report.operations["bounded"], OperationState::OutcomeUnknown);
-        assert_eq!(report.confirmed_prefixes["bounded"].len(), MAX_GRAPH_EFFECT_STREAMS);
+        assert_eq!(
+            report.confirmed_prefixes["bounded"].len(),
+            MAX_GRAPH_EFFECT_STREAMS
+        );
         assert_eq!(report.confirmed_prefixes["bounded"]["stream.0"], 2);
-        assert_eq!(observer.snapshot().operations["bounded"].confirmed_prefixes,
-            report.confirmed_prefixes["bounded"]);
+        assert_eq!(
+            observer.snapshot().operations["bounded"].confirmed_prefixes,
+            report.confirmed_prefixes["bounded"]
+        );
     });
 }
 
@@ -1420,9 +1446,7 @@ fn overflowed_effect_transitions_reconcile_from_authoritative_snapshot() {
             .unwrap();
         let mut draft = ExecutionPlanDraft::new("effects.overflow", 1);
         for index in 0..50 {
-            draft = draft.operation(
-                OperationNode::new(format!("op-{index}"), key("confirmed"))
-            );
+            draft = draft.operation(OperationNode::new(format!("op-{index}"), key("confirmed")));
         }
         let owner = application_session();
         let runner = owner
