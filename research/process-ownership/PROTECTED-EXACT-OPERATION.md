@@ -1,6 +1,6 @@
 # M-S2 research: protected exact-operation test authority
 
-**Status:** research experiment, not a production Manager or an accepted authorization mechanism. **Primary:** [#59](https://github.com/aschenrot/riesel/issues/59); **coordination:** [#75](https://github.com/aschenrot/riesel/issues/75). **Test plan:** [draft PR #86 section 6](https://github.com/aschenrot/riesel/pull/86).
+**Status:** bounded Linux research subgate **verified** at source commit da1ad39e890bcd8995e5498dbb310f831cfece4a: dedicated [real app/security CI 44965741723](https://github.com/aschenrot/riesel/actions/runs/44965741723) and separate [Linux Validate/smoke 44965741757](https://github.com/aschenrot/riesel/actions/runs/44965741757) both passed. This is **not** a production Manager or accepted operator authorization mechanism. **Primary:** [#59](https://github.com/aschenrot/riesel/issues/59); **coordination:** [#75](https://github.com/aschenrot/riesel/issues/75). **Test plan:** [draft PR #86 section 6](https://github.com/aschenrot/riesel/pull/86).
 
 ## Question
 
@@ -17,7 +17,9 @@ Can an OS-protected *test* authority admit one exactly bound privileged operatio
 - A root-only **test controller** approves exactly one identified proposal, including its operation fields. The broker rechecks the active OS attempt, consumes the approval once, invokes the real system-service stop, and observes OS termination. Any other proposal remains pending.
 - All fixtures are temporary and name restricted; there is no installed Manager, privileged product API, permanent service or user database mutation.
 
-## Expected tests (not pass claims)
+## Executed Linux verification and observed limits
+
+The verified CI emitted the real-process and authorization markers for distinct DynamicUser ownership; two separate UID-60090 proposals; inability to approve through the public or protected channel; direct OS bypass denial; incorrect privileged attempt rejection; exact root-approved stop of the actual Counter; refusal of replay and noninheritance by the other UID-60090 request. The test asserted a real UID-60090 SIGTERM denial and no available sudo capability. The source SHA and CI run references above are the execution evidence, **not** proof of human UI trust.
 
 | Research case | Required result |
 | --- | --- |
@@ -30,7 +32,7 @@ Can an OS-protected *test* authority admit one exactly bound privileged operatio
 | Replay/other proposal | Consumed approval cannot run again; other same-UID proposal remains pending |
 | Cleanup | Transient systemd unit stopped/reset; unique binary and broker directory removed |
 
-Expected success markers are in the Python script. Exact-head dedicated Ubuntu research CI **and** normal repository Linux Validate/smoke are mandatory before reporting a passed experiment. The test script rejects non-systemd hosts and foreign unit/install paths.
+The Python script contains the required success markers, and both independent checks passed on the exact tested source revision. Later report-only changes still require their own final-head checks before integration. The test script rejects non-systemd hosts and foreign unit/install paths.
 
 ## What this does NOT prove
 
