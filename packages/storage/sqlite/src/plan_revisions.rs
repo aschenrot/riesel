@@ -5,12 +5,17 @@
 //! atomic compare-and-set; the graph runner has no SQLite dependency.
 
 use riesel_app::{
-    MAX_STORED_PLAN_BYTES, CheckedSourceHandoff, PlanAuthoringHead, PlanAuthoringSource,
+    CheckedSourceHandoff, MAX_STORED_PLAN_BYTES, PlanAuthoringHead, PlanAuthoringSource,
     PlanLayoutDraft, PlanRevisionError, PlanRevisionRepository, PlanSemanticCandidate,
     StoredPlanLayout, StoredSemanticPlan, check_layout_nodes,
 };
-use rusqlite::{Connection, OpenFlags, OptionalExtension, Transaction, TransactionBehavior, params};
-use std::{path::{Path, PathBuf}, time::Duration};
+use rusqlite::{
+    Connection, OpenFlags, OptionalExtension, Transaction, TransactionBehavior, params,
+};
+use std::{
+    path::{Path, PathBuf},
+    time::Duration,
+};
 
 const FORMAT: i64 = 1;
 
@@ -65,15 +70,19 @@ fn storage(error: impl std::fmt::Display) -> PlanRevisionError {
 fn valid_registration(stamp: &str) -> bool {
     !stamp.is_empty()
         && stamp.len() <= 256
-        && !stamp.chars().any(|ch| ch.is_whitespace() || ch.is_control())
+        && !stamp
+            .chars()
+            .any(|ch| ch.is_whitespace() || ch.is_control())
 }
 
 fn revision_to_db(value: u64) -> Result<i64, PlanRevisionError> {
-    i64::try_from(value).map_err(|_| PlanRevisionError::Invalid("revision exceeds SQLite range".into()))
+    i64::try_from(value)
+        .map_err(|_| PlanRevisionError::Invalid("revision exceeds SQLite range".into()))
 }
 
 fn revision_from_db(value: i64) -> Result<u64, PlanRevisionError> {
-    u64::try_from(value).map_err(|_| PlanRevisionError::Storage("negative persisted revision".into()))
+    u64::try_from(value)
+        .map_err(|_| PlanRevisionError::Storage("negative persisted revision".into()))
 }
 
 fn source_name(value: PlanAuthoringSource) -> &'static str {
@@ -87,15 +96,22 @@ fn source_from_name(value: &str) -> Result<PlanAuthoringSource, PlanRevisionErro
     match value {
         "rust" => Ok(PlanAuthoringSource::Rust),
         "document" => Ok(PlanAuthoringSource::Document),
-        _ => Err(PlanRevisionError::Storage("unsupported persisted authoring source".into())),
+        _ => Err(PlanRevisionError::Storage(
+            "unsupported persisted authoring source".into(),
+        )),
     }
 }
 
-fn check_source(candidate: &PlanSemanticCandidate, source: PlanAuthoringSource) -> Result<(), PlanRevisionError> {
+fn check_source(
+    candidate: &PlanSemanticCandidate,
+    source: PlanAuthoringSource,
+) -> Result<(), PlanRevisionError> {
     if candidate.is_document_owned_candidate() == (source == PlanAuthoringSource::Document) {
         Ok(())
     } else {
-        Err(PlanRevisionError::Invalid("candidate source is incompatible with authoring owner".into()))
+        Err(PlanRevisionError::Invalid(
+            "candidate source is incompatible with authoring owner".into(),
+        ))
     }
 }
 
@@ -148,20 +164,36 @@ impl SqlitePlanRevisionRepository {
         let mut connection = Connection::open_with_flags(
             path,
             OpenFlags::SQLITE_OPEN_READ_WRITE | OpenFlags::SQLITE_OPEN_CREATE,
-        ).map_err(storage)?;
-        connection.busy_timeout(Duration::from_secs(5)).map_err(storage)?;
-        connection.pragma_update(None, "foreign_keys", "ON").map_err(storage)?;
-        connection.pragma_update(None, "journal_mode", "WAL").map_err(storage)?;
-        connection.pragma_update(None, "synchronous", "FULL").map_err(storage)?;
-        let journal: String = connection.pragma_query_value(None, "journal_mode", |row| row.get(0))
+        )
+        .map_err(storage)?;
+        connection
+            .busy_timeout(Duration::from_secs(5))
             .map_err(storage)?;
-        let synchronous: i64 = connection.pragma_query_value(None, "synchronous", |row| row.get(0))
+        connection
+            .pragma_update(None, "foreign_keys", "ON")
+            .map_err(storage)?;
+        connection
+            .pragma_update(None, "journal_mode", "WAL")
+            .map_err(storage)?;
+        connection
+            .pragma_update(None, "synchronous", "FULL")
+            .map_err(storage)?;
+        let journal: String = connection
+            .pragma_query_value(None, "journal_mode", |row| row.get(0))
+            .map_err(storage)?;
+        let synchronous: i64 = connection
+            .pragma_query_value(None, "synchronous", |row| row.get(0))
             .map_err(storage)?;
         if !journal.eq_ignore_ascii_case("wal") || synchronous != 2 {
-            return Err(PlanRevisionError::Storage("SQLite WAL/FULL not active".into()));
+            return Err(PlanRevisionError::Storage(
+                "SQLite WAL/FULL not active".into(),
+            ));
         }
-        let tx = connection.transaction_with_behavior(TransactionBehavior::Immediate).map_err(storage)?;
-        let version: i64 = tx.pragma_query_value(None, "user_version", |row| row.get(0))
+        let tx = connection
+            .transaction_with_behavior(TransactionBehavior::Immediate)
+            .map_err(storage)?;
+        let version: i64 = tx
+            .pragma_query_value(None, "user_version", |row| row.get(0))
             .map_err(storage)?;
         match version {
             0 => {
@@ -174,42 +206,68 @@ impl SqlitePlanRevisionRepository {
                     return Err(PlanRevisionError::UnsupportedFormat(0));
                 }
                 tx.execute_batch(SCHEMA).map_err(storage)?;
-                tx.pragma_update(None, "user_version", FORMAT).map_err(storage)?;
+                tx.pragma_update(None, "user_version", FORMAT)
+                    .map_err(storage)?;
             }
             FORMAT => {
                 // Existing format is verified by requiring the declared tables.
                 // No silent destructive automatic upgrade of unknown versions.
-                for name in ["plan_heads","semantic_revisions","layout_heads","layout_revisions","source_handoffs"] {
-                    let exists: i64 = tx.query_row(
-                        "SELECT count(*) FROM sqlite_schema WHERE type='table' AND name=?1",
-                        params![name],
-                        |row|row.get(0),
-                    ).map_err(storage)?;
+                for name in [
+                    "plan_heads",
+                    "semantic_revisions",
+                    "layout_heads",
+                    "layout_revisions",
+                    "source_handoffs",
+                ] {
+                    let exists: i64 = tx
+                        .query_row(
+                            "SELECT count(*) FROM sqlite_schema WHERE type='table' AND name=?1",
+                            params![name],
+                            |row| row.get(0),
+                        )
+                        .map_err(storage)?;
                     if exists != 1 {
-                        return Err(PlanRevisionError::Storage("incomplete V2 database schema".into()));
+                        return Err(PlanRevisionError::Storage(
+                            "incomplete V2 database schema".into(),
+                        ));
                     }
                 }
             }
             other => return Err(PlanRevisionError::UnsupportedFormat(other)),
         }
         tx.commit().map_err(storage)?;
-        Ok(Self {path:path.to_path_buf(),trusted_registration_stamp})
+        Ok(Self {
+            path: path.to_path_buf(),
+            trusted_registration_stamp,
+        })
     }
 
     fn connection(&self) -> Result<Connection, PlanRevisionError> {
         let connection = Connection::open_with_flags(&self.path, OpenFlags::SQLITE_OPEN_READ_WRITE)
             .map_err(storage)?;
-        connection.busy_timeout(Duration::from_secs(5)).map_err(storage)?;
-        connection.pragma_update(None, "foreign_keys", "ON").map_err(storage)?;
-        connection.pragma_update(None, "synchronous", "FULL").map_err(storage)?;
-        let version: i64 = connection.pragma_query_value(None, "user_version", |row| row.get(0)).map_err(storage)?;
+        connection
+            .busy_timeout(Duration::from_secs(5))
+            .map_err(storage)?;
+        connection
+            .pragma_update(None, "foreign_keys", "ON")
+            .map_err(storage)?;
+        connection
+            .pragma_update(None, "synchronous", "FULL")
+            .map_err(storage)?;
+        let version: i64 = connection
+            .pragma_query_value(None, "user_version", |row| row.get(0))
+            .map_err(storage)?;
         if version != FORMAT {
             return Err(PlanRevisionError::UnsupportedFormat(version));
         }
         Ok(connection)
     }
 
-    fn require_local_owner(&self, persisted: &PlanAuthoringHead, expected: &PlanAuthoringHead) -> Result<(), PlanRevisionError> {
+    fn require_local_owner(
+        &self,
+        persisted: &PlanAuthoringHead,
+        expected: &PlanAuthoringHead,
+    ) -> Result<(), PlanRevisionError> {
         if persisted.source_generation != expected.source_generation
             || persisted.source != expected.source
             || persisted.registration_stamp != expected.registration_stamp
@@ -245,11 +303,14 @@ impl SqlitePlanRevisionRepository {
         source_generation: u64,
     ) -> Result<Option<Vec<u8>>, PlanRevisionError> {
         let connection = self.connection()?;
-        let stored: Option<Option<Vec<u8>>> = connection.query_row(
-            "SELECT source_document FROM source_handoffs WHERE plan_id=?1 AND generation=?2",
-            params![plan_id,revision_to_db(source_generation)?],
-            |row|row.get(0),
-        ).optional().map_err(storage)?;
+        let stored: Option<Option<Vec<u8>>> = connection
+            .query_row(
+                "SELECT source_document FROM source_handoffs WHERE plan_id=?1 AND generation=?2",
+                params![plan_id, revision_to_db(source_generation)?],
+                |row| row.get(0),
+            )
+            .optional()
+            .map_err(storage)?;
         stored.ok_or(PlanRevisionError::NotFound)
     }
 }
@@ -261,18 +322,27 @@ impl PlanRevisionRepository for SqlitePlanRevisionRepository {
         source: PlanAuthoringSource,
         registration_stamp: &str,
     ) -> Result<PlanAuthoringHead, PlanRevisionError> {
-        check_source(candidate,source)?;
-        if registration_stamp != self.trusted_registration_stamp || !valid_registration(registration_stamp) {
+        check_source(candidate, source)?;
+        if registration_stamp != self.trusted_registration_stamp
+            || !valid_registration(registration_stamp)
+        {
             return Err(PlanRevisionError::Conflict);
         }
         let snapshot = candidate.snapshot();
         let mut connection = self.connection()?;
-        let tx = connection.transaction_with_behavior(TransactionBehavior::Immediate).map_err(storage)?;
-        if tx.query_row(
-            "SELECT 1 FROM plan_heads WHERE plan_id=?1",
-            params![snapshot.plan_id],
-            |row|row.get::<_,i64>(0),
-        ).optional().map_err(storage)?.is_some() {
+        let tx = connection
+            .transaction_with_behavior(TransactionBehavior::Immediate)
+            .map_err(storage)?;
+        if tx
+            .query_row(
+                "SELECT 1 FROM plan_heads WHERE plan_id=?1",
+                params![snapshot.plan_id],
+                |row| row.get::<_, i64>(0),
+            )
+            .optional()
+            .map_err(storage)?
+            .is_some()
+        {
             return Err(PlanRevisionError::Conflict);
         }
         tx.execute(
@@ -280,7 +350,7 @@ impl PlanRevisionRepository for SqlitePlanRevisionRepository {
              VALUES(?1,?2,?3,1,?4)",
             params![snapshot.plan_id,revision_to_db(snapshot.revision)?,source_name(source),registration_stamp],
         ).map_err(storage)?;
-        Self::insert_semantic(&tx,candidate)?;
+        Self::insert_semantic(&tx, candidate)?;
         tx.execute(
             "INSERT INTO source_handoffs(plan_id,generation,source_kind,semantic_anchor,source_document)
              VALUES(?1,1,?2,?3,?4)",
@@ -292,25 +362,34 @@ impl PlanRevisionRepository for SqlitePlanRevisionRepository {
 
     fn head(&self, plan_id: &str) -> Result<PlanAuthoringHead, PlanRevisionError> {
         let connection = self.connection()?;
-        read_head(&connection,plan_id)
+        read_head(&connection, plan_id)
     }
 
-    fn semantic(&self, plan_id: &str, revision: u64) -> Result<StoredSemanticPlan, PlanRevisionError> {
+    fn semantic(
+        &self,
+        plan_id: &str,
+        revision: u64,
+    ) -> Result<StoredSemanticPlan, PlanRevisionError> {
         let connection = self.connection()?;
         let stored: Option<(Vec<u8>,Vec<u8>)> = connection.query_row(
             "SELECT inspection,node_ids FROM semantic_revisions WHERE plan_id=?1 AND revision=?2",
             params![plan_id,revision_to_db(revision)?],
             |row|Ok((row.get(0)?,row.get(1)?)),
         ).optional().map_err(storage)?;
-        let Some((inspection,nodes)) = stored else {
+        let Some((inspection, nodes)) = stored else {
             return Err(PlanRevisionError::NotFound);
         };
         if inspection.len() > MAX_STORED_PLAN_BYTES {
-            return Err(PlanRevisionError::Storage("oversized persisted plan".into()));
+            return Err(PlanRevisionError::Storage(
+                "oversized persisted plan".into(),
+            ));
         }
         let node_ids: Vec<String> = serde_json::from_slice(&nodes).map_err(storage)?;
         Ok(StoredSemanticPlan {
-            plan_id:plan_id.to_owned(),revision,inspection,node_ids,
+            plan_id: plan_id.to_owned(),
+            revision,
+            inspection,
+            node_ids,
         })
     }
 
@@ -320,17 +399,22 @@ impl PlanRevisionRepository for SqlitePlanRevisionRepository {
         next: &PlanSemanticCandidate,
     ) -> Result<PlanAuthoringHead, PlanRevisionError> {
         if next.snapshot().plan_id != expected.plan_id
-            || next.snapshot().revision != expected.semantic_revision.checked_add(1).ok_or_else(|| {
-                PlanRevisionError::Invalid("semantic revision exhausted".into())
-            })?
+            || next.snapshot().revision
+                != expected.semantic_revision.checked_add(1).ok_or_else(|| {
+                    PlanRevisionError::Invalid("semantic revision exhausted".into())
+                })?
         {
-            return Err(PlanRevisionError::Invalid("new semantic revision must advance exactly once".into()));
+            return Err(PlanRevisionError::Invalid(
+                "new semantic revision must advance exactly once".into(),
+            ));
         }
-        check_source(next,expected.source)?;
+        check_source(next, expected.source)?;
         let mut connection = self.connection()?;
-        let tx = connection.transaction_with_behavior(TransactionBehavior::Immediate).map_err(storage)?;
-        let current = read_head(&tx,&expected.plan_id)?;
-        self.require_local_owner(&current,expected)?;
+        let tx = connection
+            .transaction_with_behavior(TransactionBehavior::Immediate)
+            .map_err(storage)?;
+        let current = read_head(&tx, &expected.plan_id)?;
+        self.require_local_owner(&current, expected)?;
         if current.semantic_revision != expected.semantic_revision {
             return Err(PlanRevisionError::Conflict);
         }
@@ -347,7 +431,7 @@ impl PlanRevisionRepository for SqlitePlanRevisionRepository {
         if changed != 1 {
             return Err(PlanRevisionError::Conflict);
         }
-        Self::insert_semantic(&tx,next)?;
+        Self::insert_semantic(&tx, next)?;
         tx.commit().map_err(storage)?;
         self.head(&expected.plan_id)
     }
@@ -359,19 +443,24 @@ impl PlanRevisionRepository for SqlitePlanRevisionRepository {
         draft: &PlanLayoutDraft,
     ) -> Result<StoredPlanLayout, PlanRevisionError> {
         let mut connection = self.connection()?;
-        let tx = connection.transaction_with_behavior(TransactionBehavior::Immediate).map_err(storage)?;
-        let current = read_head(&tx,&expected.plan_id)?;
-        self.require_local_owner(&current,expected)?;
-        let nodes_bytes: Option<Vec<u8>> = tx.query_row(
-            "SELECT node_ids FROM semantic_revisions WHERE plan_id=?1 AND revision=?2",
-            params![expected.plan_id,revision_to_db(draft.semantic_anchor)?],
-            |row|row.get(0),
-        ).optional().map_err(storage)?;
+        let tx = connection
+            .transaction_with_behavior(TransactionBehavior::Immediate)
+            .map_err(storage)?;
+        let current = read_head(&tx, &expected.plan_id)?;
+        self.require_local_owner(&current, expected)?;
+        let nodes_bytes: Option<Vec<u8>> = tx
+            .query_row(
+                "SELECT node_ids FROM semantic_revisions WHERE plan_id=?1 AND revision=?2",
+                params![expected.plan_id, revision_to_db(draft.semantic_anchor)?],
+                |row| row.get(0),
+            )
+            .optional()
+            .map_err(storage)?;
         let Some(nodes_bytes) = nodes_bytes else {
             return Err(PlanRevisionError::NotFound);
         };
         let nodes: Vec<String> = serde_json::from_slice(&nodes_bytes).map_err(storage)?;
-        check_layout_nodes(draft,&nodes)?;
+        check_layout_nodes(draft, &nodes)?;
         let next_version = match expected_version {
             None => {
                 let changed = tx.execute(
@@ -384,32 +473,45 @@ impl PlanRevisionRepository for SqlitePlanRevisionRepository {
                 1
             }
             Some(previous) => {
-                let next = previous.checked_add(1).ok_or_else(|| PlanRevisionError::Invalid(
-                    "layout revision exhausted".into()
-                ))?;
-                let changed = tx.execute(
-                    "UPDATE layout_heads SET revision=?1
+                let next = previous.checked_add(1).ok_or_else(|| {
+                    PlanRevisionError::Invalid("layout revision exhausted".into())
+                })?;
+                let changed = tx
+                    .execute(
+                        "UPDATE layout_heads SET revision=?1
                      WHERE plan_id=?2 AND layout_id=?3 AND revision=?4",
-                    params![revision_to_db(next)?,expected.plan_id,draft.layout_id,revision_to_db(previous)?],
-                ).map_err(storage)?;
+                        params![
+                            revision_to_db(next)?,
+                            expected.plan_id,
+                            draft.layout_id,
+                            revision_to_db(previous)?
+                        ],
+                    )
+                    .map_err(storage)?;
                 if changed != 1 {
                     return Err(PlanRevisionError::Conflict);
                 }
                 next
             }
         };
-        let bytes=serde_json::to_vec(draft).map_err(storage)?;
+        let bytes = serde_json::to_vec(draft).map_err(storage)?;
         tx.execute(
             "INSERT INTO layout_revisions(plan_id,layout_id,revision,semantic_anchor,layout_json)
              VALUES(?1,?2,?3,?4,?5)",
             params![
-                expected.plan_id,draft.layout_id,revision_to_db(next_version)?,
-                revision_to_db(draft.semantic_anchor)?,bytes,
+                expected.plan_id,
+                draft.layout_id,
+                revision_to_db(next_version)?,
+                revision_to_db(draft.semantic_anchor)?,
+                bytes,
             ],
-        ).map_err(storage)?;
+        )
+        .map_err(storage)?;
         tx.commit().map_err(storage)?;
         Ok(StoredPlanLayout {
-            plan_id:expected.plan_id.clone(),version:next_version,layout:draft.clone()
+            plan_id: expected.plan_id.clone(),
+            version: next_version,
+            layout: draft.clone(),
         })
     }
 
@@ -419,18 +521,24 @@ impl PlanRevisionRepository for SqlitePlanRevisionRepository {
         layout_id: &str,
         version: u64,
     ) -> Result<StoredPlanLayout, PlanRevisionError> {
-        let connection=self.connection()?;
+        let connection = self.connection()?;
         let bytes: Option<Vec<u8>> = connection.query_row(
             "SELECT layout_json FROM layout_revisions WHERE plan_id=?1 AND layout_id=?2 AND revision=?3",
             params![plan_id,layout_id,revision_to_db(version)?],
             |row|row.get(0),
         ).optional().map_err(storage)?;
-        let bytes=bytes.ok_or(PlanRevisionError::NotFound)?;
+        let bytes = bytes.ok_or(PlanRevisionError::NotFound)?;
         let layout: PlanLayoutDraft = serde_json::from_slice(&bytes).map_err(storage)?;
         if layout.layout_id != layout_id {
-            return Err(PlanRevisionError::Storage("corrupted layout identity".into()));
+            return Err(PlanRevisionError::Storage(
+                "corrupted layout identity".into(),
+            ));
         }
-        Ok(StoredPlanLayout {plan_id:plan_id.to_owned(),version,layout})
+        Ok(StoredPlanLayout {
+            plan_id: plan_id.to_owned(),
+            version,
+            layout,
+        })
     }
 
     fn handoff(
@@ -438,29 +546,40 @@ impl PlanRevisionRepository for SqlitePlanRevisionRepository {
         expected: &PlanAuthoringHead,
         proof: &CheckedSourceHandoff,
     ) -> Result<PlanAuthoringHead, PlanRevisionError> {
-        if expected.plan_id != proof.plan_id() || expected.semantic_revision != proof.revision()
+        if expected.plan_id != proof.plan_id()
+            || expected.semantic_revision != proof.revision()
             || expected.source == proof.target()
         {
-            return Err(PlanRevisionError::Invalid("source transfer does not match current plan and target".into()));
+            return Err(PlanRevisionError::Invalid(
+                "source transfer does not match current plan and target".into(),
+            ));
         }
-        let mut connection=self.connection()?;
-        let tx=connection.transaction_with_behavior(TransactionBehavior::Immediate).map_err(storage)?;
-        let current=read_head(&tx,&expected.plan_id)?;
-        self.require_local_owner(&current,expected)?;
+        let mut connection = self.connection()?;
+        let tx = connection
+            .transaction_with_behavior(TransactionBehavior::Immediate)
+            .map_err(storage)?;
+        let current = read_head(&tx, &expected.plan_id)?;
+        self.require_local_owner(&current, expected)?;
         if current.semantic_revision != expected.semantic_revision {
             return Err(PlanRevisionError::Conflict);
         }
-        let projection: Vec<u8> = tx.query_row(
-            "SELECT inspection FROM semantic_revisions WHERE plan_id=?1 AND revision=?2",
-            params![expected.plan_id,revision_to_db(expected.semantic_revision)?],
-            |row|row.get(0),
-        ).map_err(storage)?;
+        let projection: Vec<u8> = tx
+            .query_row(
+                "SELECT inspection FROM semantic_revisions WHERE plan_id=?1 AND revision=?2",
+                params![
+                    expected.plan_id,
+                    revision_to_db(expected.semantic_revision)?
+                ],
+                |row| row.get(0),
+            )
+            .map_err(storage)?;
         if projection != proof.inspection() {
             return Err(PlanRevisionError::Conflict);
         }
-        let next_generation = current.source_generation.checked_add(1).ok_or_else(|| {
-            PlanRevisionError::Invalid("source generation exhausted".into())
-        })?;
+        let next_generation = current
+            .source_generation
+            .checked_add(1)
+            .ok_or_else(|| PlanRevisionError::Invalid("source generation exhausted".into()))?;
         let changed=tx.execute(
             "UPDATE plan_heads SET source_kind=?1,source_generation=?2 WHERE plan_id=?3
              AND semantic_revision=?4 AND source_kind=?5 AND source_generation=?6 AND registration_stamp=?7",
