@@ -210,14 +210,18 @@ fn cycles_and_missing_dependencies_fail_in_the_actual_plan_validator() {
 #[test]
 fn configurable_input_and_graph_size_budgets_reject_before_binding() {
     let handlers = registry(Arc::new(AtomicUsize::new(0)));
-    let mut limits = S2DocumentLimits::default();
-    limits.max_bytes = 10;
+    let mut limits = S2DocumentLimits {
+        max_bytes: 10,
+        ..S2DocumentLimits::default()
+    };
     assert!(matches!(
         inspect_s2_source(&source(), limits),
         Err(S2DocumentError::LimitExceeded(_))
     ));
-    limits = S2DocumentLimits::default();
-    limits.max_nodes = 1;
+    limits = S2DocumentLimits {
+        max_nodes: 1,
+        ..S2DocumentLimits::default()
+    };
     assert!(matches!(
         bind_s2_document(&fixture(), &handlers, limits),
         Err(S2DocumentError::LimitExceeded(_))
@@ -228,8 +232,10 @@ fn configurable_input_and_graph_size_budgets_reject_before_binding() {
         bind_s2_document(&fixture(), &handlers, limits),
         Err(S2DocumentError::LimitExceeded(_))
     ));
-    limits = S2DocumentLimits::default();
-    limits.max_resource_entries = 0;
+    limits = S2DocumentLimits {
+        max_resource_entries: 0,
+        ..S2DocumentLimits::default()
+    };
     assert!(matches!(
         bind_s2_document(&fixture(), &handlers, limits),
         Err(S2DocumentError::LimitExceeded(_))
