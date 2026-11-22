@@ -299,6 +299,9 @@ fn actual_domain_owner_publication_cancellation_and_read_only_discovery() {
             .nested::<StageSnapshot>("frame", 1)
             .unwrap()
             .unwrap();
+        let header = setup.observer.nested_header("frame").unwrap();
+        assert_eq!(header.snapshot().status, NestedStatus::Unpublished);
+        assert_eq!(header.snapshot().latest.sequence, 0);
         let initial = view.snapshot();
         assert_eq!(initial.status, NestedStatus::Unpublished);
         assert!(initial.payload.is_none(), "no invented initial owner state");
@@ -334,6 +337,8 @@ fn actual_domain_owner_publication_cancellation_and_read_only_discovery() {
             }
         );
         assert_eq!(first.sequence, 1);
+        assert_eq!(header.snapshot().latest.sequence, 1);
+        assert_eq!(header.snapshot().status, NestedStatus::Current);
         assert_eq!(
             setup.observer.snapshot().operations["frame"].state,
             OperationState::Running
@@ -354,6 +359,7 @@ fn actual_domain_owner_publication_cancellation_and_read_only_discovery() {
             }
         );
         assert_eq!(view.snapshot().status, NestedStatus::OwnerClosed);
+        assert_eq!(header.snapshot().status, NestedStatus::OwnerClosed);
         let attached_again = setup
             .observer
             .nested::<StageSnapshot>("frame", 1)
@@ -434,6 +440,8 @@ fn bounded_snapshot_cursor_overflow_and_owner_generation_fencing() {
             owner_generation: id,
             sequence: 0,
         };
+        let generic = setup.observer.nested_header("frame").unwrap();
+        assert_eq!(generic.snapshot().status, NestedStatus::Unpublished);
         assert!(matches!(
             view.changes_since(NestedCursor {
                 owner_generation: id,
@@ -456,6 +464,9 @@ fn bounded_snapshot_cursor_overflow_and_owner_generation_fencing() {
         assert_eq!(report.confirmed_prefixes["frame"]["owner.stages"], steps);
         let changes = view.changes_since(cursor).unwrap();
         assert!(changes.truncated);
+        let generic_changes = generic.changes_since(cursor).unwrap();
+        assert_eq!(generic_changes, changes);
+        assert_eq!(generic.snapshot().latest.sequence, steps);
         assert_eq!(changes.sequences.len(), MAX_NESTED_TRANSITIONS);
         assert_eq!(changes.latest.sequence, steps);
         assert_eq!(view.snapshot().sequence, steps);
@@ -527,6 +538,8 @@ fn replacing_owner_generation_retires_old_readers_and_publishers() {
         assert_ne!(first.generation(), second.generation());
         let (attached_tx, attached_rx) = oneshot::channel::<NestedPublisher<i32>>();
         let attached_tx = Arc::new(Mutex::new(Some(attached_tx)));
+        let (replacement_tx, replacement_rx) = oneshot::channel::<NestedPublisher<i32>>();
+        let replacement_tx = Arc::new(Mutex::new(Some(replacement_tx)));
         let (continue_tx, continue_rx) = oneshot::channel::<()>();
         let continue_rx = Arc::new(Mutex::new(Some(continue_rx)));
         let reporter = Arc::new(Mutex::new(None::<GraphEffectRecorder>));
@@ -539,6 +552,7 @@ fn replacing_owner_generation_retires_old_readers_and_publishers() {
                     let second = second.registration();
                     let wrong = wrong.registration();
                     let attached_tx = Arc::clone(&attached_tx);
+                    let replacement_tx = Arc::clone(&replacement_tx);
                     let continue_rx = Arc::clone(&continue_rx);
                     let reporter = Arc::clone(&reporter);
                     move |effects| {
@@ -546,6 +560,7 @@ fn replacing_owner_generation_retires_old_readers_and_publishers() {
                         let second = second.clone();
                         let wrong = wrong.clone();
                         let attached_tx = attached_tx.lock().unwrap().take().unwrap();
+                        let replacement_tx = replacement_tx.lock().unwrap().take().unwrap();
                         let continue_rx = continue_rx.lock().unwrap().take().unwrap();
                         *reporter.lock().unwrap() = Some(effects.clone());
                         async move {
@@ -569,6 +584,7 @@ fn replacing_owner_generation_retires_old_readers_and_publishers() {
                             continue_rx.await.unwrap();
                             let replacement = effects.attach_nested::<i32>(&second, 2).unwrap();
                             replacement.publish(42).unwrap();
+                            assert!(replacement_tx.send(replacement).is_ok());
                             OperationOutcome::Completed
                         }
                     }
@@ -625,7 +641,9 @@ fn replacing_owner_generation_retires_old_readers_and_publishers() {
             Err(NestedObservationError::UnsupportedVersion { .. })
         ));
         let new = observer.nested::<i32>("frame", 2).unwrap().unwrap();
+        let replacement_writer = tokio::time::timeout(WAIT, replacement_rx).await.unwrap().unwrap();
         assert_eq!(new.snapshot().status, NestedStatus::Current);
+        assert_eq!(observer.nested_header("frame").unwrap().snapshot().latest.sequence, 1);
         assert_eq!(*new.snapshot().payload.unwrap(), 42);
         assert_ne!(
             new.snapshot().description.owner_generation,
@@ -653,6 +671,10 @@ fn replacing_owner_generation_retires_old_readers_and_publishers() {
         let still_live_registration = first.registration();
         drop(app);
         assert_eq!(new.snapshot().status, NestedStatus::SessionExpired);
+        assert!(matches!(
+            replacement_writer.publish(43),
+            Err(NestedObservationError::SessionExpired)
+        ));
         assert!(matches!(
             reporter
                 .lock()
