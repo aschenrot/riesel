@@ -295,8 +295,10 @@ impl SqlitePlanRevisionRepository {
         Ok(())
     }
 
-    /// Exact source bytes for a fenced authoring generation, if the current
-    /// owner is document. Reading a historical generation is inspection only.
+    /// Historical source captured at a specific owner-handoff generation.
+    /// A later document semantic append does NOT update this older record.
+    /// Use current_authoring() for the consistent latest source, or
+    /// semantic_document() for an exact historical semantic revision.
     pub fn source_document(
         &self,
         plan_id: &str,
