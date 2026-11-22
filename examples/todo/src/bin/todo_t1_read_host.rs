@@ -7,10 +7,7 @@
 //! Never use this trusted-shared-user profile on private Todo data.
 #[cfg(unix)]
 mod unix {
-    use riesel::{
-        Application, ReadExposure, UnixReadServer,
-        storage::RecordStoreContract,
-    };
+    use riesel::{Application, ReadExposure, UnixReadServer, storage::RecordStoreContract};
     use std::{fs, io, os::unix::fs::PermissionsExt, sync::Arc, time::Duration};
     use todo::{
         TaskData, Todo,
