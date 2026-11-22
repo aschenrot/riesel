@@ -13,6 +13,8 @@ use riesel_protocol::AsyncRpcClientBinding;
 use riesel_protocol::RpcClientBinding;
 use riesel_schema::{AppDefinition, AppSchema, CapabilityDescriptor, CapabilityRequirement};
 #[cfg(feature = "records")]
+use riesel_schema::{LinkedRecordConsistency, LinkedRecordQuery, OperationKind};
+#[cfg(feature = "records")]
 use riesel_storage::RecordStoreContract;
 #[cfg(feature = "records")]
 use serde::{Serialize, de::DeserializeOwned};
