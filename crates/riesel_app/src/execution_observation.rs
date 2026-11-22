@@ -490,7 +490,6 @@ impl GraphEffectRecorder {
         &self,
         registration: &NestedDomainRegistration,
         view_version: u32,
-        initial: T,
     ) -> Result<NestedPublisher<T>, NestedObservationError> {
         let expected = self
             .delegated_domain
@@ -535,7 +534,7 @@ impl GraphEffectRecorder {
             owner_generation: generation,
             view_version,
         };
-        let (attachment, publisher) = NestedPublisher::attach(description, owner, initial);
+        let (attachment, publisher) = NestedPublisher::attach(description, owner);
         state.nested.insert(self.operation_id.clone(), attachment);
         Ok(publisher)
     }
