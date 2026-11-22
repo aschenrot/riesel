@@ -60,3 +60,32 @@ impl PublicTodoRead for PublicTodoReadFacade {
         })
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use riesel::storage::RecordStore;
+    use riesel_storage_component::MemoryStore;
+    use std::sync::Arc;
+
+    fn records() -> Records<TaskData> {
+        Records::from_store(
+            Arc::new(MemoryStore::new()) as Arc<dyn RecordStore + Send + Sync>
+        )
+    }
+
+    #[test]
+    fn never_returns_an_incomplete_public_summary_as_a_complete_total() {
+        let records = records();
+        let todo = Todo::new(records.clone());
+        for index in 0..65 {
+            todo.create_task(format!("test task {index}")).unwrap();
+        }
+        let outcome = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .unwrap()
+            .block_on(PublicTodoReadFacade::new(records).summary());
+        assert_eq!(outcome, Err(PublicTodoError::Incomplete));
+    }
+}
