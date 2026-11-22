@@ -12,6 +12,8 @@ mod execution_observation;
 mod execution_plan;
 #[cfg(feature = "async-tcp")]
 mod execution_runner;
+#[cfg(feature = "experimental-typed-dataflow")]
+mod typed_dataflow;
 mod fixed_step;
 #[cfg(all(test, feature = "internal-publication"))]
 mod internal_publication_tests;
@@ -57,6 +59,14 @@ pub use execution_plan::{
     AccessMode, BoundExecutionPlan, DomainAdmissionMode, DomainBoundary, ExecutionPlanDescription,
     ExecutionPlanDraft, ExecutionPlanError, OperationKey, OperationNode, OperationRegistry,
     OperationTrigger, PlanRevisionCatalog, ResourceAccess, ValidatedExecutionPlan,
+};
+#[cfg(feature = "experimental-typed-dataflow")]
+pub use typed_dataflow::{
+    AsyncTypedOperation, LocalPort, LocalPortType,
+    PreparedTypedExecution, TypedEdge, TypedExecutionGraphRunner, TypedExecutionPlan,
+    TypedGraphError, TypedGraphRunReport, TypedInputs, TypedOperationFuture,
+    TypedOperationOutcome, TypedOperationRegistry, TypedOperationSpec, TypedOutputs,
+    typed_operation,
 };
 #[cfg(feature = "async-tcp")]
 pub use execution_runner::{
