@@ -13,7 +13,7 @@ use std::num::NonZeroUsize;
 use std::time::Instant;
 
 fn main() -> riesel::Result<()> {
-    println!("GRAPH_COSTS method=median_of_5_batches sample=8_per_batch warmup=2 actual_riesel_S2_no_data_edges single_application_session");
+    println!("GRAPH_COSTS method=median_of_5_batches runs_per_batch=10 warmup=2 actual_riesel_S2_no_data_edges single_application_session");
     Application::new("Research #187 S2 Control Baseline").run(|context| {
         let key = OperationKey::new("research.noop_async", 1)?;
         let mut registry = OperationRegistry::<AsyncOperation>::new();
@@ -40,7 +40,7 @@ fn main() -> riesel::Result<()> {
             for _ in 0..2 {
                 let runner = context.execution_graph(
                     bound.clone(),
-                    NonZeroUsize::new(64).unwrap(),
+                    NonZeroUsize::new(32).unwrap(),
                 )?;
                 let report = executor.block_on(runner.execute());
                 if !report.succeeded() {
@@ -53,7 +53,7 @@ fn main() -> riesel::Result<()> {
                 for _ in 0..10 {
                     let runner = context.execution_graph(
                         bound.clone(),
-                        NonZeroUsize::new(64).unwrap(),
+                        NonZeroUsize::new(32).unwrap(),
                     )?;
                     let report = executor.block_on(runner.execute());
                     if !report.succeeded() || report.operations.len() != nodes {
