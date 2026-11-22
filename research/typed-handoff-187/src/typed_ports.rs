@@ -8,7 +8,9 @@
 #![forbid(unsafe_code)]
 
 use std::collections::{BTreeMap, BTreeSet};
-use riesel::{ExecutionPlanDraft, OperationKey, OperationNode, ValidatedExecutionPlan};
+use riesel::{
+    ExecutionPlanDescription, ExecutionPlanDraft, OperationKey, OperationNode, ValidatedExecutionPlan,
+};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(super) struct TypeId {
@@ -57,6 +59,28 @@ pub(super) enum PortError {
     MultipleProducers,
     Cycle,
     RieselPlan(String),
+    UnsupportedRequiredTypedDataflow,
+}
+
+/// Research-only read-only projection. The inner S2 plan MUST NOT be used
+/// to execute a graph whose typed edges require new S3 semantics.
+pub(super) struct CandidateProjection {
+    plan: ValidatedExecutionPlan,
+    requires_s3_values: bool,
+}
+
+impl CandidateProjection {
+    pub fn description(&self) -> &ExecutionPlanDescription {
+        self.plan.description()
+    }
+
+    pub fn for_s2_execution(&self) -> Result<&ValidatedExecutionPlan, PortError> {
+        if self.requires_s3_values {
+            Err(PortError::UnsupportedRequiredTypedDataflow)
+        } else {
+            Ok(&self.plan)
+        }
+    }
 }
 
 const MAX_NODES: usize = 16;
@@ -72,7 +96,7 @@ fn unique_ports(ports: &[Port]) -> bool {
 pub(super) fn compile_candidate(
     operations: &[Operation],
     value_edges: &[ValueEdge],
-) -> Result<ValidatedExecutionPlan, PortError> {
+) -> Result<CandidateProjection, PortError> {
     if operations.is_empty() || operations.len() > MAX_NODES || value_edges.len() > MAX_NODES * MAX_NODES {
         return Err(PortError::TooManyNodes);
     }
@@ -174,7 +198,11 @@ pub(super) fn compile_candidate(
         }
         draft = draft.operation(node);
     }
-    draft.validate().map_err(|e| PortError::RieselPlan(e.to_string()))
+    let plan = draft.validate().map_err(|e| PortError::RieselPlan(e.to_string()))?;
+    Ok(CandidateProjection {
+        plan,
+        requires_s3_values: !value_edges.is_empty(),
+    })
 }
 
 #[cfg(test)]
@@ -231,9 +259,22 @@ mod tests {
         assert!(descriptions[0].dependencies().is_empty());
         assert_eq!(descriptions[1].dependencies(), &["noise"]);
         assert_eq!(descriptions[2].dependencies(), &["noise"]);
-        assert!(validated.dependency_order().count() == 3);
+        assert_eq!(validated.plan.dependency_order().count(), 3);
+        // No accepted S3 executable semantics: a valid control projection
+        // is not a valid executable dataflow substitute.
+        assert_eq!(
+            validated.for_s2_execution().err(),
+            Some(PortError::UnsupportedRequiredTypedDataflow),
+        );
         // The production plan only records .after("noise"), never port IDs
         // nor runtime references to values.
+    }
+
+    #[test]
+    fn old_s2_plans_remain_executable_when_no_data_edges_are_required() {
+        let candidate = compile_candidate(&[source()], &[]).unwrap();
+        assert!(candidate.for_s2_execution().is_ok());
+        assert_eq!(candidate.description().operations().len(), 1);
     }
 
     #[test]
