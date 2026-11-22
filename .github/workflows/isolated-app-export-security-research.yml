@@ -1,0 +1,53 @@
+name: Research #60/#75 — private-network real Counter with kernel-peer capability grants
+
+permissions:
+  contents: read
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - ".github/workflows/isolated-app-export-security-research.yml"
+      - "research/application-export/linux_isolated_export_server.py"
+      - "research/application-export/linux_isolated_export_probe.py"
+      - "research/application-export/LINUX-ISOLATED-EXPORT-RESEARCH.md"
+  workflow_dispatch:
+
+jobs:
+  linux-private-app-export:
+    name: Real OS-isolated Counter, AF_UNIX peer grants and revocation
+    runs-on: ubuntu-24.04
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+      - name: Check real Linux identity/ownership/isolation prerequisites
+        run: |
+          set -euo pipefail
+          test "$(id -u)" != 0
+          test "$(ps -p 1 -o comm=)" = systemd
+          command -v setpriv
+          command -v nsenter
+          command -v systemd-run
+          sudo -n true
+          sudo -n systemctl --system show --property=Version --value
+          python3 -m py_compile research/application-export/linux_isolated_export_server.py
+          python3 -m py_compile research/application-export/linux_isolated_export_probe.py
+      - name: Verify exact, unchanged prior SDK-resolved Counter source
+        env:
+          PINNED_SHA: 5201e61cc74bab778dfc63a3788f1708b2530f21
+        run: |
+          set -euo pipefail
+          git fetch --no-tags --depth=1 origin refs/pull/90/head
+          test "$(git rev-parse FETCH_HEAD)" = "$PINNED_SHA"
+          git worktree add --detach "$RUNNER_TEMP/pinned-riesel-pr90" "$PINNED_SHA"
+          echo "PINNED_COUNTER_ROOT=$RUNNER_TEMP/pinned-riesel-pr90" >> "$GITHUB_ENV"
+          rustup toolchain install 1.100.0 --profile minimal
+          rustup default 1.100.0
+          cd "$RUNNER_TEMP/pinned-riesel-pr90"
+          cargo build --locked -p riesel_counter_example --bin counter_resolved_facade_host
+      - name: Exercise actual PrivateNetwork service, peer grants, negative same-UID and pre-dispatch revoke
+        run: |
+          set -euo pipefail
+          timeout 155 python3 research/application-export/linux_isolated_export_probe.py --exercise "$PINNED_COUNTER_ROOT"
