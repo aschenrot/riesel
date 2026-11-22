@@ -52,6 +52,8 @@ pub use application::{
 };
 #[cfg(feature = "records")]
 pub use records::{Record, RecordPage, Records};
+#[cfg(feature = "records")]
+pub use application::ModelRead;
 #[cfg(feature = "async-tcp")]
 pub use riesel_app::{
     AsyncOperation, ExecutionGraphRunner, GraphControlError, GraphControlMode, GraphControlTarget,
@@ -95,7 +97,7 @@ pub mod prelude {
     #[cfg(feature = "async-tcp")]
     pub use super::{AsyncCapability, AsyncTasks};
     #[cfg(feature = "records")]
-    pub use super::{Record, Records};
+    pub use super::{ModelRead, Record, Records};
 }
 pub use riesel_schema as schema;
 #[cfg(feature = "records")]
