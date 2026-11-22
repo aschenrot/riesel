@@ -294,10 +294,8 @@ mod tests {
                                                 // These checks are part of the domain owner's
                                                 // actual execution, never inferred from an
                                                 // outer graph Completed event.
-                                                let tick = ecs_world
-                                                    .resource::<EcsTickCount>()
-                                                    .unwrap()
-                                                    .0;
+                                                let tick =
+                                                    ecs_world.resource::<EcsTickCount>().unwrap().0;
                                                 let calls = ecs_world
                                                     .resource::<EcsThreadCalls>()
                                                     .unwrap()
@@ -855,7 +853,8 @@ mod tests {
                 setup.independent.load(Ordering::SeqCst) == 1
                     && setup.observer.snapshot().operations["frame"].state
                         == OperationState::Running
-            }).await;
+            })
+            .await;
 
             // A wrong-kind permit cannot call the actual RunenECS schedule.
             assert_eq!(
@@ -890,9 +889,9 @@ mod tests {
             let setup = setup(Kind::ActualRunenEcsTick, 2, true);
             let task = tokio::spawn(setup.runner.execute());
             until(|| {
-                setup.observer.snapshot().operations["frame"].state
-                    == OperationState::Running
-            }).await;
+                setup.observer.snapshot().operations["frame"].state == OperationState::Running
+            })
+            .await;
             for _ in 0..2 {
                 grant(&setup.permits, OWNER_EPOCH, Kind::ActualRunenEcsTick)
                     .await
@@ -910,5 +909,4 @@ mod tests {
             assert_eq!(setup.actor.stop(), 4);
         });
     }
-
 }
