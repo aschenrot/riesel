@@ -46,9 +46,13 @@ jobs:
         run: |
           cargo test -p riesel --features async-tcp --test scheduler_admission_cursor_research -- --test-threads=1
           RIESEL_RESEARCH_PENDING_CURSOR=1 cargo test -p riesel --features async-tcp --test scheduler_admission_cursor_research -- --test-threads=1
+          RIESEL_RESEARCH_TOPO_CURSOR=1 cargo test -p riesel --features async-tcp --test scheduler_admission_cursor_research -- --nocapture --test-threads=1
           RIESEL_RESEARCH_PENDING_CURSOR=1 cargo test -p riesel --features async-tcp --test execution_runner
           RIESEL_RESEARCH_PENDING_CURSOR=1 cargo test -p riesel --features async-tcp --test execution_domains
           RIESEL_RESEARCH_PENDING_CURSOR=1 cargo test -p riesel --features async-tcp --test execution_nested
+          RIESEL_RESEARCH_TOPO_CURSOR=1 cargo test -p riesel --features async-tcp --test execution_runner
+          RIESEL_RESEARCH_TOPO_CURSOR=1 cargo test -p riesel --features async-tcp --test execution_domains
+          RIESEL_RESEARCH_TOPO_CURSOR=1 cargo test -p riesel --features async-tcp --test execution_nested
       - name: Research #226 A/B/B/A release admission visits (draft branch only)
         if: ${{ github.event_name == 'pull_request' && github.head_ref == 'research/226-pending-cursor-differential' }}
         env:
@@ -61,6 +65,12 @@ jobs:
           echo "research #226 cursor B2 candidate"
           RIESEL_RESEARCH_PENDING_CURSOR=1 cargo test -p riesel --release --features async-tcp --test scheduler_admission_cursor_research cursor_differential_shapes -- --nocapture --test-threads=1
           echo "research #226 cursor A2 baseline"
+          cargo test -p riesel --release --features async-tcp --test scheduler_admission_cursor_research cursor_differential_shapes -- --nocapture --test-threads=1
+          echo "research #226 cursor T1 topological"
+          RIESEL_RESEARCH_TOPO_CURSOR=1 cargo test -p riesel --release --features async-tcp --test scheduler_admission_cursor_research cursor_differential_shapes -- --nocapture --test-threads=1
+          echo "research #226 cursor T2 topological"
+          RIESEL_RESEARCH_TOPO_CURSOR=1 cargo test -p riesel --release --features async-tcp --test scheduler_admission_cursor_research cursor_differential_shapes -- --nocapture --test-threads=1
+          echo "research #226 cursor A3 baseline after topology"
           cargo test -p riesel --release --features async-tcp --test scheduler_admission_cursor_research cursor_differential_shapes -- --nocapture --test-threads=1
 
   windows:
