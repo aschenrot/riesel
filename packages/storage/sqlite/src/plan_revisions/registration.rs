@@ -4,7 +4,9 @@
 //! identity of a newly installed binary or an authorization grant for clients.
 
 use super::backup::{V2SnapshotBudget, compare_exact_content};
-use super::{FORMAT, SqlitePlanRevisionRepository, read_head, revision_to_db, storage, valid_registration};
+use super::{
+    FORMAT, SqlitePlanRevisionRepository, read_head, revision_to_db, storage, valid_registration,
+};
 use riesel_app::{
     OperationRegistry, PlanAuthoringHead, PlanAuthoringSource, PlanRevisionError,
     PlanRevisionRepository, PlanSemanticCandidate, S2DocumentLimits, S2SourceDocument,
@@ -49,19 +51,22 @@ impl SqlitePlanRevisionRepository {
                 "build rollover requires distinct registrations and bounded expected heads".into(),
             ));
         }
-        let verified = Self::verify_backup(verified_backup.as_ref(), old_registration_stamp, budget)?;
+        let verified =
+            Self::verify_backup(verified_backup.as_ref(), old_registration_stamp, budget)?;
         if verified.format_version != FORMAT {
-            return Err(PlanRevisionError::UnsupportedFormat(verified.format_version));
+            return Err(PlanRevisionError::UnsupportedFormat(
+                verified.format_version,
+            ));
         }
-        let backup = Connection::open_with_flags(
-            verified_backup.as_ref(),
-            OpenFlags::SQLITE_OPEN_READ_ONLY,
-        ).map_err(storage)?;
+        let backup =
+            Connection::open_with_flags(verified_backup.as_ref(), OpenFlags::SQLITE_OPEN_READ_ONLY)
+                .map_err(storage)?;
         let mut connection = self.connection()?;
         let tx = connection
             .transaction_with_behavior(TransactionBehavior::Immediate)
             .map_err(storage)?;
-        let version: i64 = tx.pragma_query_value(None, "user_version", |row| row.get(0))
+        let version: i64 = tx
+            .pragma_query_value(None, "user_version", |row| row.get(0))
             .map_err(storage)?;
         if version != FORMAT {
             return Err(PlanRevisionError::UnsupportedFormat(version));
@@ -69,11 +74,14 @@ impl SqlitePlanRevisionRepository {
         // All writes and source changes since the verified backup must reject.
         compare_exact_content(&tx, &backup)?;
         let plan_ids = {
-            let mut statement = tx.prepare("SELECT plan_id FROM plan_heads ORDER BY plan_id")
+            let mut statement = tx
+                .prepare("SELECT plan_id FROM plan_heads ORDER BY plan_id")
                 .map_err(storage)?;
-            let rows = statement.query_map([], |row| row.get::<_, String>(0))
+            let rows = statement
+                .query_map([], |row| row.get::<_, String>(0))
                 .map_err(storage)?;
-            rows.collect::<rusqlite::Result<Vec<_>>>().map_err(storage)?
+            rows.collect::<rusqlite::Result<Vec<_>>>()
+                .map_err(storage)?
         };
         if plan_ids.len() != expected_heads.len() {
             return Err(PlanRevisionError::Conflict);
@@ -102,11 +110,13 @@ impl SqlitePlanRevisionRepository {
             {
                 return Err(PlanRevisionError::Conflict);
             }
-            let inspection: Vec<u8> = tx.query_row(
-                "SELECT inspection FROM semantic_revisions WHERE plan_id=?1 AND revision=?2",
-                params![plan_id, revision_to_db(head.semantic_revision)?],
-                |row| row.get(0),
-            ).map_err(storage)?;
+            let inspection: Vec<u8> = tx
+                .query_row(
+                    "SELECT inspection FROM semantic_revisions WHERE plan_id=?1 AND revision=?2",
+                    params![plan_id, revision_to_db(head.semantic_revision)?],
+                    |row| row.get(0),
+                )
+                .map_err(storage)?;
             let candidate = match head.source {
                 PlanAuthoringSource::Rust => {
                     let plan = rust_by_id.remove(plan_id.as_str()).ok_or_else(|| {
@@ -122,17 +132,20 @@ impl SqlitePlanRevisionRepository {
                     PlanSemanticCandidate::from_rust(plan)?
                 }
                 PlanAuthoringSource::Document => {
-                    let source: Option<Option<Vec<u8>>> = tx.query_row(
-                        "SELECT COALESCE(sr.source_document,sh.source_document)
+                    let source: Option<Option<Vec<u8>>> = tx
+                        .query_row(
+                            "SELECT COALESCE(sr.source_document,sh.source_document)
                          FROM plan_heads h
                          JOIN semantic_revisions sr ON sr.plan_id=h.plan_id
                              AND sr.revision=h.semantic_revision
                          LEFT JOIN source_handoffs sh ON sh.plan_id=h.plan_id
                              AND sh.generation=h.source_generation
                          WHERE h.plan_id=?1",
-                        params![plan_id],
-                        |row| row.get(0),
-                    ).optional().map_err(storage)?;
+                            params![plan_id],
+                            |row| row.get(0),
+                        )
+                        .optional()
+                        .map_err(storage)?;
                     let bytes = source.flatten().ok_or_else(|| {
                         PlanRevisionError::Storage(format!(
                             "document-owned plan {plan_id} lacks current source"
@@ -178,13 +191,16 @@ impl SqlitePlanRevisionRepository {
              LEFT JOIN source_handoffs sh ON sh.plan_id=h.plan_id
                  AND sh.generation=h.source_generation",
             [],
-        ).map_err(storage)?;
-        let changed = tx.execute(
-            "UPDATE plan_heads
+        )
+        .map_err(storage)?;
+        let changed = tx
+            .execute(
+                "UPDATE plan_heads
              SET source_generation=source_generation+1,registration_stamp=?1
              WHERE registration_stamp=?2",
-            params![self.trusted_registration_stamp, old_registration_stamp],
-        ).map_err(storage)?;
+                params![self.trusted_registration_stamp, old_registration_stamp],
+            )
+            .map_err(storage)?;
         if changed != plan_ids.len() {
             return Err(PlanRevisionError::Conflict);
         }
@@ -196,7 +212,8 @@ impl SqlitePlanRevisionRepository {
              SELECT plan_id,source_generation,'registration',?1,?2,
                     semantic_revision,source_kind FROM plan_heads",
             params![old_registration_stamp, self.trusted_registration_stamp],
-        ).map_err(storage)?;
+        )
+        .map_err(storage)?;
         tx.commit().map_err(storage)?;
         plan_ids.iter().map(|id| self.head(id)).collect()
     }
