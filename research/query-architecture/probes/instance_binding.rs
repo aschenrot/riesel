@@ -480,3 +480,41 @@ fn rust_read_only_projection_does_not_attenuate_storage_rpc_permission() {
         .run()
         .unwrap();
 }
+
+#[test]
+fn authority_relationship_needs_explicit_schema_evolution_not_reused_bindings() {
+    let app = Application::new("ResearchAuthoritySchema")
+        .records_at::<TaskData>("writer")
+        .unwrap()
+        .rpc::<ResearchReadOnlyContract>("read")
+        .unwrap();
+    let schema = app.definition().clone();
+    schema.validate().unwrap();
+
+    // Unknown capability relationship fields are rejected by today's
+    // deny_unknown_fields AppSchema/CapabilityRequirement deserializer.
+    // This demonstrates a forward-compatibility/versioning obligation,
+    // not that a particular future JSON field or schema version is chosen.
+    let mut encoded = serde_json::to_value(&schema).unwrap();
+    let read_requirement = encoded["requires"]
+        .as_array_mut()
+        .unwrap()
+        .iter_mut()
+        .find(|item| item["name"] == "read")
+        .unwrap();
+    read_requirement["research_same_authority_as"] = json!("writer");
+    assert!(riesel::schema::parse_schema(&encoded.to_string()).is_err());
+
+    // Reusing today's model_bindings list is not a typed query-owner
+    // relation: it accepts both aliases without distinguishing whether
+    // one is a writer, read facet or a different data authority.
+    let mut modified = schema;
+    modified
+        .model_bindings
+        .get_mut(TaskData::MODEL_NAME)
+        .unwrap()
+        .push("read".into());
+    modified.validate().unwrap();
+    assert_eq!(modified.model_bindings[TaskData::MODEL_NAME], ["writer", "read"]);
+    assert_eq!(modified.requires.len(), 2);
+}
