@@ -39,10 +39,7 @@ fn layout() -> PlanLayoutDraft {
     PlanLayoutDraft {
         layout_id: "desktop".to_owned(),
         semantic_anchor: 1,
-        node_positions: BTreeMap::from([(
-            "step".to_owned(),
-            PlanLayoutPoint { x: 5, y: 10 },
-        )]),
+        node_positions: BTreeMap::from([("step".to_owned(), PlanLayoutPoint { x: 5, y: 10 })]),
     }
 }
 
@@ -123,7 +120,10 @@ fn kill_at_boundary(mode: &str) -> (PathBuf, tempfile::TempDir) {
     wait_for(&gate.join("at-boundary"));
     child.kill().unwrap();
     let outcome = child.wait_with_output().unwrap();
-    assert!(!outcome.status.success(), "crash child unexpectedly exited cleanly");
+    assert!(
+        !outcome.status.success(),
+        "crash child unexpectedly exited cleanly"
+    );
     (db, dir)
 }
 
@@ -137,7 +137,13 @@ fn real_semantic_writer_killed_precommit_rolls_back_without_partial_revision() {
         Err(PlanRevisionError::NotFound)
     ));
     let head = store.head(PLAN).unwrap();
-    assert_eq!(store.append(&head, &candidate(2)).unwrap().semantic_revision, 2);
+    assert_eq!(
+        store
+            .append(&head, &candidate(2))
+            .unwrap()
+            .semantic_revision,
+        2
+    );
     assert_eq!(store.semantic(PLAN, 1).unwrap().revision, 1);
     assert_eq!(repo(&db).semantic(PLAN, 2).unwrap().revision, 2);
 }
