@@ -5,6 +5,8 @@ mod catalog;
 mod component;
 mod deployment;
 #[cfg(feature = "async-tcp")]
+mod execution_nested;
+#[cfg(feature = "async-tcp")]
 mod execution_observation;
 mod execution_plan;
 #[cfg(feature = "async-tcp")]
@@ -23,6 +25,12 @@ pub use async_tasks::AsyncTasks;
 pub use catalog::{CatalogError, ProviderCatalog, ProviderSelectionConfig};
 pub use component::{ComponentDefinition, DeclarativeComponent};
 pub use deployment::{DeploymentConfig, DeploymentError, ServiceEndpoint};
+#[cfg(feature = "async-tcp")]
+pub use execution_nested::{
+    MAX_NESTED_TRANSITIONS, NestedCursor, NestedDescription, NestedDomainOwner,
+    NestedDomainRegistration, NestedHeaderObserver, NestedObservationError, NestedObserver,
+    NestedParent, NestedPublisher, NestedSnapshot, NestedStatus, NestedTransitions, NestedViewInfo,
+};
 #[cfg(feature = "async-tcp")]
 pub use execution_observation::{
     GraphControlError, GraphControlMode, GraphControlTarget, GraphEffectError, GraphEffectRecorder,

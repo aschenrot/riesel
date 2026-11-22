@@ -1,0 +1,19 @@
+[package]
+name = "riesel-nested-domain-research"
+version = "0.0.0"
+edition = "2024"
+publish = false
+
+# Independent research workspace. Not a production Riesel SDK crate or API.
+[workspace]
+
+[dev-dependencies]
+riesel = { path = "../../crates/riesel", features = ["async-tcp"] }
+tokio = { version = "=1.54.1", features = ["rt", "sync", "time"] }
+# Research-only GPL-3.0 RunenECS; pinned to the same exact commit used in #84.
+# No Riesel production dependency or redistribution is approved here.
+runen_ecs = { package = "runen-ecs", git = "https://github.com/dornglut/runen-ecs", rev = "5d6af86bfa7c58f1ad26ec73635590a72e89ef37" }
+
+# Exact standalone Bevy ECS comparator matching #83 Gate E; no Bevy app,
+# renderer, or Riesel production SDK dependency is selected by this research.
+bevy_ecs = { version = "=0.20.1", default-features = false, features = ["std", "bevy_debug_stepping"] }
