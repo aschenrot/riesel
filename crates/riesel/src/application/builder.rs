@@ -23,6 +23,7 @@ impl Application {
                 app: AppDefinition { name: name.into() },
                 models: BTreeMap::new(),
                 model_bindings: BTreeMap::new(),
+                record_query_links: BTreeMap::new(),
                 requires: vec![],
             },
             providers: ConnectorRegistry::new(),
