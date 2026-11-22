@@ -1,8 +1,8 @@
 use riesel_schema::ModelDefinition;
 use riesel_storage::{
-    MAX_PAGE_SIZE, RecordPage, RecordQuery, RecordQueryCursors, RecordQueryError,
-    RecordQueryPage, RecordQueryRequest, RecordStore, StoreError, StoredRecord,
-    record_matches_predicate, validate_record_query,
+    MAX_PAGE_SIZE, RecordPage, RecordQuery, RecordQueryCursors, RecordQueryError, RecordQueryPage,
+    RecordQueryRequest, RecordStore, StoreError, StoredRecord, record_matches_predicate,
+    validate_record_query,
 };
 
 use serde_json::Value;
@@ -224,11 +224,7 @@ impl RecordQuery for MemoryStore {
                 }
                 inspected += 1;
                 last = Some(*id);
-                if record_matches_predicate(
-                    &record.data,
-                    definition,
-                    request.predicate.as_ref(),
-                )? {
+                if record_matches_predicate(&record.data, definition, request.predicate.as_ref())? {
                     records.push(record.clone());
                 }
                 if inspected == request.scan_budget || records.len() == request.limit as usize {
@@ -514,7 +510,9 @@ mod tests {
     #[test]
     fn native_query_rejects_undeclared_read_models_and_wrong_cursor_query() {
         use riesel_schema::TypeRef;
-        use riesel_storage::{RecordCompare, RecordPredicate, RecordQueryError, RecordQueryRequest};
+        use riesel_storage::{
+            RecordCompare, RecordPredicate, RecordQueryError, RecordQueryRequest,
+        };
         let definition = ModelDefinition {
             fields: BTreeMap::from([("big".into(), TypeRef::U64)]),
         };
@@ -561,5 +559,4 @@ mod tests {
         correct.cursor = page.next_cursor;
         assert_eq!(store.query_page(correct).unwrap().records.len(), 1);
     }
-
 }
