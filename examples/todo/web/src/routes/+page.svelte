@@ -4,13 +4,27 @@
   import {
     ApiError,
     createTask,
-    listPage,
+    statusPage,
     removeTask,
     updateTask,
     type Task
   } from '$lib/api';
+  import { collectUntilMatch, ScanCancelled } from '$lib/status-scan';
 
-  type Filter = 'all' | 'open' | 'done';
+  type Status = 'open' | 'completed';
+  type ScanState = {
+    cursor: string | null;
+    exhausted: boolean;
+    inspected: number;
+    requested: boolean;
+    scanning: boolean;
+    error: string;
+    generation: number;
+  };
+  const newScan = (): ScanState => ({
+    cursor: null, exhausted: false, inspected: 0, requested: false,
+    scanning: false, error: '', generation: 0
+  });
   type UndoChange = {
     current: Task; // confirmed post-mutation revision; never silently retry
     inverse: { title: string } | { completed: boolean };
@@ -18,7 +32,12 @@
   type UndoOperation = { changes: UndoChange[]; partialFailures: number };
 
   let tasks = $state<Task[]>([]);
-  let nextCursor = $state<string | null>(null);
+  let openScan = $state<ScanState>(newScan());
+  let completedScan = $state<ScanState>(newScan());
+  let completedExpanded = $state(false);
+  // Imperative cancellation ownership belongs to each live status request.
+  let openAbort: AbortController | null = null;
+  let completedAbort: AbortController | null = null;
   let loading = $state(true);
   let refreshing = $state(false);
   let refreshNotice = $state('');
@@ -26,7 +45,6 @@
   let loadingMore = $state(false);
   let creating = $state(false);
   let actingId = $state<string | null>(null);
-  let filter = $state<Filter>('all');
   let newTitle = $state('');
   let fieldError = $state('');
   let editingId = $state<string | null>(null);
@@ -47,13 +65,16 @@
   let batchSummary = $state('');
   let batchFailures = $state<{ title: string; reason: string }[]>([]);
 
-  // Counts and filters intentionally describe only fetched pages.
-  const visible = $derived(
-    tasks.filter((task) =>
-      filter === 'all' || (filter === 'done' ? task.completed : !task.completed)
-    )
-  );
-  const openCount = $derived(tasks.filter((task) => !task.completed).length);
+  // Each count is explicitly of loaded task rows, never global matches.
+  const openTasks = $derived(tasks.filter((task) => !task.completed));
+  const completedTasks = $derived(tasks.filter((task) => task.completed));
+  // Shift-range and visible-only selection follow the rendered section order,
+  // not the interleaved UUID order of the backing row cache.
+  const visible = $derived([
+    ...openTasks,
+    ...(completedExpanded ? completedTasks : [])
+  ]);
+  const openCount = $derived(openTasks.length);
   const selectedVisible = $derived(visible.filter((task) => selectedIds.includes(task.id)));
   const lastCheckedLabel = $derived(
     lastCheckedAt === null
@@ -107,46 +128,160 @@
       .sort((a, b) => a.id.localeCompare(b.id));
   }
 
+  function invalidateStatusCursors() {
+    openAbort?.abort();
+    completedAbort?.abort();
+    openAbort = null;
+    completedAbort = null;
+    // A live UUID seek is not a snapshot: confirmed writes may reclassify a
+    // record behind either cursor. Keep visible confirmed rows and Undo, but
+    // never suggest the old continuation is still a complete status view.
+    for (const state of [openScan, completedScan]) {
+      state.generation += 1;
+      state.cursor = null;
+      state.exhausted = false;
+      state.scanning = false;
+      state.requested = false;
+    }
+  }
+
+  function stopScan(status: Status) {
+    const state = status === 'open' ? openScan : completedScan;
+    if (!state.scanning) return;
+    if (status === 'open') {
+      openAbort?.abort();
+      openAbort = null;
+    } else {
+      completedAbort?.abort();
+      completedAbort = null;
+    }
+    state.generation += 1;
+    state.scanning = false;
+    state.cursor = null;
+    state.exhausted = false;
+    state.error = 'Scan stopped. Check again from the beginning to avoid reusing an uncertain cursor.';
+  }
+
+  async function scanStatus(status: Status, fresh: boolean): Promise<boolean> {
+    const state = status === 'open' ? openScan : completedScan;
+    if (state.scanning || (!fresh && (state.exhausted || !state.cursor))) return false;
+    const generation = ++state.generation;
+    const controller = new AbortController();
+    if (status === 'open') openAbort = controller;
+    else completedAbort = controller;
+    const completed = status === 'completed';
+    const initialCursor = fresh ? null : state.cursor;
+    const previousInspected = fresh ? 0 : state.inspected;
+    let replaced = false;
+    state.requested = true;
+    state.scanning = true;
+    state.error = '';
+    if (fresh) {
+      state.cursor = null;
+      state.exhausted = false;
+      state.inspected = 0;
+    }
+    try {
+      const result = await collectUntilMatch(
+        completed,
+        initialCursor,
+        (wanted, cursor) => statusPage(
+          wanted,
+          cursor,
+          (input, init) => fetch(input, { ...init, signal: controller.signal })
+        ),
+        (progress) => {
+          if (state.generation !== generation) return;
+          if (fresh && !replaced) {
+            tasks = tasks.filter((task) => task.completed !== completed);
+            replaced = true;
+          }
+          state.inspected = previousInspected + progress.inspected;
+          state.cursor = progress.nextCursor;
+          state.exhausted = progress.exhausted;
+          if (progress.records.length > 0) {
+            tasks = sortedUnique([...tasks, ...progress.records]);
+          }
+        },
+        () => state.generation === generation
+      );
+      if (state.generation !== generation) return false;
+      state.cursor = result.nextCursor;
+      state.exhausted = result.exhausted;
+      lastCheckedAt = new Date();
+      return true;
+    } catch (error) {
+      if (state.generation !== generation || error instanceof ScanCancelled) return false;
+      // The last GET may have consumed its one-use cursor before its reply
+      // disappeared. A retry with that token is unsafe; offer a fresh scan.
+      state.cursor = null;
+      state.exhausted = false;
+      state.error = error instanceof ApiError
+        ? error.message + ' Start a fresh scan to check current tasks.'
+        : 'Could not check this task section. Start a fresh scan.';
+      return false;
+    } finally {
+      if (state.generation === generation) {
+        state.scanning = false;
+        if (status === 'open') openAbort = null;
+        else completedAbort = null;
+      }
+    }
+  }
+
   async function refresh() {
-    // Do not replace a list while a mutation/page request is in flight or
-    // silently discard an unsaved edit. Error recovery may discard a stale edit.
+    // Do not discard an unsaved edit, uncertain write or in-flight command.
     if (refreshing || loadingMore || creating || batchRunning || actingId !== null ||
       (editingId !== null && !conflicted)) return;
     refreshing = true;
     refreshNotice = 'Checking tasks';
     clearFeedback();
-    try {
-      const page = await listPage();
-      tasks = page.records;
-      nextCursor = page.next_cursor;
-      lastCheckedAt = new Date();
+    const openSucceeded = await scanStatus('open', true);
+    const completedSucceeded = completedExpanded
+      ? await scanStatus('completed', true)
+      : true;
+    if (openSucceeded && completedSucceeded) {
       editingId = null;
       editError = '';
       confirmingDeleteId = null;
       clearSelection();
       selectMode = false;
       refreshNotice = 'Tasks checked';
-    } catch (error) {
-      refreshNotice = '';
-      report(error);
+    } else {
+      refreshNotice = 'Task check incomplete';
+    }
+    loading = false;
+    refreshing = false;
+  }
+
+  async function loadMore(status: Status) {
+    if (loadingMore || refreshing || batchRunning || actingId !== null || creating ||
+        editingId !== null) return;
+    loadingMore = true;
+    try {
+      await scanStatus(status, status === 'open'
+        ? !openScan.requested || !openScan.cursor
+        : !completedScan.requested || !completedScan.cursor);
     } finally {
-      // Keep existing rows visible while manually checking for changes.
-      loading = false;
-      refreshing = false;
+      loadingMore = false;
     }
   }
 
-  async function loadMore() {
-    if (!nextCursor || loadingMore || refreshing || batchRunning || actingId !== null || creating) return;
+  async function toggleCompleted() {
+    if (refreshing || loadingMore || creating || batchRunning || actingId !== null ||
+        editingId !== null) return;
+    completedExpanded = !completedExpanded;
+    if (!completedExpanded) {
+      stopScan('completed');
+      completedScan.requested = false;
+      completedScan.cursor = null;
+      completedScan.exhausted = false;
+      clearSelection();
+      return;
+    }
     loadingMore = true;
-    clearFeedback();
     try {
-      const page = await listPage(nextCursor);
-      tasks = sortedUnique([...tasks, ...page.records]);
-      nextCursor = page.next_cursor;
-      lastCheckedAt = new Date();
-    } catch (error) {
-      report(error);
+      await scanStatus('completed', true);
     } finally {
       loadingMore = false;
     }
@@ -165,6 +300,7 @@
     try {
       const task = await createTask(submittedTitle);
       tasks = sortedUnique([...tasks, task]);
+      invalidateStatusCursors();
       // A user may start typing another task while this request is pending.
       // Clear only the submitted draft; never discard newer input.
       if (newTitle === submittedTitle) newTitle = '';
@@ -209,6 +345,7 @@
     try {
       const updated = await updateTask(task, { title: editDraft });
       tasks = tasks.map((value) => value.id === updated.id ? updated : value);
+      invalidateStatusCursors();
       editingId = null;
       // Re-enable the action trigger before restoring keyboard focus.
       actingId = null;
@@ -235,11 +372,21 @@
     clearFeedback();
     try {
       const updated = await updateTask(task, { completed: !task.completed });
-      tasks = tasks.map((value) => value.id === updated.id ? updated : value);
+      tasks = sortedUnique([...tasks.filter((value) => value.id !== updated.id), updated]);
+      invalidateStatusCursors();
       notify(updated.completed ? 'Task completed' : 'Task reopened', {
         changes: [{ current: updated, inverse: { completed: task.completed } }],
         partialFailures: 0
       });
+      // The completed row may disappear into a collapsed section.
+      // Transfer keyboard focus to its disclosure instead of losing it.
+      actingId = null;
+      await tick();
+      if (updated.completed && !completedExpanded) {
+        document.getElementById('completed-toggle')?.focus();
+      } else {
+        document.getElementById('task-check-' + updated.id)?.focus();
+      }
     } catch (error) {
       report(error);
     } finally {
@@ -254,6 +401,7 @@
     try {
       await removeTask(task);
       tasks = tasks.filter((value) => value.id !== task.id);
+      invalidateStatusCursors();
       confirmingDeleteId = null;
       notify('Task removed');
     } catch (error) {
@@ -283,12 +431,6 @@
     clearSelection();
     batchSummary = '';
     batchFailures = [];
-  }
-
-  function changeFilter(next: Filter) {
-    if (batchRunning) return;
-    filter = next;
-    exitSelection();
   }
 
   function selectTask(id: string, range = false) {
@@ -355,7 +497,8 @@
         try {
           // Sequential, revision-checked commands: no atomic batch, no automatic retry.
           const updated = await updateTask(task, { completed });
-          tasks = tasks.map((value) => value.id === updated.id ? updated : value);
+          tasks = sortedUnique([...tasks.filter((value) => value.id !== updated.id), updated]);
+          invalidateStatusCursors();
           successful.push({ current: updated, inverse: { completed: task.completed } });
           changed++;
         } catch (error) {
@@ -413,7 +556,8 @@
         try {
           // The post-command revision fences newer edits from another client.
           const updated = await updateTask(change.current, change.inverse);
-          tasks = tasks.map((task) => task.id === updated.id ? updated : task);
+          tasks = sortedUnique([...tasks.filter((task) => task.id !== updated.id), updated]);
+          invalidateStatusCursors();
           reversed++;
         } catch (error) {
           failures.push({
@@ -582,11 +726,6 @@
           </div>
           <span class="sr-only" aria-live="polite">{refreshNotice}</span>
         </div>
-        <div class="filters" role="group" aria-label="Filter loaded tasks">
-          <button type="button" class:active={filter === 'all'} aria-pressed={filter === 'all'} disabled={batchRunning} onclick={() => changeFilter('all')}>All</button>
-          <button type="button" class:active={filter === 'open'} aria-pressed={filter === 'open'} disabled={batchRunning} onclick={() => changeFilter('open')}>Open</button>
-          <button type="button" class:active={filter === 'done'} aria-pressed={filter === 'done'} disabled={batchRunning} onclick={() => changeFilter('done')}>Done</button>
-        </div>
         <p class="count" aria-label={tasks.length + ' tasks loaded, ' + openCount + ' open in loaded tasks'}>
           {tasks.length} loaded <span aria-hidden="true">·</span> {openCount} open
         </p>
@@ -661,16 +800,9 @@
         </div>
       {/if}
 
-      {#if loading}
-        <p class="placeholder" role="status">Loading tasks…</p>
-      {:else if visible.length === 0}
-        <div class="placeholder">
-          <p class="empty-title">{tasks.length === 0 ? 'No tasks yet' : 'Nothing in this view'}</p>
-          <p>{tasks.length === 0 ? 'Add your first task above.' : 'Switch filters to see other loaded tasks.'}</p>
-        </div>
-      {:else}
-        <ul class="task-list" aria-label="Tasks">
-          {#each visible as task (task.id)}
+      {#snippet taskList(rows: Task[], label: string)}
+        <ul class="task-list" aria-label={label}>
+          {#each rows as task (task.id)}
             <li class="task" class:done={task.completed} class:selected={selectMode && selectedIds.includes(task.id)}>
               <label class="task-check-control">
                 {#if selectMode}
@@ -686,6 +818,7 @@
                   <input
                     type="checkbox"
                     class="task-checkbox"
+                    id={'task-check-' + task.id}
                     checked={task.completed}
                     disabled={actingId !== null || refreshing || loadingMore || batchRunning}
                     aria-label={'Mark ' + task.title + (task.completed ? ' incomplete' : ' complete')}
@@ -765,17 +898,89 @@
             </li>
           {/each}
         </ul>
-      {/if}
+      {/snippet}
 
-      <div class="panel-footer">
-        {#if nextCursor}
-          <button type="button" class="secondary" disabled={loadingMore || refreshing || actingId !== null || creating || batchRunning} onclick={() => void loadMore()}>
-            {loadingMore ? 'Loading…' : 'Load more tasks'}
-          </button>
-        {:else if tasks.length > 0}
-          <span>All tasks loaded</span>
+      <section class="task-section" aria-labelledby="open-tasks-heading">
+        <div class="section-heading">
+          <h2 id="open-tasks-heading">Open tasks</h2>
+          <span class="count">{openTasks.length} shown</span>
+        </div>
+        {#if openScan.scanning}
+          <div class="section-progress" role="status">
+            Checking open tasks · {openScan.inspected} records inspected
+            <button type="button" class="text-action" onclick={() => stopScan('open')}>Stop checking</button>
+          </div>
+        {:else if openScan.error}
+          <div class="section-message" role="alert">
+            {openScan.error}
+            <button type="button" class="text-action" onclick={() => void scanStatus('open', true)}>Check from start</button>
+          </div>
+        {:else if openTasks.length === 0 && openScan.exhausted}
+          <div class="placeholder">
+            <p class="empty-title">No open tasks found</p>
+            <p>The completed live scan found no open tasks. Changes from other clients appear after refresh.</p>
+          </div>
+        {:else if openTasks.length === 0 && openScan.requested && !openScan.exhausted}
+          <p class="section-message" role="status">No open tasks in the records checked yet. More records remain.</p>
+        {:else if loading && openTasks.length === 0}
+          <p class="placeholder" role="status">Loading tasks…</p>
+        {:else if openTasks.length === 0 && !openScan.requested}
+          <p class="section-message">Open tasks changed. Refresh to check the current list.</p>
         {/if}
-      </div>
+        {@render taskList(openTasks, 'Open tasks')}
+        <div class="panel-footer">
+          {#if !openScan.requested && !openScan.scanning}
+            <button type="button" class="secondary" disabled={loadingMore || refreshing || creating || actingId !== null || batchRunning || editingId !== null} onclick={() => void scanStatus('open', true)}>Check current open tasks</button>
+          {:else if openScan.cursor && !openScan.exhausted && !openScan.scanning}
+            <button type="button" class="secondary" disabled={loadingMore || refreshing || creating || actingId !== null || batchRunning} onclick={() => void loadMore('open')}>Continue checking open tasks</button>
+          {:else if openScan.exhausted}
+            <span>Open scan complete for now · {openScan.inspected} records inspected</span>
+          {/if}
+        </div>
+      </section>
+
+      <section class="task-section completed-section" aria-labelledby="completed-tasks-heading">
+        <div class="section-heading">
+          <h2 id="completed-tasks-heading">
+            <button id="completed-toggle" type="button" class="section-toggle"
+              aria-expanded={completedExpanded} aria-controls="completed-tasks-content"
+              disabled={refreshing || loadingMore || batchRunning || actingId !== null || editingId !== null}
+              onclick={() => void toggleCompleted()}>
+              <span aria-hidden="true">{completedExpanded ? '▾' : '▸'}</span>
+              Completed
+            </button>
+          </h2>
+          {#if completedExpanded}<span class="count">{completedTasks.length} shown</span>{/if}
+        </div>
+        <div id="completed-tasks-content" hidden={!completedExpanded}>
+          {#if completedExpanded}
+            {#if completedScan.scanning}
+              <div class="section-progress" role="status">
+                Checking completed tasks · {completedScan.inspected} records inspected
+                <button type="button" class="text-action" onclick={() => stopScan('completed')}>Stop checking</button>
+              </div>
+            {:else if completedScan.error}
+              <div class="section-message" role="alert">
+                {completedScan.error}
+                <button type="button" class="text-action" onclick={() => void scanStatus('completed', true)}>Check from start</button>
+              </div>
+            {:else if completedTasks.length === 0 && completedScan.exhausted}
+              <p class="section-message">No completed tasks found in the completed scan.</p>
+            {:else if completedTasks.length === 0 && completedScan.requested}
+              <p class="section-message" role="status">No completed tasks in the records checked yet. More records remain.</p>
+            {/if}
+            {@render taskList(completedTasks, 'Completed tasks')}
+            <div class="panel-footer">
+              {#if completedScan.cursor && !completedScan.exhausted && !completedScan.scanning}
+                <button type="button" class="secondary" disabled={loadingMore || refreshing || creating || actingId !== null || batchRunning} onclick={() => void loadMore('completed')}>Continue checking completed tasks</button>
+              {:else if completedScan.exhausted}
+                <span>Completed scan complete for now · {completedScan.inspected} records inspected</span>
+              {/if}
+            </div>
+          {/if}
+        </div>
+      </section>
+
     </section>
     <p class="footnote">Tasks are stored locally. Changes from other clients appear after refresh.</p>
   </main>

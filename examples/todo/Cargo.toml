@@ -8,6 +8,8 @@ repository.workspace = true
 [features]
 default = []
 http = ["dep:axum", "dep:tokio", "dep:tower-http"]
+# CI-only seed utility, never included in normal release binaries.
+e2e-fixture = []
 # Test-only #158 semantics; never enabled by normal HTTP builds.
 internal-observation = ["riesel/internal-publication"]
 
@@ -36,3 +38,8 @@ path = "src/bin/todo_cli.rs"
 name = "todo_http"
 path = "src/bin/todo_http.rs"
 required-features = ["http"]
+
+[[bin]]
+name = "todo_seed_status"
+path = "src/bin/todo_seed_status.rs"
+required-features = ["e2e-fixture"]
