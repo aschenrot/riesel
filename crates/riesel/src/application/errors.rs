@@ -14,6 +14,9 @@ pub enum SdkError {
     #[cfg(feature = "records")]
     Store(#[from] riesel_storage::StoreError),
     #[error(transparent)]
+    #[cfg(feature = "records")]
+    Query(#[from] riesel_storage::RecordQueryError),
+    #[error(transparent)]
     RecordValidation(#[from] riesel_schema::RecordError),
     #[error(transparent)]
     Serialization(#[from] serde_json::Error),

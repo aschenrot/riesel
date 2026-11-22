@@ -57,6 +57,110 @@ fn rust_model_numeric_and_container_fields_round_trip_through_storage() {
 }
 
 #[cfg(feature = "dev-memory-storage")]
+fn verify_metadata_record_query(
+    reader: crate::ModelRead<ExtendedModel, crate::storage::RecordQueryContract>,
+    writer: crate::Records<ExtendedModel>,
+) -> std::result::Result<(), Box<dyn std::error::Error + Send + Sync>> {
+    use crate::storage::{RecordCompare, RecordPredicate, RecordQueryError};
+
+    writer.create(ExtendedModel {
+        count: u64::MAX,
+        delta: i64::MIN,
+        ratio: 0.75,
+        note: None,
+        tags: vec!["editor".into(), "metadata".into()],
+        payload: serde_json::json!({"category":"workspace","version":1}),
+    })?;
+    let matches = reader.page(
+        Some(RecordPredicate {
+            field: "count".into(),
+            operator: RecordCompare::Eq,
+            value: Some(serde_json::json!(u64::MAX)),
+        }),
+        32,
+        32,
+        None,
+    )?;
+    assert_eq!(matches.records.len(), 1);
+    assert_eq!(matches.records[0].value.count, u64::MAX);
+    assert_eq!(matches.records[0].value.delta, i64::MIN);
+    assert_eq!(
+        matches.records[0].value.tags,
+        vec!["editor".to_owned(), "metadata".to_owned()]
+    );
+    assert!(matches.records[0].value.note.is_none());
+
+    let nulls = reader.page(
+        Some(RecordPredicate {
+            field: "note".into(),
+            operator: RecordCompare::IsNull,
+            value: None,
+        }),
+        32,
+        32,
+        None,
+    )?;
+    assert_eq!(nulls.records.len(), 1);
+
+    let unsupported = reader.page(
+        Some(RecordPredicate {
+            field: "ratio".into(),
+            operator: RecordCompare::Eq,
+            value: Some(serde_json::json!(0.75)),
+        }),
+        32,
+        32,
+        None,
+    );
+    assert!(matches!(
+        unsupported,
+        Err(SdkError::Query(RecordQueryError::UnsupportedPredicate))
+    ));
+    Ok(())
+}
+
+#[cfg(feature = "dev-memory-storage")]
+#[test]
+fn typed_record_query_metadata_model_is_not_todo_specific() {
+    use crate::storage::RecordQueryContract;
+
+    Application::new("EditorMetadataMemory")
+        .handler_with_aliases(
+            verify_metadata_record_query,
+            ["metadata_read", "metadata_write"],
+        )
+        .unwrap()
+        .development()
+        .unwrap()
+        .run()
+        .unwrap();
+
+    #[cfg(feature = "sqlite-storage")]
+    {
+        let directory = tempfile::tempdir().unwrap();
+        let file = directory.path().join("editor-metadata.db");
+        Application::new("EditorMetadataSQLite")
+            .handler_with_aliases(
+                verify_metadata_record_query,
+                ["metadata_read", "metadata_write"],
+            )
+            .unwrap()
+            .sqlite_storage(file)
+            .unwrap()
+            .run()
+            .unwrap();
+    }
+
+    let contract = RecordQueryContract::definition().unwrap();
+    assert!(
+        contract
+            .operations
+            .values()
+            .all(|op| op.kind == riesel_schema::OperationKind::Query)
+    );
+}
+
+#[cfg(feature = "dev-memory-storage")]
 #[test]
 fn records_can_bind_explicitly_to_named_storage_requirements() {
     Application::new("Aliases")
@@ -80,6 +184,170 @@ fn records_can_bind_explicitly_to_named_storage_requirements() {
             assert_eq!(secondary.get(created.id)?.unwrap().value.title, "Shared");
             Ok(())
         })
+        .unwrap();
+}
+
+#[cfg(feature = "dev-memory-storage")]
+#[test]
+fn native_record_query_only_handler_does_not_request_storage_mutations() {
+    use crate::ModelRead;
+    use crate::storage::{RecordQueryContract, RecordQueryRequest};
+
+    let app = Application::new("NativeReadOnly")
+        .handler(
+            |reader: ModelRead<TodoModel, RecordQueryContract>|
+             -> std::result::Result<(), crate::storage::RecordQueryError> {
+                let result = reader.query_page(RecordQueryRequest {
+                    model: "todo".into(),
+                    predicate: None,
+                    limit: 16,
+                    scan_budget: 16,
+                    cursor: None,
+                })?;
+                assert!(result.records.is_empty());
+                assert!(result.exhausted);
+                Ok(())
+            },
+        )
+        .unwrap();
+    assert_eq!(app.definition().record_query_links.len(), 1);
+    assert!(app.definition().model_bindings.is_empty());
+    assert_eq!(app.definition().requires.len(), 1);
+    assert_eq!(
+        app.definition().requires[0].capability.id,
+        "riesel.query.records"
+    );
+    app.development().unwrap().run().unwrap();
+}
+
+#[cfg(feature = "dev-memory-storage")]
+#[test]
+fn native_record_query_and_storage_v2_share_one_confirmed_writer() {
+    use crate::storage::{RecordCompare, RecordPredicate, RecordQueryContract, RecordQueryRequest};
+    use crate::{ModelRead, Records};
+
+    Application::new("NativeReadWrite")
+        .handler_with_aliases(
+            |reader: ModelRead<TodoModel, RecordQueryContract>,
+             writer: Records<TodoModel>|
+             -> std::result::Result<(), Box<dyn std::error::Error + Send + Sync>> {
+                writer.create(TodoModel {
+                    title: "Committed".into(),
+                    completed: false,
+                })?;
+                let result = reader.query_page(RecordQueryRequest {
+                    model: "todo".into(),
+                    predicate: Some(RecordPredicate {
+                        field: "completed".into(),
+                        operator: RecordCompare::Eq,
+                        value: Some(serde_json::json!(false)),
+                    }),
+                    limit: 16,
+                    scan_budget: 16,
+                    cursor: None,
+                })?;
+                assert_eq!(result.records.len(), 1);
+                assert_eq!(result.records[0].data["title"], "Committed");
+                let typed = reader.page(None, 16, 16, None)?;
+                assert_eq!(typed.records.len(), 1);
+                assert_eq!(typed.records[0].value.title, "Committed");
+                assert!(!typed.records[0].value.completed);
+                Ok(())
+            },
+            ["read", "writer"],
+        )
+        .unwrap()
+        .development()
+        .unwrap()
+        .run()
+        .unwrap();
+}
+
+#[cfg(feature = "sqlite-storage")]
+#[test]
+fn sqlite_native_query_reads_existing_record_without_mutating_storage_contract() {
+    use crate::ModelRead;
+    use crate::storage::{RecordQueryContract, RecordQueryRequest};
+
+    let directory = tempfile::tempdir().unwrap();
+    let file = directory.path().join("typed-query.db");
+    Application::new("Seed")
+        .records::<TodoModel>()
+        .unwrap()
+        .sqlite_storage(&file)
+        .unwrap()
+        .run(|ctx| {
+            ctx.records::<TodoModel>()?.create(TodoModel {
+                title: "Durable".into(),
+                completed: false,
+            })?;
+            Ok(())
+        })
+        .unwrap();
+
+    let reader = Application::new("QueryExisting")
+        .handler(
+            |query: ModelRead<TodoModel, RecordQueryContract>|
+             -> std::result::Result<(), Box<dyn std::error::Error + Send + Sync>> {
+                let result = query.query_page(RecordQueryRequest {
+                    model: "todo".into(),
+                    predicate: None,
+                    limit: 16,
+                    scan_budget: 16,
+                    cursor: None,
+                })?;
+                assert_eq!(result.records.len(), 1);
+                assert_eq!(result.records[0].data["title"], "Durable");
+                let typed = query.page(None, 16, 16, None)?;
+                assert_eq!(typed.records.len(), 1);
+                assert_eq!(typed.records[0].value.title, "Durable");
+                Ok(())
+            },
+        )
+        .unwrap();
+    assert!(reader.definition().model_bindings.is_empty());
+    assert_eq!(reader.definition().requires.len(), 1);
+    reader.sqlite_record_query(&file).unwrap().run().unwrap();
+}
+
+#[cfg(feature = "sqlite-storage")]
+#[test]
+fn sqlite_combined_query_and_storage_share_one_confirmed_linked_owner() {
+    use crate::storage::{RecordQueryContract, RecordQueryRequest};
+    use crate::{ModelRead, Records};
+    let directory = tempfile::tempdir().unwrap();
+    let file = directory.path().join("combined-query.db");
+    Application::new("CombinedQuery")
+        .handler_with_aliases(
+            |reader: ModelRead<TodoModel, RecordQueryContract>,
+             writer: Records<TodoModel>|
+             -> std::result::Result<(), Box<dyn std::error::Error + Send + Sync>> {
+                writer.create(TodoModel {
+                    title: "Confirmed SQLite".into(),
+                    completed: true,
+                })?;
+                let page = reader.query_page(RecordQueryRequest {
+                    model: "todo".into(),
+                    predicate: None,
+                    limit: 16,
+                    scan_budget: 16,
+                    cursor: None,
+                })?;
+                assert_eq!(page.records.len(), 1);
+                assert_eq!(page.records[0].data["title"], "Confirmed SQLite");
+                let typed = reader.page(None, 16, 16, None)?;
+                assert_eq!(typed.records.len(), 1);
+                assert_eq!(typed.records[0].value.title, "Confirmed SQLite");
+                Ok(())
+            },
+            ["read", "writer"],
+        )
+        .unwrap()
+        // Existing writer-oriented SDK selects the co-exposed provider
+        // instead of accidentally splitting read and write authority.
+        .sqlite_storage(&file)
+        .unwrap()
+        .run()
         .unwrap();
 }
 

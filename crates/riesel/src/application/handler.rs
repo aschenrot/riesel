@@ -231,6 +231,13 @@ where
         Ok(self)
     }
 
+    /// Read-only or co-exposed trusted linked SQLite Record Query.
+    #[cfg(feature = "sqlite-storage")]
+    pub fn sqlite_record_query(mut self, path: impl Into<std::path::PathBuf>) -> Result<Self> {
+        self.application = self.application.sqlite_record_query(path)?;
+        Ok(self)
+    }
+
     pub fn deployment(mut self, deployment: DeploymentConfig) -> Self {
         self.application = self.application.deployment(deployment);
         self

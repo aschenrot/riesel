@@ -19,6 +19,28 @@ pub struct RecordPage<T> {
     pub next_cursor: Option<Uuid>,
 }
 
+/// Bounded typed, live Query page. An empty page is only complete when
+/// `exhausted` is true; `next_cursor` is an opaque provider-owned token.
+pub struct QueryPage<T> {
+    pub records: Vec<Record<T>>,
+    pub next_cursor: Option<String>,
+    pub exhausted: bool,
+    pub inspected: u64,
+}
+
+/// Decode a provider-owned record with the same validated schema semantics
+/// for typed Storage and typed Query consumers.
+pub(crate) fn decode_record<T: RieselModel + DeserializeOwned>(
+    record: StoredRecord,
+) -> Result<Record<T>, SdkError> {
+    T::model_definition().validate_record(&record.data)?;
+    Ok(Record {
+        id: record.id,
+        value: serde_json::from_value(record.data)?,
+        revision: record.revision,
+    })
+}
+
 /// Type-safe record storage, independent of local or remote providers.
 pub struct Records<T> {
     store: Arc<dyn RecordStore + Send + Sync>,
@@ -53,12 +75,7 @@ where
     }
 
     fn decode(record: StoredRecord) -> Result<Record<T>, SdkError> {
-        T::model_definition().validate_record(&record.data)?;
-        Ok(Record {
-            id: record.id,
-            value: serde_json::from_value(record.data)?,
-            revision: record.revision,
-        })
+        decode_record(record)
     }
 
     pub fn create(&self, value: T) -> Result<Record<T>, SdkError> {
