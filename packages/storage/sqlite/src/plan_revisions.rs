@@ -5,9 +5,9 @@
 //! atomic compare-and-set; the graph runner has no SQLite dependency.
 
 use riesel_app::{
-    CheckedSourceHandoff, MAX_STORED_PLAN_BYTES, PlanAuthoringHead, PlanAuthoringSnapshot, PlanAuthoringSource,
-    PlanLayoutDraft, PlanRevisionError, PlanRevisionRepository, PlanSemanticCandidate,
-    StoredPlanLayout, StoredSemanticPlan, check_layout_nodes,
+    CheckedSourceHandoff, MAX_STORED_PLAN_BYTES, PlanAuthoringHead, PlanAuthoringSnapshot,
+    PlanAuthoringSource, PlanLayoutDraft, PlanRevisionError, PlanRevisionRepository,
+    PlanSemanticCandidate, StoredPlanLayout, StoredSemanticPlan, check_layout_nodes,
 };
 use rusqlite::{
     Connection, OpenFlags, OptionalExtension, Transaction, TransactionBehavior, params,
@@ -367,10 +367,7 @@ impl PlanRevisionRepository for SqlitePlanRevisionRepository {
         read_head(&connection, plan_id)
     }
 
-    fn current_authoring(
-        &self,
-        plan_id: &str,
-    ) -> Result<PlanAuthoringSnapshot, PlanRevisionError> {
+    fn current_authoring(&self, plan_id: &str) -> Result<PlanAuthoringSnapshot, PlanRevisionError> {
         let mut connection = self.connection()?;
         let tx = connection
             .transaction_with_behavior(TransactionBehavior::Deferred)
@@ -411,9 +408,11 @@ impl PlanRevisionRepository for SqlitePlanRevisionRepository {
             None
         };
         tx.commit().map_err(storage)?;
-        Ok(PlanAuthoringSnapshot {head, document_bytes})
+        Ok(PlanAuthoringSnapshot {
+            head,
+            document_bytes,
+        })
     }
-
 
     fn semantic(
         &self,
