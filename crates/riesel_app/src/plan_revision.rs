@@ -36,6 +36,15 @@ pub struct PlanAuthoringHead {
     pub registration_stamp: String,
 }
 
+/// One consistent read of the authoritative authoring head and source.
+/// `document_bytes` is present only when the CURRENT owner is a document.
+/// It is not a publish/activate permission, executable binding or credential.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PlanAuthoringSnapshot {
+    pub head: PlanAuthoringHead,
+    pub document_bytes: Option<Vec<u8>>,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct StoredSemanticPlan {
     pub plan_id: String,
@@ -307,11 +316,25 @@ pub trait PlanRevisionRepository: Send + Sync {
 
     fn head(&self, plan_id: &str) -> Result<PlanAuthoringHead, PlanRevisionError>;
 
+    /// The head and document are read within one consistent store snapshot.
+    /// A document gained by source handoff without a semantic change remains
+    /// available, and later S2 revisions use their own exact document bytes.
+    fn current_authoring(&self, plan_id: &str) -> Result<PlanAuthoringSnapshot, PlanRevisionError>;
+
     fn semantic(
         &self,
         plan_id: &str,
         revision: u64,
     ) -> Result<StoredSemanticPlan, PlanRevisionError>;
+
+    /// Historical authoring document for this exact immutable semantic
+    /// revision, if that revision was authored under document ownership.
+    /// Earlier code-only revisions retain inspection data only.
+    fn semantic_document(
+        &self,
+        plan_id: &str,
+        revision: u64,
+    ) -> Result<Option<Vec<u8>>, PlanRevisionError>;
 
     /// Immutable semantic revision. The old active runtime (if any) is NOT
     /// changed; activation is a separate application-owned #195 operation.

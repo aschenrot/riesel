@@ -5,9 +5,9 @@
 //! atomic compare-and-set; the graph runner has no SQLite dependency.
 
 use riesel_app::{
-    CheckedSourceHandoff, MAX_STORED_PLAN_BYTES, PlanAuthoringHead, PlanAuthoringSource,
-    PlanLayoutDraft, PlanRevisionError, PlanRevisionRepository, PlanSemanticCandidate,
-    StoredPlanLayout, StoredSemanticPlan, check_layout_nodes,
+    CheckedSourceHandoff, MAX_STORED_PLAN_BYTES, PlanAuthoringHead, PlanAuthoringSnapshot,
+    PlanAuthoringSource, PlanLayoutDraft, PlanRevisionError, PlanRevisionRepository,
+    PlanSemanticCandidate, StoredPlanLayout, StoredSemanticPlan, check_layout_nodes,
 };
 use rusqlite::{
     Connection, OpenFlags, OptionalExtension, Transaction, TransactionBehavior, params,
@@ -17,7 +17,25 @@ use std::{
     time::Duration,
 };
 
-const FORMAT: i64 = 1;
+/// Only built when the explicit, disabled-by-default testing feature is
+/// enabled. Each stage runs inside the *real production adapter* call, not
+/// against a parallel research-only transaction implementation.
+#[cfg(feature = "v2-fault-injection")]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum V2FaultStage {
+    SemanticBeforeCommit,
+    SemanticAfterCommitBeforeReply,
+    LayoutBeforeCommit,
+    LayoutAfterCommitBeforeReply,
+}
+
+mod backup;
+mod evolution;
+mod registration;
+pub use backup::{V2SnapshotBudget, VerifiedV2Snapshot};
+
+const LEGACY_FORMAT: i64 = 1;
+const FORMAT: i64 = 2;
 
 const SCHEMA: &str = "
 CREATE TABLE plan_heads(
@@ -58,6 +76,17 @@ CREATE TABLE source_handoffs(
     source_kind TEXT NOT NULL CHECK(source_kind IN ('rust','document')),
     semantic_anchor INTEGER NOT NULL,
     source_document BLOB,
+    PRIMARY KEY(plan_id,generation),
+    FOREIGN KEY(plan_id,semantic_anchor) REFERENCES semantic_revisions(plan_id,revision)
+) WITHOUT ROWID;
+CREATE TABLE plan_migrations(
+    plan_id TEXT NOT NULL,
+    generation INTEGER NOT NULL CHECK(generation>0),
+    kind TEXT NOT NULL CHECK(kind IN ('format','registration')),
+    previous_registration TEXT NOT NULL,
+    next_registration TEXT NOT NULL,
+    semantic_anchor INTEGER NOT NULL CHECK(semantic_anchor>0),
+    source_kind TEXT NOT NULL CHECK(source_kind IN ('rust','document')),
     PRIMARY KEY(plan_id,generation),
     FOREIGN KEY(plan_id,semantic_anchor) REFERENCES semantic_revisions(plan_id,revision)
 ) WITHOUT ROWID;
@@ -143,6 +172,8 @@ fn read_head(connection: &Connection, id: &str) -> Result<PlanAuthoringHead, Pla
 pub struct SqlitePlanRevisionRepository {
     path: PathBuf,
     trusted_registration_stamp: String,
+    #[cfg(feature = "v2-fault-injection")]
+    test_hook: Option<std::sync::Arc<dyn Fn(V2FaultStage) + Send + Sync>>,
 }
 
 impl SqlitePlanRevisionRepository {
@@ -209,9 +240,10 @@ impl SqlitePlanRevisionRepository {
                 tx.pragma_update(None, "user_version", FORMAT)
                     .map_err(storage)?;
             }
-            FORMAT => {
-                // Existing format is verified by requiring the declared tables.
-                // No silent destructive automatic upgrade of unknown versions.
+            LEGACY_FORMAT | FORMAT => {
+                // Format 1 remains supported but is NEVER silently migrated.
+                // A separate explicit, verified backup-backed operation is
+                // required before format 2 artifact registration changes.
                 for name in [
                     "plan_heads",
                     "semantic_revisions",
@@ -232,6 +264,18 @@ impl SqlitePlanRevisionRepository {
                         ));
                     }
                 }
+                if version == FORMAT {
+                    let history_table: i64 = tx.query_row(
+                        "SELECT count(*) FROM sqlite_schema WHERE type='table' AND name='plan_migrations'",
+                        [],
+                        |row| row.get(0),
+                    ).map_err(storage)?;
+                    if history_table != 1 {
+                        return Err(PlanRevisionError::Storage(
+                            "format 2 artifact history table is missing".into(),
+                        ));
+                    }
+                }
             }
             other => return Err(PlanRevisionError::UnsupportedFormat(other)),
         }
@@ -239,7 +283,27 @@ impl SqlitePlanRevisionRepository {
         Ok(Self {
             path: path.to_path_buf(),
             trusted_registration_stamp,
+            #[cfg(feature = "v2-fault-injection")]
+            test_hook: None,
         })
+    }
+
+    /// Test fixture only: opt-in pause/kill callback at real transaction
+    /// boundaries. Compiled out entirely from ordinary application builds.
+    #[cfg(feature = "v2-fault-injection")]
+    pub fn with_test_hook(
+        mut self,
+        callback: impl Fn(V2FaultStage) + Send + Sync + 'static,
+    ) -> Self {
+        self.test_hook = Some(std::sync::Arc::new(callback));
+        self
+    }
+
+    #[cfg(feature = "v2-fault-injection")]
+    fn fire_test_hook(&self, stage: V2FaultStage) {
+        if let Some(callback) = &self.test_hook {
+            callback(stage);
+        }
     }
 
     fn connection(&self) -> Result<Connection, PlanRevisionError> {
@@ -257,7 +321,7 @@ impl SqlitePlanRevisionRepository {
         let version: i64 = connection
             .pragma_query_value(None, "user_version", |row| row.get(0))
             .map_err(storage)?;
-        if version != FORMAT {
+        if version != FORMAT && version != LEGACY_FORMAT {
             return Err(PlanRevisionError::UnsupportedFormat(version));
         }
         Ok(connection)
@@ -295,8 +359,10 @@ impl SqlitePlanRevisionRepository {
         Ok(())
     }
 
-    /// Exact source bytes for a fenced authoring generation, if the current
-    /// owner is document. Reading a historical generation is inspection only.
+    /// Historical source captured at a specific owner-handoff generation.
+    /// A later document semantic append does NOT update this older record.
+    /// Use current_authoring() for the consistent latest source, or
+    /// semantic_document() for an exact historical semantic revision.
     pub fn source_document(
         &self,
         plan_id: &str,
@@ -365,6 +431,53 @@ impl PlanRevisionRepository for SqlitePlanRevisionRepository {
         read_head(&connection, plan_id)
     }
 
+    fn current_authoring(&self, plan_id: &str) -> Result<PlanAuthoringSnapshot, PlanRevisionError> {
+        let mut connection = self.connection()?;
+        let tx = connection
+            .transaction_with_behavior(TransactionBehavior::Deferred)
+            .map_err(storage)?;
+        let head = read_head(&tx, plan_id)?;
+        let document_bytes = if head.source == PlanAuthoringSource::Document {
+            let revision_document: Option<Option<Vec<u8>>> = tx
+                .query_row(
+                    "SELECT source_document FROM semantic_revisions WHERE plan_id=?1 AND revision=?2",
+                    params![plan_id, revision_to_db(head.semantic_revision)?],
+                    |row| row.get(0),
+                )
+                .optional()
+                .map_err(storage)?;
+            let Some(revision_document) = revision_document else {
+                return Err(PlanRevisionError::Storage(
+                    "authoritative head references a missing semantic revision".into(),
+                ));
+            };
+            let current_document = if revision_document.is_some() {
+                revision_document
+            } else {
+                tx.query_row(
+                    "SELECT source_document FROM source_handoffs WHERE plan_id=?1 AND generation=?2",
+                    params![plan_id, revision_to_db(head.source_generation)?],
+                    |row| row.get(0),
+                )
+                .optional()
+                .map_err(storage)?
+                .flatten()
+            };
+            Some(current_document.ok_or_else(|| {
+                PlanRevisionError::Storage(
+                    "document owner has no matching current authoring source".into(),
+                )
+            })?)
+        } else {
+            None
+        };
+        tx.commit().map_err(storage)?;
+        Ok(PlanAuthoringSnapshot {
+            head,
+            document_bytes,
+        })
+    }
+
     fn semantic(
         &self,
         plan_id: &str,
@@ -391,6 +504,23 @@ impl PlanRevisionRepository for SqlitePlanRevisionRepository {
             inspection,
             node_ids,
         })
+    }
+
+    fn semantic_document(
+        &self,
+        plan_id: &str,
+        revision: u64,
+    ) -> Result<Option<Vec<u8>>, PlanRevisionError> {
+        let connection = self.connection()?;
+        let stored: Option<Option<Vec<u8>>> = connection
+            .query_row(
+                "SELECT source_document FROM semantic_revisions WHERE plan_id=?1 AND revision=?2",
+                params![plan_id, revision_to_db(revision)?],
+                |row| row.get(0),
+            )
+            .optional()
+            .map_err(storage)?;
+        stored.ok_or(PlanRevisionError::NotFound)
     }
 
     fn append(
@@ -432,7 +562,11 @@ impl PlanRevisionRepository for SqlitePlanRevisionRepository {
             return Err(PlanRevisionError::Conflict);
         }
         Self::insert_semantic(&tx, next)?;
+        #[cfg(feature = "v2-fault-injection")]
+        self.fire_test_hook(V2FaultStage::SemanticBeforeCommit);
         tx.commit().map_err(storage)?;
+        #[cfg(feature = "v2-fault-injection")]
+        self.fire_test_hook(V2FaultStage::SemanticAfterCommitBeforeReply);
         self.head(&expected.plan_id)
     }
 
@@ -507,7 +641,11 @@ impl PlanRevisionRepository for SqlitePlanRevisionRepository {
             ],
         )
         .map_err(storage)?;
+        #[cfg(feature = "v2-fault-injection")]
+        self.fire_test_hook(V2FaultStage::LayoutBeforeCommit);
         tx.commit().map_err(storage)?;
+        #[cfg(feature = "v2-fault-injection")]
+        self.fire_test_hook(V2FaultStage::LayoutAfterCommitBeforeReply);
         Ok(StoredPlanLayout {
             plan_id: expected.plan_id.clone(),
             version: next_version,

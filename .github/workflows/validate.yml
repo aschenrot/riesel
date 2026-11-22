@@ -35,6 +35,22 @@ jobs:
           rustup default 1.100.0
       - name: Validate workspace
         run: cargo validate --check
+      - name: V2 production adapter OS-process crash windows (test feature only)
+        run: cargo test --locked -p riesel_storage_sqlite --features v2-fault-injection --test v2_process_crash
+      - name: V2 verified backup and offline restore
+        run: cargo test --locked -p riesel_storage_sqlite --test v2_backup
+      - name: V2 explicit backup-checked physical format migration
+        run: cargo test --locked -p riesel_storage_sqlite --test v2_format_migration
+      - name: V2 installed-build exact-registration rollover
+        run: cargo test --locked -p riesel_storage_sqlite --test v2_registration_rollover
+      - name: V2 distinct compiled app artifacts and process-level upgrade
+        run: |
+          cargo build --locked -p riesel_storage_sqlite --example v2_artifact_old --example v2_artifact_rejected --example v2_artifact_new
+          scratch="$(mktemp -d)"
+          trap 'rm -rf "$scratch"' EXIT
+          target/debug/examples/v2_artifact_old "$scratch/plans.sqlite" "$scratch/old-backup.sqlite"
+          target/debug/examples/v2_artifact_rejected "$scratch/plans.sqlite" "$scratch/old-backup.sqlite"
+          target/debug/examples/v2_artifact_new "$scratch/plans.sqlite" "$scratch/old-backup.sqlite"
       - name: Smoke test runtime and managed providers
         run: cargo smoke
 

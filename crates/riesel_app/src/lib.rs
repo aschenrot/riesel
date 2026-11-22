@@ -84,9 +84,9 @@ pub use supervisor::CancellationToken;
 pub use plan::{DeploymentPlan, PlannedService, PlannedTarget};
 pub use plan_revision::{
     CheckedSourceHandoff, MAX_STORED_LAYOUT_BYTES, MAX_STORED_PLAN_BYTES, PlanAuthoringHead,
-    PlanAuthoringSource, PlanLayoutDraft, PlanLayoutPoint, PlanRevisionError,
-    PlanRevisionRepository, PlanSemanticCandidate, StoredPlanLayout, StoredSemanticPlan,
-    check_layout_nodes,
+    PlanAuthoringSnapshot, PlanAuthoringSource, PlanLayoutDraft, PlanLayoutPoint,
+    PlanRevisionError, PlanRevisionRepository, PlanSemanticCandidate, StoredPlanLayout,
+    StoredSemanticPlan, check_layout_nodes,
 };
 
 pub use recovery::RecoveryPolicy;
