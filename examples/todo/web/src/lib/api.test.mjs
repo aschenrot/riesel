@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { ApiError, listPage, createTask, updateTask, removeTask } from './api.ts';
+import { ApiError, listPage, statusPage, createTask, updateTask, removeTask } from './api.ts';
 
 const record = { id: 'task-1', title: 'Write tests', completed: false, revision: '18446744073709551615' };
 
@@ -150,5 +150,30 @@ test('a malformed GET response stays a read error rather than mutation uncertain
   await assert.rejects(
     listPage(null, async () => new Response('invalid-json', { status: 200 })),
     (error) => error instanceof ApiError && error.code === 'invalid_response'
+  );
+});
+
+test('status Query sends only status, bounded limit and an opaque one-use cursor', async () => {
+  let observed;
+  const mock = async (url, init) => {
+    observed = { url, init };
+    return Response.json({ records: [], next_cursor: 'next', exhausted: false, inspected: 1024 });
+  };
+  const result = await statusPage(false, 'opaque', mock);
+  assert.deepEqual(result.records, []);
+  assert.equal(result.exhausted, false);
+  assert.equal(result.inspected, 1024);
+  assert.equal(observed.url, '/api/v1/tasks/query?completed=false&limit=32&cursor=opaque');
+  assert.equal(observed.init.method, 'GET');
+  assert.equal(observed.init.credentials, 'omit');
+  assert.equal(observed.init.mode, 'same-origin');
+});
+
+test('status Query preserves invalid/expired provider cursor as distinct API failure', async () => {
+  const mock = async () => Response.json({
+    error: { code: 'invalid_query_cursor', message: 'Query continuation expired or is invalid' }
+  }, { status: 409 });
+  await assert.rejects(statusPage(true, 'expired', mock), (error) =>
+    error instanceof ApiError && error.code === 'invalid_query_cursor' && error.status === 409
   );
 });
