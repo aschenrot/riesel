@@ -1,0 +1,30 @@
+name: GUI app-publication comparator (#248)
+
+permissions:
+  contents: read
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - "research/application-export/**"
+      - ".github/workflows/gui-publication-compare.yml"
+  workflow_dispatch:
+
+jobs:
+  three-app-policy-comparison:
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install repository-pinned Rust
+        run: |
+          rustup toolchain install 1.100.0 --profile minimal
+          rustup default 1.100.0
+          rustup component add rustfmt
+      - name: Format-check isolated research workspace
+        run: cargo fmt --manifest-path research/application-export/Cargo.toml -- --check
+      - name: Test real Counter, Todo and graph application owners with same policy
+        run: cargo test --manifest-path research/application-export/Cargo.toml -- --nocapture
+      - name: Reproduce source-code adaptation and dispatch counts
+        run: python3 research/application-export/measure.py
