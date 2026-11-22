@@ -80,6 +80,7 @@ def main() -> None:
             "INTERNAL_PUBLICATION_RECOVERY_OK",
             "generation_changed=true",
             "old_effect_rejected=true",
+            "SOURCE_QUALIFIED_COUNTER_OBSERVATION_OK",
         ),
     )
     verify_scenario(

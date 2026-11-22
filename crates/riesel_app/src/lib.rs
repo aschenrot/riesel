@@ -14,6 +14,9 @@ mod execution_runner;
 mod fixed_step;
 #[cfg(all(test, feature = "internal-publication"))]
 mod internal_publication_tests;
+#[cfg(feature = "internal-publication")]
+#[doc(hidden)]
+pub mod operational_observation;
 mod plan;
 mod recovery;
 mod resolver;

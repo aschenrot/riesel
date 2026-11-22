@@ -2,6 +2,12 @@
 //! managed provider dies. Old capability handles are never reused.
 use riesel::Application;
 use riesel_counter::CounterContract;
+
+#[cfg(feature = "internal-publication")]
+use riesel::internal_observation::{
+    GenerationEvidence, ObservationSnapshot, ObservationSource, ObservationState,
+    ObservationSubject,
+};
 use std::io;
 use std::time::Duration;
 
@@ -41,12 +47,68 @@ fn main() -> riesel::Result<()> {
     #[cfg(feature = "internal-publication")]
     let mut previous_publication: Option<(InternalPublicationSession, String, u32)> = None;
     let mut previous: Option<std::sync::Arc<dyn riesel_counter::Counter + Send + Sync>> = None;
+    #[cfg(feature = "internal-publication")]
+    let mut previous_observation: Option<ObservationSnapshot> = None;
     Application::new("RecoveryProbe")
         .rpc::<CounterContract>("counter")?
         .run_from_env(move |ctx| {
             executions += 1;
             let counter = ctx.capability::<CounterContract>("counter")?;
             assert_eq!(counter.value()?, 0);
+            #[cfg(feature = "internal-publication")]
+            {
+                let observed = ctx
+                    .internal_operational_observations()
+                    .expect("runtime can observe only its own validated bindings");
+                assert_eq!(
+                    observed.generation(),
+                    ctx.internal_publication_session().generation()
+                );
+                assert_eq!(
+                    observed.generation_evidence(),
+                    GenerationEvidence::RuntimeIssued
+                );
+                let binding_index = observed
+                    .facts()
+                    .iter()
+                    .position(|fact| {
+                        fact.source == ObservationSource::Runtime
+                            && matches!(
+                                &fact.subject,
+                                ObservationSubject::ProviderBinding { requirement, .. }
+                                    if requirement == "counter"
+                            )
+                    })
+                    .expect("actual managed Counter binding must be observed");
+                assert_eq!(
+                    observed.state_at(binding_index, std::time::Instant::now()),
+                    Some(ObservationState::Observed)
+                );
+                assert_eq!(
+                    observed.state_of(
+                        &ObservationSubject::AuthorizedApplicationOperation,
+                        std::time::Instant::now(),
+                    ),
+                    ObservationState::Unsupported,
+                    "verified managed Counter is not an exported authorized interface"
+                );
+                if executions == 1 {
+                    previous_observation = Some(observed);
+                } else {
+                    let old = previous_observation
+                        .take()
+                        .expect("the first live runtime observation must exist");
+                    assert_ne!(old.generation(), observed.generation());
+                    assert_eq!(
+                        old.state_at(0, std::time::Instant::now()),
+                        Some(ObservationState::Stale),
+                        "a real crash/recovery invalidates former runtime observations"
+                    );
+                    println!(
+                        "SOURCE_QUALIFIED_COUNTER_OBSERVATION_OK                          verified_binding=true external_callability_unsupported=true                          old_generation_stale=true"
+                    );
+                }
+            }
             if executions == 1 {
                 #[cfg(feature = "internal-publication")]
                 {
