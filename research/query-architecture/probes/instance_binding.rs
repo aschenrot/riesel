@@ -515,6 +515,9 @@ fn authority_relationship_needs_explicit_schema_evolution_not_reused_bindings() 
         .unwrap()
         .push("read".into());
     modified.validate().unwrap();
-    assert_eq!(modified.model_bindings[TaskData::MODEL_NAME], ["writer", "read"]);
+    assert_eq!(
+        modified.model_bindings[TaskData::MODEL_NAME],
+        ["writer", "read"]
+    );
     assert_eq!(modified.requires.len(), 2);
 }
