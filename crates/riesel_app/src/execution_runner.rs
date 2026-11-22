@@ -384,6 +384,8 @@ pub struct GraphExecutionFailure {
 // into production main or mistaken for an accepted scheduler policy.
 pub struct ExecutionGraphRunner {
     research_pending_cursor_enabled: bool,
+    research_topological_cursor_enabled: bool,
+    research_order: Vec<usize>,
     research_pending_cursor: usize,
     research_admit_passes: u64,
     research_admit_visits: u64,
@@ -432,11 +434,21 @@ impl ExecutionGraphRunner {
             description.revision(),
         );
         let publication = GraphRunPublication::new(identity, operations, session.clone());
-        let index = operations
+        let index: BTreeMap<String, usize> = operations
             .iter()
             .enumerate()
             .map(|(i, node)| (node.id().to_owned(), i))
             .collect();
+        let research_topological_cursor_enabled =
+            std::env::var_os("RIESEL_RESEARCH_TOPO_CURSOR").is_some();
+        let research_order = if research_topological_cursor_enabled {
+            plan.plan()
+                .dependency_order()
+                .map(|node| *index.get(node.id()).expect("validated operation id"))
+                .collect()
+        } else {
+            Vec::new()
+        };
         let allowed = operations
             .iter()
             .filter_map(|node| match node.trigger() {
@@ -447,7 +459,9 @@ impl ExecutionGraphRunner {
         let (sender, signal_rx) = mpsc::channel(MAX_PENDING_SIGNALS);
         Ok(Self {
             research_pending_cursor_enabled: std::env::var_os("RIESEL_RESEARCH_PENDING_CURSOR")
-                .is_some(),
+                .is_some() || research_topological_cursor_enabled,
+            research_topological_cursor_enabled,
+            research_order,
             research_pending_cursor: 0,
             research_admit_passes: 0,
             research_admit_visits: 0,
@@ -629,10 +643,11 @@ impl ExecutionGraphRunner {
         self.publication.finish(session_expired);
         if std::env::var_os("RIESEL_RESEARCH_ADMISSION_COUNTERS").is_some() {
             eprintln!(
-                "research #226 admission plan={} nodes={} cursor={} passes={} visited={} started={}",
+                "research #226 admission plan={} nodes={} cursor={} topo={} passes={} visited={} started={}",
                 self.plan.plan().description().id(),
                 self.states.len(),
                 self.research_pending_cursor_enabled,
+                self.research_topological_cursor_enabled,
                 self.research_admit_passes,
                 self.research_admit_visits,
                 self.started,
@@ -677,16 +692,21 @@ impl ExecutionGraphRunner {
         active: &mut HashMap<Id, usize>,
     ) {
         // In a one-shot immutable plan, a node never becomes Pending again.
-        // Temporary research variant: skip only the verified non-Pending
-        // declaration prefix. A pending signal/resource/control-gated node
-        // stops the cursor, so this is not a general ready-node index.
+        // Temporary research variants: skip a prefix in either declared or
+        // validated topological order, but never skip a still-Pending node.
+        // In topological mode, actual admission still uses the original node
+        // identity and the same session/control ownership gates. Topological
+        // order may change tie-breaking among independent ready operations.
         if self.research_pending_cursor_enabled {
-            while self.research_pending_cursor < self.states.len()
-                && !matches!(
-                    self.states[self.research_pending_cursor],
-                    OperationState::Pending
-                )
-            {
+            while self.research_pending_cursor < self.states.len() {
+                let index = if self.research_topological_cursor_enabled {
+                    self.research_order[self.research_pending_cursor]
+                } else {
+                    self.research_pending_cursor
+                };
+                if matches!(self.states[index], OperationState::Pending) {
+                    break;
+                }
                 self.research_pending_cursor += 1;
             }
         }
@@ -697,10 +717,16 @@ impl ExecutionGraphRunner {
         } else {
             0
         };
-        for (index, node) in operations.iter().enumerate().skip(begin) {
+        for position in begin..operations.len() {
             if active.len() >= self.max_in_flight {
                 break;
             }
+            let index = if self.research_topological_cursor_enabled {
+                self.research_order[position]
+            } else {
+                position
+            };
+            let node = &operations[index];
             self.research_admit_visits += 1;
             if !matches!(self.states[index], OperationState::Pending) {
                 continue;
