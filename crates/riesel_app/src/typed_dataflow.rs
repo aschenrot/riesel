@@ -185,8 +185,7 @@ pub enum TypedOperationOutcome {
 
 pub type TypedOperationFuture =
     Pin<Box<dyn Future<Output = TypedOperationOutcome> + Send + 'static>>;
-pub type AsyncTypedOperation =
-    dyn Fn(TypedInputs) -> TypedOperationFuture + Send + Sync + 'static;
+pub type AsyncTypedOperation = dyn Fn(TypedInputs) -> TypedOperationFuture + Send + Sync + 'static;
 
 pub fn typed_operation<F, Fut>(operation: F) -> Arc<AsyncTypedOperation>
 where
@@ -358,10 +357,7 @@ impl TypedExecutionPlan {
                 ));
             }
             if input_edges
-                .insert(
-                    (edge.to_node.clone(), edge.to_port.clone()),
-                    edge.clone(),
-                )
+                .insert((edge.to_node.clone(), edge.to_port.clone()), edge.clone())
                 .is_some()
             {
                 return Err(TypedGraphError::DuplicateInput(
@@ -403,7 +399,10 @@ impl TypedExecutionPlan {
         let store = Arc::new(Mutex::new(ArtifactStore::default()));
         let mut handlers = BTreeMap::<String, Arc<AsyncOperation>>::new();
         for node in nodes {
-            let registered = registry.operations.get(node.binding()).expect("checked binding");
+            let registered = registry
+                .operations
+                .get(node.binding())
+                .expect("checked binding");
             let descriptor = registered.descriptor.clone();
             let handler = Arc::clone(&registered.handler);
             let operation_id = node.id().to_owned();
