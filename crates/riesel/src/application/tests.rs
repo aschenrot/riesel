@@ -57,6 +57,102 @@ fn rust_model_numeric_and_container_fields_round_trip_through_storage() {
 }
 
 #[cfg(feature = "dev-memory-storage")]
+fn verify_metadata_record_query(
+    reader: crate::ModelRead<ExtendedModel, crate::storage::RecordQueryContract>,
+    writer: crate::Records<ExtendedModel>,
+) -> std::result::Result<(), Box<dyn std::error::Error + Send + Sync>> {
+    use crate::storage::{RecordCompare, RecordPredicate, RecordQueryError};
+
+    writer.create(ExtendedModel {
+        count: u64::MAX,
+        delta: i64::MIN,
+        ratio: 0.75,
+        note: None,
+        tags: vec!["editor".into(), "metadata".into()],
+        payload: serde_json::json!({"category":"workspace","version":1}),
+    })?;
+    let matches = reader.page(
+        Some(RecordPredicate {
+            field: "count".into(),
+            operator: RecordCompare::Eq,
+            value: Some(serde_json::json!(u64::MAX)),
+        }),
+        32,
+        32,
+        None,
+    )?;
+    assert_eq!(matches.records.len(), 1);
+    assert_eq!(matches.records[0].value.count, u64::MAX);
+    assert_eq!(matches.records[0].value.delta, i64::MIN);
+    assert_eq!(matches.records[0].value.tags, ["editor", "metadata"]);
+    assert!(matches.records[0].value.note.is_none());
+
+    let nulls = reader.page(
+        Some(RecordPredicate {
+            field: "note".into(),
+            operator: RecordCompare::IsNull,
+            value: None,
+        }),
+        32,
+        32,
+        None,
+    )?;
+    assert_eq!(nulls.records.len(), 1);
+
+    let unsupported = reader.page(
+        Some(RecordPredicate {
+            field: "ratio".into(),
+            operator: RecordCompare::Eq,
+            value: Some(serde_json::json!(0.75)),
+        }),
+        32,
+        32,
+        None,
+    );
+    assert!(matches!(
+        unsupported,
+        Err(SdkError::Query(RecordQueryError::UnsupportedPredicate))
+    ));
+    Ok(())
+}
+
+#[cfg(feature = "dev-memory-storage")]
+#[test]
+fn typed_record_query_metadata_model_is_not_todo_specific() {
+    use crate::storage::RecordQueryContract;
+
+    Application::new("EditorMetadataMemory")
+        .handler_with_aliases(
+            verify_metadata_record_query,
+            ["metadata_read", "metadata_write"],
+        )
+        .unwrap()
+        .development()
+        .unwrap()
+        .run()
+        .unwrap();
+
+    #[cfg(feature = "sqlite-storage")]
+    {
+        let directory = tempfile::tempdir().unwrap();
+        let file = directory.path().join("editor-metadata.db");
+        Application::new("EditorMetadataSQLite")
+            .handler_with_aliases(
+                verify_metadata_record_query,
+                ["metadata_read", "metadata_write"],
+            )
+            .unwrap()
+            .sqlite_storage(file)
+            .unwrap()
+            .run()
+            .unwrap();
+    }
+
+    let contract = RecordQueryContract::definition().unwrap();
+    assert!(contract.operations.values().all(|op| op.kind == riesel_schema::OperationKind::Query));
+}
+
+#[cfg(feature = "dev-memory-storage")]
 #[test]
 fn records_can_bind_explicitly_to_named_storage_requirements() {
     Application::new("Aliases")
