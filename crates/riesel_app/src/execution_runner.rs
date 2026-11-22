@@ -5,9 +5,11 @@
 //! provider resolver or ECS scheduler here. The optional async-tcp feature
 //! supplies the existing Tokio session infrastructure.
 //!
-//! This first increment admits one-shot operations, explicit signals and
-//! declarative resource conflicts. Authoritative run identity, committed-effect
-//! ledgers and cooperative step controls belong to Issue #113.
+//! This coordinator admits one-shot operations, explicit signals, declared
+//! domain boundaries and resource conflicts. Its session-local observer
+//! publishes authoritative run state; effect ledgers and cooperative control
+//! remain distinct follow-up work under Issue #113.
+use crate::execution_observation::{GraphRunIdentity, GraphRunObserver, GraphRunPublication};
 use crate::execution_plan::{
     AccessMode, BoundExecutionPlan, DomainAdmissionMode, DomainBoundary, OperationTrigger,
     ResourceAccess,
@@ -22,6 +24,7 @@ use std::sync::{Arc, Mutex, PoisonError};
 use thiserror::Error;
 use tokio::sync::{Notify, mpsc};
 use tokio::task::{Id, JoinSet};
+use uuid::Uuid;
 
 const MAX_PARALLEL_OPERATIONS: usize = 32;
 const MAX_SESSION_PARALLEL_OPERATIONS: usize = 32;
@@ -31,15 +34,28 @@ const MAX_PENDING_SIGNALS: usize = 64;
 /// One shared admission authority belongs to the existing RunningApp session.
 /// Separate runs must not each claim their own 32-operation budget or run
 /// conflicting declared accesses without coordination.
-#[derive(Default)]
 pub(crate) struct SessionGraphAdmission {
     state: Mutex<SessionGraphState>,
     changed: Notify,
+    // Runtime-issued, in-process scope identity for every run in this
+    // application generation; not an external identity or credential.
+    session_generation: Uuid,
+}
+
+impl Default for SessionGraphAdmission {
+    fn default() -> Self {
+        Self {
+            state: Mutex::new(SessionGraphState::default()),
+            changed: Notify::new(),
+            session_generation: Uuid::new_v4(),
+        }
+    }
 }
 
 #[derive(Default)]
 struct SessionGraphState {
     live_runs: usize,
+    next_run_sequence: u64,
     next_ticket: u64,
     operations: BTreeMap<u64, OperationReservation>,
     // One declared outer admission authority per named domain while any run
@@ -55,6 +71,7 @@ struct OperationReservation {
 struct GraphRunLease {
     session: Arc<SessionGraphAdmission>,
     domains: BTreeMap<String, DomainAdmissionMode>,
+    run_sequence: u64,
 }
 
 impl Drop for GraphRunLease {
@@ -159,14 +176,20 @@ impl SessionGraphAdmission {
                 });
             }
         }
+        let next_sequence = state
+            .next_run_sequence
+            .checked_add(1)
+            .ok_or(GraphRunError::RunIdentityExhausted)?;
         for (domain, mode) in &domains {
             let (_, owners) = state.domains.entry(domain.clone()).or_insert((*mode, 0));
             *owners += 1;
         }
+        state.next_run_sequence = next_sequence;
         state.live_runs += 1;
         Ok(GraphRunLease {
             session: Arc::clone(self),
             domains,
+            run_sequence: next_sequence,
         })
     }
 
@@ -258,6 +281,8 @@ pub enum GraphRunError {
     InvalidParallelism { requested: usize, maximum: usize },
     #[error("the application session already has {limit} outstanding graph runs")]
     SessionRunLimitExceeded { limit: usize },
+    #[error("application session exhausted its graph run identity sequence")]
+    RunIdentityExhausted,
     #[error(
         "domain {domain} already has {existing:?} admission authority; cannot also claim {requested:?}"
     )]
@@ -301,10 +326,11 @@ impl GraphSignalSender {
     }
 }
 
-/// A completed local execution report, NOT a globally unique run identity or
-/// the authoritative live/synchronized run snapshot planned by #113.
+/// A completed local execution report; its identity also identifies the
+/// session-owned authoritative in-process snapshot retained by an observer.
 #[derive(Debug, Clone)]
 pub struct GraphRunReport {
+    pub identity: GraphRunIdentity,
     pub plan_id: String,
     pub revision: u64,
     pub operations: BTreeMap<String, OperationState>,
@@ -339,6 +365,9 @@ pub struct ExecutionGraphRunner {
     plan: BoundExecutionPlan<AsyncOperation>,
     session: SessionToken,
     admission: Arc<SessionGraphAdmission>,
+    // Drop this before the domain lease: an abruptly abandoned coordinator
+    // must publish conservative terminal states before another owner enters.
+    publication: GraphRunPublication,
     _run_lease: GraphRunLease,
     index: BTreeMap<String, usize>,
     states: Vec<OperationState>,
@@ -369,7 +398,15 @@ impl ExecutionGraphRunner {
             });
         }
         let run_lease = admission.claim_run(&plan)?;
-        let operations = plan.plan().description().operations();
+        let description = plan.plan().description();
+        let operations = description.operations();
+        let identity = GraphRunIdentity::new(
+            admission.session_generation,
+            run_lease.run_sequence,
+            description.id().to_owned(),
+            description.revision(),
+        );
+        let publication = GraphRunPublication::new(identity, operations, session.clone());
         let index = operations
             .iter()
             .enumerate()
@@ -388,6 +425,7 @@ impl ExecutionGraphRunner {
             plan,
             session: session.clone(),
             admission,
+            publication,
             _run_lease: run_lease,
             index,
             fired: BTreeSet::new(),
@@ -405,6 +443,13 @@ impl ExecutionGraphRunner {
 
     pub fn signal_sender(&self) -> GraphSignalSender {
         self.signal_tx.clone()
+    }
+
+    /// Read authoritative live state and the bounded transition ring for this
+    /// exact run. The handle cannot admit work, control safe points or
+    /// authenticate another process. It may outlive the completed runner.
+    pub fn observer(&self) -> GraphRunObserver {
+        self.publication.observer()
     }
 
     pub(crate) fn belongs_to_session(&self, session: &SessionToken) -> bool {
@@ -430,6 +475,7 @@ impl ExecutionGraphRunner {
         let mut session_expired = false;
         let mut stopped_by_owner = false;
         let mut stop = std::pin::pin!(stop);
+        self.publication.start();
 
         loop {
             if std::future::poll_fn(|cx| std::task::Poll::Ready(stop.as_mut().poll(cx).is_ready()))
@@ -495,12 +541,16 @@ impl ExecutionGraphRunner {
                             OperationOutcome::Cancelled => OperationState::Cancelled,
                             OperationOutcome::OutcomeUnknown => OperationState::OutcomeUnknown,
                         };
+                        self.publication
+                            .transition(index, self.states[index].clone());
                     }
                     Err(error) => {
                         let index = active
                             .remove(&error.id())
                             .expect("tracked operation task identity");
                         self.states[index] = OperationState::Failed(error.to_string());
+                        self.publication
+                            .transition(index, self.states[index].clone());
                     }
                 },
             }
@@ -512,15 +562,21 @@ impl ExecutionGraphRunner {
             for index in active.into_values() {
                 // The body may have dispatched external effects before abort.
                 self.states[index] = OperationState::OutcomeUnknown;
+                self.publication
+                    .transition(index, OperationState::OutcomeUnknown);
             }
             self.block_dependents();
-            for state in &mut self.states {
+            for (index, state) in self.states.iter_mut().enumerate() {
                 if matches!(state, OperationState::Pending) {
                     *state = OperationState::Cancelled;
+                    self.publication
+                        .transition(index, OperationState::Cancelled);
                 }
             }
         }
 
+        let identity = self.publication.identity();
+        self.publication.finish(session_expired);
         let description = self.plan.plan().description();
         let operations = description
             .operations()
@@ -530,6 +586,7 @@ impl ExecutionGraphRunner {
             .collect();
         (
             GraphRunReport {
+                identity,
                 plan_id: description.id().to_owned(),
                 revision: description.revision(),
                 operations,
@@ -591,6 +648,7 @@ impl ExecutionGraphRunner {
             });
             active.insert(handle.id(), index);
             self.states[index] = OperationState::Running;
+            self.publication.transition(index, OperationState::Running);
             self.started += 1;
             self.peak_in_flight = self.peak_in_flight.max(active.len());
         }
@@ -615,6 +673,7 @@ impl ExecutionGraphRunner {
                 });
                 if failed_prerequisite {
                     self.states[index] = OperationState::Blocked;
+                    self.publication.transition(index, OperationState::Blocked);
                     changed = true;
                 }
             }

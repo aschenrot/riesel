@@ -54,8 +54,11 @@ pub use application::{
 pub use records::{Record, RecordPage, Records};
 #[cfg(feature = "async-tcp")]
 pub use riesel_app::{
-    AsyncOperation, ExecutionGraphRunner, GraphExecutionFailure, GraphRunError, GraphRunReport,
-    GraphSignalSender, OperationFuture, OperationOutcome, OperationState, async_operation,
+    AsyncOperation, ExecutionGraphRunner, GraphExecutionFailure, GraphObservationError,
+    GraphObservedOperation, GraphRunChange, GraphRunError, GraphRunIdentity, GraphRunObserver,
+    GraphRunPhase, GraphRunReport, GraphRunSnapshot, GraphRunTransition, GraphRunTransitions,
+    GraphSignalSender, MAX_GRAPH_TRANSITIONS, OperationFuture, OperationOutcome, OperationState,
+    async_operation,
 };
 #[cfg(feature = "async-tcp")]
 pub use riesel_app::{AsyncTasks, ProviderBlocking, ProviderBlockingError, ProviderCancellation};

@@ -4,7 +4,8 @@
 #![cfg(feature = "async-tcp")]
 use riesel::{
     AccessMode, App, AsyncOperation, ConnectorRegistry, DeploymentConfig, DomainAdmissionMode,
-    ExecutionPlanDraft, FixedStepAdmission, FixedStepBacklog, FixedStepPolicy, GraphRunError,
+    ExecutionPlanDraft, FixedStepAdmission, FixedStepBacklog, FixedStepPolicy,
+    GraphObservationError, GraphRunChange, GraphRunError, GraphRunPhase, MAX_GRAPH_TRANSITIONS,
     OperationKey, OperationNode, OperationOutcome, OperationRegistry, OperationState, RunningApp,
     async_operation,
 };
@@ -902,5 +903,300 @@ fn bounded_frame_budget_runs_a_reused_immutable_plan_without_implicit_retries() 
             .unwrap();
         assert!(runner.execute().await.succeeded());
         assert_eq!(completed.load(Ordering::SeqCst), 3);
+    });
+}
+
+#[test]
+fn observer_exposes_live_running_state_and_correlated_completion_without_polling_traces() {
+    runtime().block_on(async {
+        let release = Arc::new(tokio::sync::Notify::new());
+        let mut registry = OperationRegistry::<AsyncOperation>::new();
+        registry
+            .register(
+                key("hold"),
+                async_operation({
+                    let release = Arc::clone(&release);
+                    move || {
+                        let release = Arc::clone(&release);
+                        async move {
+                            release.notified().await;
+                            OperationOutcome::Completed
+                        }
+                    }
+                }),
+            )
+            .unwrap();
+        registry
+            .register(
+                key("follow"),
+                async_operation(|| async { OperationOutcome::Completed }),
+            )
+            .unwrap();
+        let plan = ExecutionPlanDraft::new("observed", 7)
+            .operation(OperationNode::new("hold", key("hold")))
+            .operation(OperationNode::new("follow", key("follow")).after("hold"))
+            .validate()
+            .unwrap()
+            .bind(&registry)
+            .unwrap();
+        let owner = application_session();
+        let runner = owner
+            .execution_graph(plan, NonZeroUsize::new(2).unwrap())
+            .unwrap();
+        let observer = runner.observer();
+        let created = observer.snapshot();
+        assert_eq!(created.phase, GraphRunPhase::Created);
+        assert_eq!(created.identity.plan_id(), "observed");
+        assert_eq!(created.identity.revision(), 7);
+        assert_eq!(created.latest_sequence, 0);
+        assert_eq!(created.operations["hold"].attempt, 0);
+        let handle = tokio::spawn(runner.execute());
+
+        let running = tokio::time::timeout(Duration::from_secs(3), async {
+            loop {
+                let snapshot = observer.snapshot();
+                if snapshot.operations["hold"].attempt == 1 {
+                    break snapshot;
+                }
+                tokio::task::yield_now().await;
+            }
+        })
+        .await
+        .unwrap();
+        assert_eq!(running.phase, GraphRunPhase::Running);
+        assert_eq!(running.operations["hold"].state, OperationState::Running);
+        assert_eq!(running.operations["follow"].state, OperationState::Pending);
+        assert_eq!(running.operations["follow"].attempt, 0);
+        assert!(!handle.is_finished());
+        let events = observer.changes_since(0).unwrap();
+        assert!(!events.truncated);
+        assert!(
+            events
+                .events
+                .iter()
+                .all(|event| event.identity == created.identity)
+        );
+        assert!(events.events.iter().any(|event| matches!(
+            &event.change,
+            GraphRunChange::Operation { operation_id, attempt: 1, state: OperationState::Running }
+                if operation_id == "hold"
+        )));
+
+        release.notify_one();
+        let report = tokio::time::timeout(Duration::from_secs(3), handle)
+            .await
+            .unwrap()
+            .unwrap();
+        assert!(report.succeeded());
+        assert_eq!(report.identity, created.identity);
+        let done = observer.snapshot();
+        assert_eq!(done.phase, GraphRunPhase::Finished);
+        assert_eq!(done.identity, report.identity);
+        assert_eq!(done.operations["hold"].state, OperationState::Completed);
+        assert_eq!(done.operations["follow"].state, OperationState::Completed);
+        assert_eq!(done.operations["follow"].attempt, 1);
+        let tail = observer.changes_since(events.latest_sequence).unwrap();
+        assert!(!tail.truncated);
+        assert!(
+            tail.events.iter().any(|event| matches!(
+                event.change,
+                GraphRunChange::Phase(GraphRunPhase::Finished)
+            ))
+        );
+    });
+}
+
+#[test]
+fn run_identities_bind_one_immutable_revision_to_distinct_session_generations() {
+    let mut registry = OperationRegistry::<AsyncOperation>::new();
+    registry
+        .register(
+            key("read"),
+            async_operation(|| async { OperationOutcome::Completed }),
+        )
+        .unwrap();
+    let plan = |revision| {
+        ExecutionPlanDraft::new("revised", revision)
+            .operation(OperationNode::new("read", key("read")))
+            .validate()
+            .unwrap()
+            .bind(&registry)
+            .unwrap()
+    };
+    let first_session = application_session();
+    let first = first_session
+        .execution_graph(plan(2), NonZeroUsize::new(1).unwrap())
+        .unwrap();
+    let first_observer = first.observer();
+    let second = first_session
+        .execution_graph(plan(3), NonZeroUsize::new(1).unwrap())
+        .unwrap();
+    let first_id = first_observer.snapshot().identity;
+    let second_id = second.observer().snapshot().identity;
+    assert_eq!(
+        first_id.session_generation(),
+        second_id.session_generation()
+    );
+    assert_ne!(first_id.run_sequence(), second_id.run_sequence());
+    assert_eq!(first_id.revision(), 2);
+    assert_eq!(second_id.revision(), 3);
+
+    let restarted_session = application_session();
+    let restarted = restarted_session
+        .execution_graph(plan(2), NonZeroUsize::new(1).unwrap())
+        .unwrap();
+    let restarted_id = restarted.observer().snapshot().identity;
+    assert_ne!(
+        first_id.session_generation(),
+        restarted_id.session_generation()
+    );
+    assert_ne!(first_id, restarted_id);
+    assert_eq!(first_observer.snapshot().identity, first_id);
+    // Dropping an unexecuted plan never creates a completed trace.
+    drop(first);
+    assert_eq!(first_observer.snapshot().phase, GraphRunPhase::Abandoned);
+    assert_eq!(
+        first_observer.snapshot().operations["read"].state,
+        OperationState::Cancelled
+    );
+}
+
+#[test]
+fn lossy_transition_ring_reports_overflow_and_resnapshot_reconciles_every_operation() {
+    runtime().block_on(async {
+        let mut registry = OperationRegistry::<AsyncOperation>::new();
+        registry
+            .register(
+                key("noop"),
+                async_operation(|| async { OperationOutcome::Completed }),
+            )
+            .unwrap();
+        let mut plan = ExecutionPlanDraft::new("overflow", 1);
+        for index in 0..90 {
+            plan = plan.operation(OperationNode::new(format!("node-{index}"), key("noop")));
+        }
+        let owner = application_session();
+        let runner = owner
+            .execution_graph(
+                plan.validate().unwrap().bind(&registry).unwrap(),
+                NonZeroUsize::new(8).unwrap(),
+            )
+            .unwrap();
+        let observer = runner.observer();
+        let report = runner.execute().await;
+        assert!(report.succeeded());
+        let history = observer.changes_since(0).unwrap();
+        assert!(history.truncated, "ring overflow is detectable");
+        assert_eq!(history.events.len(), MAX_GRAPH_TRANSITIONS);
+        assert!(history.events[0].sequence > 1);
+        assert!(
+            history
+                .events
+                .windows(2)
+                .all(|pair| pair[0].sequence + 1 == pair[1].sequence)
+        );
+        assert_eq!(history.latest_sequence, observer.snapshot().latest_sequence);
+        assert!(matches!(
+            observer.changes_since(history.latest_sequence + 1),
+            Err(GraphObservationError::FutureCursor { .. })
+        ));
+        let recovered = observer.snapshot();
+        assert_eq!(recovered.phase, GraphRunPhase::Finished);
+        assert_eq!(recovered.operations.len(), 90);
+        assert!(
+            recovered
+                .operations
+                .values()
+                .all(|node| node.state == OperationState::Completed && node.attempt == 1)
+        );
+        let recent = observer
+            .changes_since(recovered.latest_sequence - 1)
+            .unwrap();
+        assert!(!recent.truncated);
+        assert_eq!(recent.events.len(), 1);
+        assert!(matches!(
+            recent.events[0].change,
+            GraphRunChange::Phase(GraphRunPhase::Finished)
+        ));
+        assert!(
+            observer
+                .changes_since(recovered.latest_sequence)
+                .unwrap()
+                .events
+                .is_empty()
+        );
+    });
+}
+
+#[test]
+fn abrupt_graph_future_abort_reports_in_flight_unknown_and_blocks_success_dependents() {
+    runtime().block_on(async {
+        let mut registry = OperationRegistry::<AsyncOperation>::new();
+        registry
+            .register(
+                key("pending"),
+                async_operation(|| async {
+                    std::future::pending::<()>().await;
+                    OperationOutcome::Completed
+                }),
+            )
+            .unwrap();
+        registry
+            .register(
+                key("noop"),
+                async_operation(|| async { OperationOutcome::Completed }),
+            )
+            .unwrap();
+        let plan = ExecutionPlanDraft::new("abandon", 1)
+            .operation(OperationNode::new("pending", key("pending")))
+            .operation(OperationNode::new("dependent", key("noop")).after("pending"))
+            .operation(OperationNode::new("unrelated", key("noop")).on_signal("not-fired"))
+            .validate()
+            .unwrap()
+            .bind(&registry)
+            .unwrap();
+        let owner = application_session();
+        let runner = owner
+            .execution_graph(plan, NonZeroUsize::new(2).unwrap())
+            .unwrap();
+        let observer = runner.observer();
+        let handle = tokio::spawn(runner.execute());
+        tokio::time::timeout(Duration::from_secs(3), async {
+            while observer.snapshot().operations["pending"].state != OperationState::Running {
+                tokio::task::yield_now().await;
+            }
+        })
+        .await
+        .unwrap();
+        handle.abort();
+        let _ = handle.await;
+        let terminal = observer.snapshot();
+        assert_eq!(terminal.phase, GraphRunPhase::Abandoned);
+        assert_eq!(
+            terminal.operations["pending"].state,
+            OperationState::OutcomeUnknown
+        );
+        assert_eq!(terminal.operations["pending"].attempt, 1);
+        assert_eq!(
+            terminal.operations["dependent"].state,
+            OperationState::Blocked
+        );
+        assert_eq!(terminal.operations["dependent"].attempt, 0);
+        assert_eq!(
+            terminal.operations["unrelated"].state,
+            OperationState::Cancelled
+        );
+        assert_eq!(terminal.operations["unrelated"].attempt, 0);
+        assert!(
+            observer
+                .changes_since(0)
+                .unwrap()
+                .events
+                .iter()
+                .any(|event| matches!(
+                    event.change,
+                    GraphRunChange::Phase(GraphRunPhase::Abandoned)
+                ))
+        );
     });
 }
