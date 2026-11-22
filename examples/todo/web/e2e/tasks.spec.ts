@@ -31,7 +31,7 @@ test.beforeEach(async ({ request }) => {
 
 test('browser creates, edits, completes, reopens and deletes a task', async ({ page }) => {
   await page.goto('/');
-  await expect(page.getByRole('heading', { name: 'Tasks' })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Tasks', exact: true })).toBeVisible();
   await expect(page.getByText('No open tasks found')).toBeVisible();
 
   await page.getByRole('textbox', { name: 'New task' }).fill('Plan release');
@@ -100,10 +100,10 @@ test('connection errors are visible and allow retry without losing tasks', async
   await page.getByRole('button', { name: 'Add task' }).click();
   await expect(page.getByText('Reconnect task', { exact: true })).toBeVisible();
 
-  await page.route('**/api/v1/tasks*', (route) => route.abort());
+  await page.route('**/api/v1/tasks/query?*', (route) => route.abort());
   await page.getByRole('button', { name: 'Refresh tasks' }).click();
   await expect(page.getByRole('alert')).toContainText('Cannot connect to the Todo backend.');
-  await page.unroute('**/api/v1/tasks*');
+  await page.unroute('**/api/v1/tasks/query?*');
   await page.getByRole('button', { name: 'Try again' }).click();
   await expect(page.getByText('Reconnect task', { exact: true })).toBeVisible();
 });
@@ -173,16 +173,16 @@ test('uncertain edit keeps its draft until the user explicitly discards it', asy
 });
 
 test('loading and domain validation are visible before accepting corrected input', async ({ page }) => {
-  await page.route('**/api/v1/tasks*', async (route) => {
+  await page.route('**/api/v1/tasks/query?*', async (route) => {
     if (route.request().method() === 'GET') {
       await new Promise((resolve) => setTimeout(resolve, 900));
     }
     await route.continue();
   });
   await page.goto('/');
-  await expect(page.getByText('Loading tasks…')).toBeVisible();
+  await expect(page.getByText('Checking open tasks', { exact: false })).toBeVisible();
   await expect(page.getByText('No open tasks found')).toBeVisible();
-  await page.unroute('**/api/v1/tasks*');
+  await page.unroute('**/api/v1/tasks/query?*');
 
   await page.getByRole('textbox', { name: 'New task' }).fill('   ');
   await page.getByRole('button', { name: 'Add task' }).click();
@@ -323,7 +323,7 @@ test('capture desktop and mobile UI for visual review', async ({ page }) => {
   });
   await page.getByRole('button', { name: 'Cancel selection' }).click();
   await page.setViewportSize({ width: 375, height: 812 });
-  await expect(page.getByRole('heading', { name: 'Tasks' })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Tasks', exact: true })).toBeVisible();
   expect(await page.evaluate(() => document.documentElement.scrollWidth > window.innerWidth + 1)).toBe(false);
   await page.screenshot({
     path: 'test-results/visual-review/todo-mobile-375.png',
@@ -383,7 +383,7 @@ test('refresh control stays at top-left, spins during GET and records successful
   expect(await toolbar.evaluate((node) =>
     node.querySelector('.refresh-group') === node.firstElementChild)).toBe(true);
 
-  await page.route('**/api/v1/tasks*', async (route) => {
+  await page.route('**/api/v1/tasks/query?*', async (route) => {
     if (route.request().method() === 'GET') {
       await new Promise((resolve) => setTimeout(resolve, 900));
     }
@@ -403,11 +403,11 @@ test('failed refresh does not falsely advance last checked timestamp', async ({ 
   await page.goto('/');
   await expect(page.locator('.refresh-details time')).toHaveAttribute('datetime', /\d{4}-\d{2}-\d{2}T/);
   const previous = await page.locator('.refresh-details time').getAttribute('datetime');
-  await page.route('**/api/v1/tasks*', (route) => route.abort());
+  await page.route('**/api/v1/tasks/query?*', (route) => route.abort());
   await page.getByRole('button', { name: 'Refresh tasks' }).click();
   await expect(page.getByRole('alert')).toContainText('Cannot connect to the Todo backend.');
   await expect(page.locator('.refresh-details time')).toHaveAttribute('datetime', previous!);
-  await page.unroute('**/api/v1/tasks*');
+  await page.unroute('**/api/v1/tasks/query?*');
   await page.getByRole('button', { name: 'Try again' }).click();
   await expect(page.getByRole('alert')).toHaveCount(0);
   await expect(page.locator('.refresh-details time')).toHaveAttribute('datetime', /\d{4}-\d{2}-\d{2}T/);
@@ -416,7 +416,7 @@ test('failed refresh does not falsely advance last checked timestamp', async ({ 
 test('reduced motion preference disables refresh spin while keeping the state clear', async ({ page }) => {
   await page.emulateMedia({ reducedMotion: 'reduce' });
   await page.goto('/');
-  await page.route('**/api/v1/tasks*', async (route) => {
+  await page.route('**/api/v1/tasks/query?*', async (route) => {
     if (route.request().method() === 'GET') {
       await new Promise((resolve) => setTimeout(resolve, 900));
     }
@@ -598,7 +598,7 @@ test('dark color scheme respects mobile widths without horizontal overflow', asy
   await page.emulateMedia({ colorScheme: 'dark' });
   await page.setViewportSize({ width: 320, height: 740 });
   await page.goto('/');
-  await expect(page.getByRole('heading', { name: 'Tasks' })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Tasks', exact: true })).toBeVisible();
   expect(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth + 1)).toBe(false);
   await page.setViewportSize({ width: 375, height: 812 });
   expect(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth + 1)).toBe(false);
@@ -862,7 +862,6 @@ test('Undo returns completion and reopening to their prior state with new revisi
   await page.getByRole('button', { name: 'Completed', exact: true }).click();
   await page.getByRole('checkbox', { name: 'Mark Undo completion incomplete' }).uncheck();
   await page.getByRole('button', { name: 'Undo', exact: true }).click();
-  await page.getByRole('button', { name: 'Completed', exact: true }).click();
   await expect(page.getByRole('checkbox', { name: 'Mark Undo completion incomplete' })).toBeChecked();
   current = (await (await request.get(api)).json()).records[0];
   expect(current.completed).toBe(true);
