@@ -4,11 +4,11 @@
 #![cfg(feature = "async-tcp")]
 use riesel::{
     AccessMode, App, AsyncOperation, ConnectorRegistry, DeploymentConfig, DomainAdmissionMode,
-    ExecutionPlanDraft, FixedStepAdmission, FixedStepBacklog, FixedStepPolicy, GraphEffectError,
-    GraphEffectRecorder, GraphControlError, GraphControlMode, GraphControlTarget,
-    GraphObservationError, GraphRunChange, GraphRunError, GraphRunPhase,
-    MAX_GRAPH_EFFECT_STREAMS, MAX_GRAPH_TRANSITIONS, OperationKey, OperationNode, OperationOutcome,
-    OperationRegistry, OperationState, RunningApp, async_operation, async_operation_with_effects,
+    ExecutionPlanDraft, FixedStepAdmission, FixedStepBacklog, FixedStepPolicy, GraphControlError,
+    GraphControlMode, GraphControlTarget, GraphEffectError, GraphEffectRecorder,
+    GraphObservationError, GraphRunChange, GraphRunError, GraphRunPhase, MAX_GRAPH_EFFECT_STREAMS,
+    MAX_GRAPH_TRANSITIONS, OperationKey, OperationNode, OperationOutcome, OperationRegistry,
+    OperationState, RunningApp, async_operation, async_operation_with_effects,
 };
 use std::num::NonZeroUsize;
 use std::sync::{
@@ -1556,7 +1556,10 @@ fn cooperative_domain_tick_step_admits_one_outer_tick_and_not_independent_work()
         let signal = runner.signal_sender();
         let target = domain_ticks("ecs.world");
         control.pause(target.clone()).unwrap();
-        assert_eq!(observer.snapshot().controls[&target], GraphControlMode::Paused);
+        assert_eq!(
+            observer.snapshot().controls[&target],
+            GraphControlMode::Paused
+        );
         signal.fire("first").unwrap();
         signal.fire("second").unwrap();
         let task = tokio::spawn(runner.execute());
@@ -1592,7 +1595,10 @@ fn cooperative_domain_tick_step_admits_one_outer_tick_and_not_independent_work()
         .unwrap();
         let after_one = observer.snapshot();
         assert_eq!(after_one.controls[&target], GraphControlMode::Paused);
-        assert_eq!(after_one.operations["tick-two"].state, OperationState::Pending);
+        assert_eq!(
+            after_one.operations["tick-two"].state,
+            OperationState::Pending
+        );
         assert_eq!(ticks.load(Ordering::SeqCst), 1);
         assert!(!task.is_finished());
 
@@ -1604,16 +1610,26 @@ fn cooperative_domain_tick_step_admits_one_outer_tick_and_not_independent_work()
         assert!(report.succeeded());
         assert_eq!(ticks.load(Ordering::SeqCst), 2);
         assert_eq!(independent.load(Ordering::SeqCst), 1);
-        assert_eq!(observer.snapshot().controls[&target], GraphControlMode::Paused);
-        assert!(observer.changes_since(0).unwrap().events.iter().any(|event| {
-            matches!(
-                &event.change,
-                GraphRunChange::Control {
-                    target: event_target,
-                    mode: GraphControlMode::StepArmed
-                } if event_target == &target
-            )
-        }));
+        assert_eq!(
+            observer.snapshot().controls[&target],
+            GraphControlMode::Paused
+        );
+        assert!(
+            observer
+                .changes_since(0)
+                .unwrap()
+                .events
+                .iter()
+                .any(|event| {
+                    matches!(
+                        &event.change,
+                        GraphRunChange::Control {
+                            target: event_target,
+                            mode: GraphControlMode::StepArmed
+                        } if event_target == &target
+                    )
+                })
+        );
         assert!(matches!(
             control.resume(target),
             Err(GraphControlError::RunClosed)
@@ -1689,7 +1705,10 @@ fn cooperative_run_wide_gate_steps_one_operation_then_resumes_all() {
         assert!(report.succeeded());
         assert_eq!(report.started, 3);
         assert_eq!(called.load(Ordering::SeqCst), 3);
-        assert_eq!(observer.snapshot().controls[&run], GraphControlMode::Running);
+        assert_eq!(
+            observer.snapshot().controls[&run],
+            GraphControlMode::Running
+        );
     });
 }
 
@@ -1714,10 +1733,7 @@ fn cooperative_controls_reject_delegated_internal_ticks_and_nonpreemptible_callb
             )
             .unwrap();
         let plan = ExecutionPlanDraft::new("cooperative.delegated", 1)
-            .operation(
-                OperationNode::new("frame", key("delegated"))
-                    .delegated_frame("ecs.world"),
-            )
+            .operation(OperationNode::new("frame", key("delegated")).delegated_frame("ecs.world"))
             .validate()
             .unwrap()
             .bind(&registry)
@@ -1753,7 +1769,10 @@ fn cooperative_controls_reject_delegated_internal_ticks_and_nonpreemptible_callb
         for _ in 0..3 {
             tokio::task::yield_now().await;
         }
-        assert_eq!(observer.snapshot().operations["frame"].state, OperationState::Pending);
+        assert_eq!(
+            observer.snapshot().operations["frame"].state,
+            OperationState::Pending
+        );
         control.step(outer.clone()).unwrap();
         tokio::time::timeout(Duration::from_secs(3), async {
             while observer.snapshot().operations["frame"].state != OperationState::Running {
@@ -1816,8 +1835,7 @@ fn cooperative_step_waits_for_session_resource_release_without_losing_credit() {
             .unwrap();
         let first = ExecutionPlanDraft::new("cooperative.first", 1)
             .operation(
-                OperationNode::new("held", key("held"))
-                    .access("resource", AccessMode::Write),
+                OperationNode::new("held", key("held")).access("resource", AccessMode::Write),
             )
             .validate()
             .unwrap()
@@ -1825,8 +1843,7 @@ fn cooperative_step_waits_for_session_resource_release_without_losing_credit() {
             .unwrap();
         let second = ExecutionPlanDraft::new("cooperative.second", 1)
             .operation(
-                OperationNode::new("waiting", key("waiting"))
-                    .access("resource", AccessMode::Write),
+                OperationNode::new("waiting", key("waiting")).access("resource", AccessMode::Write),
             )
             .validate()
             .unwrap()
@@ -1969,7 +1986,10 @@ fn control_transition_overflow_resnapshots_authoritative_gate_without_replay() {
     assert!(history.truncated);
     assert_eq!(history.events.len(), MAX_GRAPH_TRANSITIONS);
     let snapshot = observer.snapshot();
-    assert_eq!(snapshot.controls[&GraphControlTarget::Run], GraphControlMode::Running);
+    assert_eq!(
+        snapshot.controls[&GraphControlTarget::Run],
+        GraphControlMode::Running
+    );
     assert_eq!(snapshot.operations["once"].state, OperationState::Pending);
     assert_eq!(snapshot.latest_sequence, (2 * MAX_GRAPH_TRANSITIONS) as u64);
     assert!(
