@@ -1,6 +1,6 @@
 # #59 — Protected logind-session and machine-service Riesel owner research
 
-**Status: proposed, not yet executed.** Primary [Manager #59](https://github.com/aschenrot/riesel/issues/59); shared identity [#75](https://github.com/aschenrot/riesel/issues/75). This is research-only, not an accepted Manager backend, process-owner policy, GUI framework or API.
+**Status: bounded Linux research EXECUTED and PASSED** at source revision 076da2606d75849de9cc812bfc6316b7bdbee27b: [actual Ubuntu PAM/logind + protected Riesel CI 44972242575](https://github.com/aschenrot/riesel/actions/runs/44972242575). Final report-head CI must also pass separately. These are research facts, not production Manager acceptance. Primary [Manager #59](https://github.com/aschenrot/riesel/issues/59); shared identity [#75](https://github.com/aschenrot/riesel/issues/75). This is research-only, not an accepted Manager backend, process-owner policy, GUI framework or API.
 
 ## Original requirement
 
@@ -21,6 +21,29 @@ Run on disposable Ubuntu 24.04 with real systemd PID 1 and logind. Build the **u
 5. Cleanup only the generated session, account, uniquely named transient services, installation directory and protected registration.
 
 **Never claim** the test coordinator is an authorized human Manager client. GitHub runner UID has broad sudo and is not the attacker; the lower-privilege login UID is the negative principal. No normal real application is modified.
+
+## Executed real OS test and multi-login critical extension
+
+The disposable Ubuntu 24.04 test **PASSED** on code SHA 076da2606d75849de9cc812bfc6316b7bdbee27b in [dedicated research run 44972242575](https://github.com/aschenrot/riesel/actions/runs/44972242575). The initial [CI run 44972048973](https://github.com/aschenrot/riesel/actions/runs/44972048973) failed **before examining logind** because a Type=exec PAM-backed systemd-run launch blocked the initiating process beyond its timeout. That was a **fixture failure**, not evidence against the architecture. The corrected fixture submits the real PAM job with systemd-run --no-block, observes an actual session scope independently and cleans exact disposable units even after failed launches.
+
+**Original one-login test:** Real PAM/logind session ID, actual account UID and Scope were observed. Two real unmodified Riesel Counter binaries launched under distinct DynamicUser=yes identities, one with exact BindsTo/After dependency on the observed session scope, the other a machine-background service with no such dependency. They had independently observed actual Counter PIDs/start ticks and OS InvocationIDs; shell-wrapper MainPID was not mistaken for the app process. A separate test attacker under the login UID, with zero effective Linux capabilities and no sudo, was denied actual SIGTERM, systemd system-manager stop and root-only registration access. Terminating the bound session stopped only its Counter; the background Counter remained running with the original OS attempt.
+
+**Decision-critical strengthened case:** Create **two simultaneous genuine PAM/logind sessions with the same UID but different session scopes**. The protected Counter is bound only to session A. Terminating the unrelated session B leaves *both* Counter processes, exact PIDs/start ticks and OS InvocationIDs unchanged. Terminating session A stops only the bound Counter; the independent machine-background Counter remains active. The successful CI emitted:
+
+- RESEARCH_M59_ACTUAL_LOGIN_SESSION_SCOPE_OBSERVED
+- RESEARCH_M59_SAME_HOST_TWO_REAL_RIESEL_EXECUTION_SCOPES
+- RESEARCH_M59_SESSION_SAME_LOGIN_UID_DIRECT_MUTATION_DENIED
+- RESEARCH_M59_UNTRUSTED_LOGIN_UID_UNCHANGED_ATTEMPTS
+- RESEARCH_M59_TWO_PARALLEL_SAME_USER_LOGIN_SCOPES
+- RESEARCH_M59_UNRELATED_LOGIN_LOGOUT_LEAVES_BOTH_APPS_ALIVE
+- RESEARCH_M59_LOGIN_SESSION_END_STOPS_ONLY_BOUND_RIESEL_APP
+- RESEARCH_M59_PROTECTED_SESSION_BOUND_OWNER_RESEARCH_PASS
+- RESEARCH_M59_TWO_PARALLEL_SAME_USER_LOGIN_SCOPES
+- RESEARCH_M59_UNRELATED_LOGIN_LOGOUT_LEAVES_BOTH_APPS_ALIVE
+
+**Interpretation:** Linux can compose a separately OS-owned application process with **an exact single login-session lifetime** while leaving an independent machine-background app running. That is stronger than “some session under this UID is active” and supports a future explicitly scoped owner design.
+
+**Important exclusions:** Both login sessions are generated non-graphical PAM/logind sessions, not real graphical human logins, user-seat/display ownership or a tested Wayland/X11 session. The attacker is a separately spawned process under the same login **UID**, not proven attached to the actual PAM session cgroup. The coordinator's runner UID has broad sudo and is excluded as hostile. No user-session GUI capability export, login-event authentication, logout policy from an actual user, lifetime across rapid logout/relogin, managed SQLite data ownership, graceful Riesel runtime stop, command journal/atomic OS stop, or Windows/macOS equivalent is proved. This fixture only tests a legitimate root test-operator login termination, not protected human CLI/browser authorization.
 
 ## Competing architectures and long-term risks
 
@@ -49,7 +72,7 @@ Official systemd documentation: [PAMName session creation](https://www.freedeskt
     python3 -m py_compile research/process-ownership/manager_session_bound_owner_probe.py
     timeout 150 python3 research/process-ownership/manager_session_bound_owner_probe.py --exercise "$PINNED_COUNTER_ROOT"
 
-Expected, **not yet verified**, research markers:
+Verified research markers at SHA 076da260, run 44972242575 (full proof and limits above):
 
 - RESEARCH_M59_ACTUAL_LOGIN_SESSION_SCOPE_OBSERVED
 - RESEARCH_M59_SAME_HOST_TWO_REAL_RIESEL_EXECUTION_SCOPES
