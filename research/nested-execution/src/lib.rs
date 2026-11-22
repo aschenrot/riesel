@@ -196,6 +196,15 @@ mod tests {
 
     impl DomainActor {
         fn start(expected: GraphRunIdentity, kind: Kind, allowed_operations: &[&str]) -> Self {
+            Self::start_with_epoch(expected, kind, allowed_operations, OWNER_EPOCH)
+        }
+
+        fn start_with_epoch(
+            expected: GraphRunIdentity,
+            kind: Kind,
+            allowed_operations: &[&str],
+            owner_epoch: u64,
+        ) -> Self {
             let allowed = allowed_operations
                 .iter()
                 .map(|name| (*name).to_owned())
@@ -203,7 +212,7 @@ mod tests {
             let observer = DomainObserver(Arc::new(Mutex::new(Store {
                 snapshot: DomainSnapshot {
                     parent_run: expected.clone(),
-                    owner_epoch: OWNER_EPOCH,
+                    owner_epoch,
                     kind,
                     cumulative_world: 0,
                     committed: BTreeMap::new(),
@@ -273,7 +282,7 @@ mod tests {
                                         kind: requested,
                                         accepted,
                                     }) => {
-                                        if epoch != OWNER_EPOCH {
+                                        if epoch != owner_epoch {
                                             let _ = accepted.send(Err(Error::StaleOwnerEpoch));
                                             continue;
                                         }
@@ -322,7 +331,7 @@ mod tests {
                                         let _ = accepted.send(Ok(()));
                                     }
                                     Ok(Permit::Cancel { epoch, accepted }) => {
-                                        if epoch != OWNER_EPOCH {
+                                        if epoch != owner_epoch {
                                             let _ = accepted.send(Err(Error::StaleOwnerEpoch));
                                             continue;
                                         }
@@ -909,4 +918,52 @@ mod tests {
             assert_eq!(setup.actor.stop(), 4);
         });
     }
+    #[test]
+    fn replaced_domain_owner_rejects_old_epoch_permits_without_mutation() {
+        executor().block_on(async {
+            // Two different native owner instances can refer to the same
+            // outer graph identity. Domain generation, not just the graph's
+            // app/session generation, must fence inner control requests.
+            let first = setup(Kind::SimulationTick, 1, false);
+            let parent_run = first.observer.snapshot().identity;
+            let replacement = DomainActor::start_with_epoch(
+                parent_run.clone(),
+                Kind::SimulationTick,
+                &["frame"],
+                OWNER_EPOCH + 1,
+            );
+            let (permits, permit_rx) = mpsc::sync_channel::<Permit>(4);
+            let (reply, answer) = oneshot::channel();
+            replacement
+                .commands
+                .send(DomainCommand::Frame {
+                    parent: Parent {
+                        run: parent_run,
+                        operation: "frame".to_owned(),
+                        attempt: 1,
+                    },
+                    proposed: 1,
+                    permits: permit_rx,
+                    lost_ack: false,
+                    reply,
+                })
+                .unwrap();
+            assert_eq!(
+                grant(&permits, OWNER_EPOCH, Kind::SimulationTick).await,
+                Err(Error::StaleOwnerEpoch)
+            );
+            assert_eq!(replacement.observer.snapshot().cumulative_world, 0);
+            assert_eq!(replacement.observer.snapshot().latest_sequence, 0);
+            // Stop without admitting the same possibly already-dispatched
+            // frame attempt again. An in-memory attempt fence is NOT enough
+            // to safely replay mutations across an owner restart.
+            cancel(&permits, OWNER_EPOCH + 1).await.unwrap();
+            let result = answer.await.unwrap().unwrap();
+            assert!(result.cancelled);
+            assert_eq!(result.confirmed, 0);
+            assert_eq!(replacement.stop(), 0);
+            assert_eq!(first.actor.stop(), 0);
+        });
+    }
+
 }
