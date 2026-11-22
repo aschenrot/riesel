@@ -556,7 +556,7 @@ mod tests {
             assert_eq!(report.operations["frame"], OperationState::OutcomeUnknown);
             assert_eq!(report.operations["after"], OperationState::Blocked);
             assert!(
-                report.confirmed_prefixes.get("frame").is_none(),
+                !report.confirmed_prefixes.contains_key("frame"),
                 "a lost acknowledgement must not create a graph effect confirmation"
             );
             let owner_view = setup.actor.observer.snapshot();
