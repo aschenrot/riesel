@@ -1,0 +1,16 @@
+[package]
+name = "riesel-grid-workbench-headless"
+version = "0.0.0"
+edition = "2024"
+publish = false
+
+# This is a separate Cargo application, not a mandatory Riesel workspace crate.
+[workspace]
+
+[dependencies]
+riesel = { path = "../../crates/riesel", features = ["experimental-typed-dataflow"] }
+grid_generation = { git = "https://github.com/aschenrot/grid", rev = "6f71daf89c2be94aa9a32d4ba879afb2e37f4302" }
+grid_math = { git = "https://github.com/aschenrot/grid", rev = "6f71daf89c2be94aa9a32d4ba879afb2e37f4302" }
+grid_storage = { git = "https://github.com/aschenrot/grid", rev = "6f71daf89c2be94aa9a32d4ba879afb2e37f4302" }
+tile_topology = { git = "https://github.com/aschenrot/grid", rev = "6f71daf89c2be94aa9a32d4ba879afb2e37f4302" }
+tokio = { version = "=1.54.1", features = ["rt", "sync", "time"] }

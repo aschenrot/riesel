@@ -1,0 +1,42 @@
+name: Headless Real Grid Workbench #175
+
+permissions:
+  contents: read
+
+on:
+  pull_request:
+    branches:
+      - main
+      - feat/187-opt-in-local-typed-dataflow
+    paths:
+      - "research/grid-workbench-175/**"
+      - "crates/riesel_app/**"
+      - "crates/riesel/**"
+      - ".github/workflows/headless-grid-workbench-175.yml"
+  workflow_dispatch:
+
+jobs:
+  real-grid-workbench:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install Rust 1.100.0
+        run: |
+          rustup toolchain install 1.100.0 --profile minimal --component rustfmt
+          rustup default 1.100.0
+      - name: Verify separate Workbench formatting
+        run: cargo fmt --manifest-path research/grid-workbench-175/Cargo.toml -- --check
+      - name: Compile and test actual Grid/Riesel headless integration
+        run: cargo test --locked --manifest-path research/grid-workbench-175/Cargo.toml -- --nocapture
+      - name: Run reproducible 64x64 five-step workflow
+        run: cargo run --locked --manifest-path research/grid-workbench-175/Cargo.toml -- --seed 42 --width 64 --height 64 --threshold 0.55 --iterations 5 --revision 1
+      - name: Rerun modified parameter and immutable revision
+        run: cargo run --locked --manifest-path research/grid-workbench-175/Cargo.toml -- --seed 42 --width 64 --height 64 --threshold 0.70 --iterations 0 --revision 2
+      - name: Negative config must fail before execution
+        run: |
+          if cargo run --locked --manifest-path research/grid-workbench-175/Cargo.toml -- --width 999999; then
+            echo "invalid input unexpectedly accepted"
+            exit 1
+          fi
+      - name: Verify existing S2 runner regression independently
+        run: cargo test --locked -p riesel --features async-tcp --test execution_runner
