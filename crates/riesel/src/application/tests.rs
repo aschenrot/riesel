@@ -128,6 +128,7 @@ use crate::storage::StoreError;
 #[cfg(feature = "records")]
 #[crate::capability(id = "research.test.record.reader", version = 1, client_trait)]
 trait TestRecordReader {
+    /// Research-only fixture: count records in one model.
     #[query]
     fn count_records(&self, model: &str) -> std::result::Result<u64, StoreError>;
 }
