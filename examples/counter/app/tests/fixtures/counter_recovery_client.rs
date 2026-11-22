@@ -2,6 +2,11 @@
 //! managed provider dies. Old capability handles are never reused.
 use riesel::Application;
 use riesel_counter::CounterContract;
+
+#[cfg(feature = "internal-publication")]
+use riesel_app::operational_observation::{
+    ObservationSnapshot, ObservationSource, ObservationState, ObservationSubject,
+};
 use std::io;
 use std::time::Duration;
 
