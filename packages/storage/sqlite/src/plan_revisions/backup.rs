@@ -270,8 +270,8 @@ pub(super) fn compare_exact_content(
         compare_table_rows(
             source,
             snapshot,
-            "artifact_revisions",
-            "plan_id, generation, previous_registration, next_registration, semantic_anchor, source_kind",
+            "plan_migrations",
+            "plan_id, generation, kind, previous_registration, next_registration, semantic_anchor, source_kind",
         )?;
     }
     Ok(())
