@@ -380,7 +380,111 @@ pub struct GraphExecutionFailure {
 /// reusable runner containing stale Running nodes. In-flight operations are
 /// aborted on session invalidation, but effects already dispatched may be
 /// irreversible; they are conservatively reported as OutcomeUnknown.
+// Temporary #226 research instrumentation. This branch must NOT be merged
+// into production main or mistaken for an accepted scheduler policy.
+// Research-only dependency-index experiment. Never merge this diagnostic
+// selection and instrumentation as a production scheduler API.
+struct ResearchReadyIndex {
+    unmet: Vec<usize>,
+    dependents: Vec<Vec<usize>>,
+    signal_subscribers: BTreeMap<String, Vec<usize>>,
+    signal_filtered: bool,
+    ready: BTreeSet<usize>,
+}
+
+impl ResearchReadyIndex {
+    fn build(
+        operations: &[crate::execution_plan::OperationNode],
+        index: &BTreeMap<String, usize>,
+        signal_filtered: bool,
+    ) -> Self {
+        let mut unmet = vec![0; operations.len()];
+        let mut dependents = vec![Vec::new(); operations.len()];
+        let mut signal_subscribers = BTreeMap::<String, Vec<usize>>::new();
+        for (child, node) in operations.iter().enumerate() {
+            for prerequisite in node.dependencies() {
+                let parent = *index.get(prerequisite).expect("validated prerequisite");
+                dependents[parent].push(child);
+                unmet[child] += 1;
+            }
+            if let OperationTrigger::Signal(signal) = node.trigger() {
+                signal_subscribers
+                    .entry(signal.clone())
+                    .or_default()
+                    .push(child);
+            }
+        }
+        let ready = unmet
+            .iter()
+            .enumerate()
+            .filter_map(|(node, count)| {
+                (*count == 0
+                    && (!signal_filtered
+                        || matches!(operations[node].trigger(), OperationTrigger::Immediate)))
+                .then_some(node)
+            })
+            .collect();
+        Self {
+            unmet,
+            dependents,
+            signal_subscribers,
+            signal_filtered,
+            ready,
+        }
+    }
+
+    fn on_signal(&mut self, signal: &str, states: &[OperationState]) {
+        if !self.signal_filtered {
+            return;
+        }
+        if let Some(subscribers) = self.signal_subscribers.get(signal) {
+            for &node in subscribers {
+                if self.unmet[node] == 0 && matches!(states[node], OperationState::Pending) {
+                    self.ready.insert(node);
+                }
+            }
+        }
+    }
+
+    fn completed(
+        &mut self,
+        completed: usize,
+        states: &[OperationState],
+        operations: &[crate::execution_plan::OperationNode],
+        fired: &BTreeSet<String>,
+    ) {
+        for &child in &self.dependents[completed] {
+            let remaining = &mut self.unmet[child];
+            debug_assert!(*remaining > 0);
+            *remaining -= 1;
+            if *remaining != 0 || !matches!(states[child], OperationState::Pending) {
+                continue;
+            }
+            let eligible_trigger = !self.signal_filtered
+                || match operations[child].trigger() {
+                    OperationTrigger::Immediate => true,
+                    OperationTrigger::Signal(signal) => fired.contains(signal),
+                };
+            if eligible_trigger {
+                self.ready.insert(child);
+            }
+        }
+    }
+
+    fn drop_non_pending(&mut self, states: &[OperationState]) {
+        self.ready
+            .retain(|&node| matches!(states[node], OperationState::Pending));
+    }
+}
+
 pub struct ExecutionGraphRunner {
+    research_ready_index: Option<ResearchReadyIndex>,
+    research_pending_cursor_enabled: bool,
+    research_topological_cursor_enabled: bool,
+    research_order: Vec<usize>,
+    research_pending_cursor: usize,
+    research_admit_passes: u64,
+    research_admit_visits: u64,
     plan: BoundExecutionPlan<AsyncOperation>,
     session: SessionToken,
     admission: Arc<SessionGraphAdmission>,
@@ -426,11 +530,38 @@ impl ExecutionGraphRunner {
             description.revision(),
         );
         let publication = GraphRunPublication::new(identity, operations, session.clone());
-        let index = operations
+        let index: BTreeMap<String, usize> = operations
             .iter()
             .enumerate()
             .map(|(i, node)| (node.id().to_owned(), i))
             .collect();
+        let research_topological_cursor_enabled =
+            std::env::var_os("RIESEL_RESEARCH_TOPO_CURSOR").is_some();
+        let research_order = if research_topological_cursor_enabled {
+            plan.plan()
+                .dependency_order()
+                .map(|node| *index.get(node.id()).expect("validated operation id"))
+                .collect()
+        } else {
+            Vec::new()
+        };
+        let ready_started = std::time::Instant::now();
+        let signal_filtered = std::env::var_os("RIESEL_RESEARCH_SIGNAL_ACTIVATION").is_some();
+        let research_ready_index = (signal_filtered
+            || std::env::var_os("RIESEL_RESEARCH_READY_INDEX").is_some())
+        .then(|| ResearchReadyIndex::build(operations, &index, signal_filtered));
+        if let Some(ref ready) = research_ready_index
+            && std::env::var_os("RIESEL_RESEARCH_ADMISSION_COUNTERS").is_some()
+        {
+            eprintln!(
+                "research #226 ready_index_build nodes={} edges={} signal_filtered={} initial_ready={} build_us={}",
+                operations.len(),
+                ready.dependents.iter().map(Vec::len).sum::<usize>(),
+                ready.signal_filtered,
+                ready.ready.len(),
+                ready_started.elapsed().as_micros(),
+            );
+        }
         let allowed = operations
             .iter()
             .filter_map(|node| match node.trigger() {
@@ -440,6 +571,15 @@ impl ExecutionGraphRunner {
             .collect();
         let (sender, signal_rx) = mpsc::channel(MAX_PENDING_SIGNALS);
         Ok(Self {
+            research_ready_index,
+            research_pending_cursor_enabled: std::env::var_os("RIESEL_RESEARCH_PENDING_CURSOR")
+                .is_some()
+                || research_topological_cursor_enabled,
+            research_topological_cursor_enabled,
+            research_order,
+            research_pending_cursor: 0,
+            research_admit_passes: 0,
+            research_admit_visits: 0,
             states: vec![OperationState::Pending; operations.len()],
             plan,
             session: session.clone(),
@@ -525,10 +665,16 @@ impl ExecutionGraphRunner {
             let mut admission_changed = std::pin::pin!(admission.changed.notified());
             admission_changed.as_mut().enable();
             while let Ok(signal) = self.signal_rx.try_recv() {
-                self.fired.insert(signal);
+                self.fired.insert(signal.clone());
+                if let Some(ref mut ready) = self.research_ready_index {
+                    ready.on_signal(&signal, &self.states);
+                }
             }
             if needs_blocking_scan {
                 self.block_dependents();
+                if let Some(ref mut ready) = self.research_ready_index {
+                    ready.drop_non_pending(&self.states);
+                }
                 needs_blocking_scan = false;
             }
             if !self.session.is_active() {
@@ -565,7 +711,10 @@ impl ExecutionGraphRunner {
                     break;
                 }
                 Wake::Signal(signal) => {
-                    self.fired.insert(signal);
+                    self.fired.insert(signal.clone());
+                    if let Some(ref mut ready) = self.research_ready_index {
+                        ready.on_signal(&signal, &self.states);
+                    }
                 }
                 Wake::AdmissionReleased => {}
                 Wake::Completed(result) => match result {
@@ -581,6 +730,16 @@ impl ExecutionGraphRunner {
                         };
                         self.publication
                             .transition(index, self.states[index].clone());
+                        if matches!(self.states[index], OperationState::Completed)
+                            && let Some(ref mut ready) = self.research_ready_index
+                        {
+                            ready.completed(
+                                index,
+                                &self.states,
+                                self.plan.plan().description().operations(),
+                                &self.fired,
+                            );
+                        }
                     }
                     Err(error) => {
                         needs_blocking_scan = true;
@@ -616,6 +775,22 @@ impl ExecutionGraphRunner {
 
         let identity = self.publication.identity();
         self.publication.finish(session_expired);
+        if std::env::var_os("RIESEL_RESEARCH_ADMISSION_COUNTERS").is_some() {
+            eprintln!(
+                "research #226 admission plan={} nodes={} cursor={} topo={} ready={} signal={} passes={} visited={} started={}",
+                self.plan.plan().description().id(),
+                self.states.len(),
+                self.research_pending_cursor_enabled,
+                self.research_topological_cursor_enabled,
+                self.research_ready_index.is_some(),
+                self.research_ready_index
+                    .as_ref()
+                    .is_some_and(|ready| ready.signal_filtered),
+                self.research_admit_passes,
+                self.research_admit_visits,
+                self.started,
+            );
+        }
         let confirmed_prefixes = self
             .publication
             .observer()
@@ -654,71 +829,122 @@ impl ExecutionGraphRunner {
         jobs: &mut JoinSet<(usize, OperationOutcome)>,
         active: &mut HashMap<Id, usize>,
     ) {
-        let operations = self.plan.plan().description().operations();
-        for (index, node) in operations.iter().enumerate() {
-            if active.len() >= self.max_in_flight {
-                break;
-            }
-            if !matches!(self.states[index], OperationState::Pending) {
-                continue;
-            }
-            if node.dependencies().iter().any(|dep| {
-                !matches!(
-                    self.states[*self.index.get(dep).expect("validated dependency")],
-                    OperationState::Completed
-                )
-            }) {
-                continue;
-            }
-            if let OperationTrigger::Signal(signal) = node.trigger()
-                && !self.fired.contains(signal)
-            {
-                continue;
-            }
-            // Check the local safe-point gate before claiming scarce
-            // session capacity. The final admission rechecks atomically
-            // against concurrent pause/step commands after reservation.
-            if !self.publication.may_admit(index, node.domain_boundary()) {
-                continue;
-            }
-            // The one session-level admission table enforces conflicts for
-            // both this run and every other run in the same application.
-            let Some(lease) = self
-                .admission
-                .reserve(node.resources(), node.domain_boundary())
-            else {
-                continue;
-            };
-            let handler = Arc::clone(
-                self.plan
-                    .handler(node.id())
-                    .expect("validated exact-version operation binding"),
-            );
-            // One authoritative lock atomically consumes the admitted
-            // safe-point step and marks the callback Running, so a pause
-            // cannot retroactively claim to stop already dispatched work.
-            if !self.publication.admit(index, node.domain_boundary()) {
-                drop(lease);
-                continue;
-            }
-            self.states[index] = OperationState::Running;
-            let (effects, effect_scope) = self.publication.recorder(index);
-            let session = self.session.clone();
-            let handle = jobs.spawn(async move {
-                let _lease = lease;
-                // Drop before the operation lease; no leaked reporter can
-                // publish after this child future finishes or is aborted.
-                let _effect_scope = effect_scope;
-                if !session.is_active() {
-                    (index, OperationOutcome::Cancelled)
-                } else {
-                    (index, handler(effects).await)
+        self.research_admit_passes += 1;
+        if self.research_ready_index.is_some() {
+            // A sorted index retains the declaration-order tie break. A
+            // blocked or paused candidate does NOT block later eligible
+            // operations; resource and safe-point authority is unchanged.
+            let mut candidate = self
+                .research_ready_index
+                .as_ref()
+                .and_then(|ready| ready.ready.first().copied());
+            while let Some(index) = candidate {
+                if active.len() >= self.max_in_flight {
+                    break;
                 }
-            });
-            active.insert(handle.id(), index);
-            self.started += 1;
-            self.peak_in_flight = self.peak_in_flight.max(active.len());
+                candidate = self
+                    .research_ready_index
+                    .as_ref()
+                    .and_then(|ready| ready.ready.range((index + 1)..).next().copied());
+                self.research_admit_visits += 1;
+                self.admit_candidate(index, jobs, active);
+            }
+        } else {
+            // Previous research comparators are preserved unchanged.
+            if self.research_pending_cursor_enabled {
+                while self.research_pending_cursor < self.states.len() {
+                    let index = if self.research_topological_cursor_enabled {
+                        self.research_order[self.research_pending_cursor]
+                    } else {
+                        self.research_pending_cursor
+                    };
+                    if matches!(self.states[index], OperationState::Pending) {
+                        break;
+                    }
+                    self.research_pending_cursor += 1;
+                }
+            }
+            let begin = if self.research_pending_cursor_enabled {
+                self.research_pending_cursor
+            } else {
+                0
+            };
+            for position in begin..self.states.len() {
+                if active.len() >= self.max_in_flight {
+                    break;
+                }
+                let index = if self.research_topological_cursor_enabled {
+                    self.research_order[position]
+                } else {
+                    position
+                };
+                self.research_admit_visits += 1;
+                self.admit_candidate(index, jobs, active);
+            }
         }
+    }
+
+    fn admit_candidate(
+        &mut self,
+        index: usize,
+        jobs: &mut JoinSet<(usize, OperationOutcome)>,
+        active: &mut HashMap<Id, usize>,
+    ) {
+        let node = &self.plan.plan().description().operations()[index];
+        if !matches!(self.states[index], OperationState::Pending) {
+            return;
+        }
+        if node.dependencies().iter().any(|dep| {
+            !matches!(
+                self.states[*self.index.get(dep).expect("validated dependency")],
+                OperationState::Completed
+            )
+        }) {
+            return;
+        }
+        if let OperationTrigger::Signal(signal) = node.trigger()
+            && !self.fired.contains(signal)
+        {
+            return;
+        }
+        // The local safe-point and authoritative atomic admission remain
+        // exactly the same as in the production runner under comparison.
+        if !self.publication.may_admit(index, node.domain_boundary()) {
+            return;
+        }
+        let Some(lease) = self
+            .admission
+            .reserve(node.resources(), node.domain_boundary())
+        else {
+            return;
+        };
+        let handler = Arc::clone(
+            self.plan
+                .handler(node.id())
+                .expect("validated exact-version operation binding"),
+        );
+        if !self.publication.admit(index, node.domain_boundary()) {
+            drop(lease);
+            return;
+        }
+        self.states[index] = OperationState::Running;
+        if let Some(ref mut ready) = self.research_ready_index {
+            ready.ready.remove(&index);
+        }
+        let (effects, effect_scope) = self.publication.recorder(index);
+        let session = self.session.clone();
+        let handle = jobs.spawn(async move {
+            let _lease = lease;
+            let _effect_scope = effect_scope;
+            if !session.is_active() {
+                (index, OperationOutcome::Cancelled)
+            } else {
+                (index, handler(effects).await)
+            }
+        });
+        active.insert(handle.id(), index);
+        self.started += 1;
+        self.peak_in_flight = self.peak_in_flight.max(active.len());
     }
 
     fn block_dependents(&mut self) {

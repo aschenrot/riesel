@@ -43,6 +43,36 @@ jobs:
         run: cargo test --locked -p riesel_storage_sqlite --test v2_format_migration
       - name: Smoke test runtime and managed providers
         run: cargo smoke
+      - name: Research #226 signal-index equivalence (draft branch only)
+        if: ${{ github.event_name == 'pull_request' && github.head_ref == 'research/226-signal-activation-index' }}
+        run: |
+          cargo test -p riesel --features async-tcp --test scheduler_admission_cursor_research -- --test-threads=1
+          RIESEL_RESEARCH_READY_INDEX=1 cargo test -p riesel --features async-tcp --test scheduler_admission_cursor_research -- --test-threads=1
+          RIESEL_RESEARCH_SIGNAL_ACTIVATION=1 cargo test -p riesel --features async-tcp --test scheduler_admission_cursor_research -- --nocapture --test-threads=1
+          RIESEL_RESEARCH_SIGNAL_ACTIVATION=1 cargo test -p riesel --features async-tcp --test execution_runner
+          RIESEL_RESEARCH_SIGNAL_ACTIVATION=1 cargo test -p riesel --features async-tcp --test execution_domains
+          RIESEL_RESEARCH_SIGNAL_ACTIVATION=1 cargo test -p riesel --features async-tcp --test execution_nested
+      - name: Research #226 signal-index A/B/B/A release comparison
+        if: ${{ github.event_name == 'pull_request' && github.head_ref == 'research/226-signal-activation-index' }}
+        env:
+          RIESEL_RESEARCH_ADMISSION_COUNTERS: "1"
+        run: |
+          echo "research #226 signal A1 dependency-ready only"
+          RIESEL_RESEARCH_READY_INDEX=1 cargo test -p riesel --release --features async-tcp --test scheduler_admission_cursor_research many_signal_gated_ready_nodes -- --nocapture --test-threads=1
+          echo "research #226 signal B1 activation-indexed"
+          RIESEL_RESEARCH_SIGNAL_ACTIVATION=1 cargo test -p riesel --release --features async-tcp --test scheduler_admission_cursor_research many_signal_gated_ready_nodes -- --nocapture --test-threads=1
+          echo "research #226 signal B2 activation-indexed"
+          RIESEL_RESEARCH_SIGNAL_ACTIVATION=1 cargo test -p riesel --release --features async-tcp --test scheduler_admission_cursor_research many_signal_gated_ready_nodes -- --nocapture --test-threads=1
+          echo "research #226 signal A2 dependency-ready only"
+          RIESEL_RESEARCH_READY_INDEX=1 cargo test -p riesel --release --features async-tcp --test scheduler_admission_cursor_research many_signal_gated_ready_nodes -- --nocapture --test-threads=1
+          echo "research #226 resource negative A dependency-ready"
+          RIESEL_RESEARCH_READY_INDEX=1 cargo test -p riesel --release --features async-tcp --test scheduler_admission_cursor_research resource_contended_ready_nodes -- --nocapture --test-threads=1
+          echo "research #226 resource negative B signal activation"
+          RIESEL_RESEARCH_SIGNAL_ACTIVATION=1 cargo test -p riesel --release --features async-tcp --test scheduler_admission_cursor_research resource_contended_ready_nodes -- --nocapture --test-threads=1
+          echo "research #226 chain candidate A dependency-ready"
+          RIESEL_RESEARCH_READY_INDEX=1 cargo test -p riesel --release --features async-tcp --test scheduler_admission_cursor_research cursor_differential_shapes -- --nocapture --test-threads=1
+          echo "research #226 chain candidate B signal activation"
+          RIESEL_RESEARCH_SIGNAL_ACTIVATION=1 cargo test -p riesel --release --features async-tcp --test scheduler_admission_cursor_research cursor_differential_shapes -- --nocapture --test-threads=1
 
   windows:
     if: ${{ github.event_name == 'workflow_dispatch' && inputs.windows }}
