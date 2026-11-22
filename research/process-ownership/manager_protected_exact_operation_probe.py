@@ -385,10 +385,12 @@ def main(pinned):
                     f"direct SIGTERM attack was not correctly denied: "
                     f"{signal_attempt.returncode} {signal_attempt.stderr!r}"
                 )
-            try:
-                os.kill(actual, 0)
-            except ProcessLookupError as exc:
-                raise AssertionError("app died before approval") from exc
+            # kill(pid, 0) also performs signal authorization checks and can
+            # return EPERM for a *healthy* differently-owned process.
+            # Inspect actual proc existence here, independently of the denied
+            # SIGTERM result asserted above.
+            if not Path(f"/proc/{actual}").exists():
+                raise AssertionError("app died before approval")
             if system_show(unit, elevated=True)["InvocationID"] != original["InvocationID"]:
                 raise AssertionError("untrusted attempt changed app generation")
             print("RESEARCH_M59_DIRECT_OS_BYPASS_DENIED_FOR_TEST_PRINCIPAL", flush=True)
