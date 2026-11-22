@@ -1,5 +1,7 @@
 //! Counter example: separate capability contract and provider component,
 //! generated RPC and both local/managed Riesel execution paths.
+#[cfg(feature = "t1-public-read")]
+pub mod public_read;
 pub use riesel_counter::{
     Counter, CounterContract, CounterError, CounterRpcClient, CounterRpcDispatcher,
 };
