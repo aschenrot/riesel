@@ -5,7 +5,8 @@
 
 use riesel_app::{
     App, AsyncOperation, ConnectorRegistry, ExecutionPlanDraft, GraphRunObserver, OperationKey,
-    OperationNode, OperationOutcome, OperationRegistry, OperationState, RunningApp, async_operation,
+    OperationNode, OperationOutcome, OperationRegistry, OperationState, RunningApp,
+    async_operation,
 };
 use riesel_protocol::session::InternalPublicationSession;
 use serde_json::{Value, json};
@@ -84,10 +85,11 @@ fn build_session(
         async_operation(|| async { OperationOutcome::Completed }),
     )?;
     let plan = ExecutionPlanDraft::new("research.gui.session-bound", 1)
-        .operation(OperationNode::new("source", OperationKey::new("source", 1)?))
-        .operation(
-            OperationNode::new("join", OperationKey::new("join", 1)?).after("source"),
-        )
+        .operation(OperationNode::new(
+            "source",
+            OperationKey::new("source", 1)?,
+        ))
+        .operation(OperationNode::new("join", OperationKey::new("join", 1)?).after("source"))
         .validate()?
         .bind(&operations)?;
     let runner = running.execution_graph(plan, NonZeroUsize::new(1).unwrap())?;
@@ -111,11 +113,7 @@ fn reject(kind: &str) -> Value {
     json!({"status": kind})
 }
 
-fn respond(
-    request: &Value,
-    current: &RwLock<Arc<SessionView>>,
-    paused: &PauseGate,
-) -> Value {
+fn respond(request: &Value, current: &RwLock<Arc<SessionView>>, paused: &PauseGate) -> Value {
     let view = current.read().unwrap().clone();
     if request.get("operation").and_then(Value::as_str) == Some("describe") {
         // This is only an untrusted endpoint announcement, not proof that
@@ -153,11 +151,15 @@ fn respond(
     }
     let permit = match view.publication.try_admit(generation) {
         Ok(permit) => permit,
-        Err(e) => return reject(match e {
-            riesel_protocol::session::InternalAdmissionError::WrongGeneration => "stale_generation",
-            riesel_protocol::session::InternalAdmissionError::Expired => "expired",
-            riesel_protocol::session::InternalAdmissionError::AtCapacity => "at_capacity",
-        }),
+        Err(e) => {
+            return reject(match e {
+                riesel_protocol::session::InternalAdmissionError::WrongGeneration => {
+                    "stale_generation"
+                }
+                riesel_protocol::session::InternalAdmissionError::Expired => "expired",
+                riesel_protocol::session::InternalAdmissionError::AtCapacity => "at_capacity",
+            });
+        }
     };
     drop(gate);
     if pause == Some("after") {
@@ -193,7 +195,10 @@ fn handle(mut stream: UnixStream, current: Arc<RwLock<Arc<SessionView>>>, paused
     let _ = stream.set_read_timeout(Some(Duration::from_secs(15)));
     let _ = stream.set_write_timeout(Some(Duration::from_secs(5)));
     let mut buffer = Vec::new();
-    let response = match (&mut stream).take(MAX_REQUEST_BYTES + 1).read_to_end(&mut buffer) {
+    let response = match (&mut stream)
+        .take(MAX_REQUEST_BYTES + 1)
+        .read_to_end(&mut buffer)
+    {
         Ok(_) if buffer.len() as u64 <= MAX_REQUEST_BYTES => {
             match serde_json::from_slice::<Value>(&buffer) {
                 Ok(request) if request.is_object() => respond(&request, &current, &paused),
