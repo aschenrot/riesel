@@ -14,6 +14,7 @@ riesel_protocol = { workspace = true, features = ["async-tcp"] }
 serde_json.workspace = true
 serde.workspace = true
 tokio.workspace = true
+uuid.workspace = true
 
 # Research-only application/interface fixture. These are not released app APIs.
 [[bin]]
@@ -23,6 +24,10 @@ path = "tests/fixtures/counter_public_facade_host.rs"
 [[bin]]
 name = "counter_resolved_facade_host"
 path = "tests/fixtures/counter_resolved_facade_host.rs"
+
+[[bin]]
+name = "counter_same_pid_recovery_host"
+path = "tests/fixtures/counter_same_pid_recovery.rs"
 
 [[bin]]
 name = "counter_public_facade_client"

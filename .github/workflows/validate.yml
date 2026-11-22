@@ -37,6 +37,10 @@ jobs:
         run: cargo validate --check
       - name: Smoke test runtime and managed providers
         run: cargo smoke
+      - name: Research #75 operational policy and same-PID recovery probes
+        run: |
+          python3 research/operational-contract/probe.py --real
+          python3 research/operational-contract/same_pid_probe.py
 
   windows:
     if: ${{ github.event_name == 'workflow_dispatch' && inputs.windows }}
