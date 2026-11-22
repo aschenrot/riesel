@@ -385,10 +385,7 @@ impl GraphRunPublication {
         self.observer.clone()
     }
 
-    pub(crate) fn recorder(
-        &self,
-        index: usize,
-    ) -> (GraphEffectRecorder, GraphEffectAttemptGuard) {
+    pub(crate) fn recorder(&self, index: usize) -> (GraphEffectRecorder, GraphEffectAttemptGuard) {
         let state = self
             .observer
             .state
