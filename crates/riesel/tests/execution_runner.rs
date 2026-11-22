@@ -1403,3 +1403,49 @@ fn effect_stream_limits_and_invalid_names_fail_without_ledger_mutation() {
             report.confirmed_prefixes["bounded"]);
     });
 }
+
+#[test]
+fn overflowed_effect_transitions_reconcile_from_authoritative_snapshot() {
+    runtime().block_on(async {
+        let mut registry = OperationRegistry::<AsyncOperation>::new();
+        registry
+            .register(
+                key("confirmed"),
+                async_operation_with_effects(|effects| async move {
+                    effects.confirm_prefix("tick", 1).unwrap();
+                    effects.confirm_prefix("tick", 2).unwrap();
+                    OperationOutcome::Completed
+                }),
+            )
+            .unwrap();
+        let mut draft = ExecutionPlanDraft::new("effects.overflow", 1);
+        for index in 0..50 {
+            draft = draft.operation(
+                OperationNode::new(format!("op-{index}"), key("confirmed"))
+            );
+        }
+        let owner = application_session();
+        let runner = owner
+            .execution_graph(
+                draft.validate().unwrap().bind(&registry).unwrap(),
+                NonZeroUsize::new(8).unwrap(),
+            )
+            .unwrap();
+        let observer = runner.observer();
+        let report = runner.execute().await;
+        assert!(report.succeeded());
+        let events = observer.changes_since(0).unwrap();
+        assert!(events.truncated);
+        assert_eq!(events.events.len(), MAX_GRAPH_TRANSITIONS);
+        let snapshot = observer.snapshot();
+        assert_eq!(snapshot.operations.len(), 50);
+        for index in 0..50 {
+            let name = format!("op-{index}");
+            assert_eq!(snapshot.operations[&name].confirmed_prefixes["tick"], 2);
+            assert_eq!(report.confirmed_prefixes[&name]["tick"], 2);
+        }
+        let recent = observer.changes_since(snapshot.latest_sequence).unwrap();
+        assert!(!recent.truncated);
+        assert!(recent.events.is_empty());
+    });
+}
