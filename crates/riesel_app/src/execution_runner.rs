@@ -14,8 +14,8 @@ use crate::execution_observation::{
     GraphRunPublication,
 };
 use crate::execution_plan::{
-    AccessMode, BoundExecutionPlan, DomainAdmissionMode, DomainBoundary, OperationTrigger,
-    ResourceAccess,
+    AccessMode, BoundExecutionPlan, DomainAdmissionMode, DomainBoundary, OperationNode,
+    OperationTrigger, ResourceAccess,
 };
 use crate::runtime::RunningApp;
 use riesel_protocol::SessionToken;
@@ -23,6 +23,7 @@ use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::future::Future;
 use std::num::NonZeroUsize;
 use std::pin::Pin;
+use std::time::Instant;
 use std::sync::{Arc, Mutex, PoisonError};
 use thiserror::Error;
 use tokio::sync::{Notify, mpsc};
@@ -380,7 +381,102 @@ pub struct GraphExecutionFailure {
 /// reusable runner containing stale Running nodes. In-flight operations are
 /// aborted on session invalidation, but effects already dispatched may be
 /// irreversible; they are conservatively reported as OutcomeUnknown.
+// #226 research-only derived eligibility index. Never publish this private
+// implementation or its diagnostic environment variables as an accepted API.
+struct ResearchReadyIndex {
+    remaining_dependencies: Vec<usize>,
+    dependents: Vec<Vec<usize>>,
+    signal_subscribers: BTreeMap<String, Vec<usize>>,
+    ready: BTreeSet<usize>,
+    edge_count: usize,
+    peak_ready: usize,
+}
+
+impl ResearchReadyIndex {
+    fn new(operations: &[OperationNode], index: &BTreeMap<String, usize>) -> Self {
+        let mut dependents = vec![Vec::new(); operations.len()];
+        let mut signal_subscribers = BTreeMap::<String, Vec<usize>>::new();
+        let remaining_dependencies = operations
+            .iter()
+            .map(|node| node.dependencies().len())
+            .collect();
+        let mut ready = BTreeSet::new();
+        let mut edge_count = 0;
+        for (node_index, node) in operations.iter().enumerate() {
+            for prerequisite in node.dependencies() {
+                let &prerequisite_index = index
+                    .get(prerequisite)
+                    .expect("validated graph prerequisite");
+                dependents[prerequisite_index].push(node_index);
+                edge_count += 1;
+            }
+            match node.trigger() {
+                OperationTrigger::Immediate if node.dependencies().is_empty() => {
+                    ready.insert(node_index);
+                }
+                OperationTrigger::Immediate => {}
+                OperationTrigger::Signal(name) => {
+                    signal_subscribers
+                        .entry(name.clone())
+                        .or_default()
+                        .push(node_index);
+                }
+            }
+        }
+        let peak_ready = ready.len();
+        Self {
+            remaining_dependencies,
+            dependents,
+            signal_subscribers,
+            ready,
+            edge_count,
+            peak_ready,
+        }
+    }
+
+    fn on_signal(&mut self, name: &str, states: &[OperationState]) {
+        if let Some(subscribers) = self.signal_subscribers.get(name) {
+            for &index in subscribers {
+                if self.remaining_dependencies[index] == 0
+                    && matches!(states[index], OperationState::Pending)
+                {
+                    self.ready.insert(index);
+                }
+            }
+            self.peak_ready = self.peak_ready.max(self.ready.len());
+        }
+    }
+
+    fn on_completed(
+        &mut self,
+        operation: usize,
+        operations: &[OperationNode],
+        states: &[OperationState],
+        fired: &BTreeSet<String>,
+    ) {
+        for &dependent in &self.dependents[operation] {
+            let remaining = &mut self.remaining_dependencies[dependent];
+            debug_assert!(*remaining > 0);
+            *remaining -= 1;
+            if *remaining != 0 || !matches!(states[dependent], OperationState::Pending) {
+                continue;
+            }
+            let signal_ready = match operations[dependent].trigger() {
+                OperationTrigger::Immediate => true,
+                OperationTrigger::Signal(signal) => fired.contains(signal),
+            };
+            if signal_ready {
+                self.ready.insert(dependent);
+            }
+        }
+        self.peak_ready = self.peak_ready.max(self.ready.len());
+    }
+}
+
 pub struct ExecutionGraphRunner {
+    research_ready_index: Option<ResearchReadyIndex>,
+    research_build_us: u128,
+    research_visited: u64,
     plan: BoundExecutionPlan<AsyncOperation>,
     session: SessionToken,
     admission: Arc<SessionGraphAdmission>,
@@ -426,11 +522,19 @@ impl ExecutionGraphRunner {
             description.revision(),
         );
         let publication = GraphRunPublication::new(identity, operations, session.clone());
-        let index = operations
+        let index: BTreeMap<String, usize> = operations
             .iter()
             .enumerate()
             .map(|(i, node)| (node.id().to_owned(), i))
             .collect();
+        let research_start = std::env::var_os("RIESEL_RESEARCH_READY_INDEX")
+            .is_some()
+            .then(Instant::now);
+        let research_ready_index =
+            research_start.map(|_| ResearchReadyIndex::new(operations, &index));
+        let research_build_us = research_start
+            .map(|started| started.elapsed().as_micros())
+            .unwrap_or(0);
         let allowed = operations
             .iter()
             .filter_map(|node| match node.trigger() {
@@ -440,6 +544,9 @@ impl ExecutionGraphRunner {
             .collect();
         let (sender, signal_rx) = mpsc::channel(MAX_PENDING_SIGNALS);
         Ok(Self {
+            research_ready_index,
+            research_build_us,
+            research_visited: 0,
             states: vec![OperationState::Pending; operations.len()],
             plan,
             session: session.clone(),
@@ -525,7 +632,7 @@ impl ExecutionGraphRunner {
             let mut admission_changed = std::pin::pin!(admission.changed.notified());
             admission_changed.as_mut().enable();
             while let Ok(signal) = self.signal_rx.try_recv() {
-                self.fired.insert(signal);
+                self.record_signal(signal);
             }
             if needs_blocking_scan {
                 self.block_dependents();
@@ -565,7 +672,7 @@ impl ExecutionGraphRunner {
                     break;
                 }
                 Wake::Signal(signal) => {
-                    self.fired.insert(signal);
+                    self.record_signal(signal);
                 }
                 Wake::AdmissionReleased => {}
                 Wake::Completed(result) => match result {
@@ -579,6 +686,16 @@ impl ExecutionGraphRunner {
                             OperationOutcome::Cancelled => OperationState::Cancelled,
                             OperationOutcome::OutcomeUnknown => OperationState::OutcomeUnknown,
                         };
+                        if matches!(self.states[index], OperationState::Completed)
+                            && let Some(ready) = &mut self.research_ready_index
+                        {
+                            ready.on_completed(
+                                index,
+                                self.plan.plan().description().operations(),
+                                &self.states,
+                                &self.fired,
+                            );
+                        }
                         self.publication
                             .transition(index, self.states[index].clone());
                     }
@@ -616,6 +733,19 @@ impl ExecutionGraphRunner {
 
         let identity = self.publication.identity();
         self.publication.finish(session_expired);
+        if std::env::var_os("RIESEL_RESEARCH_READY_COUNTS").is_some() {
+            let index = self.research_ready_index.as_ref();
+            eprintln!(
+                "research #226 ready plan={} index={} visited={} build_us={} edges={} peaks={} started={}",
+                self.plan.plan().description().id(),
+                index.is_some(),
+                self.research_visited,
+                self.research_build_us,
+                index.map_or(0, |ready| ready.edge_count),
+                index.map_or(0, |ready| ready.peak_ready),
+                self.started,
+            );
+        }
         let confirmed_prefixes = self
             .publication
             .observer()
@@ -649,16 +779,122 @@ impl ExecutionGraphRunner {
         )
     }
 
-    fn admit(
+    fn record_signal(&mut self, signal: String) {
+        if self.fired.insert(signal.clone())
+            && let Some(ready) = &mut self.research_ready_index
+        {
+            ready.on_signal(&signal, &self.states);
+        }
+    }
+
+    fn admit_research_ready(
         &mut self,
         jobs: &mut JoinSet<(usize, OperationOutcome)>,
         active: &mut HashMap<Id, usize>,
     ) {
         let operations = self.plan.plan().description().operations();
+        let candidates = self
+            .research_ready_index
+            .as_ref()
+            .expect("research index initialized")
+            .ready
+            .len();
+        let mut rejected = Vec::new();
+        for _ in 0..candidates {
+            if active.len() >= self.max_in_flight {
+                break;
+            }
+            let Some(index) = self
+                .research_ready_index
+                .as_mut()
+                .expect("research index initialized")
+                .ready
+                .pop_first()
+            else {
+                break;
+            };
+            self.research_visited += 1;
+            let node = &operations[index];
+            if !matches!(self.states[index], OperationState::Pending) {
+                continue;
+            }
+            // Keep original validated eligibility as the oracle while the
+            // derived index is experimental. It must not admit a stale node.
+            if node.dependencies().iter().any(|dependency| {
+                !matches!(
+                    self.states[*self.index.get(dependency).expect("validated dependency")],
+                    OperationState::Completed
+                )
+            }) {
+                rejected.push(index);
+                continue;
+            }
+            if let OperationTrigger::Signal(signal) = node.trigger()
+                && !self.fired.contains(signal)
+            {
+                rejected.push(index);
+                continue;
+            }
+            if !self.publication.may_admit(index, node.domain_boundary()) {
+                rejected.push(index);
+                continue;
+            }
+            let Some(lease) = self
+                .admission
+                .reserve(node.resources(), node.domain_boundary())
+            else {
+                rejected.push(index);
+                continue;
+            };
+            let handler = Arc::clone(
+                self.plan
+                    .handler(node.id())
+                    .expect("validated exact-version operation binding"),
+            );
+            if !self.publication.admit(index, node.domain_boundary()) {
+                drop(lease);
+                rejected.push(index);
+                continue;
+            }
+            self.states[index] = OperationState::Running;
+            let (effects, effect_scope) = self.publication.recorder(index);
+            let session = self.session.clone();
+            let handle = jobs.spawn(async move {
+                let _lease = lease;
+                let _effect_scope = effect_scope;
+                if !session.is_active() {
+                    (index, OperationOutcome::Cancelled)
+                } else {
+                    (index, handler(effects).await)
+                }
+            });
+            active.insert(handle.id(), index);
+            self.started += 1;
+            self.peak_in_flight = self.peak_in_flight.max(active.len());
+        }
+        let ready = self
+            .research_ready_index
+            .as_mut()
+            .expect("research index initialized");
+        ready.ready.extend(rejected);
+        ready.peak_ready = ready.peak_ready.max(ready.ready.len());
+    }
+
+    fn admit(
+        &mut self,
+        jobs: &mut JoinSet<(usize, OperationOutcome)>,
+        active: &mut HashMap<Id, usize>,
+    ) {
+        if self.research_ready_index.is_some() {
+            self.admit_research_ready(jobs, active);
+            return;
+        }
+        let operations = self.plan.plan().description().operations();
         for (index, node) in operations.iter().enumerate() {
             if active.len() >= self.max_in_flight {
                 break;
             }
+            self.research_visited += 1;
             if !matches!(self.states[index], OperationState::Pending) {
                 continue;
             }
