@@ -569,7 +569,8 @@ impl ExecutionGraphRunner {
             for (index, state) in self.states.iter_mut().enumerate() {
                 if matches!(state, OperationState::Pending) {
                     *state = OperationState::Cancelled;
-                    self.publication.transition(index, OperationState::Cancelled);
+                    self.publication
+                        .transition(index, OperationState::Cancelled);
                 }
             }
         }
