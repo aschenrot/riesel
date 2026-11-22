@@ -155,7 +155,9 @@ fn key(name: &str) -> OperationKey {
     OperationKey::new(name, 1).expect("fixed application operation key")
 }
 
-fn register_nodes(config: Config) -> Result<TypedOperationRegistry, Box<dyn std::error::Error + Send + Sync>> {
+fn register_nodes(
+    config: Config,
+) -> Result<TypedOperationRegistry, Box<dyn std::error::Error + Send + Sync>> {
     let mut registry = TypedOperationRegistry::new();
     registry.register(
         TypedOperationSpec {
@@ -214,7 +216,8 @@ fn register_nodes(config: Config) -> Result<TypedOperationRegistry, Box<dyn std:
             ) {
                 Ok(grid) => {
                     let mut outputs = TypedOutputs::new();
-                    if let Err(error) = outputs.insert("occupancy", grid, config.occupancy_bytes()) {
+                    if let Err(error) = outputs.insert("occupancy", grid, config.occupancy_bytes())
+                    {
                         return TypedOperationOutcome::Failed(error);
                     }
                     TypedOperationOutcome::Completed(outputs)
@@ -352,11 +355,7 @@ fn register_nodes(config: Config) -> Result<TypedOperationRegistry, Box<dyn std:
                 mean: sum / scalar.len() as f64,
             };
             let mut outputs = TypedOutputs::new();
-            if let Err(error) = outputs.insert(
-                "stats",
-                stats,
-                std::mem::size_of::<ScalarStats>(),
-            ) {
+            if let Err(error) = outputs.insert("stats", stats, std::mem::size_of::<ScalarStats>()) {
                 return TypedOperationOutcome::Failed(error);
             }
             TypedOperationOutcome::Completed(outputs)
@@ -365,7 +364,9 @@ fn register_nodes(config: Config) -> Result<TypedOperationRegistry, Box<dyn std:
     Ok(registry)
 }
 
-fn run_workbench(config: Config) -> Result<WorkbenchResult, Box<dyn std::error::Error + Send + Sync>> {
+fn run_workbench(
+    config: Config,
+) -> Result<WorkbenchResult, Box<dyn std::error::Error + Send + Sync>> {
     let config = config.validate()?;
     let result = Arc::new(Mutex::new(None));
     let output_for_app = Arc::clone(&result);
@@ -386,10 +387,8 @@ fn run_workbench(config: Config) -> Result<WorkbenchResult, Box<dyn std::error::
             .connect(TypedEdge::new("threshold", "occupancy", "ca", "occupancy"))
             .connect(TypedEdge::new("ca", "history", "dual", "history"));
         let prepared = graph.prepare(&registry, MAX_RUN_BYTES)?;
-        let runner = context.typed_execution_graph(
-            prepared,
-            NonZeroUsize::new(2).expect("nonzero"),
-        )?;
+        let runner =
+            context.typed_execution_graph(prepared, NonZeroUsize::new(2).expect("nonzero"))?;
         let runtime = tokio::runtime::Builder::new_current_thread()
             .enable_all()
             .build()?;
@@ -401,12 +400,13 @@ fn run_workbench(config: Config) -> Result<WorkbenchResult, Box<dyn std::error::
             ))
             .into());
         }
-        let get = |node: &str, port: &str| {
-            std::io::Error::other(format!("missing output {node}.{port}"))
-        };
+        let get =
+            |node: &str, port: &str| std::io::Error::other(format!("missing output {node}.{port}"));
         let summary = WorkbenchResult {
             revision: completed.report.revision,
-            scalar: completed.get("noise", "scalar").ok_or_else(|| get("noise", "scalar"))?,
+            scalar: completed
+                .get("noise", "scalar")
+                .ok_or_else(|| get("noise", "scalar"))?,
             occupancy: completed
                 .get("threshold", "occupancy")
                 .ok_or_else(|| get("threshold", "occupancy"))?,
@@ -428,9 +428,9 @@ fn run_workbench(config: Config) -> Result<WorkbenchResult, Box<dyn std::error::
         Ok(())
     })?;
     let mut guard = result.lock().unwrap_or_else(PoisonError::into_inner);
-    guard
-        .take()
-        .ok_or_else(|| std::io::Error::other("Riesel did not publish a headless workbench result").into())
+    guard.take().ok_or_else(|| {
+        std::io::Error::other("Riesel did not publish a headless workbench result").into()
+    })
 }
 
 fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
@@ -477,9 +477,7 @@ mod tests {
         for snapshot in &a.history.steps {
             for (coord, value) in snapshot.iter_cells() {
                 let border = coord.x == 0 || coord.y == 0 || coord.x == 63 || coord.y == 63;
-                let stripe = coord.x == (config.width / 3) as i32
-                    && coord.y > 0
-                    && coord.y < 63;
+                let stripe = coord.x == (config.width / 3) as i32 && coord.y > 0 && coord.y < 63;
                 if border || stripe {
                     assert_eq!(Some(value), a.occupancy.get(coord));
                 }
@@ -507,23 +505,29 @@ mod tests {
 
     #[test]
     fn editable_parameters_fail_closed_on_invalid_resource_requests() {
-        assert!(Config {
-            width: usize::MAX,
-            ..Config::default()
-        }
-        .validate()
-        .is_err());
-        assert!(Config {
-            frequency: f32::NAN,
-            ..Config::default()
-        }
-        .validate()
-        .is_err());
-        assert!(Config {
-            iterations: MAX_ITERATIONS + 1,
-            ..Config::default()
-        }
-        .validate()
-        .is_err());
+        assert!(
+            Config {
+                width: usize::MAX,
+                ..Config::default()
+            }
+            .validate()
+            .is_err()
+        );
+        assert!(
+            Config {
+                frequency: f32::NAN,
+                ..Config::default()
+            }
+            .validate()
+            .is_err()
+        );
+        assert!(
+            Config {
+                iterations: MAX_ITERATIONS + 1,
+                ..Config::default()
+            }
+            .validate()
+            .is_err()
+        );
     }
 }
