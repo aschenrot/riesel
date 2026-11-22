@@ -194,7 +194,7 @@ def authenticate_with_text_agent(action, identity, unit, password):
         os.close(fd)
 
 
-def main():
+def main(*, keep: bool = False):
     if sys.platform != "linux" or os.geteuid() == 0:
         raise AssertionError("Linux unprivileged disposable test host required")
     if Path("/proc/1/comm").read_text().strip() != "systemd":
@@ -241,11 +241,12 @@ def main():
   </action>
 </policyconfig>
 '''
+    authorization_mode = "AUTH_SELF_KEEP" if keep else "AUTH_SELF"
     rules = (f'polkit.addRule(function(action, subject) {{\n'
              f'  if (action.id === "{action}" && subject.user === "{user}" &&\n'
              f'      action.lookup("unit") === "{unit}" &&\n'
              f'      action.lookup("verb") === "stop") {{\n'
-             f'    return polkit.Result.AUTH_SELF;\n'
+             f'    return polkit.Result.{authorization_mode};\n'
              f'  }}\n'
              f'}});\n')
     (fixture / "action.policy").write_text(policy)
@@ -306,18 +307,47 @@ def main():
         # Satisfy one real AUTH_SELF challenge with a randomly generated
         # disposable PAM password. The PTY feeder is *not human consent*.
         authenticate_with_text_agent(action, identity_a, unit, password)
-        # AUTH_SELF (without _KEEP) must not cache unscoped consent.
-        for role, subject_id in (("A_again", identity_a), ("B_after_A", identity_b)):
-            response = check(action, subject_id, unit, "stop")
-            if response.returncode != 2:
+        if keep:
+            # This is an intentional NEGATIVE SECURITY CONTROL. polkit's
+            # documented _KEEP result permits another check for the same
+            # action/subject even if the trusted action details are changed.
+            # There is no real protected Manager OS operation in this probe.
+            for target, verb in ((unit + "-wrong", "stop"),
+                                 (unit, "restart")):
+                response = check(action, identity_a, target, verb)
+                if response.returncode != 0:
+                    raise AssertionError(
+                        "expected to reproduce polkit cached detail-substitution: "
+                        f"target={target!r} verb={verb!r} "
+                        f"rc={response.returncode}, err={response.stderr[-400:]!r}"
+                    )
+            print("RESEARCH_M59_POLKIT_KEEP_CACHED_AUTH_BYPASSES_CHANGED_DETAILS",
+                  flush=True)
+            # Do not assert that same-user peer B is distinct from A based
+            # solely on the numeric user identity. Report actual authority.
+            peer = check(action, identity_b, unit, "stop")
+            if peer.returncode not in (0, 1, 2):
                 raise AssertionError(
-                    f"no-KEEP auth improperly reused by {role}: "
-                    f"rc={response.returncode}, err={response.stderr[-400:]!r}"
+                    f"unexpected second-client polkit response: {peer.returncode}"
                 )
-        print("RESEARCH_M59_POLKIT_NO_KEEP_SECOND_SAME_UID_REQUIRES_AUTH",
-              flush=True)
-        print("RESEARCH_M59_REAL_POLKIT_AUTH_CHALLENGE_DIFFERENTIAL_PASS",
-              flush=True)
+            print(f"RESEARCH_M59_POLKIT_KEEP_SECOND_SAME_UID_RC={peer.returncode}",
+                  flush=True)
+            print("RESEARCH_M59_POLKIT_KEEP_DETAIL_SUBSTITUTION_NEGATIVE_PASS",
+                  flush=True)
+        else:
+            # AUTH_SELF (without _KEEP) must not cache unscoped consent.
+            for role, subject_id in (("A_again", identity_a),
+                                     ("B_after_A", identity_b)):
+                response = check(action, subject_id, unit, "stop")
+                if response.returncode != 2:
+                    raise AssertionError(
+                        f"no-KEEP auth improperly reused by {role}: "
+                        f"rc={response.returncode}, err={response.stderr[-400:]!r}"
+                    )
+            print("RESEARCH_M59_POLKIT_NO_KEEP_SECOND_SAME_UID_REQUIRES_AUTH",
+                  flush=True)
+            print("RESEARCH_M59_REAL_POLKIT_AUTH_CHALLENGE_DIFFERENTIAL_PASS",
+                  flush=True)
     finally:
         for p in clients:
             try:
@@ -362,6 +392,8 @@ def main():
 if __name__ == "__main__":
     if len(sys.argv) == 1:
         main()
+    elif len(sys.argv) == 2 and sys.argv[1] == "--keep":
+        main(keep=True)
     elif len(sys.argv) == 2 and sys.argv[1] == "--subject":
         subject_mode()
     else:
