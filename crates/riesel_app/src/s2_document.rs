@@ -310,9 +310,9 @@ pub fn bind_s2_document<H: ?Sized + Send + Sync>(
         return Err(S2DocumentError::UnsupportedReadOnly);
     }
     ensure_limits(document, limits)?;
-    let mut plan = ExecutionPlanDraft::new(&document.plan_id, document.semantic_revision);
+    let mut plan = ExecutionPlanDraft::new(document.plan_id.as_str(), document.semantic_revision);
     for operation in &document.operations {
-        let key = OperationKey::new(&operation.binding.name, operation.binding.version)?;
+        let key = OperationKey::new(operation.binding.name.as_str(), operation.binding.version)?;
         let descriptor = registry.editor_descriptor(&key).ok_or_else(|| {
             S2DocumentError::MissingEditorDescriptor {
                 node: operation.id.clone(),
@@ -325,24 +325,24 @@ pub fn bind_s2_document<H: ?Sized + Send + Sync>(
                 actual: operation.binding.descriptor_version,
             });
         }
-        let mut node = OperationNode::new(&operation.id, key);
+        let mut node = OperationNode::new(operation.id.as_str(), key);
         for dependency in &operation.dependencies {
-            node = node.after(dependency);
+            node = node.after(dependency.as_str());
         }
         if let S2DocumentTrigger::Signal(signal) = &operation.trigger {
-            node = node.on_signal(signal);
+            node = node.on_signal(signal.as_str());
         }
         for access in &operation.resources {
             let mode = match access.mode {
                 S2DocumentAccessMode::Read => AccessMode::Read,
                 S2DocumentAccessMode::Write => AccessMode::Write,
             };
-            node = node.access(&access.resource, mode);
+            node = node.access(access.resource.as_str(), mode);
         }
         if let Some(domain) = &operation.domain {
             node = match domain.mode {
-                S2DocumentDomainMode::RieselTick => node.domain_tick(&domain.name),
-                S2DocumentDomainMode::DelegatedFrame => node.delegated_frame(&domain.name),
+                S2DocumentDomainMode::RieselTick => node.domain_tick(domain.name.as_str()),
+                S2DocumentDomainMode::DelegatedFrame => node.delegated_frame(domain.name.as_str()),
             };
         }
         plan = plan.operation(node);
