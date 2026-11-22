@@ -5,9 +5,9 @@
 //! atomic compare-and-set; the graph runner has no SQLite dependency.
 
 use riesel_app::{
-    CheckedSourceHandoff, MAX_STORED_PLAN_BYTES, PlanAuthoringHead, PlanAuthoringSource,
-    PlanLayoutDraft, PlanRevisionError, PlanRevisionRepository, PlanSemanticCandidate,
-    StoredPlanLayout, StoredSemanticPlan, check_layout_nodes,
+    CheckedSourceHandoff, MAX_STORED_PLAN_BYTES, PlanAuthoringHead, PlanAuthoringSnapshot,
+    PlanAuthoringSource, PlanLayoutDraft, PlanRevisionError, PlanRevisionRepository,
+    PlanSemanticCandidate, StoredPlanLayout, StoredSemanticPlan, check_layout_nodes,
 };
 use rusqlite::{
     Connection, OpenFlags, OptionalExtension, Transaction, TransactionBehavior, params,
@@ -295,8 +295,10 @@ impl SqlitePlanRevisionRepository {
         Ok(())
     }
 
-    /// Exact source bytes for a fenced authoring generation, if the current
-    /// owner is document. Reading a historical generation is inspection only.
+    /// Historical source captured at a specific owner-handoff generation.
+    /// A later document semantic append does NOT update this older record.
+    /// Use current_authoring() for the consistent latest source, or
+    /// semantic_document() for an exact historical semantic revision.
     pub fn source_document(
         &self,
         plan_id: &str,
@@ -365,6 +367,53 @@ impl PlanRevisionRepository for SqlitePlanRevisionRepository {
         read_head(&connection, plan_id)
     }
 
+    fn current_authoring(&self, plan_id: &str) -> Result<PlanAuthoringSnapshot, PlanRevisionError> {
+        let mut connection = self.connection()?;
+        let tx = connection
+            .transaction_with_behavior(TransactionBehavior::Deferred)
+            .map_err(storage)?;
+        let head = read_head(&tx, plan_id)?;
+        let document_bytes = if head.source == PlanAuthoringSource::Document {
+            let revision_document: Option<Option<Vec<u8>>> = tx
+                .query_row(
+                    "SELECT source_document FROM semantic_revisions WHERE plan_id=?1 AND revision=?2",
+                    params![plan_id, revision_to_db(head.semantic_revision)?],
+                    |row| row.get(0),
+                )
+                .optional()
+                .map_err(storage)?;
+            let Some(revision_document) = revision_document else {
+                return Err(PlanRevisionError::Storage(
+                    "authoritative head references a missing semantic revision".into(),
+                ));
+            };
+            let current_document = if revision_document.is_some() {
+                revision_document
+            } else {
+                tx.query_row(
+                    "SELECT source_document FROM source_handoffs WHERE plan_id=?1 AND generation=?2",
+                    params![plan_id, revision_to_db(head.source_generation)?],
+                    |row| row.get(0),
+                )
+                .optional()
+                .map_err(storage)?
+                .flatten()
+            };
+            Some(current_document.ok_or_else(|| {
+                PlanRevisionError::Storage(
+                    "document owner has no matching current authoring source".into(),
+                )
+            })?)
+        } else {
+            None
+        };
+        tx.commit().map_err(storage)?;
+        Ok(PlanAuthoringSnapshot {
+            head,
+            document_bytes,
+        })
+    }
+
     fn semantic(
         &self,
         plan_id: &str,
@@ -391,6 +440,23 @@ impl PlanRevisionRepository for SqlitePlanRevisionRepository {
             inspection,
             node_ids,
         })
+    }
+
+    fn semantic_document(
+        &self,
+        plan_id: &str,
+        revision: u64,
+    ) -> Result<Option<Vec<u8>>, PlanRevisionError> {
+        let connection = self.connection()?;
+        let stored: Option<Option<Vec<u8>>> = connection
+            .query_row(
+                "SELECT source_document FROM semantic_revisions WHERE plan_id=?1 AND revision=?2",
+                params![plan_id, revision_to_db(revision)?],
+                |row| row.get(0),
+            )
+            .optional()
+            .map_err(storage)?;
+        stored.ok_or(PlanRevisionError::NotFound)
     }
 
     fn append(
