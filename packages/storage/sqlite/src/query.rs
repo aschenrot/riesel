@@ -5,8 +5,8 @@
 use crate::database::SqliteStore;
 use crate::records::decode_id;
 use riesel_storage::{
-    RecordQuery, RecordQueryError, RecordQueryPage, RecordQueryRequest,
-    record_matches_predicate, validate_record_query,
+    RecordQuery, RecordQueryError, RecordQueryPage, RecordQueryRequest, record_matches_predicate,
+    validate_record_query,
 };
 use rusqlite::params;
 fn failed(source: impl std::fmt::Display) -> RecordQueryError {
@@ -79,7 +79,10 @@ impl RecordQuery for SqliteStore {
                 self.query_cursors
                     .lock()
                     .map_err(|_| RecordQueryError::Failed("cursor lock poisoned".into()))?
-                    .issue(&request, last.expect("partial scan inspected one candidate"))?,
+                    .issue(
+                        &request,
+                        last.expect("partial scan inspected one candidate"),
+                    )?,
             )
         };
         Ok(RecordQueryPage {
@@ -97,8 +100,9 @@ mod tests {
     use riesel_schema::{ModelDefinition, TypeRef};
     use riesel_storage::{RecordCompare, RecordPredicate, RecordStore};
     use serde_json::json;
-    use uuid::Uuid;
+
     use std::collections::{BTreeMap, BTreeSet};
+    use uuid::Uuid;
 
     fn models() -> BTreeMap<String, ModelDefinition> {
         BTreeMap::from([(
@@ -107,7 +111,12 @@ mod tests {
                 fields: BTreeMap::from([
                     ("completed".into(), TypeRef::Bool),
                     ("big".into(), TypeRef::U64),
-                    ("note".into(), TypeRef::Optional { item: Box::new(TypeRef::String) }),
+                    (
+                        "note".into(),
+                        TypeRef::Optional {
+                            item: Box::new(TypeRef::String),
+                        },
+                    ),
                     ("external_id".into(), TypeRef::Uuid),
                 ]),
             },
@@ -199,7 +208,8 @@ mod tests {
 
         // Query-only attachment to the existing file does not require a
         // writable Storage contract or create/upgrade the database.
-        let read_only = SqliteStore::open_query_only(&db, m, BTreeSet::from(["task".into()])).unwrap();
+        let read_only =
+            SqliteStore::open_query_only(&db, m, BTreeSet::from(["task".into()])).unwrap();
         let q = RecordQueryRequest {
             model: "task".into(),
             predicate: Some(RecordPredicate {
@@ -219,7 +229,9 @@ mod tests {
     fn query_only_does_not_create_database_or_grant_unknown_model() {
         let dir = tempfile::tempdir().unwrap();
         let db = dir.path().join("missing.db");
-        assert!(SqliteStore::open_query_only(&db, models(), BTreeSet::from(["task".into()])).is_err());
+        assert!(
+            SqliteStore::open_query_only(&db, models(), BTreeSet::from(["task".into()])).is_err()
+        );
         assert!(!db.exists());
     }
 }
