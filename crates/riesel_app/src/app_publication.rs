@@ -116,9 +116,10 @@ impl AppReadPublication {
             ));
         }
         for query in &allowed {
-            let spec = contract.operations.get(query).ok_or_else(|| {
-                ReadPublicationError::Invalid(format!("unknown query: {query}"))
-            })?;
+            let spec = contract
+                .operations
+                .get(query)
+                .ok_or_else(|| ReadPublicationError::Invalid(format!("unknown query: {query}")))?;
             if spec.kind != OperationKind::Query {
                 return Err(ReadPublicationError::NotReadOnly(query.clone()));
             }
@@ -202,9 +203,7 @@ impl AppReadPublication {
             .runtime_ingress
             .try_admit(&requested.generation)
             .map_err(|error| match error {
-                InternalAdmissionError::WrongGeneration => {
-                    ReadPublicationError::StaleGeneration
-                }
+                InternalAdmissionError::WrongGeneration => ReadPublicationError::StaleGeneration,
                 InternalAdmissionError::Expired => ReadPublicationError::Expired,
                 InternalAdmissionError::AtCapacity => ReadPublicationError::AtCapacity,
             })?;
@@ -388,7 +387,10 @@ mod tests {
 
         runtime().block_on(async {
             assert_eq!(
-                publication.query(&descriptor, "count", json!({})).await.unwrap(),
+                publication
+                    .query(&descriptor, "count", json!({}))
+                    .await
+                    .unwrap(),
                 json!(7)
             );
             assert!(matches!(
@@ -408,10 +410,13 @@ mod tests {
                 Err(ReadPublicationError::WrongInterface)
             ));
             assert!(matches!(
-                publication.query(
-                    &descriptor, "count",
-                    Value::String("x".repeat(MAX_REQUEST_BYTES + 1)),
-                ).await,
+                publication
+                    .query(
+                        &descriptor,
+                        "count",
+                        Value::String("x".repeat(MAX_REQUEST_BYTES + 1)),
+                    )
+                    .await,
                 Err(ReadPublicationError::OverBudget)
             ));
             assert_eq!(domain.reads.load(Ordering::SeqCst), 1);
@@ -483,20 +488,29 @@ mod tests {
             vec!["unregistered".into()],
             (0..129).map(|n| format!("count{n}")).collect(),
         ] {
-            assert!(running
-                .publish_local_reads(
-                    "research.app", "graph.visible",
-                    ReadExposure::NonSensitiveSharedUser,
-                    domain.clone(), selected
-                )
-                .is_err());
+            assert!(
+                running
+                    .publish_local_reads(
+                        "research.app",
+                        "graph.visible",
+                        ReadExposure::NonSensitiveSharedUser,
+                        domain.clone(),
+                        selected
+                    )
+                    .is_err()
+            );
         }
-        assert!(running
-            .publish_local_reads(
-                "", "graph.visible", ReadExposure::NonSensitiveSharedUser,
-                domain.clone(), ["count".into()]
-            )
-            .is_err());
+        assert!(
+            running
+                .publish_local_reads(
+                    "",
+                    "graph.visible",
+                    ReadExposure::NonSensitiveSharedUser,
+                    domain.clone(),
+                    ["count".into()]
+                )
+                .is_err()
+        );
         assert_eq!(domain.reads.load(Ordering::SeqCst), 0);
         assert_eq!(domain.commands.load(Ordering::SeqCst), 0);
         running.shutdown().unwrap();
