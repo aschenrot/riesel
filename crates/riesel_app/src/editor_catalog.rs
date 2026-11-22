@@ -253,7 +253,10 @@ pub enum EditorCatalogError {
     Plan(#[from] ExecutionPlanError),
 }
 
-impl<H: ?Sized> OperationRegistry<H> {
+impl<H: ?Sized + Send + Sync> OperationRegistry<H> {
+    // Unlike the unrestricted Rust-first registry, this admission surface
+    // requires Send + Sync handler types. Native-thread-only callbacks need
+    // a separately verified domain-owner adapter rather than editor export.
     /// Register real application-owned Rust behavior and an inert descriptor
     /// together. Ordinary `register` remains code-first and non-editable.
     pub fn register_editor_operation(
