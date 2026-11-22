@@ -92,9 +92,7 @@ fn main() -> riesel::Result<()> {
         {
             return Err(std::io::Error::other("observed state diverged from run report").into());
         }
-        let transitions = observer
-            .changes_since(0)
-            .map_err(std::io::Error::other)?;
+        let transitions = observer.changes_since(0).map_err(std::io::Error::other)?;
         if transitions.truncated || transitions.events.is_empty() {
             return Err(std::io::Error::other("short example lost its transition history").into());
         }
