@@ -964,5 +964,5 @@ mod tests {
             assert_eq!(replacement.stop(), 0);
             assert_eq!(first.actor.stop(), 0);
         });
-     }
+    }
 }
