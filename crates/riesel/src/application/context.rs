@@ -35,6 +35,19 @@ impl Context<'_> {
         self.running.session_token().internal_publication_session()
     }
 
+    /// Internal #158 evidence snapshot issued by the Riesel runtime.
+    /// This is not a stable SDK observer, a published interface, or a grant.
+    #[cfg(feature = "internal-publication")]
+    #[doc(hidden)]
+    pub fn internal_operational_observations(
+        &self,
+    ) -> std::result::Result<
+        riesel_app::operational_observation::ObservationSnapshot,
+        riesel_app::operational_observation::ObservationError,
+    > {
+        self.running.internal_operational_observations()
+    }
+
     /// Construct a bounded graph runner in this application's actual session.
     /// Operations remain the application's own Rust bindings; no provider
     /// resolution or independent executor is performed.
