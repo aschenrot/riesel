@@ -7,8 +7,7 @@ transport adapter, runtime-issued publication epoch or authorization grant.
 All principals and exporter generations here are **simulated** and are explicitly
 unsafe for public or privileged publication.
 
-The comparator reuses the **same `ResearchExport` policy** from [PR #91]
-(https://github.com/aschenrot/riesel/pull/91), now verified against three
+The comparator reuses the **same `ResearchExport` policy** from [PR #91](https://github.com/aschenrot/riesel/pull/91), now verified against three
 distinct application owners:
 
 1. Counter: actual resolved `AsyncCapability<AsyncCounterContract>`; explicit
@@ -44,9 +43,7 @@ different, unauthenticated local adapter. The two proofs must not be called
 one accepted or secure transport.
 
 A same-UID local program can still impersonate a simulated permitted
-principal; the actual negative controls are [PR #149]
-(https://github.com/aschenrot/riesel/pull/149) and [PR #151]
-(https://github.com/aschenrot/riesel/pull/151). Runtime-issued
+principal; the actual negative controls are [PR #149](https://github.com/aschenrot/riesel/pull/149) and [PR #151](https://github.com/aschenrot/riesel/pull/151). Runtime-issued
 same-process generation/revocation is already implemented internally
 under [#157](https://github.com/aschenrot/riesel/issues/157), but the
 research `ResearchExport` does **not** consume it. Consequently this
