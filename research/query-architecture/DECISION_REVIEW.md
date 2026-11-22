@@ -26,8 +26,11 @@ stream subscriptions, distributed snapshots or cross-process query access.
 with optional domain/provider-specific realization; do not adopt a
 universal planner or require all capabilities to implement it.** First
 expose selective query semantics for schema-registered durable records
-through **an optional, separately versioned, read-designated capability
-co-exposed from **one real linked provider instance** with Storage v2 as the initial implementation, **only when declared same-authority/read-your-writes bindings can be enforced at preflight and runtime**. This is not a universal physical co-location requirement.
+through an **optional, separately versioned, read-designated
+capability**, co-exposed with Storage v2 by one real linked provider
+instance as the initial implementation. The declared read-your-writes
+relationship must be enforced at preflight and runtime; this is **not**
+a universal physical co-location requirement.
 Keep an independently evolvable logical query description and explicitly
 negotiated provider features; do **not** copy SQL syntax or SQLite's
 implicit coercions into a Riesel public contract.
@@ -140,8 +143,9 @@ first linked realization, not a universal Query axiom.
    authoritative data owner, registered model/schema, and declared
    read-consistency profile. The first linked implementation binds to
    one real provider instance; a future externally authorized proxy
-   or explicitly stale replica needs separate trust/freshness guarantees. The owner validates model, field, operator, value type,
-   feature support and budgets **before executing**. Unknown or
+   or explicitly stale replica needs separate trust/freshness guarantees.
+   The owner validates model, field, operator, value type, feature
+   support and budgets **before executing**. Unknown or
    unsupported semantics fail explicitly; never silently scan without
    honoring an advertised work limit.
 2. **Typed scalar truthfulness.** `u64` and `i64` use exact full
