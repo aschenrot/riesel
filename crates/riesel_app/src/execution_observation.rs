@@ -547,6 +547,7 @@ impl GraphEffectRecorder {
             },
             domain,
             owner_generation: generation,
+            attachment_id: Uuid::new_v4(),
             view_version,
         };
         let (attachment, publisher) =
