@@ -40,6 +40,7 @@ pub struct NestedDescription {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum NestedStatus {
     Current,
+    Unpublished,
     OwnerClosed,
     Superseded,
     SessionExpired,
@@ -50,7 +51,7 @@ pub struct NestedSnapshot<T> {
     pub description: NestedDescription,
     pub sequence: u64,
     pub status: NestedStatus,
-    pub payload: Arc<T>,
+    pub payload: Option<Arc<T>>,
 }
 
 /// The owner generation is part of every cursor; numbers from other owners
@@ -193,7 +194,7 @@ struct NestedStore<T> {
     owner: Weak<DomainLifetime>,
     retired: Arc<AtomicBool>,
     sequence: u64,
-    payload: Arc<T>,
+    payload: Option<Arc<T>>,
     transitions: VecDeque<u64>,
 }
 
@@ -209,6 +210,8 @@ impl<T> NestedStore<T> {
             .is_some_and(|owner| owner.live.load(Ordering::Acquire))
         {
             NestedStatus::OwnerClosed
+        } else if self.payload.is_none() {
+            NestedStatus::Unpublished
         } else {
             NestedStatus::Current
         }
@@ -226,7 +229,6 @@ impl<T: Send + Sync + 'static> NestedPublisher<T> {
     pub(crate) fn attach(
         description: NestedDescription,
         owner: Weak<DomainLifetime>,
-        initial: T,
     ) -> (NestedAttachment, Self) {
         let retired = Arc::new(AtomicBool::new(false));
         let source = Arc::new(Mutex::new(NestedStore {
@@ -234,7 +236,7 @@ impl<T: Send + Sync + 'static> NestedPublisher<T> {
             owner,
             retired: Arc::clone(&retired),
             sequence: 0,
-            payload: Arc::new(initial),
+            payload: None,
             transitions: VecDeque::new(),
         }));
         let erased: Arc<dyn Any + Send + Sync> = source.clone();
@@ -266,7 +268,7 @@ impl<T: Send + Sync + 'static> NestedPublisher<T> {
             .sequence
             .checked_add(1)
             .ok_or(NestedObservationError::SequenceExhausted)?;
-        state.payload = Arc::new(snapshot);
+        state.payload = Some(Arc::new(snapshot));
         let sequence = state.sequence;
         state.transitions.push_back(sequence);
         if state.transitions.len() > MAX_NESTED_TRANSITIONS {
@@ -302,7 +304,7 @@ impl<T> NestedObserver<T> {
             description: state.description.clone(),
             sequence: state.sequence,
             status: state.status(&self.session),
-            payload: Arc::clone(&state.payload),
+            payload: state.payload.clone(),
         }
     }
 
