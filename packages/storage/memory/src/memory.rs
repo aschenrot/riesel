@@ -1,8 +1,12 @@
 use riesel_schema::ModelDefinition;
-use riesel_storage::{MAX_PAGE_SIZE, RecordPage, RecordStore, StoreError, StoredRecord};
+use riesel_storage::{
+    MAX_PAGE_SIZE, RecordPage, RecordQuery, RecordQueryCursors, RecordQueryError,
+    RecordQueryPage, RecordQueryRequest, RecordStore, StoreError, StoredRecord,
+    record_matches_predicate, validate_record_query,
+};
 
 use serde_json::Value;
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::ops::Bound;
 use std::sync::{Mutex, MutexGuard};
 use uuid::Uuid;
@@ -14,6 +18,8 @@ const MAX_RECORD_BYTES: usize = 64 * 1024;
 pub struct MemoryStore {
     records: Mutex<Records>,
     models: Option<BTreeMap<String, ModelDefinition>>,
+    readable_models: BTreeSet<String>,
+    query_cursors: Mutex<RecordQueryCursors>,
 }
 
 impl MemoryStore {
@@ -26,8 +32,22 @@ impl MemoryStore {
     /// must not be treated as production schema-enforcing providers.
     pub fn with_models(models: BTreeMap<String, ModelDefinition>) -> Self {
         Self {
-            records: Mutex::new(BTreeMap::new()),
             models: Some(models),
+            ..Self::default()
+        }
+    }
+
+    /// Grant the specified registered models to the first trusted linked
+    /// record Query facet. Model metadata alone does not grant Query access.
+    /// The read-only RPC facet is exposed separately by the provider factory.
+    pub fn with_query_models(
+        models: BTreeMap<String, ModelDefinition>,
+        readable_models: BTreeSet<String>,
+    ) -> Self {
+        Self {
+            models: Some(models),
+            readable_models,
+            ..Self::default()
         }
     }
 
@@ -164,6 +184,78 @@ impl RecordStore for MemoryStore {
         }
         records.remove(&key);
         Ok(())
+    }
+}
+
+/// Provider-owned bounded iteration; never invokes the writable
+/// RecordStore RPC or performs a consumer-side full scan.
+impl RecordQuery for MemoryStore {
+    fn query_page(&self, request: RecordQueryRequest) -> Result<RecordQueryPage, RecordQueryError> {
+        let definition = self
+            .models
+            .as_ref()
+            .and_then(|models| models.get(&request.model))
+            .filter(|_| self.readable_models.contains(&request.model))
+            .ok_or(RecordQueryError::ModelDenied)?;
+        validate_record_query(definition, &request)?;
+
+        let after = self
+            .query_cursors
+            .lock()
+            .map_err(|_| RecordQueryError::Failed("cursor lock poisoned".into()))?
+            .resume(&request)?;
+        let lower = match after {
+            Some(cursor) => Bound::Excluded((request.model.clone(), cursor)),
+            None => Bound::Included((request.model.clone(), Uuid::nil())),
+        };
+
+        let mut records = Vec::new();
+        let mut inspected = 0;
+        let mut last = None;
+        let mut exhausted = true;
+        {
+            let guard = self
+                .records
+                .lock()
+                .map_err(|_| RecordQueryError::Failed("records lock poisoned".into()))?;
+            for ((model, id), record) in guard.range((lower, Bound::Unbounded)) {
+                if model != &request.model {
+                    break;
+                }
+                inspected += 1;
+                last = Some(*id);
+                if record_matches_predicate(
+                    &record.data,
+                    definition,
+                    request.predicate.as_ref(),
+                )? {
+                    records.push(record.clone());
+                }
+                if inspected == request.scan_budget || records.len() == request.limit as usize {
+                    // No unbudgeted lookahead. Another page may be empty,
+                    // but an empty *partial* page is never globally empty.
+                    exhausted = false;
+                    break;
+                }
+            }
+        }
+
+        let next_cursor = if exhausted {
+            None
+        } else {
+            Some(
+                self.query_cursors
+                    .lock()
+                    .map_err(|_| RecordQueryError::Failed("cursor lock poisoned".into()))?
+                    .issue(&request, last.expect("partial scan must inspect a record"))?,
+            )
+        };
+        Ok(RecordQueryPage {
+            records,
+            next_cursor,
+            exhausted,
+            inspected,
+        })
     }
 }
 
