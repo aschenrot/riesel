@@ -6,7 +6,7 @@ use crate::database::SqliteStore;
 use crate::records::decode_id;
 use riesel_storage::{
     RecordQuery, RecordQueryError, RecordQueryPage, RecordQueryRequest, record_matches_predicate,
-    validate_record_query,
+    validate_record_query, validate_record_query_envelope,
 };
 use rusqlite::params;
 // A nullable-cursor OR expression can prevent SQLite from seeking directly
@@ -23,6 +23,7 @@ fn failed(source: impl std::fmt::Display) -> RecordQueryError {
 
 impl RecordQuery for SqliteStore {
     fn query_page(&self, request: RecordQueryRequest) -> Result<RecordQueryPage, RecordQueryError> {
+        validate_record_query_envelope(&request)?;
         let definition = self
             .models
             .get(&request.model)
