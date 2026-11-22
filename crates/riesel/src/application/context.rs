@@ -25,6 +25,16 @@ impl Context<'_> {
         self.running.session_token()
     }
 
+    /// Internal #157 fixture bridge to the *actual* Riesel session generation.
+    /// Not a shipped application export interface or client permission token.
+    #[cfg(feature = "internal-publication")]
+    #[doc(hidden)]
+    pub fn internal_publication_session(
+        &self,
+    ) -> riesel_protocol::session::InternalPublicationSession {
+        self.running.session_token().internal_publication_session()
+    }
+
     /// Construct a bounded graph runner in this application's actual session.
     /// Operations remain the application's own Rust bindings; no provider
     /// resolution or independent executor is performed.
