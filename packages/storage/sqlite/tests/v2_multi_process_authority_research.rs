@@ -21,7 +21,9 @@ const ID: &str = "research.v2";
 fn open(path: &Path) -> Connection {
     let connection = Connection::open(path).unwrap();
     connection.busy_timeout(Duration::from_secs(8)).unwrap();
-    connection.pragma_update(None, "synchronous", "FULL").unwrap();
+    connection
+        .pragma_update(None, "synchronous", "FULL")
+        .unwrap();
     connection
 }
 
@@ -38,8 +40,9 @@ fn real_plan(revision: u64) -> String {
 
 fn setup(path: &Path) {
     let connection = open(path);
-    connection.execute_batch(
-        "PRAGMA journal_mode=WAL;
+    connection
+        .execute_batch(
+            "PRAGMA journal_mode=WAL;
         CREATE TABLE head(
             plan_id TEXT PRIMARY KEY,
             semantic_revision INTEGER NOT NULL,
@@ -64,19 +67,20 @@ fn setup(path: &Path) {
             request_id TEXT PRIMARY KEY,
             revision INTEGER NOT NULL
         );",
-    ).unwrap();
-    connection.execute(
-        "INSERT INTO head VALUES(?1,1,1,1,'rust',1)",
-        params![ID],
-    ).unwrap();
-    connection.execute(
-        "INSERT INTO revisions VALUES(?1,1,?2)",
-        params![ID, real_plan(1)],
-    ).unwrap();
-    connection.execute(
-        "INSERT INTO layouts VALUES(?1,1,1)",
-        params![ID],
-    ).unwrap();
+        )
+        .unwrap();
+    connection
+        .execute("INSERT INTO head VALUES(?1,1,1,1,'rust',1)", params![ID])
+        .unwrap();
+    connection
+        .execute(
+            "INSERT INTO revisions VALUES(?1,1,?2)",
+            params![ID, real_plan(1)],
+        )
+        .unwrap();
+    connection
+        .execute("INSERT INTO layouts VALUES(?1,1,1)", params![ID])
+        .unwrap();
 }
 
 fn state(path: &Path) -> (i64, i64, i64, String, i64) {
@@ -89,38 +93,52 @@ fn state(path: &Path) -> (i64, i64, i64, String, i64) {
 
 fn cas_semantic(path: &Path, expected: i64, epoch: i64, source: &str) -> bool {
     let mut conn = open(path);
-    let tx = conn.transaction_with_behavior(TransactionBehavior::Immediate).unwrap();
+    let tx = conn
+        .transaction_with_behavior(TransactionBehavior::Immediate)
+        .unwrap();
     let next = expected + 1;
-    if tx.execute(
-        "UPDATE head SET semantic_revision=?1 WHERE plan_id=?2
+    if tx
+        .execute(
+            "UPDATE head SET semantic_revision=?1 WHERE plan_id=?2
         AND semantic_revision=?3 AND source_epoch=?4 AND source=?5",
-        params![next,ID,expected,epoch,source],
-    ).unwrap() == 0 {
+            params![next, ID, expected, epoch, source],
+        )
+        .unwrap()
+        == 0
+    {
         return false;
     }
     tx.execute(
         "INSERT INTO revisions VALUES(?1,?2,?3)",
-        params![ID,next,real_plan(next as u64)],
-    ).unwrap();
+        params![ID, next, real_plan(next as u64)],
+    )
+    .unwrap();
     tx.commit().unwrap();
     true
 }
 
 fn cas_layout(path: &Path, expected: i64, epoch: i64, anchor: i64) -> bool {
     let mut conn = open(path);
-    let tx = conn.transaction_with_behavior(TransactionBehavior::Immediate).unwrap();
-    if tx.execute(
-        "UPDATE head SET layout_revision=layout_revision+1 WHERE plan_id=?1
+    let tx = conn
+        .transaction_with_behavior(TransactionBehavior::Immediate)
+        .unwrap();
+    if tx
+        .execute(
+            "UPDATE head SET layout_revision=layout_revision+1 WHERE plan_id=?1
         AND layout_revision=?2 AND source_epoch=?3
         AND EXISTS (SELECT 1 FROM revisions WHERE plan_id=?1 AND revision=?4)",
-        params![ID,expected,epoch,anchor],
-    ).unwrap() == 0 {
+            params![ID, expected, epoch, anchor],
+        )
+        .unwrap()
+        == 0
+    {
         return false;
     }
     tx.execute(
         "INSERT INTO layouts VALUES(?1,?2,?3)",
-        params![ID,expected+1,anchor],
-    ).unwrap();
+        params![ID, expected + 1, anchor],
+    )
+    .unwrap();
     tx.commit().unwrap();
     true
 }
@@ -129,38 +147,43 @@ fn transfer(path: &Path, expected_semantic: i64, expected_epoch: i64, representa
     if !representable {
         return false;
     }
-    open(path).execute(
-        "UPDATE head SET source='document',source_epoch=source_epoch+1
+    open(path)
+        .execute(
+            "UPDATE head SET source='document',source_epoch=source_epoch+1
          WHERE plan_id=?1 AND semantic_revision=?2 AND source_epoch=?3 AND source='rust'",
-        params![ID,expected_semantic,expected_epoch],
-    ).unwrap() == 1
+            params![ID, expected_semantic, expected_epoch],
+        )
+        .unwrap()
+        == 1
 }
 
 fn activation_commit(path: &Path) {
     let mut connection = open(path);
-    let tx = connection.transaction_with_behavior(TransactionBehavior::Immediate).unwrap();
+    let tx = connection
+        .transaction_with_behavior(TransactionBehavior::Immediate)
+        .unwrap();
     tx.execute(
         "UPDATE head SET active_revision=2 WHERE plan_id=?1 AND active_revision=1",
         params![ID],
-    ).unwrap();
-    tx.execute("INSERT INTO receipts VALUES('request-1',2)",[]).unwrap();
+    )
+    .unwrap();
+    tx.execute("INSERT INTO receipts VALUES('request-1',2)", [])
+        .unwrap();
     tx.commit().unwrap();
 }
 
 fn wait_for(path: &Path, timeout: Duration) {
-    let start=Instant::now();
+    let start = Instant::now();
     while !path.exists() {
-        assert!(start.elapsed() < timeout,"test synchronization exceeded bounded deadline: {path:?}");
+        assert!(
+            start.elapsed() < timeout,
+            "test synchronization exceeded bounded deadline: {path:?}"
+        );
         thread::sleep(Duration::from_millis(10));
     }
 }
 
-fn child(
-    db: &Path,
-    sync: &Path,
-    name: &str,
-    mode: &str,
-) -> Child {
+fn child(db: &Path, sync: &Path, name: &str, mode: &str) -> Child {
     Command::new(env::current_exe().unwrap())
         .arg("--exact")
         .arg("subprocess_worker")
@@ -181,78 +204,84 @@ fn subprocess_worker() {
     let Ok(db) = env::var("RIESEL_193_DB") else {
         return;
     };
-    let sync=PathBuf::from(env::var("RIESEL_193_SYNC").unwrap());
-    let name=env::var("RIESEL_193_NAME").unwrap();
-    let mode=env::var("RIESEL_193_MODE").unwrap();
-    let db=PathBuf::from(db);
-    let ready=sync.join(format!("ready-{name}"));
+    let sync = PathBuf::from(env::var("RIESEL_193_SYNC").unwrap());
+    let name = env::var("RIESEL_193_NAME").unwrap();
+    let mode = env::var("RIESEL_193_MODE").unwrap();
+    let db = PathBuf::from(db);
+    let ready = sync.join(format!("ready-{name}"));
     match mode.as_str() {
         "semantic" | "layout" => {
             File::create(&ready).unwrap();
-            wait_for(&sync.join("go"),Duration::from_secs(12));
-            let won=if mode=="semantic" {
-                cas_semantic(&db,1,1,"rust")
+            wait_for(&sync.join("go"), Duration::from_secs(12));
+            let won = if mode == "semantic" {
+                cas_semantic(&db, 1, 1, "rust")
             } else {
-                cas_layout(&db,1,1,1)
+                cas_layout(&db, 1, 1, 1)
             };
-            println!("WRITER_OUTCOME={}", if won {"won"} else {"conflict"});
+            println!("WRITER_OUTCOME={}", if won { "won" } else { "conflict" });
         }
         "uncommitted" => {
-            let mut connection=open(&db);
-            let tx=connection.transaction_with_behavior(TransactionBehavior::Immediate).unwrap();
-            tx.execute("UPDATE head SET semantic_revision=2 WHERE plan_id=?1",params![ID]).unwrap();
+            let mut connection = open(&db);
+            let tx = connection
+                .transaction_with_behavior(TransactionBehavior::Immediate)
+                .unwrap();
+            tx.execute(
+                "UPDATE head SET semantic_revision=2 WHERE plan_id=?1",
+                params![ID],
+            )
+            .unwrap();
             File::create(&ready).unwrap();
-            wait_for(&sync.join("go"),Duration::from_secs(12));
+            wait_for(&sync.join("go"), Duration::from_secs(12));
             // Never commit: parent kills process while write is in progress.
         }
         "committed" => {
             activation_commit(&db);
             File::create(&ready).unwrap();
-            wait_for(&sync.join("go"),Duration::from_secs(12));
+            wait_for(&sync.join("go"), Duration::from_secs(12));
         }
         _ => panic!("unsupported research worker mode"),
     }
 }
 
 fn race(mode: &str) {
-    let dir=tempdir().unwrap();
-    let db=dir.path().join("v2.sqlite");
-    let sync=dir.path().join("sync");
+    let dir = tempdir().unwrap();
+    let db = dir.path().join("v2.sqlite");
+    let sync = dir.path().join("sync");
     fs::create_dir(&sync).unwrap();
     setup(&db);
-    let workers=vec![
-        child(&db,&sync,"a",mode),
-        child(&db,&sync,"b",mode),
-    ];
-    wait_for(&sync.join("ready-a"),Duration::from_secs(15));
-    wait_for(&sync.join("ready-b"),Duration::from_secs(15));
+    let workers = vec![child(&db, &sync, "a", mode), child(&db, &sync, "b", mode)];
+    wait_for(&sync.join("ready-a"), Duration::from_secs(15));
+    wait_for(&sync.join("ready-b"), Duration::from_secs(15));
     File::create(sync.join("go")).unwrap();
-    let mut won=0;
+    let mut won = 0;
     for worker in workers {
-        let output=worker.wait_with_output().unwrap();
-        assert!(output.status.success(),
-            "child process failed: {}",String::from_utf8_lossy(&output.stderr));
-        let stdout=String::from_utf8_lossy(&output.stdout);
+        let output = worker.wait_with_output().unwrap();
+        assert!(
+            output.status.success(),
+            "child process failed: {}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        let stdout = String::from_utf8_lossy(&output.stdout);
         if stdout.contains("WRITER_OUTCOME=won") {
-            won+=1;
+            won += 1;
         } else {
-            assert!(stdout.contains("WRITER_OUTCOME=conflict"),"{stdout}");
+            assert!(stdout.contains("WRITER_OUTCOME=conflict"), "{stdout}");
         }
     }
-    assert_eq!(won,1,"one independent OS process must win the CAS");
-    let observed=state(&db);
-    if mode=="semantic" {
-        assert_eq!(observed,(2,1,1,"rust".into(),1));
-        let count: i64=open(&db).query_row(
-            "SELECT COUNT(*) FROM revisions",[],|row|row.get(0)
-        ).unwrap();
-        assert_eq!(count,2);
+    assert_eq!(won, 1, "one independent OS process must win the CAS");
+    let observed = state(&db);
+    if mode == "semantic" {
+        assert_eq!(observed, (2, 1, 1, "rust".into(), 1));
+        let count: i64 = open(&db)
+            .query_row("SELECT COUNT(*) FROM revisions", [], |row| row.get(0))
+            .unwrap();
+        assert_eq!(count, 2);
     } else {
-        assert_eq!(observed,(1,2,1,"rust".into(),1));
-        let count: i64=open(&db).query_row(
-            "SELECT COUNT(*) FROM layouts",[],|row|row.get(0)
-        ).unwrap();
-        assert_eq!(count,2);
+        assert_eq!(observed, (1, 2, 1, "rust".into(), 1));
+        let count: i64 = open(&db)
+            .query_row("SELECT COUNT(*) FROM layouts", [], |row| row.get(0))
+            .unwrap();
+        assert_eq!(count, 2);
     }
 }
 
@@ -268,52 +297,53 @@ fn two_real_os_processes_compete_on_independent_layout_predecessor() {
 
 #[test]
 fn killed_writer_before_commit_rolls_back_actual_sqlite_transaction() {
-    let dir=tempdir().unwrap();
-    let db=dir.path().join("v2.sqlite");
-    let sync=dir.path().join("sync");
+    let dir = tempdir().unwrap();
+    let db = dir.path().join("v2.sqlite");
+    let sync = dir.path().join("sync");
     fs::create_dir(&sync).unwrap();
     setup(&db);
-    let mut worker=child(&db,&sync,"uncommitted","uncommitted");
-    wait_for(&sync.join("ready-uncommitted"),Duration::from_secs(15));
+    let mut worker = child(&db, &sync, "uncommitted", "uncommitted");
+    wait_for(&sync.join("ready-uncommitted"), Duration::from_secs(15));
     worker.kill().unwrap();
-    let _=worker.wait().unwrap();
-    assert_eq!(state(&db),(1,1,1,"rust".into(),1));
-    assert!(cas_semantic(&db,1,1,"rust"));
+    let _ = worker.wait().unwrap();
+    assert_eq!(state(&db), (1, 1, 1, "rust".into(), 1));
+    assert!(cas_semantic(&db, 1, 1, "rust"));
 }
 
 #[test]
 fn committed_activation_pointer_and_receipt_survive_worker_kill_and_reopen() {
-    let dir=tempdir().unwrap();
-    let db=dir.path().join("v2.sqlite");
-    let sync=dir.path().join("sync");
+    let dir = tempdir().unwrap();
+    let db = dir.path().join("v2.sqlite");
+    let sync = dir.path().join("sync");
     fs::create_dir(&sync).unwrap();
     setup(&db);
-    assert!(cas_semantic(&db,1,1,"rust"));
-    let mut worker=child(&db,&sync,"committed","committed");
-    wait_for(&sync.join("ready-committed"),Duration::from_secs(15));
+    assert!(cas_semantic(&db, 1, 1, "rust"));
+    let mut worker = child(&db, &sync, "committed", "committed");
+    wait_for(&sync.join("ready-committed"), Duration::from_secs(15));
     worker.kill().unwrap();
-    let _=worker.wait().unwrap();
-    assert_eq!(state(&db),(2,1,1,"rust".into(),2));
-    let revision: Option<i64>=open(&db)
+    let _ = worker.wait().unwrap();
+    assert_eq!(state(&db), (2, 1, 1, "rust".into(), 2));
+    let revision: Option<i64> = open(&db)
         .query_row(
             "SELECT revision FROM receipts WHERE request_id='request-1'",
             [],
-            |row|row.get(0),
+            |row| row.get(0),
         )
-        .optional().unwrap();
-    assert_eq!(revision,Some(2));
+        .optional()
+        .unwrap();
+    assert_eq!(revision, Some(2));
 }
 
 #[test]
 fn changed_source_epoch_fences_stale_writers_after_new_connection() {
-    let dir=tempdir().unwrap();
-    let db=dir.path().join("v2.sqlite");
+    let dir = tempdir().unwrap();
+    let db = dir.path().join("v2.sqlite");
     setup(&db);
-    assert!(!transfer(&db,1,1,false));
-    assert!(transfer(&db,1,1,true));
-    assert!(!cas_semantic(&db,1,1,"rust"));
-    assert!(!cas_layout(&db,1,1,1));
-    assert!(cas_semantic(&db,1,2,"document"));
-    assert!(cas_layout(&db,1,2,1));
-    assert_eq!(state(&db),(2,2,2,"document".into(),1));
+    assert!(!transfer(&db, 1, 1, false));
+    assert!(transfer(&db, 1, 1, true));
+    assert!(!cas_semantic(&db, 1, 1, "rust"));
+    assert!(!cas_layout(&db, 1, 1, 1));
+    assert!(cas_semantic(&db, 1, 2, "document"));
+    assert!(cas_layout(&db, 1, 2, 1));
+    assert_eq!(state(&db), (2, 2, 2, "document".into(), 1));
 }
