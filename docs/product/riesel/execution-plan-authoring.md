@@ -84,6 +84,16 @@ This is a **trusted application process registration and preflight**, not a remo
 
 The first A2 increment supports mandatory resource access, separately permitted optional access, permitted immediate/signal triggers and one fixed required domain boundary. It does not allow arbitrary reclassification of a domain owner or native `!Send` state. Strict B2 executable document parsing, V2 persistent ownership/CAS and C3 app-owned publication/activation are [separate tracked implementation increments](https://github.com/aschenrot/riesel/issues/111). S2→S3 typed value edges remain a separate research gate in [#187](https://github.com/aschenrot/riesel/issues/187).
 
+## Strict S2 executable authoring source (initial B2 implementation)
+
+The first document-owned authoring subset is deliberately **JSON format version 1** with an explicit `required_features` array and exact operation **handler version plus editor-descriptor version** per node. `S2PlanDocument`/`S2OperationDocument` are independent of the **Serialize-only** `ExecutionPlanDescription` inspection projection. They represent bounded **control** prerequisites, permitted signal triggers, symbolic access declarations and one domain admission boundary per operation. A future S3 executable typed-value edge is **not** a control prerequisite and must declare a new required semantic feature/revision.
+
+`inspect_s2_source(bytes, S2DocumentLimits::default())` distinguishes an understood `S2SourceDocument::Editable` from `UnsupportedReadOnly`, which retains the **exact original source bytes** and cannot be edited or reserialized by the checked writer. Unknown executable fields in an otherwise supported format, malformed fields, duplicate JSON keys and unsupported versions fail closed. A deliberately different format/required executable feature can be displayed read-only, not published.
+
+`bind_s2_document(document, &application_owned_registry, limits)` reconstructs the **actual** `ExecutionPlanDraft`, uses its existing structural validation and checks trusted `EditorOperationDescriptor` version/mandatory constraints before exact handler binding. `S2SourceDocument::serialize_checked` requires that full preflight before emitting a successor. Parsing, inspecting, modifying or serializing documents **does not invoke callbacks, create providers, publish a revision or grant activation**. Actual source owner, artifact registration, durable revision fencing and application-runtime activation belong to later V2/C3 implementation and must still be checked at those boundaries.
+
+Default untrusted-source budgets are 1 MiB serialized bytes, 4096 nodes, 16384 control prerequisites and 16384 resource entries. They are explicit, configurable application policy, **not runtime scheduler performance guarantees**. Larger workspaces can choose measured limits; source import still relies on the existing name/key and graph validators. No general Rust source serialization or typed S3 data transfer is implied.
+
 ## Boundaries and next steps
 
 - This graph is **not** the capability/provider startup dependency graph, the `AppSchema`, or the provider `DeploymentPlan`. Existing provider selection and session identity remain authoritative.
