@@ -22,5 +22,7 @@ jobs:
           rustup default 1.100.0
       - name: Verify research-only semantic predicate and cursor contract on real providers
         run: cargo test -p todo --test query_architecture_research -- --nocapture
+      - name: Verify split versus coexposed linked provider bindings
+        run: cargo test -p todo --test query_instance_binding_research -- --nocapture
       - name: Verify SQLite native JSON expression, indexed lookup and cooperative interruption on provider-authored data
         run: cargo test -p riesel_storage_sqlite --test query_architecture_research -- --nocapture
