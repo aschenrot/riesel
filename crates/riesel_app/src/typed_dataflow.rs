@@ -8,7 +8,7 @@
 
 use crate::execution_observation::GraphRunObserver;
 use crate::execution_plan::{
-    BoundExecutionPlan, ExecutionPlanDraft, ExecutionPlanError, OperationKey, OperationRegistry,
+    BoundExecutionPlan, ExecutionPlanDraft, ExecutionPlanError, OperationKey,
     ValidatedExecutionPlan,
 };
 use crate::execution_runner::{
@@ -401,7 +401,7 @@ impl TypedExecutionPlan {
         let augmented = augmented.validate()?;
 
         let store = Arc::new(Mutex::new(ArtifactStore::default()));
-        let mut run_registry = OperationRegistry::<AsyncOperation>::new();
+        let mut handlers = BTreeMap::<String, Arc<AsyncOperation>>::new();
         for node in nodes {
             let registered = registry.operations.get(node.binding()).expect("checked binding");
             let descriptor = registered.descriptor.clone();
@@ -414,8 +414,8 @@ impl TypedExecutionPlan {
                 .cloned()
                 .collect();
             let store = Arc::clone(&store);
-            run_registry.register(
-                node.binding().clone(),
+            handlers.insert(
+                node.id().to_owned(),
                 async_operation(move || {
                     let descriptor = descriptor.clone();
                     let handler = Arc::clone(&handler);
@@ -489,11 +489,11 @@ impl TypedExecutionPlan {
                         }
                     }
                 }),
-            )?;
+            );
         }
 
         Ok(PreparedTypedExecution {
-            bound: augmented.bind(&run_registry)?,
+            bound: augmented.bind_typed_node_handlers(handlers)?,
             store,
         })
     }
