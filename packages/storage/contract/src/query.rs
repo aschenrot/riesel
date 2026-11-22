@@ -277,7 +277,10 @@ impl RecordQueryCursors {
 
     /// Return the last examined key for an existing matching token, consuming
     /// the token only when the complete query identity matches.
-    pub fn resume(&mut self, request: &RecordQueryRequest) -> Result<Option<Uuid>, RecordQueryError> {
+    pub fn resume(
+        &mut self,
+        request: &RecordQueryRequest,
+    ) -> Result<Option<Uuid>, RecordQueryError> {
         let Some(token) = &request.cursor else {
             return Ok(None);
         };
@@ -487,12 +490,18 @@ mod tests {
         let mut changed = request.clone();
         changed.cursor = Some(token.clone());
         changed.model = "different".into();
-        assert!(matches!(cursors.resume(&changed), Err(RecordQueryError::InvalidCursor)));
+        assert!(matches!(
+            cursors.resume(&changed),
+            Err(RecordQueryError::InvalidCursor)
+        ));
 
         let mut resumed = request.clone();
         resumed.cursor = Some(token.clone());
         assert_eq!(cursors.resume(&resumed).unwrap(), Some(after));
-        assert!(matches!(cursors.resume(&resumed), Err(RecordQueryError::InvalidCursor)));
+        assert!(matches!(
+            cursors.resume(&resumed),
+            Err(RecordQueryError::InvalidCursor)
+        ));
         let mut different_owner = RecordQueryCursors::default();
         assert!(matches!(
             different_owner.resume(&resumed),
@@ -512,10 +521,9 @@ mod tests {
             Err(RecordQueryError::CursorCapacity)
         ));
         for entry in cursors.entries.values_mut() {
-            entry.created = std::time::Instant::now() - QUERY_CURSOR_TTL - std::time::Duration::from_secs(1);
+            entry.created =
+                std::time::Instant::now() - QUERY_CURSOR_TTL - std::time::Duration::from_secs(1);
         }
         cursors.issue(&request, Uuid::new_v4()).unwrap();
         assert_eq!(cursors.entries.len(), 1);
-    }
-
-}
+    }}
