@@ -409,7 +409,11 @@ impl ResearchReadyIndex {
             .enumerate()
             .filter_map(|(node, count)| (*count == 0).then_some(node))
             .collect();
-        Self { unmet, dependents, ready }
+        Self {
+            unmet,
+            dependents,
+            ready,
+        }
     }
 
     fn completed(&mut self, completed: usize, states: &[OperationState]) {
@@ -424,7 +428,8 @@ impl ResearchReadyIndex {
     }
 
     fn drop_non_pending(&mut self, states: &[OperationState]) {
-        self.ready.retain(|&node| matches!(states[node], OperationState::Pending));
+        self.ready
+            .retain(|&node| matches!(states[node], OperationState::Pending));
     }
 }
 
@@ -776,9 +781,10 @@ impl ExecutionGraphRunner {
                 if active.len() >= self.max_in_flight {
                     break;
                 }
-                candidate = self.research_ready_index.as_ref().and_then(|ready| {
-                    ready.ready.range((index + 1)..).next().copied()
-                });
+                candidate = self
+                    .research_ready_index
+                    .as_ref()
+                    .and_then(|ready| ready.ready.range((index + 1)..).next().copied());
                 self.research_admit_visits += 1;
                 self.admit_candidate(index, jobs, active);
             }
