@@ -188,6 +188,9 @@ fn actual_todo_provider_owner_selected_summary_no_task_contents() {
                     .await
                     .unwrap();
                 assert_eq!(denied["code"], "not_published");
+                // Check persisted domain state while the real application
+                // session remains active; finish_scope ends admission.
+                assert_eq!(domain.list_tasks().unwrap().len(), 36);
                 publication.withdraw();
                 let denied = client
                     .query(&descriptor, "snapshot", json!({}))
@@ -197,7 +200,6 @@ fn actual_todo_provider_owner_selected_summary_no_task_contents() {
                 tasks.finish_scope().await.unwrap();
                 assert!(!socket.exists(), "server must withdraw owned Unix socket");
             });
-            assert_eq!(domain.list_tasks()?.len(), 36);
             Ok(())
         })
         .unwrap();
