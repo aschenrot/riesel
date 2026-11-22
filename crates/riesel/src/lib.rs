@@ -100,7 +100,7 @@ pub use riesel_app::{
 };
 
 pub use riesel_app::{
-    MAX_STORED_LAYOUT_BYTES, MAX_STORED_PLAN_BYTES, CheckedSourceHandoff, PlanAuthoringHead,
+    CheckedSourceHandoff, MAX_STORED_LAYOUT_BYTES, MAX_STORED_PLAN_BYTES, PlanAuthoringHead,
     PlanAuthoringSource, PlanLayoutDraft, PlanLayoutPoint, PlanRevisionError,
     PlanRevisionRepository, PlanSemanticCandidate, StoredPlanLayout, StoredSemanticPlan,
     check_layout_nodes,
