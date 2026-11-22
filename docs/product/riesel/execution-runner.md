@@ -1,6 +1,6 @@
 # Session-owned execution graph runner (incremental delivery)
 
-**Status:** Validated plans, session-owned async graph execution, explicit domain boundaries and bounded fixed-step proposals are integrated under [#112](https://github.com/aschenrot/riesel/issues/112). Read-only authoritative run observation is integrated under [#113](https://github.com/aschenrot/riesel/issues/113). A bounded attempt-scoped owner-confirmed-prefix API is implemented as a #113 increment; general effect reconciliation, cooperative control and externally authorized inspection remain outstanding.
+**Status:** Validated plans, session-owned async graph execution, explicit domain boundaries and bounded fixed-step proposals are integrated under [#112](https://github.com/aschenrot/riesel/issues/112). Read-only authoritative run observation is integrated under [#113](https://github.com/aschenrot/riesel/issues/113). A bounded attempt-scoped owner-confirmed-prefix API is implemented under #113. Cooperative admission control at supported outer operation/domain boundaries is under implementation and verification; general effect reconciliation, delegated inner-domain control and externally authorized inspection remain outstanding.
 
 The runner consumes an immutable `BoundExecutionPlan<AsyncOperation>` from the existing [plan authoring API](execution-plan-authoring.md) through an existing application session. The graph constructor is internal; callers use `RunningApp::execution_graph` or `Context::execution_graph`, and cannot substitute a self-created session token. It does not launch providers, create a Tokio runtime, reinterpret `AppSchema` or own an inner domain scheduler. `RunningApp::execution_graph(plan, limit)` and `Context::execution_graph(plan, limit)` derive the session from the actual application instead of inventing another owner.
 
@@ -85,6 +85,73 @@ A registered operation may use `async_operation_with_effects(|effects| async mov
 - Riesel accepts an **explicit assertion from trusted application callback code**, not independent proof of remote mutation. An external domain/service adapter must await an actual owner acknowledgement. Timeout, crash, unknown reply and unowned/detached work do not establish confirmation. No rollback, business-command deduplication, durable log, automatic retry, cross-process authorization or exactly-once guarantee follows.
 
 The [fixed-step headless example](../../../crates/riesel/examples/execution_fixed_step.rs) records a local confirmed tick prefix per one-shot run. Regression tests cover partial confirmation followed by failure, abrupt abandonment, invalid/bounded streams, regression, idempotency and stale reporters. The real `execution_domains` fixture reports each centrally admitted tick as a separate confirmed attempt and a domain-owned frame as a cumulative prefix, including its first committed tick when the frame subsequently returns `Cancelled`; a managed child fixture records only a real `COMMIT` acknowledgement, not its unacknowledged crash request. General reconciliation and cooperative pause/step/resume remain outstanding #113 requirements.
+
+## Cooperative in-process admission controls (#113)
+
+The existing graph runner can expose a local `GraphRunController` through
+`runner.controller()` **before** handing the runner to `execute()` or
+`AsyncTasks::spawn_graph`. Its associated read-only
+`runner.observer().snapshot().controls` reports the currently advertised
+safe-point targets and authoritative modes. Control transitions use the same
+loss-aware run/attempt-correlated ring as execution events. This controller
+does not authenticate users of another process or start a second scheduler.
+
+An **outer admission safe point** exists immediately before the Riesel
+coordinator dispatches a validated operation. Use
+`GraphControlTarget::Run` for the run's future operation admission,
+`GraphControlTarget::Operation("id".into())` for one operation's
+admission, or `GraphControlTarget::RieselDomainTicks("world".into())`
+for the run's **Riesel-owned outer** ticks of one named domain.
+
+- `control.pause(target)` stops **future admissions** at the selected
+  boundary. It does not suspend a callback, thread, GPU command or remote
+  operation that has already started. Run-wide pause intentionally gates
+  all future graph admissions; domain-tick pause leaves independent async
+  branches unaffected unless they depend on the paused ticks.
+- `control.step(target)` requires Paused and arms **exactly one future
+  operation dispatch**, then automatically returns that target to Paused.
+  A pending step remains armed while dependencies, signals, concurrency
+  slots or declared resources prevent dispatch; it is not consumed by a
+  failed resource reservation. A second queued step is rejected instead
+  of accumulating unbounded permits. `resume` removes any pending step
+  and resumes normal eligibility.
+- Targets compose: an operation can only start if its run, operation and
+  (when applicable) Riesel-owned domain-tick gates permit it. All matched
+  step grants are consumed atomically on that one dispatch. A pause that
+  returns before dispatch prevents it; once dispatch is admitted,
+  subsequent pause cannot retroactively retract it.
+- `GraphControlError` distinguishes an expired session, a closed run,
+  unknown targets, already dispatched operations/no remaining safe point,
+  step when not paused and duplicate armed steps. The controller is bound
+  to its run/session identity, and an old handle cannot control a newly
+  started application session. A never-consumed step is cleared when its
+  run terminates.
+- A `DelegatedFrame` can be controlled **only at its outer frame
+  operation boundary**. Requesting `RieselDomainTicks` for that
+  domain fails `UnsupportedDomainAuthority`, because its **internal**
+  ticks and systems belong to the domain owner. Stale/wrong-owner domain
+  actor permits require separate domain-specific fencing; this API does
+  not implement arbitrary nested ECS-system stepping or native preemption.
+- Control grants an admission, **not a committed effect**. A cancelled
+  or unknown outcome still retains owner-confirmed effect prefixes, and
+  control never retries uncertain mutations. Session invalidation and
+  structured shutdown remain higher-priority than paused admission.
+
+The runnable [`execution_control` example](../../../crates/riesel/examples/execution_control.rs)
+demonstrates pausing and stepping two outer simulation ticks while an
+independent async branch completes. The public SDK runner tests cover
+composed gate semantics, stale/unsupported controls, resource-contention
+step retention, control-event ring loss and cancellation during pause.
+The real thread-confined domain fixture verifies Riesel-owned outer ticks
+can be stepped without treating the delegated frame's internal schedule
+as graph-controlled.
+
+**Boundary:** This local controller is an owner capability held by trusted
+Rust application code, not an externally discoverable management interface.
+Remote GUI/CLI or privileged cross-process commands still require the
+independently accepted #75/#60 authorization and export contracts.
+Full nested domain safe points, if later supported, require a separate
+explicit domain-owner adapter; no implicit authority follows from labels.
 
 ## Explicit domain admission ownership (opt-in)
 
@@ -185,7 +252,7 @@ Run `cargo run --locked -p riesel --features async-tcp --example execution_graph
 
 The runtime's structured `AsyncTasks` interface is separate from arbitrary `tokio::spawn`. A graph detached into a caller-created task is **not** automatically registered or guaranteed joined before provider teardown. Use **either** `runner.execute().await` within the session entrypoint **or** `context.async_tasks().spawn_graph("name", runner)` inside an active async scope. The latter uses the existing bounded named application-task owner, not a second scheduler. A runner from another application session is rejected before task admission via an **in-process, clone-based session identity check**; this is not remote authentication or proof of executable provenance. Normal scope shutdown requests a cooperative stop, aborts and **joins** all graph-owned Tokio operation futures before their provider instances are released. A completed unsuccessful graph propagates `GraphExecutionFailure` (including its local `GraphRunReport`) as a named `RuntimeError::TaskFailed` and revokes the application session; planned shutdown itself is not a task failure. It neither automatically retries nor rolls back previously sent effects.
 
-A graph interrupted during a structured stop cannot claim that dispatched effects did not occur. Async callback futures are dropped and joined, but operations that start independent native threads or external mutations must arrange their own teardown, fencing and reconciliation. Noncooperative synchronous code on a Tokio worker can still block shutdown. Authoritative committed effects and live reports remain part of [#113](https://github.com/aschenrot/riesel/issues/113).
+A graph interrupted during a structured stop cannot claim that dispatched effects did not occur. Async callback futures are dropped and joined, but operations that start independent native threads or external mutations must arrange their own teardown, fencing and reconciliation. Noncooperative synchronous code on a Tokio worker can still block shutdown. Owner-confirmed effect prefixes and read-only live reports are implemented under [#113](https://github.com/aschenrot/riesel/issues/113); local outer-boundary controls are under verification. They do not change this structured cleanup contract.
 
 ## Real managed-process crash and uncertainty fixture
 
