@@ -156,8 +156,14 @@ fn typed_record_reader_and_storage_build_one_canonical_model_authority_link() {
         .record_query_at::<TodoModel, TestRecordReaderContract>("read")
         .unwrap();
 
-    assert_eq!(from_handler.definition_json().unwrap(), direct.definition_json().unwrap());
-    assert_eq!(direct.definition_json().unwrap(), writer_first.definition_json().unwrap());
+    assert_eq!(
+        from_handler.definition_json().unwrap(),
+        direct.definition_json().unwrap()
+    );
+    assert_eq!(
+        direct.definition_json().unwrap(),
+        writer_first.definition_json().unwrap()
+    );
     let parsed = riesel_schema::parse_schema(&direct.definition_json().unwrap()).unwrap();
     parsed.validate().unwrap();
     assert_eq!(parsed.version, 2);
@@ -174,12 +180,12 @@ fn record_query_read_only_model_has_no_writable_storage_requirement() {
     use crate::ModelRead;
 
     let from_handler = Application::new("ReadOnly")
-        .handler(|_reader: ModelRead<TodoModel, TestRecordReaderContract>| {
-            Ok::<(), StoreError>(())
-        })
+        .handler(|_reader: ModelRead<TodoModel, TestRecordReaderContract>| Ok::<(), StoreError>(()))
         .unwrap();
-    let read_alias =
-        TestRecordReaderContract::definition().unwrap().capability.default_requirement_alias();
+    let read_alias = TestRecordReaderContract::definition()
+        .unwrap()
+        .capability
+        .default_requirement_alias();
     let direct = Application::new("ReadOnly")
         .record_query_at::<TodoModel, TestRecordReaderContract>(&read_alias)
         .unwrap();
@@ -191,10 +197,12 @@ fn record_query_read_only_model_has_no_writable_storage_requirement() {
     assert!(schema.record_query_links["todo"].writer.is_none());
     assert_eq!(schema.requires.len(), 1);
     let contract = TestRecordReaderContract::definition().unwrap();
-    assert!(contract
-        .operations
-        .values()
-        .all(|op| op.kind == riesel_schema::OperationKind::Query));
+    assert!(
+        contract
+            .operations
+            .values()
+            .all(|op| op.kind == riesel_schema::OperationKind::Query)
+    );
 }
 
 #[cfg(feature = "records")]
