@@ -1,6 +1,6 @@
 # Session-owned execution graph runner (incremental delivery)
 
-**Status:** Validated plans, session-owned async graph execution, explicit domain boundaries and bounded fixed-step proposals are integrated under [#112](https://github.com/aschenrot/riesel/issues/112). The first read-only authoritative run observation increment is under [#113](https://github.com/aschenrot/riesel/issues/113). Full committed-effect accounting, cooperative control and externally authorized inspection are not yet delivered.
+**Status:** Validated plans, session-owned async graph execution, explicit domain boundaries and bounded fixed-step proposals are integrated under [#112](https://github.com/aschenrot/riesel/issues/112). Read-only authoritative run observation is integrated under [#113](https://github.com/aschenrot/riesel/issues/113). A bounded attempt-scoped confirmed-prefix API is under verification as a #113 increment; generalized effect reconciliation, cooperative control and externally authorized inspection are not delivered.
 
 The runner consumes an immutable `BoundExecutionPlan<AsyncOperation>` from the existing [plan authoring API](execution-plan-authoring.md) through an existing application session. The graph constructor is internal; callers use `RunningApp::execution_graph` or `Context::execution_graph`, and cannot substitute a self-created session token. It does not launch providers, create a Tokio runtime, reinterpret `AppSchema` or own an inner domain scheduler. `RunningApp::execution_graph(plan, limit)` and `Context::execution_graph(plan, limit)` derive the session from the actual application instead of inventing another owner.
 
@@ -13,7 +13,7 @@ One-shot callback registration uses `async_operation(|| async { OperationOutcome
 - Declared read/write conflicts serialize conflicting operations **across all graph runs in the same application session**, with release notifications waking capacity-blocked runs. Admission is nonblocking and releases reservations on completion, panic or cancellation. These declarations **do not** confer Rust borrow safety; the resource namespace is application-session-wide. Panics become failed operations, and unknown/cancelled/failed prerequisites block success-only dependents.
 - No automatic retries; unknown outcomes stay unknown. On session invalidation, in-flight operations are reported conservatively as outcome unknown even if cancellation dropped the future. Confirmed committed effects and safe-point stepping require the #113 contract.
 
-The `GraphRunReport` is a local post-run result with an identity that also correlates to its **live, in-process** `GraphRunObserver` snapshot. Neither is a persisted execution log, durable replay contract or cross-process authorization mechanism.
+The `GraphRunReport` is a local post-run result with an identity that also correlates to its **live, in-process** `GraphRunObserver` snapshot. Neither is a persisted execution log, durable replay contract or cross-process authorization mechanism. A confirmed effect prefix is a separate, explicit owner assertion; an operation terminal status never proves a remote mutation.
 
 ## Verification and deliberate exclusions
 
@@ -73,6 +73,18 @@ its authoritative report and reads a correlated transition batch.
 The managed-child crash test verifies this same observation path under
 real session revocation, preserving the confirmed completed prefix and
 classifying the dispatched crash operation as unknown.
+
+## Attempt-scoped owner-confirmed effect prefixes (#113 increment)
+
+A registered operation may use `async_operation_with_effects(|effects| async move { ... })` instead of `async_operation(|| async { ... })`. Only **after** the authoritative owner confirms a committed result may it call `effects.confirm_prefix("simulation.ticks", cumulative)`. The first confirmed tick is `1`, then `2` and so on **within one operation attempt**. This is not a global tick number, general unordered mutation ledger, or a synthetic RPC acknowledgement. Callbacks that never report effects remain supported.
+
+- The reporter is passed on **actual dispatch**, never during binding or validation. It belongs to one operation attempt and becomes inactive after the operation terminates or the run is finished/abandoned. A retained reporter cannot rewrite terminal history.
+- `GraphRunSnapshot.operations[id].confirmed_prefixes` retains the authoritative high-water mark for each stream, even if a later outcome is Failed, Cancelled or OutcomeUnknown. `GraphRunReport.confirmed_prefixes` retains the same completed-run data. An unknown later dispatch does **not** erase a confirmed prefix or establish any additional commit.
+- Stream names are 1–128 ASCII letters, digits, dots, underscores or hyphens. Cumulative progress must be positive, monotonic and at most 32 distinct streams per attempt. An equal report is idempotent; regressing, invalid, over-budget and stale reports fail.
+- `GraphRunChange::ConfirmedPrefix` emits correlated notifications through the existing lossy 128-event ring. **Do not reconstruct effects from events.** Readers must resynchronize from the authoritative snapshot on loss.
+- Riesel accepts an **explicit assertion from trusted application callback code**, not independent proof of remote mutation. An external domain/service adapter must await an actual owner acknowledgement. Timeout, crash, unknown reply and unowned/detached work do not establish confirmation. No rollback, business-command deduplication, durable log, automatic retry, cross-process authorization or exactly-once guarantee follows.
+
+The [fixed-step headless example](../../../crates/riesel/examples/execution_fixed_step.rs) records a local confirmed tick prefix per one-shot run. Regression tests cover partial confirmation followed by failure, abrupt abandonment, invalid/bounded streams, regression, idempotency and stale reporters. General reconciliation and cooperative pause/step/resume remain outstanding #113 requirements.
 
 ## Explicit domain admission ownership (opt-in)
 
@@ -185,4 +197,4 @@ The test first obtains a provider-confirmed acknowledgement, then dispatches ano
 
 The feature-gated [two-policy domain fixture](../../../crates/riesel/tests/execution_domains.rs) compares the same two committed simulation ticks (four proposed, catch-up budget two) under **Riesel-admitted outer ticks** and a **domain-owned nested frame**. Both run alongside an overlapping two-branch async workflow and final join. The native `Rc<Cell<...>>` world never leaves its own actor thread. Per-tick nodes appear only in the central-admission projection; the delegated graph exposes one frame, not fictitious internal ECS-system steps.
 
-The fixture also rejects stale domain permits and explicit owner mismatches before mutating state. A domain-owned frame cancelled after its first committed tick yields `OperationOutcome::Cancelled`, blocks its dependent final node and preserves the first tick in the domain's actual world. **This is a tested adapter/fixture invariant, not a published operation-authority metadata contract or a general-purpose fixed-rate clock policy.** Riesel currently cannot inspect arbitrary user code and guarantee every operation has declared the correct domain owner. Authoritative committed-prefix accounting, run/attempt identity and cooperative external controls still belong to [#113](https://github.com/aschenrot/riesel/issues/113).
+The fixture also rejects stale domain permits and explicit owner mismatches before mutating state. A domain-owned frame cancelled after its first committed tick yields `OperationOutcome::Cancelled`, blocks its dependent final node and preserves the first tick in the domain's actual world. **This is a tested adapter/fixture invariant, not a published operation-authority metadata contract or a general-purpose fixed-rate clock policy.** Riesel currently cannot inspect arbitrary user code and guarantee every operation has declared the correct domain owner. This fixture demonstrates actual domain-world commits, not inferred graph success. General attempt-scoped confirmed-prefix accounting is being introduced under [#113](https://github.com/aschenrot/riesel/issues/113); cooperative controls and authoritative external reconciliation remain outstanding.
