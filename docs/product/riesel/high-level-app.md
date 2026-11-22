@@ -93,8 +93,9 @@ The inspectable schema contains the model definition but **no Storage
 requirement**, provider selection or read permission. This helper does **not**
 execute queries or publish a read endpoint. The separately accepted
 [linked Record Query architecture](record-query-architecture.md) requires a
-future read-designated Query capability and a validated model/data-owner
-relationship before reading. Existing `Records<T>` and
+separate read-designated Query capability and validated model/data-owner
+relationship before any data can be read. The Query-only typed authoring
+path is documented in [Record Query usage](record-query-usage.md). Existing `Records<T>` and
 `records_at<T>` remain the explicit **writable Storage v2** path.
 
 ## Typed linked record readers (schema/owner foundation)
@@ -119,14 +120,16 @@ declaration without a writer is not a cross-process access grant. Schema
 version 2 represents the linked relationship while old version 1 Storage
 applications retain their existing serialized definition.
 
-**Delivery boundary:** this SDK/schema/owner registration mechanism is
-independently testable, but the actual provider-executed typed Record Query
-contract, Memory/SQLite filtering and bounded cursors remain [#161](https://github.com/aschenrot/riesel/issues/161).
-No existing Storage v2 method becomes a read-only Query API simply by
-registering a model. Remote/managed readers remain unsupported under this
+**Delivery boundary:** the SDK/schema/owner foundation is recorded in
+[#160](https://github.com/aschenrot/riesel/issues/160). The native,
+read-designated contract, Memory/SQLite bounded filtering and owner-local
+cursors are tracked in [#161](https://github.com/aschenrot/riesel/issues/161)
+and [PR #177](https://github.com/aschenrot/riesel/pull/177), with its
+actual integration status and exact-revision acceptance evidence. No existing
+Storage v2 method becomes a read-only Query API simply by registering a model. Remote/managed readers remain unsupported under this
 linked-only consistency profile. See the
 [accepted technical contract](record-query-architecture.md). The
-[proposed typed Query usage and bounded-paging profile](record-query-usage.md)
+[typed Query usage and bounded-paging profile](record-query-usage.md)
 describes the separate `RecordQueryContract` implementation under review,
 including typed `QueryPage<T>`, provider permissions and non-snapshot cursors.
 
