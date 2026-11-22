@@ -37,7 +37,7 @@ pub enum InternalEntrypointPhase {
 /// Read-only, session-scoped witness of the SDK's actual entrypoint boundary.
 /// It grants no operation access and does not issue another runtime generation.
 #[cfg(feature = "internal-publication")]
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct InternalEntrypointActivity {
     phase: Arc<AtomicU8>,
     session: SessionToken,
