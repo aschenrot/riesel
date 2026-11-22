@@ -5,8 +5,9 @@
 #![cfg(feature = "async-tcp")]
 
 use riesel::{
-    App, AsyncOperation, ConnectorRegistry, DeploymentConfig, ExecutionPlanDraft, GraphRunError,
-    GraphRunPhase, OperationKey, OperationNode, OperationOutcome, OperationRegistry, RunningApp,
+    App, AsyncOperation, ConnectorRegistry, DeploymentConfig, ExecutionPlanDraft,
+    FixedStepAdmission, FixedStepBacklog, FixedStepPolicy, GraphRunError, GraphRunPhase,
+    OperationKey, OperationNode, OperationOutcome, OperationRegistry, OperationState, RunningApp,
     async_operation,
 };
 use std::num::NonZeroUsize;
@@ -131,6 +132,127 @@ fn diagnostic_graph_size_samples_preserve_authoritative_results() {
                 snapshot_elapsed.as_micros(),
                 report.peak_in_flight
             );
+        }
+    });
+}
+
+
+#[test]
+fn external_fixed_step_proposals_are_distinct_one_shot_runs_not_replay() {
+    runtime().block_on(async {
+        let invocations = Arc::new(AtomicUsize::new(0));
+        let mut registry = OperationRegistry::<AsyncOperation>::new();
+        registry
+            .register(
+                key("tick"),
+                async_operation({
+                    let invocations = Arc::clone(&invocations);
+                    move || {
+                        let invocations = Arc::clone(&invocations);
+                        async move {
+                            if invocations.fetch_add(1, Ordering::SeqCst) == 0 {
+                                OperationOutcome::Completed
+                            } else {
+                                // This represents a reported unknown result.
+                                // It must not be retried by an implicit tick loop.
+                                OperationOutcome::OutcomeUnknown
+                            }
+                        }
+                    }
+                }),
+            )
+            .unwrap();
+        let plan = ExecutionPlanDraft::new("externally-clocked-tick", 1)
+            .operation(OperationNode::new("tick", key("tick")))
+            .validate()
+            .unwrap()
+            .bind(&registry)
+            .unwrap();
+        let owner = application_session();
+        let mut clock = FixedStepAdmission::new(
+            FixedStepPolicy::new(
+                Duration::from_millis(10),
+                NonZeroUsize::new(2).unwrap(),
+                FixedStepBacklog::DiscardExcess,
+            )
+            .unwrap(),
+        );
+        let frame = clock.advance_frame(Duration::from_millis(35));
+        assert_eq!(frame.eligible, 2);
+        assert_eq!(frame.discarded, 1);
+        assert_eq!(clock.claim(frame.eligible), 2);
+        let mut reports = Vec::new();
+        for _ in 0..frame.eligible {
+            reports.push(
+                owner
+                    .execution_graph(plan.clone(), NonZeroUsize::new(1).unwrap())
+                    .unwrap()
+                    .execute()
+                    .await,
+            );
+        }
+        assert_eq!(reports.len(), 2);
+        assert_eq!(reports[0].operations["tick"], OperationState::Completed);
+        assert_eq!(reports[1].operations["tick"], OperationState::OutcomeUnknown);
+        assert_ne!(reports[0].identity, reports[1].identity);
+        assert_eq!(clock.advance_frame(Duration::ZERO).eligible, 0);
+        assert_eq!(invocations.load(Ordering::SeqCst), 2);
+        eprintln!(
+            "research #226: 35ms external clock -> 2 distinct one-shot runs, 1 discarded tick, no implicit replay"
+        );
+    });
+}
+
+#[test]
+fn diagnostic_repeated_wide_and_chain_graph_samples() {
+    runtime().block_on(async {
+        const REPEATS: usize = 5;
+        let owner = application_session();
+        let mut registry = OperationRegistry::<AsyncOperation>::new();
+        registry
+            .register(
+                key("noop"),
+                async_operation(|| async { OperationOutcome::Completed }),
+            )
+            .unwrap();
+
+        for nodes in [128usize, 512, 1_024] {
+            for chain in [false, true] {
+                let mut samples_us = Vec::with_capacity(REPEATS);
+                for repeat in 0..REPEATS {
+                    let mut draft = ExecutionPlanDraft::new(
+                        format!("shape-{}-{nodes}-{repeat}", if chain { "chain" } else { "wide" }),
+                        1,
+                    );
+                    for index in 0..nodes {
+                        let mut operation = OperationNode::new(format!("op-{index}"), key("noop"));
+                        if chain && index != 0 {
+                            operation = operation.after(format!("op-{}", index - 1));
+                        }
+                        draft = draft.operation(operation);
+                    }
+                    let plan = draft.validate().unwrap().bind(&registry).unwrap();
+                    let runner = owner
+                        .execution_graph(plan, NonZeroUsize::new(32).unwrap())
+                        .unwrap();
+                    let started = Instant::now();
+                    let report = tokio::time::timeout(Duration::from_secs(20), runner.execute())
+                        .await
+                        .unwrap();
+                    samples_us.push(started.elapsed().as_micros());
+                    assert!(report.succeeded());
+                    assert_eq!(report.started, nodes);
+                    assert_eq!(report.peak_in_flight, if chain { 1 } else { 32 });
+                }
+                samples_us.sort_unstable();
+                eprintln!(
+                    "research #226 repeat_shape={} nodes={} samples_us={:?} median_us={} (debug, fixed case order, not benchmark)",
+                    if chain { "chain" } else { "wide" },
+                    nodes,
+                    samples_us,
+                    samples_us[REPEATS / 2]
+                );
+            }
         }
     });
 }
