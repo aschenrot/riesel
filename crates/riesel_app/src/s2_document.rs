@@ -129,11 +129,7 @@ pub struct S2OperationDocument {
 }
 
 impl S2OperationDocument {
-    pub fn new(
-        id: impl Into<String>,
-        key: &OperationKey,
-        descriptor_version: u32,
-    ) -> Self {
+    pub fn new(id: impl Into<String>, key: &OperationKey, descriptor_version: u32) -> Self {
         Self {
             id: id.into(),
             binding: S2OperationBinding {
@@ -155,10 +151,7 @@ pub enum S2SourceDocument {
     /// required before saving an executable successor or publishing it.
     Editable(S2PlanDocument),
     /// Original bytes retained intact; no writable document is exposed.
-    UnsupportedReadOnly {
-        original: Vec<u8>,
-        reason: String,
-    },
+    UnsupportedReadOnly { original: Vec<u8>, reason: String },
 }
 
 impl S2SourceDocument {
@@ -238,10 +231,9 @@ fn ensure_limits(
     if document.operations.len() > limits.max_nodes {
         return Err(S2DocumentError::LimitExceeded("node budget"));
     }
-    let dependencies = document
-        .operations
-        .iter()
-        .fold(0usize, |sum, node| sum.saturating_add(node.dependencies.len()));
+    let dependencies = document.operations.iter().fold(0usize, |sum, node| {
+        sum.saturating_add(node.dependencies.len())
+    });
     if dependencies > limits.max_dependencies {
         return Err(S2DocumentError::LimitExceeded("control dependency budget"));
     }
@@ -250,7 +242,9 @@ fn ensure_limits(
         .iter()
         .fold(0usize, |sum, node| sum.saturating_add(node.resources.len()));
     if resources > limits.max_resource_entries {
-        return Err(S2DocumentError::LimitExceeded("resource declaration budget"));
+        return Err(S2DocumentError::LimitExceeded(
+            "resource declaration budget",
+        ));
     }
     Ok(())
 }
@@ -286,9 +280,7 @@ pub fn inspect_s2_source(
     if version != u64::from(S2_DOCUMENT_VERSION) || !features.is_empty() {
         return Ok(S2SourceDocument::UnsupportedReadOnly {
             original: original.to_vec(),
-            reason: format!(
-                "unsupported executable format {version} or required features"
-            ),
+            reason: format!("unsupported executable format {version} or required features"),
         });
     }
     // Decode from the ORIGINAL bytes, not from the Value; this also makes
