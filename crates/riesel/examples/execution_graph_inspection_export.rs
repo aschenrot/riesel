@@ -119,7 +119,7 @@ fn main() -> riesel::Result<()> {
         let executor = tokio::runtime::Builder::new_current_thread()
             .enable_all()
             .build()?;
-        let report = match mode {
+        let report = match &mode {
             Mode::File(_) => {
                 signal.fire("start")?;
                 executor.block_on(runner.execute())
@@ -131,7 +131,7 @@ fn main() -> riesel::Result<()> {
                 let source: live_server::SnapshotSource = Arc::new(move || {
                     inspection_document(&live_plan, &live_initial, &live_observer)
                 });
-                executor.block_on(live_server::run(runner, signal, source, seconds))?
+                executor.block_on(live_server::run(runner, signal, source, *seconds))?
             }
         };
 
@@ -156,7 +156,7 @@ fn main() -> riesel::Result<()> {
         if joined.load(Ordering::SeqCst) != 2 {
             return Err(std::io::Error::other("expected both branches to complete").into());
         }
-        if let Mode::File(output) = mode {
+        if let Mode::File(output) = &mode {
             let document = inspection_document(&inspected_plan, &initial, &observer)?;
             std::fs::write(&output, serde_json::to_vec_pretty(&document)?)?;
         }
