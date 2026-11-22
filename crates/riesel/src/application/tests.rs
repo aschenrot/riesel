@@ -125,13 +125,25 @@ fn production_does_not_silently_fall_back_to_memory() {
 #[cfg(feature = "records")]
 use crate::storage::StoreError;
 
+// The capability macro currently emits an unqualified Result<T, E> in its
+// generated bindings. Keep the fixture in a scope without the SDK's Result<T>
+// alias so this test does not conceal or expand that unrelated hygiene gap.
 #[cfg(feature = "records")]
-#[crate::capability(id = "research.test.record.reader", version = 1, client_trait)]
-trait TestRecordReader {
-    /// Research-only fixture: count records in one model.
-    #[query]
-    fn count_records(&self, model: &str) -> std::result::Result<u64, StoreError>;
+mod test_record_reader_contract {
+    use crate::storage::StoreError;
+
+    #[crate::capability(id = "research.test.record.reader", version = 1, client_trait)]
+    pub trait TestRecordReader {
+        /// Research-only fixture: count records in one model.
+        #[query]
+        fn count_records(&self, model: &str) -> Result<u64, StoreError>;
+    }
 }
+
+#[cfg(feature = "records")]
+use test_record_reader_contract::{
+    TestRecordReader, TestRecordReaderContract, TestRecordReaderRpcDispatcher,
+};
 
 #[cfg(feature = "records")]
 #[test]
