@@ -15,6 +15,7 @@ on:
       - "examples/counter/app/**"
       - "examples/todo/Cargo.toml"
       - "examples/todo/src/http/mod.rs"
+      - "examples/todo/tests/http.rs"
       - "research/operational-contract/probe_internal_publication.py"
       - ".github/workflows/internal-publication-ingress.yml"
   workflow_dispatch:
@@ -38,6 +39,9 @@ jobs:
       - name: Verify actual Todo adapter outcomes, linked SQLite and handler lifecycle
         run: |
           cargo test --locked -p todo --features http,internal-observation --lib http::tests:: -- --nocapture
+      - name: Verify real independent Todo client provenance and stale endpoint
+        run: |
+          cargo test --locked -p todo --features http --test http independent_client_proves_route_reachability_not_protected_identity_or_stale_session -- --exact --nocapture
       - name: Compile the genuine recovering Riesel Counter
         run: |
           cargo build --locked -p riesel_counter_example --bin counter_crash_fixture
