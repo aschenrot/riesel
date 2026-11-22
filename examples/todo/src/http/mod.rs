@@ -132,6 +132,123 @@ mod tests {
     use std::sync::atomic::AtomicBool;
     use std::time::Duration;
 
+    /// A real persistent Todo/SQLite application owns one real local socket.
+    /// The adapter can attest that *its own* listener bound, but cannot
+    /// authenticate a client or claim that an operation is callable.
+    #[test]
+    fn real_todo_sqlite_listener_has_only_adapter_evidence() {
+        use riesel_app::operational_observation::{
+            ObservationSnapshot, ObservationSource, ObservationState, ObservationSubject,
+            MAX_OBSERVATION_AGE,
+        };
+        use std::sync::Mutex;
+
+        let temp = tempfile::tempdir().unwrap();
+        let database = temp.path().join("observed-todo.sqlite");
+        let captured = Arc::new(Mutex::new(None::<ObservationSnapshot>));
+        let for_handler = Arc::clone(&captured);
+
+        Application::new("TodoObservation")
+            .async_handler(move |records: Records<TaskData>, tasks: AsyncTasks| {
+                let captured = Arc::clone(&for_handler);
+                async move {
+                    // The actual typed Todo command commits to linked SQLite.
+                    let task = Todo::new(records)
+                        .create_task("Observed persistent task")
+                        .map_err(io::Error::other)?;
+                    assert_eq!(task.value.title, "Observed persistent task");
+
+                    // A real bound socket is evidence of an adapter-owned
+                    // listener event, not authorized HTTP dispatch.
+                    let listener =
+                        tokio::net::TcpListener::bind((Ipv4Addr::LOCALHOST, 0)).await?;
+                    let address = listener.local_addr()?;
+                    let observed = ObservationSnapshot::local_listener(
+                        tasks.internal_session_token(),
+                        "todo.http",
+                        address,
+                    )
+                    .map_err(io::Error::other)?;
+                    assert_eq!(
+                        observed.state_of(
+                            &ObservationSubject::LocalApplicationListener {
+                                interface: "todo.http".into(),
+                                address,
+                            },
+                            std::time::Instant::now()
+                        ),
+                        ObservationState::Observed
+                    );
+                    assert_eq!(
+                        observed.facts()[0].source,
+                        ObservationSource::ApplicationAdapter
+                    );
+                    assert_eq!(
+                        observed.state_of(
+                            &ObservationSubject::AuthorizedApplicationOperation,
+                            std::time::Instant::now()
+                        ),
+                        ObservationState::Unsupported
+                    );
+                    assert_eq!(
+                        observed.state_of(
+                            &ObservationSubject::OsLaunchAttempt,
+                            std::time::Instant::now()
+                        ),
+                        ObservationState::Unsupported
+                    );
+
+                    // A real TCP handshake still does not supply any
+                    // application grant; the test deliberately dispatches
+                    // no Todo HTTP API operation through the bare socket.
+                    let client = tokio::net::TcpStream::connect(address).await?;
+                    let (accepted, _) = listener.accept().await?;
+                    drop(accepted);
+                    drop(client);
+                    drop(listener);
+                    assert_eq!(
+                        observed.state_at(
+                            0,
+                            observed.observed_at()
+                                + MAX_OBSERVATION_AGE
+                                + Duration::from_nanos(1)
+                        ),
+                        Some(ObservationState::Stale),
+                        "an old bind announcement must age out"
+                    );
+                    *captured.lock().unwrap() = Some(observed);
+                    Ok::<(), io::Error>(())
+                }
+            })
+            .unwrap()
+            .sqlite_storage(database.clone())
+            .unwrap()
+            .run()
+            .unwrap();
+
+        let old = captured.lock().unwrap().take().unwrap();
+        assert_eq!(
+            old.state_at(0, std::time::Instant::now()),
+            Some(ObservationState::Stale),
+            "the adapter-owned observation must expire on real runtime shutdown"
+        );
+
+        // A new Todo runtime opens exactly the same persisted records. It is
+        // not allowed to promote the old interface observation or session.
+        Application::new("TodoObservationReopen")
+            .handler(|records: Records<TaskData>| -> Result<(), TodoError> {
+                let rows = Todo::new(records).list_tasks()?;
+                assert_eq!(rows.len(), 1);
+                assert_eq!(rows[0].value.title, "Observed persistent task");
+                Ok(())
+            })
+            .unwrap()
+            .sqlite_storage(database)
+            .unwrap()
+            .run()
+            .unwrap();
+    }
+
     /// HTTP requests cannot bypass the runtime's eight owned blocking slots.
     /// In particular, denied operations must not execute after returning 503.
     #[test]
