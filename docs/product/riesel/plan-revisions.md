@@ -52,6 +52,23 @@ The existing `RecordStore::update` supports CAS on **one record only**, not a co
 
 The checked `CheckedSourceHandoff` constructors enforce a complete coverage report before returning a transferable proof. This does not reverse-compile Rust closure code, prove callback resource aliasing or authorize a caller; the application/domain owner still controls which source receives authority, and the durable store still atomically fences the former writer. The report can later drive actionable UI diagnostics without a GUI dependency or an independent execution validator.
 
+## Reproducible real-process commit-window crash verification
+
+The default V2 storage build has **no fault hooks**. An explicitly opt-in `riesel_storage_sqlite/v2-fault-injection` test feature exposes four internal `V2FaultStage` points in the **same production** `SqlitePlanRevisionRepository::append` and `save_layout` SQL transaction paths:
+
+- Semantic revision immediately **after** the new row and head update, **before** commit; and immediately **after** successful commit, **before** returning the result.
+- Layout revision immediately **after** the new layout row and layout-head update, **before** commit; and immediately **after** successful commit, **before** returning the result.
+
+The [Linux Validate workflow](../../../../.github/workflows/validate.yml) runs the dedicated integration test with:
+
+```sh
+cargo test --locked -p riesel_storage_sqlite --features v2-fault-injection --test v2_process_crash
+```
+
+The parent spawns a genuine child OS process, blocks it at the selected **production adapter** hook, kills it without releasing the hook, and reopens the dedicated SQLite file. A pre-commit kill must leave no partial accepted head or revision, and a new conditional write must succeed. A post-commit kill must leave the committed head/revision, and stale retry must conflict. Layout tests additionally prove that semantic revision did not change and old layout history remains. The special feature must **never** be enabled in deployed builds or exposed to remote callers; code-only defaults remain hook-free.
+
+The experiment demonstrates local process-death transaction atomicity/recovery at the chosen Linux SQLite WAL/FULL profile. It **does not** demonstrate power-loss durability, power-failure fsync correctness on all filesystems, storage artifact provenance, external app-client authentication, permitted runtime activation, backup/restore or schema migration. Those are independent obligations under #193 and #195.
+
 ## Verification and explicit remaining work
 
 Focused production adapter tests target independent OS processes racing the actual `SqlitePlanRevisionRepository` semantic and layout operations, immutable plan history, independent layout streams, invalid anchor rebase, checked code↔document source handoffs, stale-writer fences across reopen, installed-build stamp mismatch and unknown on-disk version rejection. Preserve exact-head `cargo validate --check` and `cargo smoke` evidence for the implementation PR, not just the research fixtures.
