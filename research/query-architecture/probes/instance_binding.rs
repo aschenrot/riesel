@@ -522,7 +522,6 @@ fn authority_relationship_needs_explicit_schema_evolution_not_reused_bindings() 
     assert_eq!(modified.requires.len(), 2);
 }
 
-
 /// Alternative pressure test: actual provider-side operation denial on a
 /// unified Storage v2 interface. This is NOT a signed caller authorization,
 /// a production permission policy or a read-only capability contract.
@@ -591,7 +590,12 @@ fn actual_server_side_storage_denial_is_not_a_read_only_capability_contract() {
         .handler(
             |storage: Capability<RecordStoreContract>| -> Result<(), StoreError> {
                 // Read is allowed through the actual generated local adapter.
-                assert!(storage.list_page(TaskData::MODEL_NAME, None, 32)?.records.is_empty());
+                assert!(
+                    storage
+                        .list_page(TaskData::MODEL_NAME, None, 32)?
+                        .records
+                        .is_empty()
+                );
 
                 // Mutation reaches the provider but is actually denied there;
                 // unlike a Rust-only wrapper, this is more than hidden methods.
@@ -603,14 +607,22 @@ fn actual_server_side_storage_denial_is_not_a_read_only_capability_contract() {
                     denied,
                     Err(StoreError::Failed(ref reason)) if reason == "research read-only policy"
                 ));
-                assert!(storage.list_page(TaskData::MODEL_NAME, None, 32)?.records.is_empty());
+                assert!(
+                    storage
+                        .list_page(TaskData::MODEL_NAME, None, 32)?
+                        .records
+                        .is_empty()
+                );
                 Ok(())
             },
         )
         .unwrap();
 
     let storage_contract = RecordStoreContract::definition().unwrap();
-    assert_eq!(app.definition().requires[0].capability, storage_contract.capability);
+    assert_eq!(
+        app.definition().requires[0].capability,
+        storage_contract.capability
+    );
     assert!(
         storage_contract.operations.contains_key("create")
             && storage_contract.operations.contains_key("update")
