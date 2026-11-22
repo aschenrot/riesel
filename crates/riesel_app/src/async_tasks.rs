@@ -8,9 +8,9 @@ use crate::supervisor::CancellationToken;
 use riesel_protocol::SessionToken;
 use std::future::Future;
 use std::io;
-use std::sync::atomic::{AtomicBool, Ordering};
 #[cfg(feature = "internal-publication")]
 use std::sync::atomic::AtomicU8;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 use tokio::sync::{Notify, Semaphore};
 use tokio::task::JoinHandle;
