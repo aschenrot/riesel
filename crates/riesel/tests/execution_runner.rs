@@ -350,6 +350,77 @@ fn failed_prerequisite_blocks_success_dependent_without_stopping_independent_bra
 }
 
 #[test]
+fn reverse_declared_failure_chain_blocks_without_dispatching_dependents() {
+    runtime().block_on(async {
+        const DEPENDENTS: usize = 256;
+        let mut registry = OperationRegistry::<AsyncOperation>::new();
+        registry
+            .register(
+                key("failure"),
+                async_operation(|| async { OperationOutcome::Failed("root failed".into()) }),
+            )
+            .unwrap();
+        registry
+            .register(
+                key("blocked"),
+                async_operation(|| async { panic!("blocked dependent must never run") }),
+            )
+            .unwrap();
+        registry
+            .register(
+                key("independent"),
+                async_operation(|| async { OperationOutcome::Completed }),
+            )
+            .unwrap();
+
+        // Each dependent appears before its prerequisite in declaration
+        // order. Topological failure propagation must still block the entire
+        // chain without dispatching any dependent handlers.
+        let mut draft = ExecutionPlanDraft::new("reverse-failure-chain", 1);
+        for index in (0..DEPENDENTS).rev() {
+            let dependency = if index == 0 {
+                "root".to_owned()
+            } else {
+                format!("node-{}", index - 1)
+            };
+            draft = draft.operation(
+                OperationNode::new(format!("node-{index}"), key("blocked")).after(dependency),
+            );
+        }
+        let plan = draft
+            .operation(OperationNode::new("root", key("failure")))
+            .operation(OperationNode::new("independent", key("independent")))
+            .validate()
+            .unwrap()
+            .bind(&registry)
+            .unwrap();
+        let owner = application_session();
+        let runner = owner
+            .execution_graph(plan, NonZeroUsize::new(2).unwrap())
+            .unwrap();
+        let observer = runner.observer();
+        let report = tokio::time::timeout(Duration::from_secs(3), runner.execute())
+            .await
+            .unwrap();
+
+        assert_eq!(report.started, 2);
+        assert_eq!(
+            report.operations["root"],
+            OperationState::Failed("root failed".into())
+        );
+        assert_eq!(report.operations["independent"], OperationState::Completed);
+        let snapshot = observer.snapshot();
+        for index in 0..DEPENDENTS {
+            let id = format!("node-{index}");
+            assert_eq!(report.operations[&id], OperationState::Blocked);
+            assert_eq!(snapshot.operations[&id].state, OperationState::Blocked);
+            assert_eq!(snapshot.operations[&id].attempt, 0);
+        }
+        assert!(!report.succeeded());
+    });
+}
+
+#[test]
 fn admission_above_explicit_parallel_limit_is_rejected_before_work() {
     let mut registry = OperationRegistry::<AsyncOperation>::new();
     registry
