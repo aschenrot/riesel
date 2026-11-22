@@ -37,6 +37,9 @@ jobs:
         run: cargo validate --check
       - name: Smoke test runtime and managed providers
         run: cargo smoke
+      - name: Research #226 production scheduler probes (diagnostic; no API changes)
+        if: ${{ github.event_name == 'pull_request' && github.head_ref == 'research/226-scheduler-policy-probes' }}
+        run: cargo test -p riesel --features async-tcp --test scheduler_policy_research -- --nocapture
 
   windows:
     if: ${{ github.event_name == 'workflow_dispatch' && inputs.windows }}
