@@ -27,6 +27,8 @@ jobs:
         run: git diff --exit-code -- research/typed-handoff-187/Cargo.lock
       - name: Run headless example
         run: cargo run --locked --manifest-path research/typed-handoff-187/Cargo.toml --bin riesel-typed-handoff-187-research
+      - name: Run actual Riesel delegated !Send domain owner proof
+        run: cargo run --locked --manifest-path research/typed-handoff-187/Cargo.toml --bin affine_domain
       - name: Record controlled runner context
         run: |
           uname -a
