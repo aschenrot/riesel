@@ -84,7 +84,11 @@ pub struct NestedViewInfo {
 #[derive(Clone)]
 pub struct NestedHeaderObserver {
     sample: Arc<dyn Fn(&SessionToken) -> NestedViewInfo + Send + Sync>,
-    history: Arc<dyn Fn(&SessionToken, NestedCursor) -> Result<NestedTransitions, NestedObservationError> + Send + Sync>,
+    history: Arc<
+        dyn Fn(&SessionToken, NestedCursor) -> Result<NestedTransitions, NestedObservationError>
+            + Send
+            + Sync,
+    >,
     session: SessionToken,
 }
 
@@ -93,7 +97,10 @@ impl NestedHeaderObserver {
         (self.sample)(&self.session)
     }
 
-    pub fn changes_since(&self, cursor: NestedCursor) -> Result<NestedTransitions, NestedObservationError> {
+    pub fn changes_since(
+        &self,
+        cursor: NestedCursor,
+    ) -> Result<NestedTransitions, NestedObservationError> {
         (self.history)(&self.session, cursor)
     }
 }
@@ -198,7 +205,11 @@ pub(crate) struct NestedAttachment {
     pub(crate) description: NestedDescription,
     erased: Arc<dyn Any + Send + Sync>,
     sample: Arc<dyn Fn(&SessionToken) -> NestedViewInfo + Send + Sync>,
-    history: Arc<dyn Fn(&SessionToken, NestedCursor) -> Result<NestedTransitions, NestedObservationError> + Send + Sync>,
+    history: Arc<
+        dyn Fn(&SessionToken, NestedCursor) -> Result<NestedTransitions, NestedObservationError>
+            + Send
+            + Sync,
+    >,
     retired: Arc<AtomicBool>,
 }
 
@@ -324,17 +335,18 @@ impl<T: Send + Sync + 'static> NestedPublisher<T> {
         let erased: Arc<dyn Any + Send + Sync> = source.clone();
 
         let sampled = Arc::clone(&source);
-        let sample: Arc<dyn Fn(&SessionToken) -> NestedViewInfo + Send + Sync> = Arc::new(move |session| {
-            let state = sampled.lock().unwrap_or_else(PoisonError::into_inner);
-            NestedViewInfo {
-                description: state.description.clone(),
-                latest: NestedCursor {
-                    owner_generation: state.description.owner_generation,
-                    sequence: state.sequence,
-                },
-                status: state.status(session),
-            }
-        });
+        let sample: Arc<dyn Fn(&SessionToken) -> NestedViewInfo + Send + Sync> =
+            Arc::new(move |session| {
+                let state = sampled.lock().unwrap_or_else(PoisonError::into_inner);
+                NestedViewInfo {
+                    description: state.description.clone(),
+                    latest: NestedCursor {
+                        owner_generation: state.description.owner_generation,
+                        sequence: state.sequence,
+                    },
+                    status: state.status(session),
+                }
+            });
         let retained = Arc::clone(&source);
         let history: Arc<
             dyn Fn(&SessionToken, NestedCursor) -> Result<NestedTransitions, NestedObservationError>
