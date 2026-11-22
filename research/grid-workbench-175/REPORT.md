@@ -82,23 +82,52 @@ Therefore compare:
 
 **Gate 5 — Product decision:** propose exact versioned public types (or a justified decision to retain direct calls), record A–D evidence, second non-room consumer, migration and S2->S3 compatibility implications, then obtain the maintainer's accept/revise/defer decision in #175. Only then update accepted product/architecture contracts and plan independently verifiable implementation work.
 
-## 7. What is / is not completed
+## 7. Verification state and exact evidence
 
-**Completed by this report / accompanying fixture:** repository source inspection, responsibility model, source-grounded SDK type constraint, preliminary alternatives, evidence plan, and a real SDK compiler/runtime proof of bounded public DTOs crossing two **linked** generated capability handles. The fixture uses synthetic providers and a normal typed Rust threshold conversion.
+**Completed source audit:** Riesel capability macros, public schema types, execution graph and RPC framing; authorized upstream grid/topology semantics; RunenRender host/presentation boundary. Comparative A–D architecture remains an investigation, **not an accepted architecture decision**.
 
-**Not completed:** negative compile-fail cases, independent real-domain 64x64 noise/CA/dual-grid integration, configurable CA rule extension, throughput/serialization benchmark, native host experiment, GUI interaction, owner architecture acceptance or production code. Existing Riesel tests and grid topology tests do not substitute for these cross-repository integration proofs.
+### Gate 1 — actual generated linked-capability contract proof
 
-This report is deliberately compatible with one-authoritative-plan-source and S2-to-S3 evolution under #111. New data-artifact and revision semantics must not silently create another executable plan publisher.
+The standalone `research/grid-workbench-175` Cargo workspace uses generated Riesel capability and component macros with three **test-only** contract alternatives:
 
-## 8. Executed evidence (synthetic capability boundaries only)
+- A synthetic, deterministic Noise provider returning a bounded 2D scalar DTO (not a real noise algorithm).
+- A CA provider applying genuine binary synchronous Moore-neighborhood research rules, explicit out-of-bounds read policy, configurable birth/survival thresholds and protected border writes (not the authoritative production grid library).
+- A coarse WholeGridPipeline provider executing the same synthetic source, ordinary threshold and CA rules behind one capability contract.
 
-The isolated `research/grid-workbench-175` Cargo workspace contains two real `#[capability]` contracts, two linked `#[component]` providers, generated async handles in a Riesel `#[app]` entrypoint, a 64x64 bounded field DTO, an explicit ordinary-Rust threshold conversion and an identity-CA DTO boundary. These **synthetic** providers do not claim actual noise synthesis, neighborhood transition or dual-grid correctness.
+The Riesel application **actually resolves all three linked providers**. It compares the result of separate Noise -> Rust threshold -> CA calls with one coarse pipeline call. Its topology is not derived in this fixture; the separate private grid tests own that proof.
 
-To reproduce from a checkout with Rust 1.100:
+Reproduce with Rust 1.100:
 
 ```sh
-cargo test --manifest-path research/grid-workbench-175/Cargo.toml
+cargo test --manifest-path research/grid-workbench-175/Cargo.toml -- --nocapture
 cargo run --manifest-path research/grid-workbench-175/Cargo.toml
 ```
 
-**Verified exact fixture commit `55ffcdc44f699831e3fc94d2926f8a0dd002c071`:** [dedicated Linux CI run 44993233367](https://github.com/aschenrot/riesel/actions/runs/44993233367) completed successfully, including **2/2 unit tests** (strict threshold/shape and invalid dimension/non-finite rejection) and the real linked-provider Riesel application printed `Riesel #175 SDK composition proof: 64x64 cells`. This proves current DTO/handle composition, **not** direct `DenseGrid2D<f32>` support, actual CA correctness, managed/remote payload limits or runtime S3 dataflow. The first fixture commit omitted some macro-required direct Cargo dependencies and failed; this was corrected and reverified, not concealed.
+**Exact test evidence:** [Linux Research Grid Workbench workflow 44994122494](https://github.com/aschenrot/riesel/actions/runs/44994122494) **PASS**, source SHA `f8dce80badf02fff49d29253d4b61d81fcf76f98`. All **8 tests passed**, including separate/coarse semantic equality, strict thresholding, invalid dimensions/non-finite values, CA read-boundary alternatives, preserved mixed borders after *every* step, synchronous transition ordering, invalid rules and measured payload serialization. The real Riesel application launched and printed `Riesel #175 SDK composition + rule CA proof: 64x64 cells`. Tests do not establish local/managed performance parity, production grid domain behavior, replay after crash or S3 executable dataflow. The first fixture commit failed because macro-required direct Cargo dependencies were omitted; subsequent revisions fixed that and passed.
+
+### Gate 3 partial — real serialized size evidence and framed limit
+
+The test emitted the following **Serde JSON DTO bytes**, for a deterministic repeated full-precision `f64` sample, including JSON field names but **excluding RPC envelope**:
+
+| Artifact | Measured serialized size | Source |
+| --- | ---: | --- |
+| 64x64 `ScalarGridDto` | **81,956 bytes** | [same CI 44994122494](https://github.com/aschenrot/riesel/actions/runs/44994122494) |
+| 512x512 `ScalarGridDto` | **5,242,918 bytes** | [same CI 44994122494](https://github.com/aschenrot/riesel/actions/runs/44994122494) |
+
+The current Riesel `crates/riesel_protocol/src/tcp/wire.rs` sets `MAX_FRAME_BYTES = 4 * 1024 * 1024`, and asynchronous client/server paths reject oversized framed request/response JSON. Therefore, **this valid 512x512 scalar DTO cannot fit into one current RPC frame**. Some other grids or encodings can fit; no universal dimension limit or automatic zero-copy is inferred. 64x64 fits the raw payload bound; managed provider integration and end-to-end frame success are still untested.
+
+This directly illustrates why capability providers should not require routine transfer of every intermediate domain grid over IPC. Preserving local typed values, an owner-side coarse pipeline, bounded chunking/streaming or separate typed data transfer may be considered if evidence justifies them. Do not bypass frame limits or silently replace typed binary semantics with arbitrary JSON.
+
+### Gate 2 — actual upstream grid domain
+
+A separate **private draft grid research PR** exists, testing the real existing noise-to-occupancy helper, actual authoritative dual-grid topology and a test-local configurable CA rule. The private GitHub Actions [run 44993418430](https://github.com/aschenrot/grid/actions/runs/44993418430) failed on *both* attempts **before a runner started any steps**, leaving no Rust compiler/test evidence. No exact source-level failure or cause of CI rejection has been established. The domain proof remains **unverified** and should not be merged.
+
+### Remaining work before owner decision
+
+- Run the actual private grid-domain tests on an authorized Rust environment, then evaluate integration with live Riesel handles without copying private source into this public repository.
+- Compare **developer authoring cost**, local data ownership, DTO copying, bounded managed provider transfer and failure semantics for A, B and C. The separate/coarse parity fixture establishes semantics, not comparative measured performance.
+- Demonstrate a second consumer not limited to room layouts, define noise sampling and field/grid coordinates, algorithm versions, snapshot/recompute authority and stage configuration.
+- Establish the separate RunenRender 2D/native-host proof only against its accepted product scope and enforce #60/#75 external-session authorization requirements when relevant.
+- Record the owner accept/revise/defer decision in #175. Maintain #111's one semantic plan-author and S2->S3 compatibility without asserting executable typed value edges today.
+
+**No public Noise, Field, Grid, CA, topology or renderer capability has been accepted.** No test is evidence of production-ready security, UI, performance, managed transport or immutable revision persistence.
