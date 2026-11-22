@@ -53,6 +53,12 @@ jobs:
           target/debug/examples/v2_artifact_new "$scratch/plans.sqlite" "$scratch/old-backup.sqlite"
       - name: Smoke test runtime and managed providers
         run: cargo smoke
+      - name: Research #226 bounded replenishing runs and abandoned waiter (draft only)
+        if: ${{ github.event_name == 'pull_request' && github.head_ref == 'research/226-bounded-producer-competition' }}
+        run: cargo test -p riesel --features async-tcp --test scheduler_continuous_producer_research -- --nocapture --test-threads=1
+      - name: Research #226 optimized bounded producer samples (draft only)
+        if: ${{ github.event_name == 'pull_request' && github.head_ref == 'research/226-bounded-producer-competition' }}
+        run: cargo test -p riesel --release --features async-tcp --test scheduler_continuous_producer_research -- --nocapture --test-threads=1
 
   windows:
     if: ${{ github.event_name == 'workflow_dispatch' && inputs.windows }}
