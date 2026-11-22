@@ -1,0 +1,27 @@
+name: GUI actual process attachment research (#248)
+
+permissions:
+  contents: read
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - "research/gui-attachment/**"
+      - ".github/workflows/gui-attachment-research.yml"
+  workflow_dispatch:
+
+jobs:
+  linux-actual-owner-client:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install repository-pinned Rust 1.100
+        run: |
+          rustup toolchain install 1.100.0 --profile minimal --component rustfmt
+          rustup default 1.100.0
+      - name: Format isolated research crate
+        run: cargo fmt --manifest-path research/gui-attachment/Cargo.toml -- --check
+      - name: Exercise real Riesel SDK owner and separate OS clients
+        run: cargo test --manifest-path research/gui-attachment/Cargo.toml -- --nocapture
