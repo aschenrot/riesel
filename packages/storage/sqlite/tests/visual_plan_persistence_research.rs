@@ -5,7 +5,12 @@
 
 use riesel_app::{ExecutionPlanDraft, OperationKey, OperationNode};
 use rusqlite::{Connection, OptionalExtension, TransactionBehavior, params};
-use std::{path::{Path, PathBuf}, sync::{Arc, Barrier}, thread, time::Duration};
+use std::{
+    path::{Path, PathBuf},
+    sync::{Arc, Barrier},
+    thread,
+    time::Duration,
+};
 use tempfile::{TempDir, tempdir};
 
 const PLAN_ID: &str = "research.persistent.plan";
@@ -13,7 +18,9 @@ const PLAN_ID: &str = "research.persistent.plan";
 fn connect(path: &Path) -> Connection {
     let connection = Connection::open(path).unwrap();
     connection.busy_timeout(Duration::from_secs(5)).unwrap();
-    connection.pragma_update(None, "synchronous", "FULL").unwrap();
+    connection
+        .pragma_update(None, "synchronous", "FULL")
+        .unwrap();
     connection
 }
 
@@ -91,7 +98,13 @@ fn publish(
             "UPDATE plan_head SET semantic_revision=?1
              WHERE plan_id=?2 AND semantic_revision=?3
              AND source_name=?4 AND source_epoch=?5",
-            params![next_revision, PLAN_ID, expected_revision, source, expected_epoch],
+            params![
+                next_revision,
+                PLAN_ID,
+                expected_revision,
+                source,
+                expected_epoch
+            ],
         )
         .unwrap();
     if changed == 0 {
@@ -200,7 +213,15 @@ fn state(connection: &Connection) -> (i64, i64, i64, i64, String) {
             "SELECT semantic_revision, active_revision, layout_revision, source_epoch, source_name
              FROM plan_head WHERE plan_id=?1",
             params![PLAN_ID],
-            |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?, row.get(4)?)),
+            |row| {
+                Ok((
+                    row.get(0)?,
+                    row.get(1)?,
+                    row.get(2)?,
+                    row.get(3)?,
+                    row.get(4)?,
+                ))
+            },
         )
         .unwrap()
 }
