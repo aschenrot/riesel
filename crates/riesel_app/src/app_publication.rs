@@ -154,6 +154,10 @@ impl AppReadPublication {
         })
     }
 
+    pub(crate) fn session_is_active(&self) -> bool {
+        self.session.is_active()
+    }
+
     /// Advertised values are correlation hints, not a verified server identity
     /// or a secret. Do not infer client authorization from knowing them.
     pub fn descriptor(&self) -> ReadPublicationDescriptor {
