@@ -85,6 +85,77 @@ fn records_can_bind_explicitly_to_named_storage_requirements() {
 
 #[cfg(feature = "dev-memory-storage")]
 #[test]
+fn native_record_query_only_handler_does_not_request_storage_mutations() {
+    use crate::ModelRead;
+    use crate::storage::{RecordQueryContract, RecordQueryRequest};
+
+    let app = Application::new("NativeReadOnly")
+        .handler(
+            |reader: ModelRead<TodoModel, RecordQueryContract>|
+             -> std::result::Result<(), crate::storage::RecordQueryError> {
+                let result = reader.query_page(RecordQueryRequest {
+                    model: "todo".into(),
+                    predicate: None,
+                    limit: 16,
+                    scan_budget: 16,
+                    cursor: None,
+                })?;
+                assert!(result.records.is_empty());
+                assert!(result.exhausted);
+                Ok(())
+            },
+        )
+        .unwrap();
+    assert_eq!(app.definition().record_query_links.len(), 1);
+    assert!(app.definition().model_bindings.is_empty());
+    assert_eq!(app.definition().requires.len(), 1);
+    assert_eq!(app.definition().requires[0].capability.id, "riesel.query.records");
+    app.development().unwrap().run().unwrap();
+}
+
+#[cfg(feature = "dev-memory-storage")]
+#[test]
+fn native_record_query_and_storage_v2_share_one_confirmed_writer() {
+    use crate::{ModelRead, Records};
+    use crate::storage::{
+        RecordCompare, RecordPredicate, RecordQueryContract, RecordQueryRequest,
+    };
+
+    Application::new("NativeReadWrite")
+        .handler_with_aliases(
+            |reader: ModelRead<TodoModel, RecordQueryContract>,
+             writer: Records<TodoModel>|
+             -> std::result::Result<(), Box<dyn std::error::Error + Send + Sync>> {
+                writer.create(TodoModel {
+                    title: "Committed".into(),
+                    completed: false,
+                })?;
+                let result = reader.query_page(RecordQueryRequest {
+                    model: "todo".into(),
+                    predicate: Some(RecordPredicate {
+                        field: "completed".into(),
+                        operator: RecordCompare::Eq,
+                        value: Some(serde_json::json!(false)),
+                    }),
+                    limit: 16,
+                    scan_budget: 16,
+                    cursor: None,
+                })?;
+                assert_eq!(result.records.len(), 1);
+                assert_eq!(result.records[0].data["title"], "Committed");
+                Ok(())
+            },
+            ["read", "writer"],
+        )
+        .unwrap()
+        .development()
+        .unwrap()
+        .run()
+        .unwrap();
+}
+
+#[cfg(feature = "dev-memory-storage")]
+#[test]
 fn rust_first_app_runs_without_json_or_tcp() {
     Application::new("Todo")
         .records::<TodoModel>()
