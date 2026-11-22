@@ -14,6 +14,8 @@ mod tests {
         OperationState, RunningApp, async_operation, async_operation_with_effects,
     };
     use runen_ecs::prelude::*;
+
+    mod bevy_fixture;
     use std::cell::Cell;
     use std::collections::{BTreeMap, BTreeSet, VecDeque};
     use std::num::NonZeroUsize;
@@ -36,6 +38,7 @@ mod tests {
         SimulationTick,
         PipelineStage,
         ActualRunenEcsTick,
+        ActualBevyEcsTick,
     }
 
     // The production Riesel runner never touches the RunenECS world.
@@ -248,6 +251,13 @@ mod tests {
                 } else {
                     None
                 };
+                // The separate Bevy owner is also constructed on this thread.
+                // Neither Bevy World nor its non-Send resources enter Tokio.
+                let mut bevy_ecs = if kind == Kind::ActualBevyEcsTick {
+                    Some(bevy_fixture::Owned::new())
+                } else {
+                    None
+                };
                 // Only a local, single-owner in-memory duplicate fence for
                 // this experiment. NOT durable idempotency or remote trust.
                 let mut seen_attempts = BTreeSet::<(String, u64)>::new();
@@ -293,6 +303,10 @@ mod tests {
                                         let new_value = match kind {
                                             Kind::SimulationTick => world.get() + 2,
                                             Kind::PipelineStage => world.get() + 5,
+                                            Kind::ActualBevyEcsTick => bevy_ecs
+                                                .as_mut()
+                                                .expect("Bevy ECS must remain on native owner")
+                                                .tick(),
                                             Kind::ActualRunenEcsTick => {
                                                 let (ecs_world, ecs_runtime) = real_ecs
                                                     .as_mut()
