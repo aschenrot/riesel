@@ -6,7 +6,7 @@
 use riesel::{
     Application, AsyncOperation, ExecutionPlanDraft, FixedStepAdmission, FixedStepBacklog,
     FixedStepPolicy, OperationKey, OperationNode, OperationOutcome, OperationRegistry,
-    async_operation,
+    async_operation_with_effects,
 };
 use std::num::NonZeroUsize;
 use std::sync::{
@@ -21,15 +21,19 @@ fn main() -> riesel::Result<()> {
         let mut registry = OperationRegistry::<AsyncOperation>::new();
         registry.register(
             OperationKey::new("simulation.tick", 1)?,
-            async_operation({
+            async_operation_with_effects({
                 let ticks = Arc::clone(&ticks);
-                move || {
+                move |effects| {
                     let ticks = Arc::clone(&ticks);
                     async move {
                         // Substitute a typed capability handle or a delegated
                         // domain-thread command here; the graph does not own
                         // an ECS world's internal system schedule.
                         ticks.fetch_add(1, Ordering::SeqCst);
+                        // Only report after this local owner completed its
+                        // mutation. A dispatched remote command without an
+                        // acknowledgement would remain outcome-unknown.
+                        effects.confirm_prefix("simulation.ticks", 1).unwrap();
                         OperationOutcome::Completed
                     }
                 }
@@ -62,7 +66,17 @@ fn main() -> riesel::Result<()> {
                 assert_eq!(admission.claim(1), 1);
                 let runner =
                     context.execution_graph(bound.clone(), NonZeroUsize::new(1).unwrap())?;
+                let observer = runner.observer();
                 let report = executor.block_on(runner.execute());
+                if report.confirmed_prefixes["tick"]["simulation.ticks"] != 1
+                    || observer.snapshot().operations["tick"].confirmed_prefixes["simulation.ticks"]
+                        != 1
+                {
+                    return Err(std::io::Error::other(
+                        "authoritatively confirmed tick is missing from report or snapshot",
+                    )
+                    .into());
+                }
                 if !report.succeeded() {
                     return Err(std::io::Error::other(format!(
                         "tick outcome is not successful: {:?}",

@@ -7,9 +7,9 @@
 #![cfg(feature = "async-tcp")]
 use riesel::{
     AccessMode, App, AsyncOperation, ConnectorRegistry, DeploymentConfig, ExecutionPlanDraft,
-    FixedStepAdmission, FixedStepBacklog, FixedStepPolicy, GraphRunReport, OperationKey,
-    OperationNode, OperationOutcome, OperationRegistry, OperationState, RunningApp,
-    async_operation,
+    FixedStepAdmission, FixedStepBacklog, FixedStepPolicy, GraphControlError, GraphControlTarget,
+    GraphRunReport, OperationKey, OperationNode, OperationOutcome, OperationRegistry,
+    OperationState, RunningApp, async_operation, async_operation_with_effects,
 };
 use std::cell::Cell;
 use std::num::NonZeroUsize;
@@ -296,10 +296,10 @@ async fn central_policy() -> (Vec<Snapshot>, GraphRunReport) {
     let joined = Arc::new(AtomicUsize::new(0));
     let mut registry = OperationRegistry::<AsyncOperation>::new();
     register_workflow(&mut registry, Arc::clone(&joined));
-    let tick_handler = async_operation({
+    let tick_handler = async_operation_with_effects({
         let commands = domain.commands.clone();
         let snapshots = Arc::clone(&snapshots);
-        move || {
+        move |effects| {
             let commands = commands.clone();
             let snapshots = Arc::clone(&snapshots);
             async move {
@@ -315,6 +315,9 @@ async fn central_policy() -> (Vec<Snapshot>, GraphRunReport) {
                 }
                 match reply.await {
                     Ok(Ok(snapshot)) => {
+                        // The !Send domain's actor has acknowledged exactly
+                        // one committed tick for this operation attempt.
+                        effects.confirm_prefix("world.ticks", 1).unwrap();
                         snapshots.lock().unwrap().push(snapshot);
                         OperationOutcome::Completed
                     }
@@ -352,6 +355,9 @@ async fn central_policy() -> (Vec<Snapshot>, GraphRunReport) {
         .execution_graph(plan, NonZeroUsize::new(3).unwrap())
         .unwrap();
     let signals = runner.signal_sender();
+    let control = runner.controller();
+    let target = GraphControlTarget::RieselDomainTicks("ecs.world".to_owned());
+    control.pause(target.clone()).unwrap();
     let task = tokio::spawn(runner.execute());
     // This is the *central* outer tick owner, not the ECS actor.
     let mut admission = FixedStepAdmission::new(policy());
@@ -364,6 +370,7 @@ async fn central_policy() -> (Vec<Snapshot>, GraphRunReport) {
 
     assert_eq!(admission.claim(1), 1);
     signals.fire("tick.one").unwrap();
+    control.step(target.clone()).unwrap();
     tokio::time::timeout(Duration::from_secs(3), async {
         while snapshots.lock().unwrap().is_empty() {
             tokio::task::yield_now().await;
@@ -373,10 +380,16 @@ async fn central_policy() -> (Vec<Snapshot>, GraphRunReport) {
     .unwrap();
     assert_eq!(snapshots.lock().unwrap()[0].tick, 1);
     assert!(!task.is_finished());
+    assert_eq!(
+        control.identity().plan_id(),
+        "fixed.central",
+        "control must bind this exact plan/run"
+    );
 
     assert_eq!(admission.claim(1), 1);
     assert_eq!(admission.available(), 0);
     signals.fire("tick.two").unwrap();
+    control.step(target).unwrap();
     let report = tokio::time::timeout(Duration::from_secs(3), task)
         .await
         .unwrap()
@@ -384,6 +397,10 @@ async fn central_policy() -> (Vec<Snapshot>, GraphRunReport) {
     assert!(report.succeeded());
     assert_eq!(report.operations["tick-one"], OperationState::Completed);
     assert_eq!(report.operations["tick-two"], OperationState::Completed);
+    // Each centrally admitted tick is a separate one-shot attempt. The
+    // per-attempt confirmed prefix is one tick, not a global world count.
+    assert_eq!(report.confirmed_prefixes["tick-one"]["world.ticks"], 1);
+    assert_eq!(report.confirmed_prefixes["tick-two"]["world.ticks"], 1);
     assert_eq!(report.operations["final"], OperationState::Completed);
     assert_eq!(
         domain.stop(),
@@ -410,11 +427,11 @@ async fn delegated_policy(
     registry
         .register(
             key("frame"),
-            async_operation({
+            async_operation_with_effects({
                 let commands = domain.commands.clone();
                 let permits = Arc::clone(&permits);
                 let final_frame = Arc::clone(&final_frame);
-                move || {
+                move |effects| {
                     let commands = commands.clone();
                     let permits = permits.lock().unwrap().take().unwrap();
                     let observation_tx = observation_tx.clone();
@@ -435,6 +452,14 @@ async fn delegated_policy(
                         }
                         match reply.await {
                             Ok(Ok(frame)) => {
+                                // This acknowledgement comes from the
+                                // thread-affine domain owner, not from the
+                                // graph terminal status or signal proposals.
+                                if frame.committed_ticks != 0 {
+                                    effects
+                                        .confirm_prefix("world.ticks", frame.committed_ticks as u64)
+                                        .unwrap();
+                                }
                                 *final_frame.lock().unwrap() = Some(frame);
                                 if frame.cancelled {
                                     OperationOutcome::Cancelled
@@ -469,6 +494,11 @@ async fn delegated_policy(
     let runner = owner
         .execution_graph(plan, NonZeroUsize::new(3).unwrap())
         .unwrap();
+    let control = runner.controller();
+    assert!(matches!(
+        control.pause(GraphControlTarget::RieselDomainTicks("ecs.world".into())),
+        Err(GraphControlError::UnsupportedDomainAuthority { .. })
+    ));
     let task = tokio::spawn(runner.execute());
     wait_for_count(&joined, 2).await;
     assert!(
@@ -583,6 +613,10 @@ fn fixed_tick_modes_preserve_world_semantics_with_independent_async_work() {
         assert!(delegated_report.succeeded());
         assert_eq!(frame.committed_ticks, 2);
         assert_eq!(
+            delegated_report.confirmed_prefixes["frame"]["world.ticks"],
+            2
+        );
+        assert_eq!(
             delegated_report.operations["frame"],
             OperationState::Completed
         );
@@ -616,6 +650,7 @@ fn partial_domain_frame_cancellation_preserves_committed_tick_and_blocks_final_j
             }
         );
         assert_eq!(report.operations["frame"], OperationState::Cancelled);
+        assert_eq!(report.confirmed_prefixes["frame"]["world.ticks"], 1);
         assert_eq!(report.operations["final"], OperationState::Blocked);
         assert!(!report.succeeded());
     });

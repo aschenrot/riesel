@@ -25,9 +25,10 @@ pub use component::{ComponentDefinition, DeclarativeComponent};
 pub use deployment::{DeploymentConfig, DeploymentError, ServiceEndpoint};
 #[cfg(feature = "async-tcp")]
 pub use execution_observation::{
-    GraphObservationError, GraphObservedOperation, GraphRunChange, GraphRunIdentity,
-    GraphRunObserver, GraphRunPhase, GraphRunSnapshot, GraphRunTransition, GraphRunTransitions,
-    MAX_GRAPH_TRANSITIONS,
+    GraphControlError, GraphControlMode, GraphControlTarget, GraphEffectError, GraphEffectRecorder,
+    GraphObservationError, GraphObservedOperation, GraphRunChange, GraphRunController,
+    GraphRunIdentity, GraphRunObserver, GraphRunPhase, GraphRunSnapshot, GraphRunTransition,
+    GraphRunTransitions, MAX_GRAPH_EFFECT_STREAMS, MAX_GRAPH_TRANSITIONS,
 };
 pub use execution_plan::{
     AccessMode, BoundExecutionPlan, DomainAdmissionMode, DomainBoundary, ExecutionPlanDescription,
@@ -38,6 +39,7 @@ pub use execution_plan::{
 pub use execution_runner::{
     AsyncOperation, ExecutionGraphRunner, GraphExecutionFailure, GraphRunError, GraphRunReport,
     GraphSignalSender, OperationFuture, OperationOutcome, OperationState, async_operation,
+    async_operation_with_effects,
 };
 pub use fixed_step::{
     FixedStepAdmission, FixedStepBacklog, FixedStepError, FixedStepFrame, FixedStepPolicy,

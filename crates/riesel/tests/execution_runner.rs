@@ -4,10 +4,11 @@
 #![cfg(feature = "async-tcp")]
 use riesel::{
     AccessMode, App, AsyncOperation, ConnectorRegistry, DeploymentConfig, DomainAdmissionMode,
-    ExecutionPlanDraft, FixedStepAdmission, FixedStepBacklog, FixedStepPolicy,
-    GraphObservationError, GraphRunChange, GraphRunError, GraphRunPhase, MAX_GRAPH_TRANSITIONS,
-    OperationKey, OperationNode, OperationOutcome, OperationRegistry, OperationState, RunningApp,
-    async_operation,
+    ExecutionPlanDraft, FixedStepAdmission, FixedStepBacklog, FixedStepPolicy, GraphControlError,
+    GraphControlMode, GraphControlTarget, GraphEffectError, GraphEffectRecorder,
+    GraphObservationError, GraphRunChange, GraphRunError, GraphRunPhase, MAX_GRAPH_EFFECT_STREAMS,
+    MAX_GRAPH_TRANSITIONS, OperationKey, OperationNode, OperationOutcome, OperationRegistry,
+    OperationState, RunningApp, async_operation, async_operation_with_effects,
 };
 use std::num::NonZeroUsize;
 use std::sync::{
@@ -1198,5 +1199,865 @@ fn abrupt_graph_future_abort_reports_in_flight_unknown_and_blocks_success_depend
                     GraphRunChange::Phase(GraphRunPhase::Abandoned)
                 ))
         );
+    });
+}
+
+#[test]
+fn confirmed_effect_prefixes_survive_failed_operation_without_unblocking_dependents() {
+    runtime().block_on(async {
+        let retained = Arc::new(std::sync::Mutex::new(None::<GraphEffectRecorder>));
+        let held = Arc::clone(&retained);
+        let mut registry = OperationRegistry::<AsyncOperation>::new();
+        registry
+            .register(
+                key("partially-applied"),
+                async_operation_with_effects(move |effects| {
+                    let held = Arc::clone(&held);
+                    async move {
+                        *held.lock().unwrap() = Some(effects.clone());
+                        effects.confirm_prefix("world.ticks", 1).unwrap();
+                        effects.confirm_prefix("world.ticks", 1).unwrap();
+                        assert!(matches!(
+                            effects.confirm_prefix("world.ticks", 0),
+                            Err(GraphEffectError::ZeroProgress)
+                        ));
+                        assert!(matches!(effects.confirm_prefix("world.ticks", 2), Ok(())));
+                        assert!(matches!(
+                            effects.confirm_prefix("world.ticks", 1),
+                            Err(GraphEffectError::RegressingPrefix {
+                                previous: 2,
+                                requested: 1
+                            })
+                        ));
+                        OperationOutcome::Failed("failed after two committed ticks".into())
+                    }
+                }),
+            )
+            .unwrap();
+        registry
+            .register(
+                key("dependent"),
+                async_operation(|| async { panic!("must not run after failed prerequisite") }),
+            )
+            .unwrap();
+        let plan = ExecutionPlanDraft::new("effects.failed-prefix", 1)
+            .operation(OperationNode::new("partial", key("partially-applied")))
+            .operation(OperationNode::new("dependent", key("dependent")).after("partial"))
+            .validate()
+            .unwrap()
+            .bind(&registry)
+            .unwrap();
+        let owner = application_session();
+        let runner = owner
+            .execution_graph(plan, NonZeroUsize::new(2).unwrap())
+            .unwrap();
+        let observer = runner.observer();
+        let report = runner.execute().await;
+        assert!(!report.succeeded());
+        assert!(matches!(
+            report.operations["partial"],
+            OperationState::Failed(_)
+        ));
+        assert_eq!(report.operations["dependent"], OperationState::Blocked);
+        assert_eq!(report.confirmed_prefixes["partial"]["world.ticks"], 2);
+        let snapshot = observer.snapshot();
+        assert_eq!(
+            snapshot.operations["partial"].confirmed_prefixes["world.ticks"],
+            2
+        );
+        assert!(
+            snapshot.operations["dependent"]
+                .confirmed_prefixes
+                .is_empty()
+        );
+        let updates = observer.changes_since(0).unwrap();
+        assert!(!updates.truncated);
+        assert_eq!(
+            updates
+                .events
+                .iter()
+                .filter(|event| matches!(
+                    &event.change,
+                    GraphRunChange::ConfirmedPrefix {
+                        operation_id,
+                        attempt: 1,
+                        stream,
+                        ..
+                    } if operation_id == "partial" && stream == "world.ticks"
+                ))
+                .count(),
+            2,
+            "equal duplicate reports must not advance a confirmed prefix"
+        );
+        let old = retained.lock().unwrap().take().unwrap();
+        assert!(matches!(
+            old.confirm_prefix("world.ticks", 3),
+            Err(GraphEffectError::InactiveAttempt)
+        ));
+    });
+}
+
+#[test]
+fn abandoned_attempt_preserves_confirmed_prefix_but_not_unacknowledged_effects() {
+    runtime().block_on(async {
+        let retained = Arc::new(std::sync::Mutex::new(None::<GraphEffectRecorder>));
+        let held = Arc::clone(&retained);
+        let mut registry = OperationRegistry::<AsyncOperation>::new();
+        registry
+            .register(
+                key("pending-effect"),
+                async_operation_with_effects(move |effects| {
+                    let held = Arc::clone(&held);
+                    async move {
+                        *held.lock().unwrap() = Some(effects.clone());
+                        effects.confirm_prefix("world.ticks", 1).unwrap();
+                        // The second remote tick might commit after dispatch,
+                        // but no acknowledgement arrives before cancellation.
+                        std::future::pending::<()>().await;
+                        OperationOutcome::Completed
+                    }
+                }),
+            )
+            .unwrap();
+        registry
+            .register(
+                key("dependent"),
+                async_operation(|| async { panic!("unknown prerequisite cannot succeed") }),
+            )
+            .unwrap();
+        let plan = ExecutionPlanDraft::new("effects.abandoned", 1)
+            .operation(OperationNode::new("pending", key("pending-effect")))
+            .operation(OperationNode::new("dependent", key("dependent")).after("pending"))
+            .validate()
+            .unwrap()
+            .bind(&registry)
+            .unwrap();
+        let owner = application_session();
+        let runner = owner
+            .execution_graph(plan, NonZeroUsize::new(1).unwrap())
+            .unwrap();
+        let observer = runner.observer();
+        let handle = tokio::spawn(runner.execute());
+        tokio::time::timeout(Duration::from_secs(3), async {
+            loop {
+                if observer.snapshot().operations["pending"]
+                    .confirmed_prefixes
+                    .get("world.ticks")
+                    == Some(&1)
+                {
+                    break;
+                }
+                tokio::task::yield_now().await;
+            }
+        })
+        .await
+        .unwrap();
+        handle.abort();
+        let _ = handle.await;
+        let state = observer.snapshot();
+        assert_eq!(state.phase, GraphRunPhase::Abandoned);
+        assert_eq!(
+            state.operations["pending"].state,
+            OperationState::OutcomeUnknown
+        );
+        assert_eq!(
+            state.operations["pending"].confirmed_prefixes["world.ticks"],
+            1
+        );
+        assert_eq!(state.operations["dependent"].state, OperationState::Blocked);
+        let old = retained.lock().unwrap().take().unwrap();
+        assert!(matches!(
+            old.confirm_prefix("world.ticks", 2),
+            Err(GraphEffectError::InactiveAttempt)
+        ));
+    });
+}
+
+#[test]
+fn effect_stream_limits_and_invalid_names_fail_without_ledger_mutation() {
+    runtime().block_on(async {
+        let mut registry = OperationRegistry::<AsyncOperation>::new();
+        registry
+            .register(
+                key("bounded-effects"),
+                async_operation_with_effects(|effects| async move {
+                    assert!(matches!(
+                        effects.confirm_prefix("", 1),
+                        Err(GraphEffectError::InvalidStream)
+                    ));
+                    assert!(matches!(
+                        effects.confirm_prefix("invalid name", 1),
+                        Err(GraphEffectError::InvalidStream)
+                    ));
+                    for stream in 0..MAX_GRAPH_EFFECT_STREAMS {
+                        effects
+                            .confirm_prefix(&format!("stream.{stream}"), 1)
+                            .unwrap();
+                    }
+                    assert!(matches!(
+                        effects.confirm_prefix("stream.extra", 1),
+                        Err(GraphEffectError::StreamLimitExceeded {
+                            limit: MAX_GRAPH_EFFECT_STREAMS
+                        })
+                    ));
+                    // Reusing an existing stream does not consume new capacity.
+                    effects.confirm_prefix("stream.0", 2).unwrap();
+                    OperationOutcome::OutcomeUnknown
+                }),
+            )
+            .unwrap();
+        let plan = ExecutionPlanDraft::new("effects.bound", 1)
+            .operation(OperationNode::new("bounded", key("bounded-effects")))
+            .validate()
+            .unwrap()
+            .bind(&registry)
+            .unwrap();
+        let owner = application_session();
+        let runner = owner
+            .execution_graph(plan, NonZeroUsize::new(1).unwrap())
+            .unwrap();
+        let observer = runner.observer();
+        let report = runner.execute().await;
+        assert_eq!(report.operations["bounded"], OperationState::OutcomeUnknown);
+        assert_eq!(
+            report.confirmed_prefixes["bounded"].len(),
+            MAX_GRAPH_EFFECT_STREAMS
+        );
+        assert_eq!(report.confirmed_prefixes["bounded"]["stream.0"], 2);
+        assert_eq!(
+            observer.snapshot().operations["bounded"].confirmed_prefixes,
+            report.confirmed_prefixes["bounded"]
+        );
+    });
+}
+
+#[test]
+fn overflowed_effect_transitions_reconcile_from_authoritative_snapshot() {
+    runtime().block_on(async {
+        let mut registry = OperationRegistry::<AsyncOperation>::new();
+        registry
+            .register(
+                key("confirmed"),
+                async_operation_with_effects(|effects| async move {
+                    effects.confirm_prefix("tick", 1).unwrap();
+                    effects.confirm_prefix("tick", 2).unwrap();
+                    OperationOutcome::Completed
+                }),
+            )
+            .unwrap();
+        let mut draft = ExecutionPlanDraft::new("effects.overflow", 1);
+        for index in 0..50 {
+            draft = draft.operation(OperationNode::new(format!("op-{index}"), key("confirmed")));
+        }
+        let owner = application_session();
+        let runner = owner
+            .execution_graph(
+                draft.validate().unwrap().bind(&registry).unwrap(),
+                NonZeroUsize::new(8).unwrap(),
+            )
+            .unwrap();
+        let observer = runner.observer();
+        let report = runner.execute().await;
+        assert!(report.succeeded());
+        let events = observer.changes_since(0).unwrap();
+        assert!(events.truncated);
+        assert_eq!(events.events.len(), MAX_GRAPH_TRANSITIONS);
+        let snapshot = observer.snapshot();
+        assert_eq!(snapshot.operations.len(), 50);
+        for index in 0..50 {
+            let name = format!("op-{index}");
+            assert_eq!(snapshot.operations[&name].confirmed_prefixes["tick"], 2);
+            assert_eq!(report.confirmed_prefixes[&name]["tick"], 2);
+        }
+        let recent = observer.changes_since(snapshot.latest_sequence).unwrap();
+        assert!(!recent.truncated);
+        assert!(recent.events.is_empty());
+    });
+}
+
+fn domain_ticks(name: &str) -> GraphControlTarget {
+    GraphControlTarget::RieselDomainTicks(name.to_owned())
+}
+
+fn operation_target(name: &str) -> GraphControlTarget {
+    GraphControlTarget::Operation(name.to_owned())
+}
+
+#[test]
+fn cooperative_domain_tick_step_admits_one_outer_tick_and_not_independent_work() {
+    runtime().block_on(async {
+        let ticks = Arc::new(AtomicUsize::new(0));
+        let independent = Arc::new(AtomicUsize::new(0));
+        let mut registry = OperationRegistry::<AsyncOperation>::new();
+        registry
+            .register(
+                key("tick"),
+                async_operation({
+                    let ticks = Arc::clone(&ticks);
+                    move || {
+                        let ticks = Arc::clone(&ticks);
+                        async move {
+                            ticks.fetch_add(1, Ordering::SeqCst);
+                            OperationOutcome::Completed
+                        }
+                    }
+                }),
+            )
+            .unwrap();
+        registry
+            .register(
+                key("independent"),
+                async_operation({
+                    let independent = Arc::clone(&independent);
+                    move || {
+                        let independent = Arc::clone(&independent);
+                        async move {
+                            independent.fetch_add(1, Ordering::SeqCst);
+                            OperationOutcome::Completed
+                        }
+                    }
+                }),
+            )
+            .unwrap();
+        registry
+            .register(
+                key("join"),
+                async_operation(|| async { OperationOutcome::Completed }),
+            )
+            .unwrap();
+        let plan = ExecutionPlanDraft::new("cooperative.domain", 1)
+            .operation(
+                OperationNode::new("tick-one", key("tick"))
+                    .domain_tick("ecs.world")
+                    .on_signal("first"),
+            )
+            .operation(
+                OperationNode::new("tick-two", key("tick"))
+                    .after("tick-one")
+                    .domain_tick("ecs.world")
+                    .on_signal("second"),
+            )
+            .operation(OperationNode::new("unrelated", key("independent")))
+            .operation(
+                OperationNode::new("join", key("join"))
+                    .after("tick-two")
+                    .after("unrelated"),
+            )
+            .validate()
+            .unwrap()
+            .bind(&registry)
+            .unwrap();
+        let owner = application_session();
+        let runner = owner
+            .execution_graph(plan, NonZeroUsize::new(3).unwrap())
+            .unwrap();
+        let observer = runner.observer();
+        let control = runner.controller();
+        let signal = runner.signal_sender();
+        let target = domain_ticks("ecs.world");
+        control.pause(target.clone()).unwrap();
+        assert_eq!(
+            observer.snapshot().controls[&target],
+            GraphControlMode::Paused
+        );
+        signal.fire("first").unwrap();
+        signal.fire("second").unwrap();
+        let task = tokio::spawn(runner.execute());
+
+        tokio::time::timeout(Duration::from_secs(3), async {
+            while independent.load(Ordering::SeqCst) == 0 {
+                tokio::task::yield_now().await;
+            }
+        })
+        .await
+        .unwrap();
+        let paused = observer.snapshot();
+        assert_eq!(paused.operations["tick-one"].state, OperationState::Pending);
+        assert_eq!(paused.operations["tick-two"].state, OperationState::Pending);
+        assert_eq!(ticks.load(Ordering::SeqCst), 0);
+        assert!(!task.is_finished());
+
+        control.step(target.clone()).unwrap();
+        assert_eq!(
+            observer.snapshot().controls[&target],
+            GraphControlMode::StepArmed
+        );
+        assert!(matches!(
+            control.step(target.clone()),
+            Err(GraphControlError::StepAlreadyArmed)
+        ));
+        tokio::time::timeout(Duration::from_secs(3), async {
+            while observer.snapshot().operations["tick-one"].state != OperationState::Completed {
+                tokio::task::yield_now().await;
+            }
+        })
+        .await
+        .unwrap();
+        let after_one = observer.snapshot();
+        assert_eq!(after_one.controls[&target], GraphControlMode::Paused);
+        assert_eq!(
+            after_one.operations["tick-two"].state,
+            OperationState::Pending
+        );
+        assert_eq!(ticks.load(Ordering::SeqCst), 1);
+        assert!(!task.is_finished());
+
+        control.step(target.clone()).unwrap();
+        let report = tokio::time::timeout(Duration::from_secs(3), task)
+            .await
+            .unwrap()
+            .unwrap();
+        assert!(report.succeeded());
+        assert_eq!(ticks.load(Ordering::SeqCst), 2);
+        assert_eq!(independent.load(Ordering::SeqCst), 1);
+        assert_eq!(
+            observer.snapshot().controls[&target],
+            GraphControlMode::Paused
+        );
+        assert!(
+            observer
+                .changes_since(0)
+                .unwrap()
+                .events
+                .iter()
+                .any(|event| {
+                    matches!(
+                        &event.change,
+                        GraphRunChange::Control {
+                            target: event_target,
+                            mode: GraphControlMode::StepArmed
+                        } if event_target == &target
+                    )
+                })
+        );
+        assert!(matches!(
+            control.resume(target),
+            Err(GraphControlError::RunClosed)
+        ));
+    });
+}
+
+#[test]
+fn cooperative_run_wide_gate_steps_one_operation_then_resumes_all() {
+    runtime().block_on(async {
+        let called = Arc::new(AtomicUsize::new(0));
+        let mut registry = OperationRegistry::<AsyncOperation>::new();
+        registry
+            .register(
+                key("counter"),
+                async_operation({
+                    let called = Arc::clone(&called);
+                    move || {
+                        let called = Arc::clone(&called);
+                        async move {
+                            called.fetch_add(1, Ordering::SeqCst);
+                            OperationOutcome::Completed
+                        }
+                    }
+                }),
+            )
+            .unwrap();
+        let plan = ExecutionPlanDraft::new("cooperative.run", 1)
+            .operation(OperationNode::new("one", key("counter")))
+            .operation(OperationNode::new("two", key("counter")))
+            .operation(OperationNode::new("three", key("counter")))
+            .validate()
+            .unwrap()
+            .bind(&registry)
+            .unwrap();
+        let owner = application_session();
+        let runner = owner
+            .execution_graph(plan, NonZeroUsize::new(3).unwrap())
+            .unwrap();
+        let observer = runner.observer();
+        let control = runner.controller();
+        let run = GraphControlTarget::Run;
+        assert_eq!(control.identity(), observer.snapshot().identity);
+        assert!(matches!(
+            control.step(run.clone()),
+            Err(GraphControlError::NotPaused)
+        ));
+        control.pause(run.clone()).unwrap();
+        let task = tokio::spawn(runner.execute());
+        for _ in 0..3 {
+            tokio::task::yield_now().await;
+        }
+        assert_eq!(called.load(Ordering::SeqCst), 0);
+        assert!(!task.is_finished());
+        control.step(run.clone()).unwrap();
+        tokio::time::timeout(Duration::from_secs(3), async {
+            while called.load(Ordering::SeqCst) < 1 {
+                tokio::task::yield_now().await;
+            }
+        })
+        .await
+        .unwrap();
+        for _ in 0..3 {
+            tokio::task::yield_now().await;
+        }
+        assert_eq!(called.load(Ordering::SeqCst), 1);
+        assert_eq!(observer.snapshot().controls[&run], GraphControlMode::Paused);
+        control.resume(run.clone()).unwrap();
+        let report = tokio::time::timeout(Duration::from_secs(3), task)
+            .await
+            .unwrap()
+            .unwrap();
+        assert!(report.succeeded());
+        assert_eq!(report.started, 3);
+        assert_eq!(called.load(Ordering::SeqCst), 3);
+        assert_eq!(
+            observer.snapshot().controls[&run],
+            GraphControlMode::Running
+        );
+    });
+}
+
+#[test]
+fn cooperative_controls_reject_delegated_internal_ticks_and_nonpreemptible_callbacks() {
+    runtime().block_on(async {
+        let release = Arc::new(tokio::sync::Notify::new());
+        let mut registry = OperationRegistry::<AsyncOperation>::new();
+        registry
+            .register(
+                key("delegated"),
+                async_operation({
+                    let release = Arc::clone(&release);
+                    move || {
+                        let release = Arc::clone(&release);
+                        async move {
+                            release.notified().await;
+                            OperationOutcome::Completed
+                        }
+                    }
+                }),
+            )
+            .unwrap();
+        let plan = ExecutionPlanDraft::new("cooperative.delegated", 1)
+            .operation(OperationNode::new("frame", key("delegated")).delegated_frame("ecs.world"))
+            .validate()
+            .unwrap()
+            .bind(&registry)
+            .unwrap();
+        let owner = application_session();
+        let runner = owner
+            .execution_graph(plan, NonZeroUsize::new(1).unwrap())
+            .unwrap();
+        let observer = runner.observer();
+        let control = runner.controller();
+        assert!(matches!(
+            control.pause(domain_ticks("ecs.world")),
+            Err(GraphControlError::UnsupportedDomainAuthority {
+                owner: DomainAdmissionMode::DelegatedFrame,
+                ..
+            })
+        ));
+        assert!(matches!(
+            control.pause(domain_ticks("unknown")),
+            Err(GraphControlError::UnknownTarget { .. })
+        ));
+        assert!(matches!(
+            control.pause(operation_target("internal.system")),
+            Err(GraphControlError::UnknownTarget { .. })
+        ));
+        let outer = operation_target("frame");
+        assert_eq!(
+            observer.snapshot().controls.get(&domain_ticks("ecs.world")),
+            None
+        );
+        control.pause(outer.clone()).unwrap();
+        let task = tokio::spawn(runner.execute());
+        for _ in 0..3 {
+            tokio::task::yield_now().await;
+        }
+        assert_eq!(
+            observer.snapshot().operations["frame"].state,
+            OperationState::Pending
+        );
+        control.step(outer.clone()).unwrap();
+        tokio::time::timeout(Duration::from_secs(3), async {
+            while observer.snapshot().operations["frame"].state != OperationState::Running {
+                tokio::task::yield_now().await;
+            }
+        })
+        .await
+        .unwrap();
+        assert!(matches!(
+            control.pause(outer),
+            Err(GraphControlError::NoPendingSafePoint { .. })
+        ));
+        // A previously admitted opaque callback stays in flight. No false
+        // native/ECS preemption or fabricated tick is implied by this API.
+        assert!(!task.is_finished());
+        release.notify_one();
+        let report = tokio::time::timeout(Duration::from_secs(3), task)
+            .await
+            .unwrap()
+            .unwrap();
+        assert!(report.succeeded());
+    });
+}
+
+#[test]
+fn cooperative_step_waits_for_session_resource_release_without_losing_credit() {
+    runtime().block_on(async {
+        let release = Arc::new(tokio::sync::Notify::new());
+        let admitted = Arc::new(AtomicUsize::new(0));
+        let mut registry = OperationRegistry::<AsyncOperation>::new();
+        registry
+            .register(
+                key("held"),
+                async_operation({
+                    let release = Arc::clone(&release);
+                    move || {
+                        let release = Arc::clone(&release);
+                        async move {
+                            release.notified().await;
+                            OperationOutcome::Completed
+                        }
+                    }
+                }),
+            )
+            .unwrap();
+        registry
+            .register(
+                key("waiting"),
+                async_operation({
+                    let admitted = Arc::clone(&admitted);
+                    move || {
+                        let admitted = Arc::clone(&admitted);
+                        async move {
+                            admitted.fetch_add(1, Ordering::SeqCst);
+                            OperationOutcome::Completed
+                        }
+                    }
+                }),
+            )
+            .unwrap();
+        let first = ExecutionPlanDraft::new("cooperative.first", 1)
+            .operation(
+                OperationNode::new("held", key("held")).access("resource", AccessMode::Write),
+            )
+            .validate()
+            .unwrap()
+            .bind(&registry)
+            .unwrap();
+        let second = ExecutionPlanDraft::new("cooperative.second", 1)
+            .operation(
+                OperationNode::new("waiting", key("waiting")).access("resource", AccessMode::Write),
+            )
+            .validate()
+            .unwrap()
+            .bind(&registry)
+            .unwrap();
+        let owner = application_session();
+        let first = owner
+            .execution_graph(first, NonZeroUsize::new(1).unwrap())
+            .unwrap();
+        let first_view = first.observer();
+        let first_task = tokio::spawn(first.execute());
+        tokio::time::timeout(Duration::from_secs(3), async {
+            while first_view.snapshot().operations["held"].state != OperationState::Running {
+                tokio::task::yield_now().await;
+            }
+        })
+        .await
+        .unwrap();
+        let second = owner
+            .execution_graph(second, NonZeroUsize::new(1).unwrap())
+            .unwrap();
+        let control = second.controller();
+        let observer = second.observer();
+        control.pause(GraphControlTarget::Run).unwrap();
+        control.step(GraphControlTarget::Run).unwrap();
+        let second_task = tokio::spawn(second.execute());
+        for _ in 0..5 {
+            tokio::task::yield_now().await;
+        }
+        assert_eq!(admitted.load(Ordering::SeqCst), 0);
+        assert_eq!(
+            observer.snapshot().controls[&GraphControlTarget::Run],
+            GraphControlMode::StepArmed
+        );
+        assert_eq!(observer.snapshot().operations["waiting"].attempt, 0);
+        release.notify_one();
+        assert!(
+            tokio::time::timeout(Duration::from_secs(3), first_task)
+                .await
+                .unwrap()
+                .unwrap()
+                .succeeded()
+        );
+        assert!(
+            tokio::time::timeout(Duration::from_secs(3), second_task)
+                .await
+                .unwrap()
+                .unwrap()
+                .succeeded()
+        );
+        assert_eq!(admitted.load(Ordering::SeqCst), 1);
+        assert_eq!(
+            observer.snapshot().controls[&GraphControlTarget::Run],
+            GraphControlMode::Paused
+        );
+    });
+}
+
+#[test]
+fn paused_graph_cancels_with_session_and_old_controller_cannot_modify_new_run() {
+    runtime().block_on(async {
+        let mut registry = OperationRegistry::<AsyncOperation>::new();
+        registry
+            .register(
+                key("never"),
+                async_operation(|| async { OperationOutcome::Completed }),
+            )
+            .unwrap();
+        let plan = ExecutionPlanDraft::new("cooperative.restart", 1)
+            .operation(OperationNode::new("never", key("never")))
+            .validate()
+            .unwrap()
+            .bind(&registry)
+            .unwrap();
+        let owner = application_session();
+        let runner = owner
+            .execution_graph(plan.clone(), NonZeroUsize::new(1).unwrap())
+            .unwrap();
+        let old = runner.controller();
+        old.pause(GraphControlTarget::Run).unwrap();
+        let observer = runner.observer();
+        let task = tokio::spawn(runner.execute());
+        tokio::time::timeout(Duration::from_secs(3), async {
+            while observer.snapshot().phase != GraphRunPhase::Running {
+                tokio::task::yield_now().await;
+            }
+        })
+        .await
+        .unwrap();
+        owner.session_token().invalidate();
+        let report = tokio::time::timeout(Duration::from_secs(3), task)
+            .await
+            .unwrap()
+            .unwrap();
+        assert!(report.session_expired);
+        assert_eq!(report.operations["never"], OperationState::Cancelled);
+        assert!(matches!(
+            old.step(GraphControlTarget::Run),
+            Err(GraphControlError::SessionExpired)
+        ));
+        let restarted = application_session();
+        let next = restarted
+            .execution_graph(plan, NonZeroUsize::new(1).unwrap())
+            .unwrap();
+        assert_ne!(old.identity(), next.controller().identity());
+        assert_eq!(
+            next.observer().snapshot().controls[&GraphControlTarget::Run],
+            GraphControlMode::Running
+        );
+        assert!(next.execute().await.succeeded());
+    });
+}
+
+#[test]
+fn control_transition_overflow_resnapshots_authoritative_gate_without_replay() {
+    let mut registry = OperationRegistry::<AsyncOperation>::new();
+    registry
+        .register(
+            key("once"),
+            async_operation(|| async { OperationOutcome::Completed }),
+        )
+        .unwrap();
+    let plan = ExecutionPlanDraft::new("cooperative.overflow", 1)
+        .operation(OperationNode::new("once", key("once")))
+        .validate()
+        .unwrap()
+        .bind(&registry)
+        .unwrap();
+    let owner = application_session();
+    let runner = owner
+        .execution_graph(plan, NonZeroUsize::new(1).unwrap())
+        .unwrap();
+    let observer = runner.observer();
+    let control = runner.controller();
+    for _ in 0..MAX_GRAPH_TRANSITIONS {
+        control.pause(GraphControlTarget::Run).unwrap();
+        control.resume(GraphControlTarget::Run).unwrap();
+    }
+    let history = observer.changes_since(0).unwrap();
+    assert!(history.truncated);
+    assert_eq!(history.events.len(), MAX_GRAPH_TRANSITIONS);
+    let snapshot = observer.snapshot();
+    assert_eq!(
+        snapshot.controls[&GraphControlTarget::Run],
+        GraphControlMode::Running
+    );
+    assert_eq!(snapshot.operations["once"].state, OperationState::Pending);
+    assert_eq!(snapshot.latest_sequence, (2 * MAX_GRAPH_TRANSITIONS) as u64);
+    assert!(
+        observer
+            .changes_since(snapshot.latest_sequence)
+            .unwrap()
+            .events
+            .is_empty()
+    );
+}
+
+#[test]
+fn paused_structured_background_graph_drains_on_owner_scope_stop() {
+    runtime().block_on(async {
+        let invoked = Arc::new(AtomicUsize::new(0));
+        let mut registry = OperationRegistry::<AsyncOperation>::new();
+        registry
+            .register(
+                key("must-not-run"),
+                async_operation({
+                    let invoked = Arc::clone(&invoked);
+                    move || {
+                        let invoked = Arc::clone(&invoked);
+                        async move {
+                            invoked.fetch_add(1, Ordering::SeqCst);
+                            OperationOutcome::Completed
+                        }
+                    }
+                }),
+            )
+            .unwrap();
+        let plan = ExecutionPlanDraft::new("cooperative.structured-shutdown", 1)
+            .operation(OperationNode::new("pending", key("must-not-run")))
+            .validate()
+            .unwrap()
+            .bind(&registry)
+            .unwrap();
+        let owner = application_session();
+        let runner = owner
+            .execution_graph(plan, NonZeroUsize::new(1).unwrap())
+            .unwrap();
+        let control = runner.controller();
+        let observer = runner.observer();
+        control.pause(GraphControlTarget::Run).unwrap();
+        let tasks = owner.async_tasks();
+        tasks.begin_scope().unwrap();
+        tasks.spawn_graph("paused-graph", runner).unwrap();
+        tokio::time::timeout(Duration::from_secs(3), async {
+            while observer.snapshot().phase != GraphRunPhase::Running {
+                tokio::task::yield_now().await;
+            }
+        })
+        .await
+        .unwrap();
+        assert_eq!(observer.snapshot().operations["pending"].attempt, 0);
+        tokio::time::timeout(Duration::from_secs(3), tasks.finish_scope())
+            .await
+            .expect("paused graph must not block structured owner shutdown")
+            .expect("planned shutdown must not become a background graph failure");
+        assert_eq!(invoked.load(Ordering::SeqCst), 0);
+        assert_eq!(observer.snapshot().phase, GraphRunPhase::Finished);
+        assert_eq!(
+            observer.snapshot().operations["pending"].state,
+            OperationState::Cancelled
+        );
+        assert!(matches!(
+            control.step(GraphControlTarget::Run),
+            Err(GraphControlError::SessionExpired)
+        ));
     });
 }
