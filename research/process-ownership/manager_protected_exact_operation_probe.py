@@ -284,6 +284,15 @@ def main(pinned):
         run(sudo("chmod", "0755", str(root)))
         run(sudo("install", "-d", "-o", "root", "-g", "root", "-m", "0700",
                  str(root / "private")))
+        # GitHub checkout directories may not be traversable by UID 60090.
+        # Install a protected, readable *copy* of this exact script in our
+        # isolated fixture directory, as existing #123 probes already do.
+        # The attacker can execute/read it but cannot modify its contents
+        # or thereby acquire approval authority.
+        exported_script = root / "probe.py"
+        run(sudo("install", "-o", "root", "-g", "root", "-m", "0755",
+                 str(script), str(exported_script)))
+        script = exported_script
 
         dynuser = "rieselq" + nonce[:9]
         # Identical unchanged #90 host stdin fixture as research PR #134.
