@@ -16,6 +16,8 @@ async-tcp = ["riesel_protocol/async-tcp", "riesel_app/async-tcp", "dep:tokio"]
 internal-publication = ["async-tcp", "riesel_protocol/internal-publication", "riesel_app/internal-publication"]
 # Reusable opt-in T1 read policy, separate from transports and rendering.
 app-publication = ["async-tcp", "riesel_app/app-publication"]
+# Optional Unix-native transport, never required for browser/Bevy/custom hosts.
+app-publication-unix = ["app-publication", "riesel_app/app-publication-unix"]
 
 [dependencies]
 serde.workspace = true
