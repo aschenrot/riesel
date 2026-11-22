@@ -36,7 +36,12 @@ fn sqlite(path: &std::path::Path) -> SqliteStore {
         .unwrap()
 }
 
-fn request(field: &str, limit: u64, scan_budget: u64, cursor: Option<String>) -> RecordQueryRequest {
+fn request(
+    field: &str,
+    limit: u64,
+    scan_budget: u64,
+    cursor: Option<String>,
+) -> RecordQueryRequest {
     RecordQueryRequest {
         model: "task".into(),
         predicate: Some(RecordPredicate {
@@ -54,7 +59,10 @@ fn verify_two_clients_and_in_place_restore<S: RecordStore + RecordQuery>(store: 
     // The two observations simulate independent clients of the same owner:
     // one does not receive a revision update from the other's command.
     let first = store
-        .create("task", json!({"title":"Original","completed":false,"trashed":false}))
+        .create(
+            "task",
+            json!({"title":"Original","completed":false,"trashed":false}),
+        )
         .unwrap();
     let second = store.get("task", first.id).unwrap().unwrap();
     assert_eq!(first.revision, second.revision);
@@ -71,7 +79,9 @@ fn verify_two_clients_and_in_place_restore<S: RecordStore + RecordQuery>(store: 
     assert_eq!(moved.revision, first.revision + 1);
 
     // Query v1 cannot hide deleted Open records by completion alone.
-    let completed_only = store.query_page(request("completed", 32, 256, None)).unwrap();
+    let completed_only = store
+        .query_page(request("completed", 32, 256, None))
+        .unwrap();
     assert!(completed_only.records.iter().any(|r| r.id == moved.id));
     let active_only = store.query_page(request("trashed", 32, 256, None)).unwrap();
     assert!(!active_only.records.iter().any(|r| r.id == moved.id));
