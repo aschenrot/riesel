@@ -34,7 +34,6 @@ impl SqlitePlanRevisionRepository {
     /// build correlation; protect the repository using app/OS ownership.
     pub fn adopt_registered_build<H: ?Sized + Send + Sync>(
         &self,
-        old_registration_stamp: &str,
         expected_heads: &[PlanAuthoringHead],
         verified_backup: impl AsRef<Path>,
         budget: V2SnapshotBudget,
@@ -42,6 +41,7 @@ impl SqlitePlanRevisionRepository {
         new_rust_plans: &[ValidatedExecutionPlan],
         limits: S2DocumentLimits,
     ) -> Result<Vec<PlanAuthoringHead>, PlanRevisionError> {
+        let old_registration_stamp = expected_heads.first().map_or("", |head| head.registration_stamp.as_str());
         if !valid_registration(old_registration_stamp)
             || old_registration_stamp == self.trusted_registration_stamp
             || expected_heads.is_empty()
