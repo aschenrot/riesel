@@ -214,7 +214,7 @@ Only then run the smallest focused experiment that changes the choice:
 - End-to-end RPC/load/cancellation tests **only if** remote managed
   performance or ownership is necessary to distinguish viable targets.
 - A representative RunenECS/Runenwerk case only if the comparator
-  could change the A1/A2 sharing boundary. No mandatory game dependency.
+  could change the evidence-backed boundary between shared semantics and domain-owned execution. No mandatory game dependency.
 
 Record toolchain, machine/CI, provider versions, dataset, exact source
 revision, commands, timings (if measured), failures and limitations.

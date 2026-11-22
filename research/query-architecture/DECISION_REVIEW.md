@@ -2,7 +2,7 @@
 
 **Research status:** recommendation for the owner to **accept, revise or defer**, not an accepted contract or an approved implementation. **Date:** 2026-11-22. 
 **Decision source:** [specification #138](https://github.com/aschenrot/riesel/issues/138). **Evidence:** [REPORT.md](REPORT.md), [DISCOVERY.md](DISCOVERY.md), [PLAN.md](PLAN.md), [Todo research PR #130](https://github.com/aschenrot/riesel/pull/130).
-**Code baselines:** PR #140 originates at `93b5188`; later `main` `906d159` changed execution-plan/runner sources, not the tested Storage contracts. Validate the eventual merged tree independently.
+**Code baselines:** PR #140 originates at `93b5188`; current `main` `29c90f5` changed execution-plan/runner sources, tests and product docs, not the tested Storage contracts. Research branch merge commit `09c6144` includes that revision. Verify its exact merged-tree CI independently.
 
 ## 1. Decision to be made — distinguish the product direction from mechanics
 
