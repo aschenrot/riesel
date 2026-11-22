@@ -6,6 +6,7 @@
 //! authenticated/callable application operation. It neither polls nor retains
 //! history, includes no free-form error payload, and does not run user code.
 use crate::{InstanceIdentity, ResolvedCapability};
+use riesel_manager::{OwnedAttemptEvidence, OwnedAttemptPhase, ProcessKey, ProcessRegistry};
 use riesel_protocol::SessionToken;
 use std::net::SocketAddr;
 use std::time::{Duration, Instant};
@@ -22,6 +23,9 @@ const MAX_OBSERVATION_LABEL_BYTES: usize = 128;
 pub enum ObservationSource {
     Runtime,
     ApplicationAdapter,
+    /// The existing ProcessRegistry owns the actual local Child handle.
+    /// Not an authenticated installed Manager OS attempt.
+    ProcessOwner,
 }
 
 /// How the snapshot's runtime-generation reference was obtained. An
@@ -59,6 +63,7 @@ pub enum ObservationEvidence {
     RuntimeSessionValidated,
     VersionedProviderContractAttached,
     LocalListenerBound,
+    OwnedChildHandlePolled,
     SourceDoesNotVerify,
 }
 
@@ -279,6 +284,92 @@ impl ObservationSnapshot {
             .position(|fact| &fact.subject == subject)
             .and_then(|index| self.state_at(index, at))
             .unwrap_or(ObservationState::Unknown)
+    }
+}
+
+/// Independently scoped source observation of the *actual owned OS Child*.
+/// Unlike a Riesel application snapshot it has no application generation:
+/// the process owner is a different authority and the two snapshots cannot
+/// be atomically joined or promoted to a shared global identity.
+///
+/// A ProcessKey is meaningful only within this ProcessRegistry's ownership
+/// lifetime. The privately held weak lease distinguishes repeated use of the
+/// same key without introducing a production Manager registration identity.
+#[derive(Clone, Debug)]
+pub struct ProcessOwnerSnapshot {
+    key: ProcessKey,
+    observed_at: Instant,
+    fact: ObservationFact,
+    owned: Option<OwnedAttemptEvidence>,
+}
+
+impl ProcessOwnerSnapshot {
+    /// Poll once via the *existing* registry's retained Child; never create
+    /// another process owner or bypass the registry. Missing/inaccessible
+    /// evidence becomes Unknown, not "exited", "stopped", or authenticated.
+    pub fn sample(
+        registry: &mut ProcessRegistry,
+        key: &ProcessKey,
+    ) -> Result<Self, ObservationError> {
+        if let Some(name) = &key.name {
+            ObservationSnapshot::check_label(name)?;
+        }
+        let owned = registry.observe_owned_attempt(key).ok();
+        let state = if owned.is_some() {
+            ObservationState::Observed
+        } else {
+            ObservationState::Unknown
+        };
+        Ok(Self {
+            key: key.clone(),
+            observed_at: Instant::now(),
+            fact: ObservationFact {
+                source: ObservationSource::ProcessOwner,
+                subject: ObservationSubject::OsLaunchAttempt,
+                evidence: if owned.is_some() {
+                    ObservationEvidence::OwnedChildHandlePolled
+                } else {
+                    ObservationEvidence::SourceDoesNotVerify
+                },
+                state,
+            },
+            owned,
+        })
+    }
+
+    pub fn registry_key(&self) -> &ProcessKey {
+        &self.key
+    }
+
+    pub fn observed_at(&self) -> Instant {
+        self.observed_at
+    }
+
+    pub fn fact(&self) -> &ObservationFact {
+        &self.fact
+    }
+
+    /// Running/Exited are statuses of one actual OS child **at the sampled
+    /// instant**, not the health of an application, its provider, or a grant.
+    pub fn observed_phase(&self) -> Option<OwnedAttemptPhase> {
+        self.owned.as_ref().map(OwnedAttemptEvidence::phase)
+    }
+
+    pub fn same_owned_attempt_as(&self, other: &Self) -> bool {
+        match (&self.owned, &other.owned) {
+            (Some(a), Some(b)) => a.same_owned_attempt_as(b),
+            _ => false,
+        }
+    }
+
+    pub fn state_at(&self, at: Instant) -> ObservationState {
+        match &self.owned {
+            Some(observed) if observed.is_current_at(at, MAX_OBSERVATION_AGE) => {
+                ObservationState::Observed
+            }
+            Some(_) => ObservationState::Stale,
+            None => ObservationState::Unknown,
+        }
     }
 }
 
