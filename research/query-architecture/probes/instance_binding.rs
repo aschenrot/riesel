@@ -85,7 +85,13 @@ fn unrelated_linked_read_and_write_capabilities_can_resolve_to_distinct_state() 
                     TaskData::MODEL_NAME,
                     json!({"title": "writer-owned", "completed": false}),
                 )?;
-                assert_eq!(writer.list_page(TaskData::MODEL_NAME, None, 32)?.records.len(), 1);
+                assert_eq!(
+                    writer
+                        .list_page(TaskData::MODEL_NAME, None, 32)?
+                        .records
+                        .len(),
+                    1
+                );
                 assert_eq!(
                     read.count_records(TaskData::MODEL_NAME)?,
                     0,
@@ -135,7 +141,11 @@ fn reader_contract_has_no_mutation_operations_but_is_not_authorization() {
     let store = RecordStoreContract::definition().unwrap();
     assert_eq!(read.operations.len(), 1);
     assert_eq!(read.operations["count_records"].kind, OperationKind::Query);
-    assert!(read.operations.values().all(|op| op.kind != OperationKind::Command));
+    assert!(
+        read.operations
+            .values()
+            .all(|op| op.kind != OperationKind::Command)
+    );
     assert_eq!(store.operations["create"].kind, OperationKind::Command);
     // The absence of a command in a trait is NOT a guarantee that the
     // runtime refuses unauthorized clients or authenticates the service.

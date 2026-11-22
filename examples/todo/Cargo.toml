@@ -20,6 +20,7 @@ tower-http = { version = "=0.6.11", default-features = false, features = ["fs"],
 
 [dev-dependencies]
 riesel_app.workspace = true
+riesel_protocol.workspace = true
 riesel_schema.workspace = true
 riesel_storage_component = { path = "../../packages/storage/memory" }
 riesel_storage_sqlite = { path = "../../packages/storage/sqlite" }
