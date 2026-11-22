@@ -479,6 +479,114 @@ mod tests {
         ));
     }
     #[test]
+    fn version_two_read_only_record_link_has_no_storage_binding() {
+        let schema = parse_schema(
+            r#"{
+                "version": 2,
+                "app": {"name": "Reader"},
+                "models": {"task": {"fields": {"title": {"kind": "string"}}}},
+                "record_query_links": {
+                    "task": {"reader": "read", "consistency": "linked_session_live"}
+                },
+                "requires": [{"name": "read", "capability": {
+                    "id": "example.records.read", "version": 1
+                }}]
+            }"#,
+        )
+        .unwrap();
+        schema.validate().unwrap();
+        assert!(schema.model_bindings.is_empty());
+        assert_eq!(schema.record_query_links["task"].writer, None);
+        let roundtrip = parse_schema(&serde_json::to_string(&schema).unwrap()).unwrap();
+        roundtrip.validate().unwrap();
+        assert_eq!(roundtrip.record_query_links, schema.record_query_links);
+
+        let mut version_one = schema;
+        version_one.version = 1;
+        assert!(matches!(
+            version_one.validate(),
+            Err(SchemaError::RecordQueryRequiresV2)
+        ));
+    }
+
+    #[test]
+    fn linked_query_writer_requires_one_exact_legacy_storage_binding() {
+        let source = r#"{
+            "version": 2,
+            "app": {"name": "ReadWrite"},
+            "models": {"task": {"fields": {"title": {"kind": "string"}}}},
+            "model_bindings": {"task": ["writer"]},
+            "record_query_links": {
+                "task": {
+                    "reader": "read",
+                    "writer": "writer",
+                    "consistency": "linked_session_live"
+                }
+            },
+            "requires": [
+                {"name": "read", "capability": {
+                    "id": "example.records.read", "version": 1
+                }},
+                {"name": "writer", "capability": {
+                    "id": "riesel.storage.records", "version": 2
+                }}
+            ]
+        }"#;
+        let mut schema = parse_schema(source).unwrap();
+        schema.validate().unwrap();
+
+        schema.model_bindings.remove("task");
+        assert!(matches!(
+            schema.validate(),
+            Err(SchemaError::InconsistentQueryWriter { model }) if model == "task"
+        ));
+        schema.model_bindings.insert("task".into(), vec!["writer".into()]);
+
+        schema.record_query_links.get_mut("task").unwrap().writer = Some("read".into());
+        assert!(matches!(
+            schema.validate(),
+            Err(SchemaError::IdenticalQueryRoles { model }) if model == "task"
+        ));
+        schema.record_query_links.get_mut("task").unwrap().writer = Some("missing".into());
+        assert!(matches!(
+            schema.validate(),
+            Err(SchemaError::UnknownQueryWriter { writer, .. }) if writer == "missing"
+        ));
+        schema.record_query_links.get_mut("task").unwrap().writer = Some("writer".into());
+
+        schema.record_query_links.get_mut("task").unwrap().reader = "missing".into();
+        assert!(matches!(
+            schema.validate(),
+            Err(SchemaError::UnknownQueryReader { reader, .. }) if reader == "missing"
+        ));
+        schema.record_query_links.get_mut("task").unwrap().reader = "read".into();
+        schema.record_query_links.insert(
+            "other".into(),
+            schema.record_query_links["task"].clone(),
+        );
+        assert!(matches!(
+            schema.validate(),
+            Err(SchemaError::UnknownQueryModel { model }) if model == "other"
+        ));
+    }
+
+    #[test]
+    fn rejected_consistency_profiles_are_not_silently_coerced() {
+        let source = r#"{
+            "version": 2,
+            "app": {"name": "NoReplicaClaim"},
+            "models": {"task": {"fields": {"title": {"kind": "string"}}}},
+            "record_query_links": {
+                "task": {"reader": "read", "consistency": "eventually_consistent"}
+            },
+            "requires": [{"name": "read", "capability": {
+                "id": "example.records.read", "version": 1
+            }}]
+        }"#;
+        assert!(parse_schema(source).is_err());
+    }
+
+    #[test]
     fn rejects_model_bindings_for_undeclared_models_or_requirements() {
         let mut schema = parse_schema(
             r#"{"version":1,"app":{"name":"Models"},
