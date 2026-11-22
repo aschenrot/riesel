@@ -1,6 +1,6 @@
 # #60/#75 — Isolated Counter capability export / real Linux kernel-principal grants
 
-**State: unexecuted hypothesis.** Research-only Python/systemd fixture. No public Riesel SDK/IPC, production exporter, operator authorization, Manager service or security profile is approved. Owners: [native GUI #60](https://github.com/aschenrot/riesel/issues/60), [shared operational contract #75](https://github.com/aschenrot/riesel/issues/75), separate [Manager #59](https://github.com/aschenrot/riesel/issues/59).
+**State: bounded real-Linux research EXECUTED and PASSED** at source SHA 56f5e62c381d75aa14c8c20a5ec064c37da7e65c: [real Counter/private-network CI 44976952949](https://github.com/aschenrot/riesel/actions/runs/44976952949). Final report-head CI remains separate. Research-only Python/systemd fixture. No public Riesel SDK/IPC, production exporter, operator authorization, Manager service or security profile is approved. Owners: [native GUI #60](https://github.com/aschenrot/riesel/issues/60), [shared operational contract #75](https://github.com/aschenrot/riesel/issues/75), separate [Manager #59](https://github.com/aschenrot/riesel/issues/59).
 
 ## Product outcome and decision-critical gap
 
@@ -24,6 +24,32 @@ The existing real [Counter/native GUI #90](https://github.com/aschenrot/riesel/p
 8. Stop and remove only the exact randomly named service, installed binary/script and /run runtime directory. No real Manager app, production DB, systemwide authorization rule, permanent user or credential is affected.
 
 **Source assertions are expected, not proven, until exact-head real CI passes.** The gateway lives outside the Riesel runtime, is synchronous and uses a deliberately gateway-generated random epoch, **not** Riesel's actual runtime session generation. The root test coordinator has privileged sudo and is trusted by construction. Its grant operations do not prove authentic user approval.
+
+## Executed real OS evidence and strict result classification
+
+The actual [Ubuntu 24.04 real systemd/Counter research run 44976952949](https://github.com/aschenrot/riesel/actions/runs/44976952949) **PASSED** at code revision 56f5e62c381d75aa14c8c20a5ec064c37da7e65c. It built the unchanged pinned Riesel Counter, launched a real PrivateNetwork=yes system service, and observed the separately owned Counter under kernel UID60092 in that private namespace. The original SDK-resolved TCP endpoint was callable inside its namespace but could not be reached from the host, even when the port was known. An unprivileged client also failed to enter that network namespace.
+
+The dedicated run verified:
+
+| CI marker | Executed observation |
+| --- | --- |
+| RESEARCH_M60_REAL_COUNTER_PROTECTED_IN_PRIVATE_NETWORK_NS | Genuine Counter process, distinct UID and namespace; OS-owned service |
+| RESEARCH_M60_DIRECT_TCP_BYPASS_AND_UNPRIVILEGED_NETNS_ENTRY_DENIED | Unauthenticated backend TCP port unreachable from host; unprivileged namespace entry denied |
+| RESEARCH_M60_DEFAULT_DENY_KERNEL_CLIENT_UID_NOT_CLAIMED_ROLE | Public Unix socket reachable but first client denied; separate root-owned admin grant path protected |
+| RESEARCH_M60_KERNEL_ATTESTED_READ_WRITE_AND_STALE_GATE | Kernel-observed peer UID, permitted actual read, denied ungranted write, false claimed UID ignored, wrong gateway epoch fenced |
+| RESEARCH_M60_SAME_UID_UNREGISTERED_CLIENT_INHERITS_UID_GRANT | Two independent real client processes with different kernel PIDs but same UID60090 both add to actual Counter 0→2→5 |
+| RESEARCH_M60_PRE_DISPATCH_REVOKE_BLOCKS_REAL_COUNTER_MUTATION | Root test authority revoked grant while add(6) paused before dispatch; late call denied; Counter remained 5 |
+| RESEARCH_M60_LOCAL_CAPABILITY_OS_ISOLATION_PROBE_PASS | All bounded assertions and exact disposable cleanup completed |
+
+**First run, correctly classified as fixture failure:** [CI 44976876621](https://github.com/aschenrot/riesel/actions/runs/44976876621) could not inspect PID1's network namespace inode from the ordinary CI coordinator, failing **before** service creation. Linux cross-UID procfs inspection required the **already authorized root research observer**, which was used to inspect namespace inodes on the successful rerun. That first failure establishes no product security property.
+
+**What passed:** a separately owned real Riesel application behind a private network plus explicit filesystem Unix socket can close the original TCP bypass on this Linux host. OS kernel peer credentials can enforce bounded *per-UID* read/write grants and pre-dispatch revocation over real typed domain operations.
+
+**What failed as a security property, intentionally:** a UID grant is not an individual application-client identity. A different process with the same UID and no individual enrollment used the same grant to mutate the Counter. No secure hostile-same-UID permission guarantee, native-GUI authorization, trusted human approval or Manager authority follows.
+
+**Unknown:** Root test-grant issuer is pretrusted; the gateway epoch is fixture-created rather than Riesel runtime-owned. The simple synchronous dispatch lock can delay revocation while already admitted operations run. No durable authority/restart, lost-reply reconciliation, power failure, actual Wayland login, Windows/macOS, full Todo export or verified protected individual-client role was tested. The root research gateway is not a chosen production daemon or broker.
+
+**Next decision-critical investigation:** what OS-enforced **distinct client security principal** or authentic publisher-issued grant can satisfy applications needing hostile-same-UID resistance while preserving ordinary per-user trusted-local profiles and legitimate cross-session GUI sharing? Evaluate protected launcher/LSM, separate principal, OS portal, per-client trust domain, peer credential adapter and cross-platform equivalents. Do not select a new authentication API or add mandatory Manager dependency solely from this Linux probe.
 
 ## Competing architectures and explicit security bias control
 
@@ -54,7 +80,7 @@ The reference gateway runs as **root** only because it is an isolated adversaria
     python3 -m py_compile research/application-export/linux_isolated_export_server.py research/application-export/linux_isolated_export_probe.py
     timeout 155 python3 research/application-export/linux_isolated_export_probe.py --exercise "$PINNED_COUNTER_ROOT"
 
-Expected markers (not yet actual CI evidence):
+Verified code-source CI markers at SHA 56f5e62 / run 44976952949:
 
 - RESEARCH_M60_REAL_COUNTER_PROTECTED_IN_PRIVATE_NETWORK_NS
 - RESEARCH_M60_DIRECT_TCP_BYPASS_AND_UNPRIVILEGED_NETNS_ENTRY_DENIED
