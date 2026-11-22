@@ -32,7 +32,7 @@ test.beforeEach(async ({ request }) => {
 test('browser creates, edits, completes, reopens and deletes a task', async ({ page }) => {
   await page.goto('/');
   await expect(page.getByRole('heading', { name: 'Tasks' })).toBeVisible();
-  await expect(page.getByText('No tasks yet')).toBeVisible();
+  await expect(page.getByText('No open tasks found')).toBeVisible();
 
   await page.getByRole('textbox', { name: 'New task' }).fill('Plan release');
   await page.getByRole('button', { name: 'Add task' }).click();
@@ -45,11 +45,13 @@ test('browser creates, edits, completes, reopens and deletes a task', async ({ p
 
   await page.getByRole('checkbox', { name: 'Mark Ship release complete' }).check();
   await expect(page.getByRole('status')).toContainText('Task completed');
+  await page.getByRole('button', { name: 'Completed', exact: true }).click();
   await page.getByRole('checkbox', { name: 'Mark Ship release incomplete' }).uncheck();
 
   await page.getByRole('button', { name: 'Delete Ship release' }).click();
   await page.getByRole('button', { name: 'Delete' }).click();
-  await expect(page.getByText('No tasks yet')).toBeVisible();
+  await page.getByRole('button', { name: 'Refresh tasks' }).click();
+  await expect(page.getByText('No open tasks found')).toBeVisible();
 });
 
 test('stale browser revisions require refresh; never silently overwrite', async ({ page, request }) => {
@@ -138,7 +140,7 @@ test('lost mutation replies require reconciliation without silently retrying cre
   expect(writes).toBe(1);
   // Simulated uncertain response did not actually create a record.
   // The UI cannot infer that until the user deliberately resynchronizes.
-  await expect(page.getByText('No tasks yet')).toBeVisible();
+  await expect(page.getByText('No open tasks found')).toBeVisible();
 });
 
 test('uncertain edit keeps its draft until the user explicitly discards it', async ({ page }) => {
@@ -179,13 +181,13 @@ test('loading and domain validation are visible before accepting corrected input
   });
   await page.goto('/');
   await expect(page.getByText('Loading tasks…')).toBeVisible();
-  await expect(page.getByText('No tasks yet')).toBeVisible();
+  await expect(page.getByText('No open tasks found')).toBeVisible();
   await page.unroute('**/api/v1/tasks*');
 
   await page.getByRole('textbox', { name: 'New task' }).fill('   ');
   await page.getByRole('button', { name: 'Add task' }).click();
   await expect(page.getByRole('alert')).toContainText('Enter a task title.');
-  await expect(page.getByText('No tasks yet')).toBeVisible();
+  await expect(page.getByText('No open tasks found')).toBeVisible();
 
   await page.getByRole('textbox', { name: 'New task' }).fill('Valid after error');
   await page.getByRole('button', { name: 'Add task' }).click();
@@ -201,29 +203,35 @@ test('cursor pagination loads the complete collection without duplicating rows',
     expect(result.status()).toBe(201);
   }
   await page.goto('/');
-  await expect(page.getByText('32 loaded', { exact: false })).toBeVisible();
-  await page.getByRole('button', { name: 'Load more tasks' }).click();
-  await expect(page.getByText('33 loaded', { exact: false })).toBeVisible();
-  await expect(page.getByText('All tasks loaded')).toBeVisible();
+  await expect(page.getByText('32 shown', { exact: false })).toBeVisible();
+  await page.getByRole('button', { name: 'Continue checking open tasks' }).click();
+  await expect(page.getByText('33 shown', { exact: false })).toBeVisible();
+  await expect(page.getByText('Open scan complete for now', { exact: false })).toBeVisible();
   await expect(page.locator('li.task')).toHaveCount(33);
 });
 
-test('completed and open filters do not modify persisted state', async ({ page }) => {
+test('Open-first and initially collapsed Completed keep persisted status and lazy read authority', async ({ page, request }) => {
   await page.goto('/');
   for (const title of ['Leave open', 'Mark done']) {
     await page.getByRole('textbox', { name: 'New task' }).fill(title);
     await page.getByRole('button', { name: 'Add task' }).click();
     await expect(page.getByText(title, { exact: true })).toBeVisible();
   }
+  const disclosure = page.getByRole('button', { name: 'Completed', exact: true });
+  await expect(disclosure).toHaveAttribute('aria-expanded', 'false');
   await page.getByRole('checkbox', { name: 'Mark Mark done complete' }).check();
-  await page.getByRole('button', { name: 'Done', exact: true }).click();
-  await expect(page.getByText('Mark done', { exact: true })).toBeVisible();
-  await expect(page.getByText('Leave open', { exact: true })).toHaveCount(0);
-  await page.getByRole('button', { name: 'Open', exact: true }).click();
   await expect(page.getByText('Leave open', { exact: true })).toBeVisible();
   await expect(page.getByText('Mark done', { exact: true })).toHaveCount(0);
-  await page.getByRole('button', { name: 'All', exact: true }).click();
-  await expect(page.locator('li.task')).toHaveCount(2);
+  await expect(disclosure).toBeFocused();
+  await disclosure.click();
+  await expect(disclosure).toHaveAttribute('aria-expanded', 'true');
+  await expect(page.getByText('Mark done', { exact: true })).toBeVisible();
+  await expect(page.getByText('Leave open', { exact: true })).toBeVisible();
+  await disclosure.click();
+  await expect(page.getByText('Mark done', { exact: true })).toHaveCount(0);
+  const rows = (await (await request.get(api)).json()).records;
+  expect(rows.find((row: { title: string }) => row.title === 'Mark done').completed).toBe(true);
+  expect(rows.find((row: { title: string }) => row.title === 'Leave open').completed).toBe(false);
 });
 
 test('success feedback uses a dismissible toast without moving the list', async ({ page }) => {
@@ -271,7 +279,7 @@ test('inline title validation keeps the invalid input in place', async ({ page }
   await page.getByRole('textbox', { name: 'New task' }).fill('   ');
   await page.getByRole('button', { name: 'Add task' }).click();
   await expect(page.locator('#new-title-error')).toHaveText('Enter a task title.');
-  await expect(page.getByText('No tasks yet')).toBeVisible();
+  await expect(page.getByText('No open tasks found')).toBeVisible();
 });
 
 test('capture desktop and mobile UI for visual review', async ({ page }) => {
@@ -420,11 +428,11 @@ test('reduced motion preference disables refresh spin while keeping the state cl
   await expect(page.getByText('Checking…')).toBeVisible();
 });
 
-test('narrow 320px viewport keeps refresh and filters accessible', async ({ page }) => {
+test('narrow 320px viewport keeps refresh and Completed disclosure accessible', async ({ page }) => {
   await page.setViewportSize({ width: 320, height: 740 });
   await page.goto('/');
   await expect(page.getByRole('button', { name: 'Refresh tasks' })).toBeVisible();
-  await expect(page.getByRole('button', { name: 'Done', exact: true })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Completed', exact: true })).toBeVisible();
   expect(await page.evaluate(() =>
     document.documentElement.scrollWidth > window.innerWidth + 1)).toBe(false);
 });
@@ -478,7 +486,7 @@ test('revision conflict explicitly permits reloading a stale edit', async ({ pag
 
 test('draft entered during in-flight creation is preserved after the first task is saved', async ({ page }) => {
   await page.goto('/');
-  await expect(page.getByText('No tasks yet')).toBeVisible();
+  await expect(page.getByText('No open tasks found')).toBeVisible();
   const input = page.getByRole('textbox', { name: 'New task' });
   // Gate the first POST explicitly instead of racing against a fixed timeout.
   let firstRequestStarted!: () => void;
@@ -575,6 +583,7 @@ test('system dark theme preserves readable completed rows, feedback, and focus',
   await page.getByRole('button', { name: 'Add task' }).click();
   await expect(page.getByRole('status')).toContainText('Task created');
   await page.getByRole('checkbox', { name: 'Mark Dark task complete' }).check();
+  await page.getByRole('button', { name: 'Completed', exact: true }).click();
   await expect(page.locator('.done .task-title')).toHaveCSS('text-decoration-line', 'line-through');
   const trigger = page.getByRole('button', { name: 'Edit Dark task', exact: true });
   await trigger.focus();
@@ -659,7 +668,7 @@ test('forced-colors mode retains visible focus and native color adjustment', asy
   await expect(button).toHaveCSS('forced-color-adjust', 'auto');
 });
 
-test('selection is distinct from completion and filters clear selected task IDs', async ({ page, request }) => {
+test('selection is distinct from completion and can be explicitly cleared', async ({ page, request }) => {
   await page.goto('/');
   for (const title of ['Selection first', 'Selection second', 'Selection third']) {
     await page.getByRole('textbox', { name: 'New task' }).fill(title);
@@ -674,7 +683,7 @@ test('selection is distinct from completion and filters clear selected task IDs'
   await expect(page.getByText('1 selected')).toBeVisible();
   const state = (await (await request.get(api)).json()).records;
   expect(state.every((t: { completed: boolean }) => !t.completed)).toBe(true);
-  await page.getByRole('button', { name: 'Open', exact: true }).click();
+  await page.getByRole('button', { name: 'Cancel selection' }).click();
   await expect(page.getByRole('button', { name: 'Select tasks' })).toBeVisible();
   await page.getByRole('checkbox', { name: 'Mark Selection first complete' }).check();
   await expect(page.getByRole('status')).toContainText('Task completed');
@@ -716,12 +725,12 @@ test('Select all loaded does not silently select unseen cursor pages', async ({ 
     expect(result.status()).toBe(201);
   }
   await page.goto('/');
-  await expect(page.getByText('32 loaded', { exact: false })).toBeVisible();
+  await expect(page.getByText('32 shown', { exact: false })).toBeVisible();
   await page.getByRole('button', { name: 'Select tasks' }).click();
   await page.getByRole('button', { name: 'Select all loaded' }).click();
   await expect(page.getByText('32 selected')).toBeVisible();
-  await page.getByRole('button', { name: 'Load more tasks' }).click();
-  await expect(page.getByText('33 loaded', { exact: false })).toBeVisible();
+  await page.getByRole('button', { name: 'Continue checking open tasks' }).click();
+  await expect(page.getByText('33 shown', { exact: false })).toBeVisible();
   await expect(page.getByText('32 selected')).toBeVisible();
   await page.getByRole('button', { name: 'Select all loaded' }).click();
   await expect(page.getByText('33 selected')).toBeVisible();
@@ -741,6 +750,8 @@ test('batch Mark done and Reopen distinguish changed from already matching recor
   await expect(page.getByRole('status')).toContainText('2 tasks marked done');
   let items = (await (await request.get(api)).json()).records;
   expect(items.every((r: { completed: boolean }) => r.completed)).toBe(true);
+  await page.getByRole('button', { name: 'Completed', exact: true }).click();
+  await expect(page.locator('.completed-section li.task')).toHaveCount(3);
   await page.getByRole('button', { name: 'Select tasks' }).click();
   await page.getByRole('button', { name: 'Select all loaded' }).click();
   await page.getByRole('button', { name: 'Reopen' }).click();
@@ -848,8 +859,10 @@ test('Undo returns completion and reopening to their prior state with new revisi
   expect(BigInt(current.revision)).toBe(BigInt(before.revision) + 2n);
 
   await page.getByRole('checkbox', { name: 'Mark Undo completion complete' }).check();
+  await page.getByRole('button', { name: 'Completed', exact: true }).click();
   await page.getByRole('checkbox', { name: 'Mark Undo completion incomplete' }).uncheck();
   await page.getByRole('button', { name: 'Undo', exact: true }).click();
+  await page.getByRole('button', { name: 'Completed', exact: true }).click();
   await expect(page.getByRole('checkbox', { name: 'Mark Undo completion incomplete' })).toBeChecked();
   current = (await (await request.get(api)).json()).records[0];
   expect(current.completed).toBe(true);
@@ -978,6 +991,7 @@ test('permanent Delete has no Undo and mobile Undo toast does not overflow', asy
   await expect(page.getByRole('button', { name: 'Undo', exact: true })).toBeVisible();
   expect(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth + 1)).toBe(false);
   await page.getByRole('button', { name: 'Dismiss notification' }).click();
+  await page.getByRole('button', { name: 'Completed', exact: true }).click();
   await page.getByRole('button', { name: 'Delete Mobile undo' }).click();
   await page.getByRole('button', { name: 'Delete', exact: true }).click();
   await expect(page.getByRole('status')).toContainText('Task removed');
