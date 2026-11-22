@@ -452,7 +452,8 @@ mod tests {
                         state.tasks.internal_session_token(),
                         "todo.task.list",
                         AdapterOperationEvidence::RejectedBeforeDomainDispatch,
-                    )?;
+                    )
+                    .map_err(io::Error::other)?;
                     assert_eq!(
                         reported.disposition(),
                         OperationDisposition::RejectedBeforeDispatch
