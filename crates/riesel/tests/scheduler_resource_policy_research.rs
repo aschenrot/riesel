@@ -9,7 +9,7 @@ use riesel::{
 };
 use std::num::NonZeroUsize;
 use std::sync::{
-    Arc,
+    Arc, Mutex,
     atomic::{AtomicUsize, Ordering},
 };
 use std::time::{Duration, Instant};
@@ -191,6 +191,123 @@ fn contending_runs_retain_independent_progress_without_a_fairness_claim() {
                 "research #226 round={round} hot={HOT_WRITERS} cold_rank={rank} of {} post_release_us={} (observed only, not fairness)",
                 HOT_WRITERS + 1,
                 after_release.elapsed().as_micros()
+            );
+        }
+    });
+}
+
+#[test]
+fn equal_size_contending_runs_report_dispatch_interleaving_without_a_policy_assertion() {
+    runtime().block_on(async {
+        const ROUNDS: usize = 8;
+        const WRITERS_PER_RUN: usize = 32;
+        for round in 0..ROUNDS {
+            let application = owner();
+            let observed = Arc::new(Mutex::new(Vec::<char>::new()));
+            let first_started = Arc::new(AtomicUsize::new(0));
+            let permits = Arc::new(Semaphore::new(0));
+            let mut registry = OperationRegistry::<AsyncOperation>::new();
+            registry
+                .register(
+                    key("first"),
+                    async_operation({
+                        let observed = Arc::clone(&observed);
+                        let first_started = Arc::clone(&first_started);
+                        let permits = Arc::clone(&permits);
+                        move || {
+                            let observed = Arc::clone(&observed);
+                            let first_started = Arc::clone(&first_started);
+                            let permits = Arc::clone(&permits);
+                            async move {
+                                observed.lock().unwrap().push('A');
+                                first_started.fetch_add(1, Ordering::SeqCst);
+                                let permit = permits.acquire().await.unwrap();
+                                permit.forget();
+                                OperationOutcome::Completed
+                            }
+                        }
+                    }),
+                )
+                .unwrap();
+            registry
+                .register(
+                    key("second"),
+                    async_operation({
+                        let observed = Arc::clone(&observed);
+                        move || {
+                            let observed = Arc::clone(&observed);
+                            async move {
+                                observed.lock().unwrap().push('B');
+                                OperationOutcome::Completed
+                            }
+                        }
+                    }),
+                )
+                .unwrap();
+            let mut first = ExecutionPlanDraft::new(format!("first-{round}"), 1);
+            let mut second = ExecutionPlanDraft::new(format!("second-{round}"), 1);
+            for index in 0..WRITERS_PER_RUN {
+                first = first.operation(
+                    OperationNode::new(format!("first-{index}"), key("first"))
+                        .access("shared", AccessMode::Write),
+                );
+                second = second.operation(
+                    OperationNode::new(format!("second-{index}"), key("second"))
+                        .access("shared", AccessMode::Write),
+                );
+            }
+            let first_runner = application
+                .execution_graph(
+                    first.validate().unwrap().bind(&registry).unwrap(),
+                    NonZeroUsize::new(32).unwrap(),
+                )
+                .unwrap();
+            let first_task = tokio::spawn(first_runner.execute());
+            tokio::time::timeout(Duration::from_secs(5), async {
+                while first_started.load(Ordering::SeqCst) == 0 {
+                    tokio::task::yield_now().await;
+                }
+            })
+            .await
+            .unwrap();
+            let second_runner = application
+                .execution_graph(
+                    second.validate().unwrap().bind(&registry).unwrap(),
+                    NonZeroUsize::new(32).unwrap(),
+                )
+                .unwrap();
+            let second_observer = second_runner.observer();
+            let second_task = tokio::spawn(second_runner.execute());
+            tokio::time::timeout(Duration::from_secs(5), async {
+                while second_observer.snapshot().phase != GraphRunPhase::Running {
+                    tokio::task::yield_now().await;
+                }
+            })
+            .await
+            .unwrap();
+            assert_eq!(observed.lock().unwrap().as_slice(), &['A']);
+            permits.add_permits(WRITERS_PER_RUN);
+            let first_report = tokio::time::timeout(Duration::from_secs(10), first_task)
+                .await
+                .unwrap()
+                .unwrap();
+            let second_report = tokio::time::timeout(Duration::from_secs(10), second_task)
+                .await
+                .unwrap()
+                .unwrap();
+            assert!(first_report.succeeded());
+            assert!(second_report.succeeded());
+            assert_eq!(first_report.started, WRITERS_PER_RUN);
+            assert_eq!(second_report.started, WRITERS_PER_RUN);
+            let sequence = observed.lock().unwrap().clone();
+            assert_eq!(sequence.len(), WRITERS_PER_RUN * 2);
+            assert_eq!(sequence.iter().filter(|c| **c == 'A').count(), WRITERS_PER_RUN);
+            assert_eq!(sequence.iter().filter(|c| **c == 'B').count(), WRITERS_PER_RUN);
+            let first_b_rank = sequence.iter().position(|c| *c == 'B').unwrap() + 1;
+            let switches = sequence.windows(2).filter(|pair| pair[0] != pair[1]).count();
+            eprintln!(
+                "research #226 equal_runs round={round} size={WRITERS_PER_RUN} first_b_rank={first_b_rank} of {} run_switches={switches} (observed only)",
+                WRITERS_PER_RUN * 2
             );
         }
     });
