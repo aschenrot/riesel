@@ -4,6 +4,10 @@
 //! owner-confirmed prefixes through its attempt-fenced reporter. Snapshots
 //! and the bounded, lossy transition ring share one authoritative mutex.
 //! Neither the trace nor its cursor authorizes operations or executes a graph.
+use crate::execution_nested::{
+    NestedAttachment, NestedDescription, NestedDomainRegistration, NestedObservationError,
+    NestedObserver, NestedParent, NestedPublisher,
+};
 use crate::execution_plan::{DomainAdmissionMode, DomainBoundary, OperationNode};
 use crate::execution_runner::OperationState;
 use riesel_protocol::SessionToken;
@@ -218,6 +222,9 @@ struct ObservationState {
     // to step delegated internal ticks or a fully dispatched boundary.
     domain_owners: BTreeMap<String, DomainAdmissionMode>,
     domain_nodes: BTreeMap<String, Vec<String>>,
+    // At most one optional attachment per plan operation; never a second
+    // graph state engine or an unbounded per-attempt ledger.
+    nested: BTreeMap<String, NestedAttachment>,
 }
 
 impl ObservationState {
@@ -244,9 +251,41 @@ impl ObservationState {
 #[derive(Clone)]
 pub struct GraphRunObserver {
     state: Arc<Mutex<ObservationState>>,
+    session: SessionToken,
 }
 
 impl GraphRunObserver {
+    /// Discover an opt-in nested view without guessing an ECS internal node.
+    /// None means this plan/run does not publish a view for this operation.
+    pub fn nested_description(&self, operation: &str) -> Option<NestedDescription> {
+        self.state
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .nested
+            .get(operation)
+            .map(|attachment| attachment.description.clone())
+    }
+
+    /// Acquire an immutable typed local reader. Version/type mismatches are
+    /// explicit, and no controller, mutating World or process credential leaks.
+    pub fn nested<T: Send + Sync + 'static>(
+        &self,
+        operation: &str,
+        expected_version: u32,
+    ) -> Result<Option<NestedObserver<T>>, NestedObservationError> {
+        let state = self.state.lock().unwrap_or_else(PoisonError::into_inner);
+        let Some(entry) = state.nested.get(operation) else {
+            return Ok(None);
+        };
+        if entry.description.view_version != expected_version {
+            return Err(NestedObservationError::UnsupportedVersion {
+                expected: expected_version,
+                actual: entry.description.view_version,
+            });
+        }
+        entry.observer::<T>(self.session.clone()).map(Some)
+    }
+
     pub fn snapshot(&self) -> GraphRunSnapshot {
         self.state
             .lock()
@@ -417,6 +456,8 @@ pub struct GraphEffectRecorder {
     state: Arc<Mutex<ObservationState>>,
     operation_id: String,
     attempt: u64,
+    // Set by the immutable validated plan, never accepted from caller input.
+    delegated_domain: Option<String>,
 }
 
 /// Held by the actual graph-owned child future and dropped on completion,
@@ -438,6 +479,63 @@ impl Drop for GraphEffectAttemptGuard {
 }
 
 impl GraphEffectRecorder {
+    /// Bind an owner-published, typed read-only source to this **actually
+    /// dispatched** delegated-frame operation. The exact parent run and
+    /// attempt come from the runner, not from the application or viewer.
+    /// The returned publisher must be moved to the domain's real owner, which
+    /// copies native state into immutable snapshots at its own safe points.
+    ///
+    /// This is trusted in-process cooperation, not client authentication.
+    pub fn attach_nested<T: Send + Sync + 'static>(
+        &self,
+        registration: &NestedDomainRegistration,
+        view_version: u32,
+        initial: T,
+    ) -> Result<NestedPublisher<T>, NestedObservationError> {
+        let expected = self.delegated_domain.as_ref().ok_or(
+            NestedObservationError::UnsupportedBoundary,
+        )?;
+        if view_version == 0 {
+            return Err(NestedObservationError::InvalidVersion);
+        }
+        let (domain, generation, owner) = registration.live_owner()?;
+        if &domain != expected {
+            return Err(NestedObservationError::WrongDomain {
+                expected: expected.clone(),
+                actual: domain,
+            });
+        }
+        let mut state = self.state.lock().unwrap_or_else(PoisonError::into_inner);
+        if state.snapshot.phase != GraphRunPhase::Running
+            || state.recording_attempts.get(&self.operation_id) != Some(&self.attempt)
+            || !matches!(
+                state.snapshot.operations.get(&self.operation_id),
+                Some(GraphObservedOperation { state: OperationState::Running, .. })
+            )
+        {
+            return Err(NestedObservationError::InactiveAttempt);
+        }
+        if let Some(previous) = state.nested.get(&self.operation_id) {
+            if previous.description.owner_generation == generation {
+                return Err(NestedObservationError::AlreadyAttached);
+            }
+            previous.retire();
+        }
+        let description = NestedDescription {
+            parent: NestedParent {
+                run: state.snapshot.identity.clone(),
+                operation: self.operation_id.clone(),
+                attempt: self.attempt,
+            },
+            domain,
+            owner_generation: generation,
+            view_version,
+        };
+        let (attachment, publisher) = NestedPublisher::attach(description, owner, initial);
+        state.nested.insert(self.operation_id.clone(), attachment);
+        Ok(publisher)
+    }
+
     pub fn confirm_prefix(&self, stream: &str, cumulative: u64) -> Result<(), GraphEffectError> {
         if stream.is_empty()
             || stream.len() > 128
@@ -502,6 +600,7 @@ pub(crate) struct GraphRunPublication {
     observer: GraphRunObserver,
     session: SessionToken,
     nodes: Vec<String>,
+    delegated_domains: Vec<Option<String>>,
     dependencies: Vec<Vec<usize>>,
     finished: bool,
 }
@@ -513,6 +612,15 @@ impl GraphRunPublication {
         session: SessionToken,
     ) -> Self {
         let names: Vec<String> = nodes.iter().map(|node| node.id().to_owned()).collect();
+        let delegated_domains = nodes
+            .iter()
+            .map(|node| {
+                node.domain_boundary().and_then(|boundary| {
+                    (boundary.mode() == DomainAdmissionMode::DelegatedFrame)
+                        .then(|| boundary.domain().to_owned())
+                })
+            })
+            .collect();
         let index: BTreeMap<_, _> = names
             .iter()
             .enumerate()
@@ -577,9 +685,12 @@ impl GraphRunPublication {
                     recording_attempts: BTreeMap::new(),
                     domain_owners,
                     domain_nodes,
+                    nested: BTreeMap::new(),
                 })),
+                session: session.clone(),
             },
             nodes: names,
+            delegated_domains,
             dependencies,
             session,
             finished: false,
@@ -705,6 +816,7 @@ impl GraphRunPublication {
                 state: Arc::clone(&self.observer.state),
                 operation_id: operation_id.clone(),
                 attempt,
+                delegated_domain: self.delegated_domains[index].clone(),
             },
             GraphEffectAttemptGuard {
                 state: Arc::clone(&self.observer.state),
