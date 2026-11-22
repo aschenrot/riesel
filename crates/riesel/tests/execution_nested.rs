@@ -435,24 +435,27 @@ fn bounded_snapshot_cursor_overflow_and_owner_generation_fencing() {
             .nested::<StageSnapshot>("frame", 1)
             .unwrap()
             .unwrap();
-        let id = view.snapshot().description.owner_generation;
-        let cursor = NestedCursor {
-            owner_generation: id,
-            sequence: 0,
-        };
         let generic = setup.observer.nested_header("frame").unwrap();
         assert_eq!(generic.snapshot().status, NestedStatus::Unpublished);
+        let cursor = generic.snapshot().latest;
         assert!(matches!(
             view.changes_since(NestedCursor {
-                owner_generation: id,
-                sequence: 1
+                sequence: 1,
+                ..cursor
             }),
             Err(NestedObservationError::FutureCursor { .. })
         ));
         assert!(matches!(
             view.changes_since(NestedCursor {
                 owner_generation: uuid::Uuid::nil(),
-                sequence: 0
+                ..cursor
+            }),
+            Err(NestedObservationError::StaleCursor)
+        ));
+        assert!(matches!(
+            view.changes_since(NestedCursor {
+                attachment_id: uuid::Uuid::nil(),
+                ..cursor
             }),
             Err(NestedObservationError::StaleCursor)
         ));
@@ -614,10 +617,9 @@ fn replacing_owner_generation_retires_old_readers_and_publishers() {
             old.snapshot().description.owner_generation,
             first.generation()
         );
-        let old_cursor = NestedCursor {
-            owner_generation: first.generation(),
-            sequence: 1,
-        };
+        let old_cursor = observer.nested_header("frame").unwrap().snapshot().latest;
+        assert_eq!(old_cursor.owner_generation, first.generation());
+        assert_eq!(old_cursor.sequence, 1);
         continue_tx.send(()).unwrap();
         until(|| {
             observer
