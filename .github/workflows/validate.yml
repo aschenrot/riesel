@@ -41,6 +41,8 @@ jobs:
         run: cargo test --locked -p riesel_storage_sqlite --test v2_backup
       - name: V2 explicit backup-checked physical format migration
         run: cargo test --locked -p riesel_storage_sqlite --test v2_format_migration
+      - name: V2 installed-build exact-registration rollover
+        run: cargo test --locked -p riesel_storage_sqlite --test v2_registration_rollover
       - name: Smoke test runtime and managed providers
         run: cargo smoke
 
