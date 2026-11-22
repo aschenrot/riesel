@@ -677,8 +677,7 @@ mod tests {
                 .unwrap();
             let plan = ExecutionPlanDraft::new("research.nested.multiframe", 8)
                 .operation(
-                    OperationNode::new("frame-first", key("frame-first"))
-                        .delegated_frame("domain"),
+                    OperationNode::new("frame-first", key("frame-first")).delegated_frame("domain"),
                 )
                 .operation(
                     OperationNode::new("frame-second", key("frame-second"))
@@ -720,8 +719,14 @@ mod tests {
                 .unwrap();
             let report = tokio::time::timeout(WAIT, task).await.unwrap().unwrap();
             assert!(report.succeeded());
-            assert_eq!(report.confirmed_prefixes["frame-first"]["domain.committed"], 1);
-            assert_eq!(report.confirmed_prefixes["frame-second"]["domain.committed"], 1);
+            assert_eq!(
+                report.confirmed_prefixes["frame-first"]["domain.committed"],
+                1
+            );
+            assert_eq!(
+                report.confirmed_prefixes["frame-second"]["domain.committed"],
+                1
+            );
             let domain_view = actor.observer.snapshot();
             assert_eq!(domain_view.parent_run, report.identity);
             assert_eq!(domain_view.cumulative_world, 4);
@@ -739,22 +744,24 @@ mod tests {
             // This is NOT a durable exactly-once guarantee across restart.
             let (unused_tx, unused_rx) = mpsc::sync_channel::<Permit>(1);
             let (reply, answer) = oneshot::channel();
-            actor.commands.send(DomainCommand::Frame {
-                parent: Parent {
-                    run: identity,
-                    operation: "frame-first".into(),
-                    attempt: 1,
-                },
-                proposed: 1,
-                permits: unused_rx,
-                lost_ack: false,
-                reply,
-            }).unwrap();
+            actor
+                .commands
+                .send(DomainCommand::Frame {
+                    parent: Parent {
+                        run: identity,
+                        operation: "frame-first".into(),
+                        attempt: 1,
+                    },
+                    proposed: 1,
+                    permits: unused_rx,
+                    lost_ack: false,
+                    reply,
+                })
+                .unwrap();
             assert_eq!(answer.await.unwrap(), Err(Error::DuplicateAttempt));
             drop(unused_tx);
             assert_eq!(actor.observer.snapshot().latest_sequence, 2);
             assert_eq!(actor.stop(), 4);
         });
     }
-
 }
