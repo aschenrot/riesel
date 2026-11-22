@@ -139,6 +139,38 @@ mod tests {
     }
 
     #[test]
+    fn strict_threshold_can_flip_after_a_non_exact_json_handoff() {
+        let original = make_grid(64);
+        let bytes = serde_json::to_vec(&original).unwrap();
+        let decoded: ScalarGridDto = serde_json::from_slice(&bytes).unwrap();
+
+        let mut changed = 0usize;
+        for (&a, &b) in original.samples.iter().zip(decoded.samples.iter()) {
+            if a.to_bits() == b.to_bits() {
+                continue;
+            }
+            // A threshold exactly between two representable neighboring
+            // values, or equal to the lower one, can classify them differently.
+            let threshold = a.min(b);
+            assert_ne!(
+                a > threshold,
+                b > threshold,
+                "strict threshold must expose the codec's changed value",
+            );
+            changed += 1;
+        }
+        if cfg!(feature = "json-float-roundtrip") {
+            assert_eq!(changed, 0, "exact-float decode must preserve thresholds");
+        }
+        eprintln!(
+            "threshold-sensitive f64 values after JSON handoff: {changed} of {}",
+            original.samples.len()
+        );
+        // No claim that every ordinary threshold is unstable: the failure
+        // requires the threshold to lie at a numerical decision boundary.
+    }
+
+    #[test]
     fn immutable_arc_fanout_reuses_underlying_allocation() {
         let source = Arc::new(make_grid(512));
         let first = Arc::clone(&source);
