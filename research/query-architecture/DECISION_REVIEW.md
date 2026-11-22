@@ -298,6 +298,12 @@ Separate independently testable issues; do not manufacture
 one issue for each helper or turn a research test into a public
 interface accidentally.
 
+### Additional schema-evolution risk (verified)
+
+The [tenth SDK research test](probes/instance_binding.rs) demonstrates that today's strict application schema rejects a proposed read/write authority relationship key, while inserting reader and writer aliases into legacy `model_bindings` validates without role or common-owner semantics. [Research CI #44979470753](https://github.com/aschenrot/riesel/actions/runs/44979470753) **PASS** (10/10 linked tests). Thus any new authority-scoped Query facet pairing must include an **explicit compatible app-schema and resolver evolution plan**; `depends_on`, identical provider metadata or overloaded model bindings cannot stand in for verified authority.
+
+This affects the relative cost against a unified Storage contract, which has a single-handle affinity advantage but still needs genuine read permission attenuation. Neither interface is accepted, and this finding does not authorize a schema version or field.
+
 ## 5. Residual risks and decision gate
 
 - **Product scope:** Existing Todo is an accepted consumer, an editor

@@ -48,6 +48,15 @@ These are **architectural packaging families**, not a forced shortlist or names 
 
 **Decision pressure:** The separate read facet is currently attractive for **independent version evolution, v2 preservation and a genuinely narrower operation surface**. The unified contract is attractive for **one-handle data affinity** but cannot claim read-only access with a client-side wrapper alone. The composite helps **ergonomics only**, not authority. An authority-scoped facet bundle may combine independent read permission with one logical provider selection, but its schema/resolver and trust guarantees are unimplemented; it must be compared on the **same tasks**, not treated as automatically superior. The shared semantic foundation is compatible with all these realizations, and no generic engine is required for the supported registered-record outcome.
 
+### Authority relationship needs explicit schema compatibility (tenth test)
+
+[Research CI #44979470753](https://github.com/aschenrot/riesel/actions/runs/44979470753) passed a **tenth** linked-SDK experiment at `41e59ad2f6e35d887fd18bb32a752eec768ce971`, after the earlier nine-test run recorded above. The new fixture builds an actual `AppSchema` with independent writer and query requirements:
+
+- Today's strict `AppSchema`/`CapabilityRequirement` deserializer **rejects an additional field** proposing a read/write authority relation. Adopting such a relation requires an explicit schema compatibility strategy; this neither selects a serialized name nor mandates an immediate numeric version bump.
+- Adding the query alias to the current Storage `model_bindings` list **passes validation** but does not distinguish reader/writer operation roles or prove common data authority. Merely reusing legacy `model_bindings` or lifecycle `depends_on` is therefore **not** a safe shortcut.
+
+**Fairness correction:** An authority-scoped facet bundle may offer independent read/write contract versions with a single logical owner selection, but **it has real app-schema/resolver evolution and verification costs**. Unified Storage avoids inter-facet pairing for a single handle but retains the separate challenge of authenticated read-only operation permissions and potentially wider Storage contract/version migration. Neither cost can be assumed zero. Any chosen authority relation must be durable across accepted SDK/schema versions and follow #75 for external attestation.
+
 ## Minimum interface semantics that should be accepted before implementation
 
 1. **Model declaration independent of mutation authority.** A typed read-only app can register a model and the read capability without declaring `RecordStoreContract` or physical Storage v2 model bindings. Schema must identify which query requirement is authorized to read which model, without assuming all readers are writers.

@@ -311,6 +311,26 @@ specification must compare those options against identical authored
 applications, rather than picking a crate or AST from the prior
 discovery list. See [DECISION_REVIEW.md](DECISION_REVIEW.md).
 
+### Explicit authority relation cannot be silently encoded in legacy schema
+
+A new [research-only SDK schema test](probes/instance_binding.rs) passes in
+[research CI #44979470753](https://github.com/aschenrot/riesel/actions/runs/44979470753)
+(**10/10** instance/authoring tests at `41e59ad`). Under the current
+`deny_unknown_fields` schema, a hypothetical new capability
+requirement field expressing a query/writer data-authority relation
+is rejected. Adding both aliases to `model_bindings` is accepted
+syntactically without conveying reader/writer roles, authorization,
+or owner/consistency guarantees.
+
+This is a **compatibility-cost falsifier**: a separate read facet or
+authority-scoped bundle needs reviewed schema/resolver evolution
+(not necessarily one predetermined field or mandatory version bump).
+A unified evolved Storage contract avoids a second requirement's
+authority relation for one handle, but introduces read-permission,
+contract-version and Storage client migration costs. The experiment
+does not prefer either option automatically. See
+[INTERFACE_CONFORMANCE.md](INTERFACE_CONFORMANCE.md).
+
 ## Comparative candidate synthesis — derived *after* discovery
 
 These are **design families, not mandated alternatives**. Each remains
