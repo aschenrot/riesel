@@ -73,7 +73,12 @@ def status(unit):
 
 
 def ns_inode(pid):
-    return os.stat(f"/proc/{pid}/ns/net").st_ino
+    # Namespace links of differently owned processes (including PID1)
+    # can be unreadable to the normal CI coordinator under ptrace checks.
+    # The already-trusted root research observer checks *all* inode values.
+    # No extra privilege is granted to an application or client.
+    result = invoke(sudo("stat", "-L", "-c", "%i", f"/proc/{pid}/ns/net"))
+    return int(result.stdout.strip())
 
 
 def uid_of(pid):
