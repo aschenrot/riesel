@@ -41,36 +41,26 @@ jobs:
         run: cargo test --locked -p riesel_storage_sqlite --test v2_backup
       - name: Smoke test runtime and managed providers
         run: cargo smoke
-      - name: Research #226 cursor path correctness (draft branch only)
-        if: ${{ github.event_name == 'pull_request' && github.head_ref == 'research/226-pending-cursor-differential' }}
+      - name: Research #226 ready-index equivalence (draft branch only)
+        if: ${{ github.event_name == 'pull_request' && github.head_ref == 'research/226-ready-index-differential' }}
         run: |
           cargo test -p riesel --features async-tcp --test scheduler_admission_cursor_research -- --test-threads=1
-          RIESEL_RESEARCH_PENDING_CURSOR=1 cargo test -p riesel --features async-tcp --test scheduler_admission_cursor_research -- --test-threads=1
-          RIESEL_RESEARCH_TOPO_CURSOR=1 cargo test -p riesel --features async-tcp --test scheduler_admission_cursor_research -- --nocapture --test-threads=1
-          RIESEL_RESEARCH_PENDING_CURSOR=1 cargo test -p riesel --features async-tcp --test execution_runner
-          RIESEL_RESEARCH_PENDING_CURSOR=1 cargo test -p riesel --features async-tcp --test execution_domains
-          RIESEL_RESEARCH_PENDING_CURSOR=1 cargo test -p riesel --features async-tcp --test execution_nested
-          RIESEL_RESEARCH_TOPO_CURSOR=1 cargo test -p riesel --features async-tcp --test execution_runner
-          RIESEL_RESEARCH_TOPO_CURSOR=1 cargo test -p riesel --features async-tcp --test execution_domains
-          RIESEL_RESEARCH_TOPO_CURSOR=1 cargo test -p riesel --features async-tcp --test execution_nested
-      - name: Research #226 A/B/B/A release admission visits (draft branch only)
-        if: ${{ github.event_name == 'pull_request' && github.head_ref == 'research/226-pending-cursor-differential' }}
+          RIESEL_RESEARCH_READY_INDEX=1 cargo test -p riesel --features async-tcp --test scheduler_admission_cursor_research -- --nocapture --test-threads=1
+          RIESEL_RESEARCH_READY_INDEX=1 cargo test -p riesel --features async-tcp --test execution_runner
+          RIESEL_RESEARCH_READY_INDEX=1 cargo test -p riesel --features async-tcp --test execution_domains
+          RIESEL_RESEARCH_READY_INDEX=1 cargo test -p riesel --features async-tcp --test execution_nested
+      - name: Research #226 ready-index release A/B/B/A visit comparison
+        if: ${{ github.event_name == 'pull_request' && github.head_ref == 'research/226-ready-index-differential' }}
         env:
           RIESEL_RESEARCH_ADMISSION_COUNTERS: "1"
         run: |
-          echo "research #226 cursor A1 baseline"
+          echo "research #226 ready-index A1 baseline"
           cargo test -p riesel --release --features async-tcp --test scheduler_admission_cursor_research cursor_differential_shapes -- --nocapture --test-threads=1
-          echo "research #226 cursor B1 candidate"
-          RIESEL_RESEARCH_PENDING_CURSOR=1 cargo test -p riesel --release --features async-tcp --test scheduler_admission_cursor_research cursor_differential_shapes -- --nocapture --test-threads=1
-          echo "research #226 cursor B2 candidate"
-          RIESEL_RESEARCH_PENDING_CURSOR=1 cargo test -p riesel --release --features async-tcp --test scheduler_admission_cursor_research cursor_differential_shapes -- --nocapture --test-threads=1
-          echo "research #226 cursor A2 baseline"
-          cargo test -p riesel --release --features async-tcp --test scheduler_admission_cursor_research cursor_differential_shapes -- --nocapture --test-threads=1
-          echo "research #226 cursor T1 topological"
-          RIESEL_RESEARCH_TOPO_CURSOR=1 cargo test -p riesel --release --features async-tcp --test scheduler_admission_cursor_research cursor_differential_shapes -- --nocapture --test-threads=1
-          echo "research #226 cursor T2 topological"
-          RIESEL_RESEARCH_TOPO_CURSOR=1 cargo test -p riesel --release --features async-tcp --test scheduler_admission_cursor_research cursor_differential_shapes -- --nocapture --test-threads=1
-          echo "research #226 cursor A3 baseline after topology"
+          echo "research #226 ready-index B1 indexed"
+          RIESEL_RESEARCH_READY_INDEX=1 cargo test -p riesel --release --features async-tcp --test scheduler_admission_cursor_research cursor_differential_shapes -- --nocapture --test-threads=1
+          echo "research #226 ready-index B2 indexed"
+          RIESEL_RESEARCH_READY_INDEX=1 cargo test -p riesel --release --features async-tcp --test scheduler_admission_cursor_research cursor_differential_shapes -- --nocapture --test-threads=1
+          echo "research #226 ready-index A2 baseline"
           cargo test -p riesel --release --features async-tcp --test scheduler_admission_cursor_research cursor_differential_shapes -- --nocapture --test-threads=1
 
   windows:
