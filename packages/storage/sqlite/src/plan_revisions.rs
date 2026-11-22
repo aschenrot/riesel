@@ -31,6 +31,7 @@ pub enum V2FaultStage {
 
 mod backup;
 mod evolution;
+mod registration;
 pub use backup::{V2SnapshotBudget, VerifiedV2Snapshot};
 
 const LEGACY_FORMAT: i64 = 1;
