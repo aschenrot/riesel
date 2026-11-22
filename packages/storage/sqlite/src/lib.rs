@@ -10,6 +10,7 @@ mod maintenance;
 mod operator;
 mod owner;
 mod records;
+mod query;
 mod restore;
 mod review;
 
@@ -26,8 +27,12 @@ use riesel_app::{
     ConnectorError, LocalComponentFactory, LocalProviderFactory, LocalProviderInstance,
 };
 use riesel_schema::ModelDefinition;
-use riesel_storage::{RecordStore, RecordStoreContract};
-use std::{collections::BTreeMap, path::PathBuf, sync::Arc};
+use riesel_storage::{RecordQuery, RecordQueryContract, RecordStore, RecordStoreContract};
+use std::{
+    collections::{BTreeMap, BTreeSet},
+    path::PathBuf,
+    sync::Arc,
+};
 
 /// Register a durable linked provider without touching the filesystem.
 /// Models are authoritative application schema, not a second developer-maintained file.
@@ -44,4 +49,46 @@ pub fn sqlite_storage_provider(
         },
     )
     .exposes::<RecordStoreContract>()
+}
+
+/// Register the read-designated native SQLite Query facet, optionally with
+/// Storage v2 mutations exposed from the exact same live SqliteStore.
+pub fn sqlite_record_query_provider(
+    path: PathBuf,
+    models: BTreeMap<String, ModelDefinition>,
+    readable: BTreeSet<String>,
+    writable: bool,
+) -> Result<impl LocalProviderFactory, ConnectorError> {
+    if readable.is_empty()
+        || !readable.is_subset(&models.keys().cloned().collect())
+    {
+        return Err(Box::new(std::io::Error::new(
+            std::io::ErrorKind::InvalidInput,
+            "readable Query models must be registered and nonempty",
+        )));
+    }
+    let factory = LocalComponentFactory::new(
+        "riesel.storage.sqlite",
+        move |definition: &riesel_schema::ProviderDefinition| -> Result<_, ConnectorError> {
+            let store = Arc::new(if writable {
+                SqliteStore::open(&path, models.clone())?.with_query_grants(readable.clone())?
+            } else {
+                SqliteStore::open_query_only(&path, models.clone(), readable.clone())?
+            });
+            let instance = LocalProviderInstance::new(definition.clone()).bind::<RecordQueryContract>(
+                Arc::clone(&store) as Arc<dyn RecordQuery + Send + Sync>,
+            )?;
+            if writable {
+                instance.bind::<RecordStoreContract>(store as Arc<dyn RecordStore + Send + Sync>)
+            } else {
+                Ok(instance)
+            }
+        },
+    )
+    .exposes::<RecordQueryContract>()?;
+    if writable {
+        factory.exposes::<RecordStoreContract>()
+    } else {
+        Ok(factory)
+    }
 }
