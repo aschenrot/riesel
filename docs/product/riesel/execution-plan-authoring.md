@@ -46,7 +46,7 @@ sampled frame; it is not an automatic graph loop or proof of committed
 side effects. Session-wide domain authority and resource admission
 continue to apply separately to each runner. Runtime-issued run identity and attempt correlation are implemented by
 the read-only #113 observer. Explicit owner-confirmed cumulative effect
-prefixes are being verified as a separate #113 increment; a claimed tick
+prefixes are available as a bounded #113 increment; a claimed tick
 proposal or successful callback is not proof of an external mutation.
 
 ## Boundaries and next steps
