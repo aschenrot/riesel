@@ -208,11 +208,9 @@ impl SqliteStore {
         // Acquiring the cooperative owner sidecar is not a data mutation.
         // Read-only SQLite flags reject database creation and record writes.
         let mut owner = OwnerGuard::acquire(path)?;
-        let conn = Connection::open_with_flags(
-            owner.database_path(),
-            OpenFlags::SQLITE_OPEN_READ_ONLY,
-        )
-        .map_err(failed)?;
+        let conn =
+            Connection::open_with_flags(owner.database_path(), OpenFlags::SQLITE_OPEN_READ_ONLY)
+                .map_err(failed)?;
         let version: i64 = conn
             .pragma_query_value(None, "user_version", |row| row.get(0))
             .map_err(failed)?;
