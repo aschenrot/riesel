@@ -546,8 +546,7 @@ impl ExecutionGraphRunner {
             Vec::new()
         };
         let ready_started = std::time::Instant::now();
-        let signal_filtered =
-            std::env::var_os("RIESEL_RESEARCH_SIGNAL_ACTIVATION").is_some();
+        let signal_filtered = std::env::var_os("RIESEL_RESEARCH_SIGNAL_ACTIVATION").is_some();
         let research_ready_index = (signal_filtered
             || std::env::var_os("RIESEL_RESEARCH_READY_INDEX").is_some())
         .then(|| ResearchReadyIndex::build(operations, &index, signal_filtered));
