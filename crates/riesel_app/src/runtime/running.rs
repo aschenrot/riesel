@@ -54,10 +54,11 @@ impl RunningApp {
         crate::operational_observation::ObservationError,
     > {
         let verified = self.check_processes().is_ok();
-        crate::operational_observation::ObservationSnapshot::runtime(
+        crate::operational_observation::ObservationSnapshot::runtime_with_entrypoint(
             self.session.clone(),
             &self.resolved,
             verified,
+            Some(self.async_tasks.internal_entrypoint_activity()),
         )
     }
 
