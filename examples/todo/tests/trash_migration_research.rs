@@ -1,7 +1,7 @@
 //! Research-only #119: migration from Todo's *actual* Rust-derived TaskData
 //! to a candidate Rust-derived two-state lifecycle. Not production migration.
-use riesel::storage::{RecordStore, StoreError};
 use riesel::RieselModel;
+use riesel::storage::{RecordStore, StoreError};
 use riesel_storage_sqlite::{
     EvolutionAuthorization, EvolutionLimits, ModelEvolution, RestoreAuthorization, SnapshotBudget,
     SqliteMaintenance, SqliteStore,
@@ -39,11 +39,13 @@ fn real_todo_derived_old_to_bool_trash_migration_and_legacy_cli_boundary() {
     let candidate = || BTreeMap::from([("task".into(), CandidateTask::model_definition())]);
 
     assert_eq!(TaskData::MODEL_NAME, CandidateTask::MODEL_NAME);
-    assert!(CandidateTask::model_definition()
-        .validate_record(&json!({
-            "title": "invalid bool state", "completed": false, "trashed": "trash"
-        }))
-        .is_err());
+    assert!(
+        CandidateTask::model_definition()
+            .validate_record(&json!({
+                "title": "invalid bool state", "completed": false, "trashed": "trash"
+            }))
+            .is_err()
+    );
 
     let dir = tempfile::tempdir().unwrap();
     let database = dir.path().join("existing-todo.db");
@@ -100,11 +102,19 @@ fn real_todo_derived_old_to_bool_trash_migration_and_legacy_cli_boundary() {
 
     let original_backup = SqliteStore::open(&backup, historical()).unwrap();
     assert_eq!(
-        original_backup.get("task", open.id).unwrap().unwrap().revision,
+        original_backup
+            .get("task", open.id)
+            .unwrap()
+            .unwrap()
+            .revision,
         open.revision
     );
     assert_eq!(
-        original_backup.get("task", done.id).unwrap().unwrap().revision,
+        original_backup
+            .get("task", done.id)
+            .unwrap()
+            .unwrap()
+            .revision,
         done.revision
     );
     drop(original_backup);
@@ -206,7 +216,5 @@ fn real_todo_derived_old_to_bool_trash_migration_and_legacy_cli_boundary() {
         .output()
         .unwrap();
     assert!(restored_cli.status.success());
-    assert!(
-        String::from_utf8_lossy(&restored_cli.stdout).contains("Keep this done")
-    );
+    assert!(String::from_utf8_lossy(&restored_cli.stdout).contains("Keep this done"));
 }
