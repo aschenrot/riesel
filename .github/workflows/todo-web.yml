@@ -63,9 +63,9 @@ jobs:
         run: npx playwright install --with-deps --only-shell chromium
       - name: Build browser assets
         run: npm run build
-      - name: Build Rust Todo HTTP host
+      - name: Build Rust Todo HTTP host and offline E2E-only sparse fixture
         working-directory: .
-        run: cargo build --locked -p todo --features http --bin todo_http
+        run: cargo build --locked -p todo --features http,e2e-fixture --bin todo_http --bin todo_seed_status
       - name: Real browser end-to-end tests
         run: npm run test:e2e
       - name: Upload desktop and mobile visual review screenshots
