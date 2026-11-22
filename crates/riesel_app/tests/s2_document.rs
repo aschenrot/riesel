@@ -1,16 +1,15 @@
 //! #192: strict untrusted S2 authoring documents must use the real Riesel
 //! graph validator, trusted editor-catalog gate and exact Rust binding.
 use riesel_app::{
-    AccessMode, DomainAdmissionMode, EditorOperationDescriptor, ExecutionPlanDraft,
-    OperationKey, OperationNode, OperationRegistry, S2DocumentAccess,
-    S2DocumentAccessMode, S2DocumentDomain, S2DocumentDomainMode,
-    S2DocumentError, S2DocumentLimits, S2DocumentTrigger, S2OperationDocument,
-    S2PlanDocument, S2SourceDocument, bind_s2_document, inspect_s2_source,
+    AccessMode, DomainAdmissionMode, EditorOperationDescriptor, ExecutionPlanDraft, OperationKey,
+    OperationNode, OperationRegistry, S2DocumentAccess, S2DocumentAccessMode, S2DocumentDomain,
+    S2DocumentDomainMode, S2DocumentError, S2DocumentLimits, S2DocumentTrigger,
+    S2OperationDocument, S2PlanDocument, S2SourceDocument, bind_s2_document, inspect_s2_source,
 };
 use serde_json::{Value, json};
 use std::sync::{
-    atomic::{AtomicUsize, Ordering},
     Arc,
+    atomic::{AtomicUsize, Ordering},
 };
 
 type Handler = dyn Fn() + Send + Sync;
