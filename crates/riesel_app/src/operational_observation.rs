@@ -770,7 +770,10 @@ mod tests {
                 AdapterOperationSnapshot::report(session.clone(), "todo.task.create", event)
                     .unwrap();
             assert_eq!(sample.source(), ObservationSource::ApplicationAdapter);
-            assert_eq!(sample.generation_evidence(), GenerationEvidence::AdapterReferenceOnly);
+            assert_eq!(
+                sample.generation_evidence(),
+                GenerationEvidence::AdapterReferenceOnly
+            );
             assert_eq!(
                 sample.generation(),
                 session.internal_publication_session().generation()
@@ -780,7 +783,8 @@ mod tests {
             assert_eq!(sample.disposition(), disposition);
             assert_eq!(sample.state_at(Instant::now()), ObservationState::Observed);
             assert_eq!(
-                sample.state_at(sample.observed_at() + MAX_OBSERVATION_AGE + Duration::from_nanos(1)),
+                sample
+                    .state_at(sample.observed_at() + MAX_OBSERVATION_AGE + Duration::from_nanos(1)),
                 ObservationState::Stale
             );
         }
