@@ -94,8 +94,13 @@ def subject_spawn(script, uid, gid):
         if len(ready) != 4 or ready[0] != "READY":
             raise AssertionError(f"invalid subject data: {ready!r}")
         pid, tick, observed_uid = [int(x) for x in ready[1:]]
-        if pid != p.pid or observed_uid != uid or proc_start(pid) != tick:
-            raise AssertionError("kernel identity mismatched subject")
+        # sudo launches a child before dropping to the generated test UID;
+        # the actual subject PID is NOT necessarily the sudo wrapper PID.
+        # Validate the exact subject PID/start-time/UID against procfs.
+        if pid <= 1 or observed_uid != uid or proc_start(pid) != tick:
+            raise AssertionError("kernel identity mismatched actual subject")
+        if p.poll() is not None:
+            raise AssertionError("subject wrapper exited before authorization")
         if int(next(x for x in Path(f"/proc/{pid}/status").read_text().splitlines()
                     if x.startswith("Uid:")).split()[1]) != uid:
             raise AssertionError("kernel subject UID differs")
@@ -332,9 +337,22 @@ def main():
             if result.returncode or root("test", "!", "-e", str(dest)).returncode:
                 cleanup_errors.append(f"policy removal {dest.name}")
         if account:
-            result = root("userdel", user)
-            if result.returncode:
-                cleanup_errors.append(f"account removal {user}: {result.stderr[-400:]}")
+            # A sudo monitor may outlive its direct launcher on fixture
+            # failures. The generated account did not exist before this
+            # experiment; kill only that disposable account's remaining
+            # processes, then remove it. Never address a real user.
+            if not re.fullmatch(r"rieselm[a-f0-9]{8}", user):
+                raise AssertionError("unsafe disposable-account cleanup name")
+            root("pkill", "-KILL", "-u", user)
+            for _ in range(30):
+                result = root("userdel", user)
+                if result.returncode == 0:
+                    break
+                time.sleep(0.1)
+            else:
+                cleanup_errors.append(
+                    f"account removal {user}: {result.stderr[-400:]}"
+                )
         shutil.rmtree(fixture)
         if cleanup_errors:
             raise AssertionError("; ".join(cleanup_errors))
