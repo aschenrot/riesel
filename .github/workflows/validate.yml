@@ -37,6 +37,14 @@ jobs:
         run: cargo validate --check
       - name: Smoke test runtime and managed providers
         run: cargo smoke
+      # Research-only #146 probes are isolated from the production workspace.
+      # Keep the separate package and its dependencies out of normal CI.
+      - name: Verify Issue 146 nested execution research
+        if: ${{ github.event_name == 'pull_request' && github.head_ref == 'research/146-nested-domain-contract' }}
+        run: |
+          cargo fmt --manifest-path research/nested-execution/Cargo.toml -- --check
+          cargo clippy --manifest-path research/nested-execution/Cargo.toml --all-targets -- -D warnings
+          cargo test --manifest-path research/nested-execution/Cargo.toml -- --nocapture
 
   windows:
     if: ${{ github.event_name == 'workflow_dispatch' && inputs.windows }}
