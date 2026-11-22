@@ -270,13 +270,12 @@ mod tests {
         assert_eq!(reader.query_page(read.clone()).unwrap().records.len(), 1);
         // The SQLite connection itself enforces read-only mode, in addition
         // to the absence of mutation methods in the published Query facet.
-        assert!(reader
-            .create(
-                "task",
-                json!({"completed":true,"big":u64::MAX,
-                       "external_id":Uuid::new_v4().to_string()}),
-            )
-            .is_err());
+        let denied_write = reader.create(
+            "task",
+            json!({"completed":true,"big":u64::MAX,
+                   "external_id":Uuid::new_v4().to_string()}),
+        );
+        assert!(denied_write.is_err());
         let mut denied = read;
         denied.model = "secret".into();
         assert!(matches!(
