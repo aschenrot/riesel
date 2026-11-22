@@ -1,0 +1,17 @@
+[package]
+name = "riesel-native-gui-host-research"
+version = "0.0.0"
+edition = "2024"
+license = "AGPL-3.0-only"
+publish = false
+
+# Deliberately outside Riesel's product workspace and dependency lock.
+# This is a native-event-loop feasibility fixture, not a new SDK crate.
+[workspace]
+resolver = "3"
+
+[dependencies]
+eframe = { version = "=0.33.3", default-features = false, features = ["glow", "x11", "default_fonts", "accesskit"] }
+riesel_counter = { path = "../../examples/counter/contract" }
+riesel_protocol = { path = "../../crates/riesel_protocol", features = ["async-tcp"] }
+tokio = { version = "=1.54.1", features = ["rt", "net", "time"] }
