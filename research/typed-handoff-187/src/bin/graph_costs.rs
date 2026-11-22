@@ -37,6 +37,16 @@ fn main() -> riesel::Result<()> {
                 draft = draft.operation(node);
             }
             let bound = draft.validate()?.bind(&registry)?;
+            for _ in 0..2 {
+                let runner = context.execution_graph(
+                    bound.clone(),
+                    NonZeroUsize::new(64).unwrap(),
+                )?;
+                let report = executor.block_on(runner.execute());
+                if !report.succeeded() {
+                    return Err(io::Error::other("S2 warm-up runner failed").into());
+                }
+            }
             let mut times = [0u128; 5];
             for (batch, slot) in times.iter_mut().enumerate() {
                 let start = Instant::now();
