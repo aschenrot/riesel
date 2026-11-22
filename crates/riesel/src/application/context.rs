@@ -25,6 +25,28 @@ impl Context<'_> {
         self.running.session_token()
     }
 
+    /// Publish a deliberately selected T1 app-facing query surface under
+    /// this actual application session. Does not create a listener or verify
+    /// a protected GUI/client identity. The application must classify the
+    /// data as non-sensitive and the chosen adapter must enforce local scope.
+    #[cfg(feature = "app-publication")]
+    pub fn publish_local_reads(
+        &self,
+        application: impl Into<String>,
+        interface: impl Into<String>,
+        exposure: crate::ReadExposure,
+        handler: std::sync::Arc<dyn riesel_protocol::AsyncRpcHandler>,
+        selected_queries: impl IntoIterator<Item = String>,
+    ) -> std::result::Result<crate::AppReadPublication, crate::ReadPublicationError> {
+        self.running.publish_local_reads(
+            application,
+            interface,
+            exposure,
+            handler,
+            selected_queries,
+        )
+    }
+
     /// Internal #157 fixture bridge to the *actual* Riesel session generation.
     /// Not a shipped application export interface or client permission token.
     #[cfg(feature = "internal-publication")]

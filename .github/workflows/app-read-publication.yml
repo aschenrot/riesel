@@ -1,0 +1,32 @@
+name: App-owned read publication (#258)
+
+permissions:
+  contents: read
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - "crates/riesel_app/**"
+      - "crates/riesel/**"
+      - "crates/riesel_protocol/**"
+      - "docs/product/riesel/application-publication-usage.md"
+      - ".github/workflows/app-read-publication.yml"
+  workflow_dispatch:
+
+jobs:
+  app-read-publication:
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install Rust 1.100.0
+        run: |
+          rustup toolchain install 1.100.0 --profile minimal --component rustfmt
+          rustup default 1.100.0
+      - name: Format workspace
+        run: cargo fmt --all -- --check
+      - name: Test real session-bound publication policy (opt-in feature)
+        run: cargo test --locked -p riesel_app --features app-publication
+      - name: Compile SDK Context exposure (opt-in feature)
+        run: cargo test --locked -p riesel --features app-publication

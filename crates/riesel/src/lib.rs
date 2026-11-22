@@ -54,6 +54,10 @@ pub use application::{
 };
 #[cfg(feature = "records")]
 pub use records::{QueryPage, Record, RecordPage, Records};
+#[cfg(feature = "app-publication")]
+pub use riesel_app::{
+    AppReadPublication, ReadExposure, ReadPublicationDescriptor, ReadPublicationError,
+};
 #[cfg(feature = "async-tcp")]
 pub use riesel_app::{
     AsyncOperation, ExecutionGraphRunner, GraphControlError, GraphControlMode, GraphControlTarget,
