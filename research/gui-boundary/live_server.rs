@@ -9,7 +9,11 @@ use axum::{
 };
 use riesel::{ExecutionGraphRunner, GraphRunReport, GraphSignalSender};
 use serde_json::Value;
-use std::{io::{self, Write}, sync::Arc, time::Duration};
+use std::{
+    io::{self, Write},
+    sync::Arc,
+    time::Duration,
+};
 
 pub type SnapshotSource = Arc<dyn Fn() -> io::Result<Value> + Send + Sync>;
 
@@ -78,12 +82,16 @@ pub async fn run(
     let (stop_tx, stop_rx) = tokio::sync::oneshot::channel::<()>();
     let server = tokio::spawn(async move {
         axum::serve(listener, app)
-            .with_graceful_shutdown(async { let _ = stop_rx.await; })
+            .with_graceful_shutdown(async {
+                let _ = stop_rx.await;
+            })
             .await
     });
 
     println!("RESEARCH LIVE INSPECTOR: http://{address}/");
-    println!("Read-only, unauthenticated local proof. Ctrl+C stops the application; no UI controls are exposed.");
+    println!(
+        "Read-only, unauthenticated local proof. Ctrl+C stops the application; no UI controls are exposed."
+    );
     io::stdout().flush()?;
 
     // The app, not the GUI, controls admission. Allow time for a browser to
