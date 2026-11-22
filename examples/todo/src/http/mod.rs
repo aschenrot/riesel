@@ -135,6 +135,7 @@ mod tests {
     /// A real persistent Todo/SQLite application owns one real local socket.
     /// The adapter can attest that *its own* listener bound, but cannot
     /// authenticate a client or claim that an operation is callable.
+    #[cfg(feature = "internal-observation")]
     #[test]
     fn real_todo_sqlite_listener_has_only_adapter_evidence() {
         use riesel_app::operational_observation::{
