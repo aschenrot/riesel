@@ -248,7 +248,10 @@ fn managed_process_crash_fences_run_and_preserves_confirmed_prefix() {
     });
     assert!(result.session_expired);
     assert_eq!(result.operations["commit"], OperationState::Completed);
-    assert_eq!(result.confirmed_prefixes["commit"]["provider.acknowledged"], 1);
+    assert_eq!(
+        result.confirmed_prefixes["commit"]["provider.acknowledged"],
+        1
+    );
     assert!(!result.confirmed_prefixes.contains_key("crash"));
     assert_eq!(result.operations["crash"], OperationState::OutcomeUnknown);
     assert_eq!(result.operations["successor"], OperationState::Blocked);
@@ -349,7 +352,11 @@ fn structured_graph_drains_after_managed_child_crash_without_secondary_failure()
         observer.snapshot().operations["commit"].confirmed_prefixes["provider.acknowledged"],
         1
     );
-    assert!(observer.snapshot().operations["crash"].confirmed_prefixes.is_empty());
+    assert!(
+        observer.snapshot().operations["crash"]
+            .confirmed_prefixes
+            .is_empty()
+    );
     assert!(matches!(
         running.check_processes(),
         Err(RuntimeError::ServiceExited { requirement, .. }) if requirement == "managed"
