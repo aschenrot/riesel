@@ -10,6 +10,7 @@ use riesel_app::{
 };
 use riesel_protocol::session::InternalPublicationSession;
 use serde_json::{Value, json};
+use std::collections::BTreeMap;
 use std::error::Error;
 use std::fs::{self, Permissions};
 use std::io::{self, BufRead, Read, Write};
@@ -69,6 +70,7 @@ impl PauseGate {
 
 fn build_session(
     runtime: &tokio::runtime::Runtime,
+    wide: bool,
 ) -> Result<(RunningApp, Arc<SessionView>), Box<dyn Error>> {
     let app = App::from_schema(
         r#"{"version":1,"app":{"name":"ResearchExternalGui"},"models":{},"requires":[]}"#,
@@ -76,22 +78,24 @@ fn build_session(
     let running = app.start_local(&ConnectorRegistry::new())?;
 
     let mut operations = OperationRegistry::<AsyncOperation>::new();
-    operations.register(
-        OperationKey::new("source", 1)?,
-        async_operation(|| async { OperationOutcome::Completed }),
-    )?;
-    operations.register(
-        OperationKey::new("join", 1)?,
-        async_operation(|| async { OperationOutcome::Completed }),
-    )?;
-    let plan = ExecutionPlanDraft::new("research.gui.session-bound", 1)
-        .operation(OperationNode::new(
-            "source",
-            OperationKey::new("source", 1)?,
-        ))
-        .operation(OperationNode::new("join", OperationKey::new("join", 1)?).after("source"))
-        .validate()?
-        .bind(&operations)?;
+    let mut draft = ExecutionPlanDraft::new("research.gui.session-bound", 1);
+    let operation_count = if wide { 80 } else { 2 };
+    let mut predecessor: Option<String> = None;
+    for index in 0..operation_count {
+        let id = format!("step-{index:03}");
+        let key = OperationKey::new(&id, 1)?;
+        operations.register(
+            key.clone(),
+            async_operation(|| async { OperationOutcome::Completed }),
+        )?;
+        let mut node = OperationNode::new(&id, key);
+        if let Some(previous) = &predecessor {
+            node = node.after(previous);
+        }
+        draft = draft.operation(node);
+        predecessor = Some(id);
+    }
+    let plan = draft.validate()?.bind(&operations)?;
     let runner = running.execution_graph(plan, NonZeroUsize::new(1).unwrap())?;
     let observer = runner.observer();
     let report = runtime.block_on(runner.execute());
@@ -131,7 +135,8 @@ fn respond(request: &Value, current: &RwLock<Arc<SessionView>>, paused: &PauseGa
     {
         return reject("wrong_interface");
     }
-    if request.get("operation").and_then(Value::as_str) != Some("snapshot") {
+    let operation = request.get("operation").and_then(Value::as_str);
+    if operation != Some("snapshot") && operation != Some("cursor_status") {
         return reject("not_exposed");
     }
     let Some(generation) = request.get("generation").and_then(Value::as_str) else {
@@ -167,7 +172,29 @@ fn respond(request: &Value, current: &RwLock<Arc<SessionView>>, paused: &PauseGa
             return reject("pause_timeout");
         }
     }
+    if operation == Some("cursor_status") {
+        let Some(cursor) = request.get("cursor").and_then(Value::as_u64) else {
+            return reject("invalid_cursor");
+        };
+        return match view.observer.changes_since(cursor) {
+            Ok(changes) => json!({
+                "status": "ok",
+                "truncated": changes.truncated,
+                "latest_sequence": changes.latest_sequence,
+                "retained_count": changes.events.len(),
+                "graph_generation": changes.identity.session_generation().to_string(),
+                "run_sequence": changes.identity.run_sequence(),
+                "event_payload_not_exported": true
+            }),
+            Err(_) => reject("future_cursor"),
+        };
+    }
     let snapshot = view.observer.snapshot();
+    let operations: BTreeMap<String, String> = snapshot
+        .operations
+        .iter()
+        .map(|(id, state)| (id.clone(), format!("{:?}", state.state)))
+        .collect();
     let completed = snapshot
         .operations
         .values()
@@ -184,6 +211,7 @@ fn respond(request: &Value, current: &RwLock<Arc<SessionView>>, paused: &PauseGa
         "phase": format!("{:?}", snapshot.phase),
         "latest_sequence": snapshot.latest_sequence,
         "completed": completed,
+        "operations": operations,
         "run_sequence": snapshot.identity.run_sequence(),
         "session_expired": snapshot.session_expired,
     });
@@ -221,7 +249,7 @@ fn main() -> Result<(), Box<dyn Error>> {
     let runtime = tokio::runtime::Builder::new_current_thread()
         .enable_all()
         .build()?;
-    let (mut running, first) = build_session(&runtime)?;
+    let (mut running, first) = build_session(&runtime, false)?;
     let current = Arc::new(RwLock::new(first));
     let paused = Arc::new(PauseGate {
         generation: Mutex::new(0),
@@ -273,7 +301,8 @@ fn main() -> Result<(), Box<dyn Error>> {
     // revoke the Riesel application. This is NOT a production control API.
     let stdin = io::stdin();
     for line in stdin.lock().lines() {
-        match line?.trim() {
+        let line = line?;
+        match line.trim() {
             "REVOKE" => {
                 let view = current.read().unwrap();
                 *view.withdrawn.lock().unwrap() = true;
@@ -283,9 +312,10 @@ fn main() -> Result<(), Box<dyn Error>> {
                 paused.resume();
                 println!("RESUMED");
             }
-            "RESTART" => {
+            "RESTART" | "OVERFLOW" => {
+                let wide = line.trim() == "OVERFLOW";
                 running.shutdown()?;
-                let (next, view) = build_session(&runtime)?;
+                let (next, view) = build_session(&runtime, wide)?;
                 running = next;
                 let next_generation = view.publication.generation();
                 *current.write().unwrap() = view;
