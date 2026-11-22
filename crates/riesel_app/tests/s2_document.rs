@@ -241,3 +241,80 @@ fn configurable_input_and_graph_size_budgets_reject_before_binding() {
         Err(S2DocumentError::LimitExceeded(_))
     ));
 }
+
+#[test]
+fn duplicate_nodes_and_dependencies_are_rejected_by_the_real_validator() {
+    let handlers = registry(Arc::new(AtomicUsize::new(0)));
+    let mut duplicate_node = fixture();
+    duplicate_node.operations[1].id = "load".to_owned();
+    assert!(matches!(
+        bind_s2_document(&duplicate_node, &handlers, S2DocumentLimits::default()),
+        Err(S2DocumentError::InvalidPlan(_))
+    ));
+
+    let mut duplicate_edge = fixture();
+    duplicate_edge.operations[1].dependencies.push("load".into());
+    assert!(matches!(
+        bind_s2_document(&duplicate_edge, &handlers, S2DocumentLimits::default()),
+        Err(S2DocumentError::InvalidPlan(_))
+    ));
+}
+
+#[test]
+fn malformed_plan_identity_and_unregistered_editor_permissions_fail_before_effects() {
+    let hits = Arc::new(AtomicUsize::new(0));
+    let handlers = registry(Arc::clone(&hits));
+    let mut invalid_identity = fixture();
+    invalid_identity.plan_id = "invalid plan name".into();
+    assert!(matches!(
+        bind_s2_document(&invalid_identity, &handlers, S2DocumentLimits::default()),
+        Err(S2DocumentError::InvalidPlan(_))
+    ));
+
+    let mut invalid_revision = fixture();
+    invalid_revision.semantic_revision = 0;
+    assert!(matches!(
+        bind_s2_document(&invalid_revision, &handlers, S2DocumentLimits::default()),
+        Err(S2DocumentError::InvalidPlan(_))
+    ));
+
+    let unapproved = OperationRegistry::<Handler>::new();
+    assert!(matches!(
+        bind_s2_document(&fixture(), &unapproved, S2DocumentLimits::default()),
+        Err(S2DocumentError::MissingEditorDescriptor { .. })
+    ));
+    assert_eq!(hits.load(Ordering::SeqCst), 0);
+}
+
+#[test]
+fn permitted_document_node_edits_reuse_the_existing_plan_semantics() {
+    let hits = Arc::new(AtomicUsize::new(0));
+    let handlers = registry(Arc::clone(&hits));
+    let mut edited = fixture();
+    edited.operations.pop();
+    edited.semantic_revision = 2;
+    let bound = bind_s2_document(&edited, &handlers, S2DocumentLimits::default()).unwrap();
+    assert_eq!(bound.plan().description().revision(), 2);
+    assert_eq!(bound.plan().description().operations().len(), 1);
+    edited.operations.push(fixture().operations[1].clone());
+    assert_eq!(
+        bind_s2_document(&edited, &handlers, S2DocumentLimits::default())
+            .unwrap()
+            .plan()
+            .description()
+            .operations()
+            .len(),
+        2
+    );
+    assert_eq!(hits.load(Ordering::SeqCst), 0);
+}
+
+#[test]
+fn byte_limit_rejects_an_oversized_untrusted_document_without_parsing() {
+    let limit = S2DocumentLimits::default();
+    let input = vec![b' '; limit.max_bytes + 1];
+    assert!(matches!(
+        inspect_s2_source(&input, limit),
+        Err(S2DocumentError::LimitExceeded("source byte budget"))
+    ));
+}
