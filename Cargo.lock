@@ -806,7 +806,9 @@ version = "0.1.0"
 dependencies = [
  "axum",
  "riesel",
+ "riesel_schema",
  "riesel_storage_component",
+ "riesel_storage_sqlite",
  "serde",
  "serde_json",
  "tempfile",
