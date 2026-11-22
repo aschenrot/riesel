@@ -5,9 +5,8 @@
 
 use riesel::{
     AccessMode, App, AsyncOperation, ConnectorRegistry, DeploymentConfig, ExecutionPlanDraft,
-    GraphRunPhase,
-    OperationKey, OperationNode, OperationOutcome, OperationRegistry, OperationState, RunningApp,
-    async_operation,
+    GraphRunPhase, OperationKey, OperationNode, OperationOutcome, OperationRegistry,
+    OperationState, RunningApp, async_operation,
 };
 use std::num::NonZeroUsize;
 use std::sync::{
