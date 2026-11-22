@@ -258,6 +258,7 @@ fn generated_linked_reader_and_storage_reuse_one_live_provider_instance() {
     )
     .unwrap();
 
+    let mut retained_reader = None;
     Application::new("LinkedModelReaderAndWriter")
         .handler_with_aliases(
             |reader: ModelRead<TodoModel, TestRecordReaderContract>,
@@ -270,6 +271,7 @@ fn generated_linked_reader_and_storage_reuse_one_live_provider_instance() {
                     completed: false,
                 })?;
                 assert_eq!(reader.count_records("todo")?, 1);
+                retained_reader = Some(reader);
                 Ok(())
             },
             ["read", "writer"],
@@ -281,6 +283,10 @@ fn generated_linked_reader_and_storage_reuse_one_live_provider_instance() {
         .unwrap();
 
     assert_eq!(created.load(Ordering::SeqCst), 1);
+    assert!(matches!(
+        retained_reader.unwrap().count_records("todo"),
+        Err(StoreError::Transport(_))
+    ));
 }
 
 #[cfg(feature = "dev-memory-storage")]
@@ -309,6 +315,10 @@ fn typed_model_read_only_handler_works_with_a_read_only_local_provider() {
             |reader: ModelRead<TodoModel, TestRecordReaderContract>|
              -> std::result::Result<(), StoreError> {
                 assert_eq!(reader.count_records("todo")?, 0);
+                assert!(matches!(
+                    reader.count_records("unregistered"),
+                    Err(StoreError::Failed(_))
+                ));
                 Ok(())
             },
         )
