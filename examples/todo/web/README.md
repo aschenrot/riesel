@@ -2,6 +2,8 @@
 
 Application-specific SvelteKit frontend for [Todo R2](../../../docs/product/todo/todo.md). It calls the accepted [local HTTP contract](../../../docs/product/todo/http-local-browser-contract.md) and does not implement its own task persistence or domain validation.
 
+**Real UI screenshots:** [Todo R2 verified visual reference](../../../docs/product/todo/visual-reference.md) — dated and versioned desktop/mobile/light/dark, selection, feedback and deletion captures from the actual Rust/SQLite browser E2E suite.
+
 ## Development
 
 Requires Node.js 22.12 or later and the delivered Rust Todo HTTP backend. Builds are static; runtime operation uses Rust, not Node.

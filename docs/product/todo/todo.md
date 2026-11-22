@@ -5,6 +5,8 @@
 Todo is a task-management application built with Riesel and a reference case for testing the platform's model, Storage, and application-runtime APIs.
 
 Three delivery modes remain distinct:
+For the **actual delivered browser appearance**, see the [verified Todo R2 screenshot gallery](visual-reference.md), captured from the real Rust/SQLite app at a documented commit. The images are historical evidence, not a design mockup or a claim that future UI revisions are unchanged.
+
 
 - **R0 reference:** a one-shot in-memory `todo` example for framework regression checks.
 - **R1 headless manager:** persistent `todo_cli` commands using explicitly configured linked SQLite.

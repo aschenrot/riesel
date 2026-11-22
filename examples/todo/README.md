@@ -3,6 +3,8 @@
 Todo is the first reference application for Riesel's typed model,
 generated capability RPC, and runtime lifecycle.
 
+**Actual R2 screenshots:** [verified Todo browser visual reference](../../docs/product/todo/visual-reference.md) (desktop/mobile, system light/dark, selection, Undo and permanent-delete confirmation). These are Playwright captures of the real Rust/SQLite app, not mockups.
+
 ## Local HTTP backend (Todo R2, development)
 
 The optional Rust backend implements the accepted [local browser contract](../../docs/product/todo/http-local-browser-contract.md) without changing the R0 or R1 binaries:
