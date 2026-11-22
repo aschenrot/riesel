@@ -257,7 +257,6 @@ fn diagnostic_repeated_wide_and_chain_graph_samples() {
     });
 }
 
-
 #[test]
 fn paused_hot_resource_owner_allows_independent_cold_progress() {
     runtime().block_on(async {
