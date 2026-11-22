@@ -92,3 +92,11 @@ RunenRender `composition_2d` can express immutable source-neutral painting and i
 3. #175: owner decides final product UX, data ownership/capability granularity and implementation increment sequence based on the multi-domain comparison. #187 separately owns platform-level S3 acceptance. Both require recorded owner accept/revise/defer decisions before freezing public contracts or creating S3 production issues.
 
 No architecture decisions above are silently approved by passing research CI.
+
+## 10. Actual concurrent-run stale-output counterexample (third proof)
+
+An additional test now runs **two actual `context.execution_graph` instances** for the *same logical plan ID* with semantic revisions 1 and 2 in the same application session. The test holds the older callback at a deterministic async gate, allows the newer revision's callback to publish a domain-owned result, and then releases the older callback. The domain-local snapshot owner checks its expected revision and **rejects the stale write**; the older Riesel graph report is failed while the newer report is successful, and its newer value remains intact.
+
+The experiment proves an app author *can* protect a local result cache when multiple graph runs overlap, but **the existing S2 runner does not itself provide the artifact slot, check the producer's output revision, or decide which completed result becomes current**. No true S3 per-run port values, persistent source/plan CAS, authenticated publisher or automatically safe recomputation follows. Different operations lacking declared shared resources may run concurrently by design; this test is not evidence of an SDK scheduling defect.
+
+**Focused verification:** [CI #44997722305](https://github.com/aschenrot/riesel/actions/runs/44997722305) **PASS**, **13/13 tests and headless application run** at the exact source SHA `f42c8fc392edd689868730d8ab15d790b3da6759`. This expands the earlier 11/11 typed-port test run and 12/12 S2 fail-closed test run. Final report/head normal Linux Validate/smoke evidence must be checked separately before any integration.
