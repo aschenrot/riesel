@@ -5,6 +5,7 @@
 //! validation and binding never call them. Scheduling, session ownership,
 //! runtime effects, authentication and a persisted plan format are separate.
 
+use crate::editor_catalog::EditorOperationDescriptor;
 use serde::Serialize;
 use std::{
     collections::{BTreeMap, BTreeSet},
@@ -493,12 +494,14 @@ impl ValidatedExecutionPlan {
 /// compulsory async/native execution signature before runner integration.
 pub struct OperationRegistry<H: ?Sized> {
     handlers: BTreeMap<OperationKey, Arc<H>>,
+    pub(crate) editable_operations: BTreeMap<OperationKey, EditorOperationDescriptor>,
 }
 
 impl<H: ?Sized> Default for OperationRegistry<H> {
     fn default() -> Self {
         Self {
             handlers: BTreeMap::new(),
+            editable_operations: BTreeMap::new(),
         }
     }
 }
