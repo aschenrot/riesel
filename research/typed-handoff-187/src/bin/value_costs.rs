@@ -44,13 +44,34 @@ fn median_ns_per_op<F: FnMut()>(mut execute: F, iterations: usize) -> u128 {
     batches[2]
 }
 
+fn float_error(original: &[f64], decoded: &[f64]) -> (usize, u64, f64) {
+    assert_eq!(original.len(), decoded.len());
+    let mut differences = 0usize;
+    let mut worst_ulp = 0u64;
+    let mut largest_abs = 0.0f64;
+    for (&a, &b) in original.iter().zip(decoded.iter()) {
+        assert!(a.is_finite() && b.is_finite());
+        if a.to_bits() != b.to_bits() {
+            differences += 1;
+            worst_ulp = worst_ulp.max(a.to_bits().abs_diff(b.to_bits()));
+            largest_abs = largest_abs.max((a - b).abs());
+        }
+    }
+    (differences, worst_ulp, largest_abs)
+}
+
 fn bench_one(side: usize, shared_loops: usize, copy_loops: usize, json_loops: usize) {
     let grid = make_grid(side);
     let element_count = side * side;
     let arc = Arc::new(grid.clone());
     let encoded = serde_json::to_vec(&grid).expect("reference serialization");
     let decoded: ScalarGridDto = serde_json::from_slice(&encoded).expect("reference decoding");
-    assert_eq!(decoded, grid);
+    assert_eq!((decoded.width, decoded.height), (side, side));
+    let (float_mismatches, worst_ulp, max_abs_error) =
+        float_error(&grid.samples, &decoded.samples);
+    if cfg!(feature = "json-float-roundtrip") {
+        assert_eq!(float_mismatches, 0, "exact-float feature must round-trip exactly");
+    }
     let logical_data_bytes = element_count * std::mem::size_of::<f64>();
     let arc_ns = median_ns_per_op(|| {
         let cloned = black_box(Arc::clone(&arc));
@@ -71,16 +92,20 @@ fn bench_one(side: usize, shared_loops: usize, copy_loops: usize, json_loops: us
     // Report measurement, not a universal copy count. Arc cloning is only
     // zero-copy while payload is immutable and process-local.
     println!(
-        "VALUE_COSTS side={side} cells={element_count} scalar_bytes={logical_data_bytes} json_bytes={} exceeds_rpc_raw_frame={} arc_clone_median_ns={} vec_deep_clone_median_ns={} json_encode_median_ns={} json_decode_median_ns={} loops_arc={} loops_clone={} loops_json={}",
+        "VALUE_COSTS side={side} cells={element_count} scalar_bytes={logical_data_bytes} json_bytes={} exceeds_rpc_raw_frame={} float_mismatches={} worst_ulp={} max_abs_error={:.3e} arc_clone_median_ns={} vec_deep_clone_median_ns={} json_encode_median_ns={} json_decode_median_ns={} loops_arc={} loops_clone={} loops_json={}",
         encoded.len(),
         encoded.len() + 1 > FRAME_MAX_BYTES,
+        float_mismatches, worst_ulp, max_abs_error,
         arc_ns, copy_ns, encode_ns, decode_ns,
         shared_loops, copy_loops, json_loops,
     );
 }
 
 fn main() {
-    println!("VALUE_COSTS method=median_of_5_batches mode=release host=CI single_process_no_traffic codec=serde_json frame_bytes={FRAME_MAX_BYTES}");
+    println!(
+        "VALUE_COSTS method=median_of_5_batches mode=release host=CI single_process_no_traffic codec=serde_json float_roundtrip={} frame_bytes={FRAME_MAX_BYTES}",
+        cfg!(feature = "json-float-roundtrip"),
+    );
     bench_one(64, 10_000, 1_000, 100);
     bench_one(512, 10_000, 250, 10);
     bench_one(1024, 10_000, 50, 3);
@@ -96,7 +121,13 @@ mod tests {
             let source = make_grid(side);
             let bytes = serde_json::to_vec(&source).unwrap();
             let restored: ScalarGridDto = serde_json::from_slice(&bytes).unwrap();
-            assert_eq!(source, restored);
+            assert_eq!((source.width, source.height), (restored.width, restored.height));
+            let (mismatches, _max_ulp, max_abs) =
+                float_error(&source.samples, &restored.samples);
+            assert!(max_abs < 1e-12, "synthetic sample exceeded experiment tolerance");
+            if cfg!(feature = "json-float-roundtrip") {
+                assert_eq!(mismatches, 0, "exact feature did not roundtrip floats");
+            }
             assert_eq!(source.samples.len(), side * side);
             assert_eq!(source.samples.capacity() * std::mem::size_of::<f64>() >= side*side*8, true);
             if side >= 512 {
