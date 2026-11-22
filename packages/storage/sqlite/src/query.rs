@@ -226,6 +226,63 @@ mod tests {
     }
 
     #[test]
+    fn sqlite_live_cursor_observes_confirmed_mutation_between_pages() {
+        let dir = tempfile::tempdir().unwrap();
+        let db = dir.path().join("live-scan.db");
+        let store = SqliteStore::open(&db, models())
+            .unwrap()
+            .with_query_grants(BTreeSet::from(["task".into()]))
+            .unwrap();
+        let id = Uuid::new_v4();
+        let mut records = Vec::new();
+        for _ in 0..3 {
+            records.push(
+                store
+                    .create(
+                        "task",
+                        json!({"completed":false, "big":u64::MAX,
+                               "external_id":id.to_string()}),
+                    )
+                    .unwrap(),
+            );
+        }
+        records.sort_by_key(|record| record.id);
+        let mut request = RecordQueryRequest {
+            model: "task".into(),
+            predicate: Some(RecordPredicate {
+                field: "completed".into(),
+                operator: RecordCompare::Eq,
+                value: Some(json!(true)),
+            }),
+            limit: 1,
+            scan_budget: 1,
+            cursor: None,
+        };
+        let first = store.query_page(request.clone()).unwrap();
+        assert!(first.records.is_empty());
+        assert!(!first.exhausted);
+        request.cursor = first.next_cursor;
+        let last = records.last().unwrap();
+        store
+            .update(
+                "task",
+                last.id,
+                last.revision,
+                json!({"completed":true, "big":u64::MAX,
+                       "external_id":id.to_string()}),
+            )
+            .unwrap();
+        let second = store.query_page(request.clone()).unwrap();
+        assert!(second.records.is_empty());
+        assert!(!second.exhausted);
+        request.cursor = second.next_cursor;
+        let final_page = store.query_page(request).unwrap();
+        assert_eq!(final_page.records.len(), 1);
+        assert_eq!(final_page.records[0].id, last.id);
+        assert_eq!(final_page.records[0].data["completed"], true);
+    }
+
+    #[test]
     fn query_only_reads_its_model_without_enumerating_other_persisted_models() {
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("multi-model.db");
