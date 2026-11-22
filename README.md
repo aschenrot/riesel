@@ -103,6 +103,7 @@ See the [async execution contract](docs/product/riesel/async-execution-contract.
 - [Async execution contract](docs/product/riesel/async-execution-contract.md)
 - [Provider catalog and selection](docs/product/riesel/provider-catalog.md)
 - [Todo reference](examples/todo/README.md)
+- [Todo visual reference — real R2 screenshots](docs/product/todo/visual-reference.md)
 - [Counter reference](examples/counter/app/README.md)
 
 Riesel is in an early architecture phase; intentional breaking changes are permitted. Published capability contract identities and error/lifecycle semantics must nevertheless be changed deliberately and verified by tests.
