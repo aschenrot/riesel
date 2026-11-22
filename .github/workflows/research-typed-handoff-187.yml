@@ -1,0 +1,27 @@
+name: Research S3 Typed Handoff #187
+
+permissions:
+  contents: read
+
+on:
+  pull_request:
+    branches:
+      - main
+    paths:
+      - "research/typed-handoff-187/**"
+      - ".github/workflows/research-typed-handoff-187.yml"
+  workflow_dispatch:
+
+jobs:
+  actual-riesel-runner:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install Rust 1.100.0
+        run: |
+          rustup toolchain install 1.100.0 --profile minimal
+          rustup default 1.100.0
+      - name: Test actual runner / typed-domain handoff
+        run: cargo test --manifest-path research/typed-handoff-187/Cargo.toml -- --nocapture
+      - name: Run headless example
+        run: cargo run --manifest-path research/typed-handoff-187/Cargo.toml
