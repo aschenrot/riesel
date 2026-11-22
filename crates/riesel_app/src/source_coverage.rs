@@ -5,9 +5,9 @@
 //! A successful report does not authenticate the caller or publish a revision.
 
 use crate::{
-    AccessMode, DomainAdmissionMode, OperationRegistry, OperationTrigger,
-    S2DocumentAccessMode, S2DocumentDomainMode, S2DocumentLimits, S2DocumentTrigger,
-    S2PlanDocument, ValidatedExecutionPlan, bind_s2_document,
+    AccessMode, DomainAdmissionMode, OperationRegistry, OperationTrigger, S2DocumentAccessMode,
+    S2DocumentDomainMode, S2DocumentLimits, S2DocumentTrigger, S2PlanDocument,
+    ValidatedExecutionPlan, bind_s2_document,
 };
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -108,19 +108,18 @@ impl PlanSourceCoverageReport {
             if !trigger_matches {
                 report.add(Some(code_node.id()), SourceCoverageProblem::TriggerChanged);
             }
-            let resources_match = candidate.resources.len() == code_node.resources().len()
-                && code_node
-                    .resources()
-                    .iter()
-                    .zip(&candidate.resources)
-                    .all(|(code, editor)| {
-                        code.resource() == editor.resource
-                            && matches!(
-                                (code.mode(), editor.mode),
-                                (AccessMode::Read, S2DocumentAccessMode::Read)
-                                    | (AccessMode::Write, S2DocumentAccessMode::Write)
-                            )
-                    });
+            let resources_match =
+                candidate.resources.len() == code_node.resources().len()
+                    && code_node.resources().iter().zip(&candidate.resources).all(
+                        |(code, editor)| {
+                            code.resource() == editor.resource
+                                && matches!(
+                                    (code.mode(), editor.mode),
+                                    (AccessMode::Read, S2DocumentAccessMode::Read)
+                                        | (AccessMode::Write, S2DocumentAccessMode::Write)
+                                )
+                        },
+                    );
             if !resources_match {
                 report.add(
                     Some(code_node.id()),
@@ -133,11 +132,13 @@ impl PlanSourceCoverageReport {
                     code.domain() == editor.name
                         && matches!(
                             (code.mode(), editor.mode),
-                            (DomainAdmissionMode::RieselTick, S2DocumentDomainMode::RieselTick)
-                                | (
-                                    DomainAdmissionMode::DelegatedFrame,
-                                    S2DocumentDomainMode::DelegatedFrame
-                                )
+                            (
+                                DomainAdmissionMode::RieselTick,
+                                S2DocumentDomainMode::RieselTick
+                            ) | (
+                                DomainAdmissionMode::DelegatedFrame,
+                                S2DocumentDomainMode::DelegatedFrame
+                            )
                         )
                 }
                 _ => false,
@@ -151,11 +152,12 @@ impl PlanSourceCoverageReport {
         }
 
         for editor_node in &document.operations {
-            if !source.operations().iter().any(|code| code.id() == editor_node.id) {
-                report.add(
-                    Some(&editor_node.id),
-                    SourceCoverageProblem::ExtraNode,
-                );
+            if !source
+                .operations()
+                .iter()
+                .any(|code| code.id() == editor_node.id)
+            {
+                report.add(Some(&editor_node.id), SourceCoverageProblem::ExtraNode);
             }
         }
 
