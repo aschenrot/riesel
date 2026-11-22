@@ -84,19 +84,7 @@ impl NoiseGeneration for SyntheticNoise {
         height: u64,
         seed: u64,
     ) -> Result<ScalarGridDto, ProbeError> {
-        let size = bounded_size(width, height)?;
-        let samples = (0..size)
-            .map(|i| {
-                let x = (i as u64) % width;
-                let y = (i as u64) / width;
-                // Simple deterministic test pattern, NOT procedural noise.
-                seed.wrapping_add(x.wrapping_mul(17))
-                    .wrapping_add(y.wrapping_mul(31))
-                    .wrapping_rem(100) as f64
-                    / 100.0
-            })
-            .collect();
-        Ok(ScalarGridDto { width, height, samples })
+        synthetic_field(width, height, seed)
     }
 }
 
@@ -113,6 +101,60 @@ impl CellularAutomata for RuleCa {
     ) -> Result<OccupancyGridDto, ProbeError> {
         apply_ca(grid, iterations, &rule)
     }
+}
+
+
+/// A deliberately coarse alternative: the provider owns the entire pipeline.
+/// This is a comparator, NOT the preferred public architecture.
+#[capability(id = "research.grid175.whole_pipeline", version = 1)]
+pub trait WholeGridPipeline {
+    /// Produce final occupancy in one capability call without exporting
+    /// intermediate scalar grids between provider operations.
+    #[query]
+    async fn process(
+        &self,
+        width: u64,
+        height: u64,
+        seed: u64,
+        cutoff: f64,
+        iterations: u64,
+        rule: CaRuleDto,
+    ) -> Result<OccupancyGridDto, ProbeError>;
+}
+
+#[component(id = "research.grid175.coarse_pipeline", provides = [WholeGridPipelineContract])]
+#[derive(Default)]
+pub struct CoarsePipeline;
+
+impl WholeGridPipeline for CoarsePipeline {
+    async fn process(
+        &self,
+        width: u64,
+        height: u64,
+        seed: u64,
+        cutoff: f64,
+        iterations: u64,
+        rule: CaRuleDto,
+    ) -> Result<OccupancyGridDto, ProbeError> {
+        let scalar = synthetic_field(width, height, seed)?;
+        apply_ca(threshold(scalar, cutoff)?, iterations, &rule)
+    }
+}
+
+/// Source-independent fake field for the contract-granularity experiment.
+fn synthetic_field(width: u64, height: u64, seed: u64) -> Result<ScalarGridDto, ProbeError> {
+    let size = bounded_size(width, height)?;
+    let samples = (0..size)
+        .map(|i| {
+            let x = (i as u64) % width;
+            let y = (i as u64) / width;
+            seed.wrapping_add(x.wrapping_mul(17))
+                .wrapping_add(y.wrapping_mul(31))
+                .wrapping_rem(100) as f64
+                / 100.0
+        })
+        .collect();
+    Ok(ScalarGridDto { width, height, samples })
 }
 
 /// Domain-independent rule reference, deliberately limited to binary 8-neighbor
@@ -195,17 +237,20 @@ fn threshold(input: ScalarGridDto, value: f64) -> Result<OccupancyGridDto, Probe
     })
 }
 
-#[riesel::app(name = "Grid175CapabilityProof", components = [SyntheticNoise, RuleCa])]
+#[riesel::app(name = "Grid175CapabilityProof", components = [SyntheticNoise, RuleCa, CoarsePipeline])]
 async fn main(
     noise: NoiseGenerationHandle,
     ca: CellularAutomataHandle,
+    pipeline: WholeGridPipelineHandle,
 ) -> AppResult<()> {
     let field = noise.generate(64, 64, 42).await?;
     let grid = threshold(field, 0.55)?;
     let rule = CaRuleDto {
         birth_min: 5, survive_min: 5, protected_border: 1, outside_occupied: true,
     };
-    let actual = ca.apply(grid.clone(), 4, rule).await?;
+    let actual = ca.apply(grid.clone(), 4, rule.clone()).await?;
+    let coarse = pipeline.process(64, 64, 42, 0.55, 4, rule).await?;
+    assert_eq!(actual, coarse, "separate and coarse boundaries must agree");
 
     assert_eq!(actual.occupied.len(), 64 * 64);
     for y in 0..64usize {
@@ -242,6 +287,21 @@ mod tests {
         let invalid = ScalarGridDto { width: 1, height: 1, samples: vec![f64::NAN] };
         assert_eq!(threshold(invalid, 0.5), Err(ProbeError::NonFinite));
     }
+    #[test]
+    fn separate_and_coarse_composition_have_identical_semantics() {
+        let rule = CaRuleDto {
+            birth_min: 4, survive_min: 5, protected_border: 1, outside_occupied: true,
+        };
+        let field = synthetic_field(8, 8, 17).unwrap();
+        let separate = apply_ca(threshold(field, 0.4).unwrap(), 3, &rule).unwrap();
+        let coarse = apply_ca(
+            threshold(synthetic_field(8, 8, 17).unwrap(), 0.4).unwrap(),
+            3,
+            &rule,
+        ).unwrap();
+        assert_eq!(separate, coarse);
+    }
+
     #[test]
     fn border_preservation_is_per_iteration_and_keeps_mixed_values() {
         let width = 8usize;
