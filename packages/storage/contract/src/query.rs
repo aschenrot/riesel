@@ -545,9 +545,8 @@ mod tests {
             validate_record_query(&definition, &query),
             Err(RecordQueryError::RequestTooLarge)
         ));
-        query.predicate.as_mut().unwrap().value = Some(json!(
-            "x".repeat(MAX_QUERY_STRING_OPERAND_BYTES)
-        ));
+        query.predicate.as_mut().unwrap().value =
+            Some(json!("x".repeat(MAX_QUERY_STRING_OPERAND_BYTES)));
         validate_record_query(&definition, &query).unwrap();
         query.predicate.as_mut().unwrap().field = "x".repeat(MAX_QUERY_IDENTIFIER_BYTES + 1);
         assert!(matches!(
