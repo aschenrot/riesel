@@ -82,7 +82,9 @@ pub enum RuntimeError {
     },
     #[error("record Query model {model} requires trusted linked placement for {requirement}")]
     UnsupportedLinkedRecordPlacement { model: String, requirement: String },
-    #[error("record Query model {model} links reader {reader} and writer {writer} to different providers")]
+    #[error(
+        "record Query model {model} links reader {reader} and writer {writer} to different providers"
+    )]
     LinkedRecordOwnerMismatch {
         model: String,
         reader: String,
