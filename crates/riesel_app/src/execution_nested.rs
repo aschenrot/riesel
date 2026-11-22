@@ -71,6 +71,33 @@ pub struct NestedTransitions {
     pub sequences: Vec<u64>,
 }
 
+/// Generic inspector header available without knowing a domain's payload T.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct NestedViewInfo {
+    pub description: NestedDescription,
+    pub latest: NestedCursor,
+    pub status: NestedStatus,
+}
+
+/// The common read-only projection and bounded loss recovery do not depend
+/// on any ECS, pipeline, or version-specific nested payload type.
+#[derive(Clone)]
+pub struct NestedHeaderObserver {
+    sample: Arc<dyn Fn(&SessionToken) -> NestedViewInfo + Send + Sync>,
+    history: Arc<dyn Fn(&SessionToken, NestedCursor) -> Result<NestedTransitions, NestedObservationError> + Send + Sync>,
+    session: SessionToken,
+}
+
+impl NestedHeaderObserver {
+    pub fn snapshot(&self) -> NestedViewInfo {
+        (self.sample)(&self.session)
+    }
+
+    pub fn changes_since(&self, cursor: NestedCursor) -> Result<NestedTransitions, NestedObservationError> {
+        (self.history)(&self.session, cursor)
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Error)]
 pub enum NestedObservationError {
     #[error("nested observation requires a live delegated-frame operation attempt")]
@@ -170,12 +197,22 @@ impl NestedDomainRegistration {
 pub(crate) struct NestedAttachment {
     pub(crate) description: NestedDescription,
     erased: Arc<dyn Any + Send + Sync>,
+    sample: Arc<dyn Fn(&SessionToken) -> NestedViewInfo + Send + Sync>,
+    history: Arc<dyn Fn(&SessionToken, NestedCursor) -> Result<NestedTransitions, NestedObservationError> + Send + Sync>,
     retired: Arc<AtomicBool>,
 }
 
 impl NestedAttachment {
     pub(crate) fn retire(&self) {
         self.retired.store(true, Ordering::Release);
+    }
+
+    pub(crate) fn header(&self, session: SessionToken) -> NestedHeaderObserver {
+        NestedHeaderObserver {
+            sample: Arc::clone(&self.sample),
+            history: Arc::clone(&self.history),
+            session,
+        }
     }
 
     pub(crate) fn observer<T: Send + Sync + 'static>(
@@ -192,6 +229,7 @@ impl NestedAttachment {
 struct NestedStore<T> {
     description: NestedDescription,
     owner: Weak<DomainLifetime>,
+    session: SessionToken,
     retired: Arc<AtomicBool>,
     sequence: u64,
     payload: Option<Arc<T>>,
@@ -216,6 +254,48 @@ impl<T> NestedStore<T> {
             NestedStatus::Current
         }
     }
+
+    fn changes_since(
+        &self,
+        session: &SessionToken,
+        cursor: NestedCursor,
+    ) -> Result<NestedTransitions, NestedObservationError> {
+        if cursor.owner_generation != self.description.owner_generation {
+            return Err(NestedObservationError::StaleCursor);
+        }
+        if cursor.sequence > self.sequence {
+            return Err(NestedObservationError::FutureCursor {
+                requested: cursor.sequence,
+                latest: self.sequence,
+            });
+        }
+        let status = self.status(session);
+        if status == NestedStatus::SessionExpired {
+            return Err(NestedObservationError::SessionExpired);
+        }
+        if status == NestedStatus::Superseded {
+            return Err(NestedObservationError::Superseded);
+        }
+        let first = self
+            .transitions
+            .front()
+            .copied()
+            .unwrap_or(self.sequence.saturating_add(1));
+        Ok(NestedTransitions {
+            latest: NestedCursor {
+                owner_generation: self.description.owner_generation,
+                sequence: self.sequence,
+            },
+            truncated: cursor.sequence < first.saturating_sub(1),
+            status,
+            sequences: self
+                .transitions
+                .iter()
+                .copied()
+                .filter(|sequence| *sequence > cursor.sequence)
+                .collect(),
+        })
+    }
 }
 
 /// Owner-only publication, scoped to exactly one graph operation attempt. It
@@ -229,21 +309,47 @@ impl<T: Send + Sync + 'static> NestedPublisher<T> {
     pub(crate) fn attach(
         description: NestedDescription,
         owner: Weak<DomainLifetime>,
+        session: SessionToken,
     ) -> (NestedAttachment, Self) {
         let retired = Arc::new(AtomicBool::new(false));
         let source = Arc::new(Mutex::new(NestedStore {
             description: description.clone(),
             owner,
+            session,
             retired: Arc::clone(&retired),
             sequence: 0,
             payload: None,
             transitions: VecDeque::new(),
         }));
         let erased: Arc<dyn Any + Send + Sync> = source.clone();
+
+        let sampled = Arc::clone(&source);
+        let sample: Arc<dyn Fn(&SessionToken) -> NestedViewInfo + Send + Sync> = Arc::new(move |session| {
+            let state = sampled.lock().unwrap_or_else(PoisonError::into_inner);
+            NestedViewInfo {
+                description: state.description.clone(),
+                latest: NestedCursor {
+                    owner_generation: state.description.owner_generation,
+                    sequence: state.sequence,
+                },
+                status: state.status(session),
+            }
+        });
+        let retained = Arc::clone(&source);
+        let history: Arc<
+            dyn Fn(&SessionToken, NestedCursor) -> Result<NestedTransitions, NestedObservationError>
+                + Send
+                + Sync,
+        > = Arc::new(move |session, cursor| {
+            let state = retained.lock().unwrap_or_else(PoisonError::into_inner);
+            state.changes_since(session, cursor)
+        });
         (
             NestedAttachment {
                 description,
                 erased,
+                sample,
+                history,
                 retired,
             },
             Self { source },
@@ -257,6 +363,9 @@ impl<T: Send + Sync + 'static> NestedPublisher<T> {
         // the owner snapshot mutex; never retain historical payloads in ring.
         let payload = Arc::new(snapshot);
         let mut state = self.source.lock().unwrap_or_else(PoisonError::into_inner);
+        if !state.session.is_active() {
+            return Err(NestedObservationError::SessionExpired);
+        }
         if state.retired.load(Ordering::Acquire) {
             return Err(NestedObservationError::Superseded);
         }
@@ -316,40 +425,6 @@ impl<T> NestedObserver<T> {
         cursor: NestedCursor,
     ) -> Result<NestedTransitions, NestedObservationError> {
         let state = self.source.lock().unwrap_or_else(PoisonError::into_inner);
-        if cursor.owner_generation != state.description.owner_generation {
-            return Err(NestedObservationError::StaleCursor);
-        }
-        if cursor.sequence > state.sequence {
-            return Err(NestedObservationError::FutureCursor {
-                requested: cursor.sequence,
-                latest: state.sequence,
-            });
-        }
-        let status = state.status(&self.session);
-        if status == NestedStatus::SessionExpired {
-            return Err(NestedObservationError::SessionExpired);
-        }
-        if status == NestedStatus::Superseded {
-            return Err(NestedObservationError::Superseded);
-        }
-        let first = state
-            .transitions
-            .front()
-            .copied()
-            .unwrap_or(state.sequence.saturating_add(1));
-        Ok(NestedTransitions {
-            latest: NestedCursor {
-                owner_generation: state.description.owner_generation,
-                sequence: state.sequence,
-            },
-            truncated: cursor.sequence < first.saturating_sub(1),
-            status,
-            sequences: state
-                .transitions
-                .iter()
-                .copied()
-                .filter(|i| *i > cursor.sequence)
-                .collect(),
-        })
+        state.changes_since(&self.session, cursor)
     }
 }
