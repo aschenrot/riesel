@@ -12,6 +12,8 @@ http = ["dep:axum", "dep:tokio", "dep:tower-http"]
 e2e-fixture = []
 # Test-only #158 semantics; never enabled by normal HTTP builds.
 internal-observation = ["riesel/internal-publication"]
+# Opt-in non-sensitive T1 demonstration; never enabled by the Todo CLI/HTTP.
+t1-public-read = ["riesel/app-publication-unix", "dep:tokio"]
 
 [dependencies]
 riesel = { workspace = true, features = ["dev-memory-storage", "sqlite-storage", "async-tcp"] }
