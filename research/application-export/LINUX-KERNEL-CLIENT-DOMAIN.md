@@ -1,6 +1,6 @@
 # #60 / #75 — Real Riesel Counter, kernel-attested client security domains and same-UID entry bypass
 
-**Status: unexecuted research hypothesis.** This research is not an accepted OS client sandbox, protected native GUI, installed Manager or production exporter. The test does not change core Riesel APIs or a shipped Counter capability.
+**Status: bounded Linux research EXECUTED and PASSED** at code head `8f64a9cefadd25d36d6ba4d66486f05331f26cb1` in [real AppArmor/Counter CI 44978835889](https://github.com/aschenrot/riesel/actions/runs/44978835889). Final report-head Linux research and independent validation require a separate exact-commit check. **Critical negative result:** an unconfined attacker under the authorized UID entered the trusted profile and actually mutated the Counter. This research is not an accepted OS client sandbox, protected native GUI, installed Manager or production exporter. The test does not change core Riesel APIs or a shipped Counter capability.
 
 ## Product outcome and exact question
 
@@ -33,6 +33,30 @@ Procedure:
 
 Expected markers are hypotheses until actual CI passes. The test uses **real Counter domain mutations**, not mock STOP text, but **no real independent GUI**: a CLI-like short-lived client supplies the lower-level OS identity controls.
 
+## Actual Ubuntu 24.04 evidence and bypass observed
+
+**[CI run 44978835889](https://github.com/aschenrot/riesel/actions/runs/44978835889) PASSED** at exact research source SHA 8f64a9cefadd25d36d6ba4d66486f05331f26cb1. Real systemd/AppArmor profile enforcement was enabled; pinned unmodified Riesel Counter was built and started under an isolated backend OS UID with a genuinely inaccessible host-side legacy TCP endpoint. The new research-only SO_PEERSEC check ran before the pre-existing operation grant and real Counter dispatch. All important variants used **real short-lived Linux client processes** with the same UID60090 for the trusted, unconfined and confined attacker cases.
+
+| Evidence marker from actual OS CI | Observed behavior and scope |
+| --- | --- |
+| RESEARCH_M60_ROOT_LOADED_TWO_REAL_APPARMOR_PROFILES | Two distinct disposable research profiles installed into the actual kernel and removed on cleanup |
+| RESEARCH_M60_REAL_COUNTER_ISOLATED_AND_LABEL_GATEWAY_CALLABLE | Genuine SDK-resolved Counter process reached via verified isolated systemd network namespace and research-only Unix socket |
+| RESEARCH_M60_REAL_COUNTER_TRUSTED_LABEL_ALLOWED_SAME_UID_UNCONFINED_DENIED | Unconfined client under allowed UID60090 denied; separately root-test-launched trusted-label client queried Counter 0 and mutated **0→2** |
+| RESEARCH_M60_SAME_UID_CONFINED_ATTACKER_LABEL_REJECTED | Same-UID attacker in a **different actual AppArmor domain** denied before Counter dispatch |
+| RESEARCH_M60_CONFINED_SAME_UID_TRUSTED_DOMAIN_SWITCH_DENIED | The confined attacker received an actual kernel/AppArmor permission failure attempting an unauthorized change to trusted profile |
+| RESEARCH_M60_TRUSTED_LABEL_WRONG_UID_STILL_DENIED | Trusted-labelled client under wrong UID60091, even with forged claimed UID, denied by real SO_PEERCRED + UID operation grant |
+| RESEARCH_M60_UNCONFINED_SAME_UID_SELF_ENTERS_TRUSTED_LABEL_AND_MUTATES_REAL_COUNTER | **Actual unconfined same-UID attacker** used aa-exec to enter the same *permissive* trusted label, sent a real Counter **add(3)**, and changed authoritative state **2→5** despite no trusted launcher enrollment |
+| RESEARCH_M60_LABEL_PLUS_UID_REVOCATION_BLOCKS_NEW_MUTATIONS | Root test issuer revoked UID grant; subsequently even correctly trusted-labelled client could not add again |
+| RESEARCH_M60_ACTUAL_KERNEL_DOMAIN_COUNTER_RESEARCH_PASS | All bounded positive, negative and resource cleanup checks completed |
+
+**The decisive security result is NEGATIVE for using labels alone as authorization.** The experiment demonstrates correct OS-enforced isolation **only against a process already in a constrained domain with no change_profile authority**. That protection does **not** extend to a same-user *unconfined* attacker able to acquire a permissive trusted label. AppArmor SO_PEERSEC reports the actual label truthfully; the **profile acquisition policy** is the missing trust boundary. Both true kernel identity and authorized operation grants are required, yet these are still not sufficient to authenticate a particular GUI/actor if the attacker can acquire the approved label.
+
+**The first executable attempt was not a security finding.** [CI 44978756000](https://github.com/aschenrot/riesel/actions/runs/44978756000) installed profiles and built real Counter, but failed before session/service observation because the test named its transient service riesel-m60-label-* whereas the correctly strict pinned #149 helper accepts only riesel-m60-export-*. The new fixture preserved the pinned allowlist unchanged and adopted its exact disposable service naming; then the real experiment completed.
+
+**Still conditional:** The success of the confined-actor denial depends on all relevant untrusted entry points being actually confined and unable to select/replace/relay a trusted process. This test did not enforce complete desktop confinement, signed executable provenance, inheritance/FD passing controls, ptrace and GUI event injection defense, protected human approval, or Windows/macOS parity. The research policy deliberately grants broad file/exec rules and is **unsuitable as an installed production trusted-client profile**. The experiment does not test arbitrary Wayland GUI windows or runtime-issued generation, and it does not eliminate the same-UID threat.
+
+**Suggested requirement refinement:** Product-facing contract should name an authorized **client security domain whose acquisition is independently restricted by an OS/protected issuer**, as distinct from merely reading a label, UID, PID, process name or client-provided claim. A strongly protected attachment requires defense against unconfined same-UID entry and impersonation; otherwise declare a per-user *trusted local* profile, not strong client isolation. Compare a protected OS launcher/portal with one separated client process principal and whole-desktop confinement, including native platform equivalence and real input-origin risks, before accepting any exporter mechanism.
+
 ## Comparison and bias audit
 
 | Alternative | Meaningful capability | Fundamental limitation |
@@ -64,7 +88,7 @@ Official OS context: [Linux unix(7) SO_PEERSEC](https://man7.org/linux/man-pages
     python3 -m py_compile research/application-export/linux_kernel_domain_export_server.py research/application-export/linux_kernel_domain_counter_probe.py
     timeout 165 python3 research/application-export/linux_kernel_domain_counter_probe.py --exercise "$PINNED_GATEWAY_ROOT" "$PINNED_COUNTER_ROOT"
 
-Expected (not yet verified) markers:
+**Verified code-head real Linux markers**, CI 44978835889 (the OS-denied self-entry alternative did not occur):
 
 - RESEARCH_M60_ROOT_LOADED_TWO_REAL_APPARMOR_PROFILES
 - RESEARCH_M60_REAL_COUNTER_ISOLATED_AND_LABEL_GATEWAY_CALLABLE
@@ -72,6 +96,6 @@ Expected (not yet verified) markers:
 - RESEARCH_M60_SAME_UID_CONFINED_ATTACKER_LABEL_REJECTED
 - RESEARCH_M60_CONFINED_SAME_UID_TRUSTED_DOMAIN_SWITCH_DENIED
 - RESEARCH_M60_TRUSTED_LABEL_WRONG_UID_STILL_DENIED
-- RESEARCH_M60_UNCONFINED_SAME_UID_SELF_ENTERS_TRUSTED_LABEL_AND_MUTATES_REAL_COUNTER OR RESEARCH_M60_UNCONFINED_SELF_ENTRY_OS_DENIED_ON_THIS_HOST
+- RESEARCH_M60_UNCONFINED_SAME_UID_SELF_ENTERS_TRUSTED_LABEL_AND_MUTATES_REAL_COUNTER
 - RESEARCH_M60_LABEL_PLUS_UID_REVOCATION_BLOCKS_NEW_MUTATIONS
 - RESEARCH_M60_ACTUAL_KERNEL_DOMAIN_COUNTER_RESEARCH_PASS
