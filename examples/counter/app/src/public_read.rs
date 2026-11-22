@@ -15,6 +15,7 @@ pub enum CounterT1ReadError {
 /// The original CounterContract has a write command; T1 does not publish it.
 #[capability(id = "riesel.counter.public_value", version = 1)]
 pub trait CounterT1Read {
+    /// Observe the current value from the application's selected provider.
     #[query]
     async fn snapshot(&self) -> Result<u64, CounterT1ReadError>;
 }
