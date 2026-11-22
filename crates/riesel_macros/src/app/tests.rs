@@ -149,7 +149,7 @@ fn typed_model_read_parameter_is_not_reinterpreted_as_a_remote_handle() {
     let args: AppArgs = parse_quote! { name = "TypedRead" };
     let source: ItemFn = parse_quote! {
         async fn main(
-            #[riesel(parameter)] reader: riesel::ModelRead<TaskData, RecordReadContract>
+            reader: riesel::ModelRead<TaskData, RecordReadContract>
         ) -> AppResult<()> {
             Ok(())
         }
