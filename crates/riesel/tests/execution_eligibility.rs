@@ -335,6 +335,91 @@ fn many_signal_waiters_do_not_block_independent_work() {
 }
 
 #[test]
+fn resource_blocked_ready_nodes_preserve_unrelated_branch_progress() {
+    runtime().block_on(async {
+        const WRITERS: usize = 256;
+        const INDEPENDENT: usize = 16;
+        let release = Arc::new(Semaphore::new(0));
+        let writers_started = Arc::new(AtomicUsize::new(0));
+        let independent_started = Arc::new(AtomicUsize::new(0));
+        let mut registry = OperationRegistry::<AsyncOperation>::new();
+        registry
+            .register(
+                key("writer"),
+                async_operation({
+                    let release = Arc::clone(&release);
+                    let writers_started = Arc::clone(&writers_started);
+                    move || {
+                        let release = Arc::clone(&release);
+                        let writers_started = Arc::clone(&writers_started);
+                        async move {
+                            if writers_started.fetch_add(1, Ordering::SeqCst) == 0 {
+                                let permit = release.acquire().await.unwrap();
+                                permit.forget();
+                            }
+                            OperationOutcome::Completed
+                        }
+                    }
+                }),
+            )
+            .unwrap();
+        registry
+            .register(
+                key("independent"),
+                async_operation({
+                    let independent_started = Arc::clone(&independent_started);
+                    move || {
+                        let independent_started = Arc::clone(&independent_started);
+                        async move {
+                            independent_started.fetch_add(1, Ordering::SeqCst);
+                            OperationOutcome::Completed
+                        }
+                    }
+                }),
+            )
+            .unwrap();
+
+        let mut draft = ExecutionPlanDraft::new("a1-resource-waiters", 1);
+        for i in 0..WRITERS {
+            draft = draft.operation(
+                OperationNode::new(format!("writer-{i}"), key("writer"))
+                    .access("one-exclusive-resource", riesel::AccessMode::Write),
+            );
+        }
+        for i in 0..INDEPENDENT {
+            draft = draft.operation(OperationNode::new(
+                format!("independent-{i}"),
+                key("independent"),
+            ));
+        }
+        let app = owner();
+        let runner = app
+            .execution_graph(
+                draft.validate().unwrap().bind(&registry).unwrap(),
+                NonZeroUsize::new(32).unwrap(),
+            )
+            .unwrap();
+        let task = tokio::spawn(runner.execute());
+        tokio::time::timeout(Duration::from_secs(5), async {
+            while independent_started.load(Ordering::SeqCst) != INDEPENDENT {
+                tokio::task::yield_now().await;
+            }
+        })
+        .await
+        .unwrap();
+        assert_eq!(writers_started.load(Ordering::SeqCst), 1);
+        release.add_permits(1);
+        let report = tokio::time::timeout(Duration::from_secs(5), task)
+            .await
+            .unwrap()
+            .unwrap();
+        assert!(report.succeeded());
+        assert_eq!(report.started, WRITERS + INDEPENDENT);
+        assert_eq!(writers_started.load(Ordering::SeqCst), WRITERS);
+    });
+}
+
+#[test]
 fn repeated_runs_share_immutable_plan_without_retaining_old_eligibility() {
     runtime().block_on(async {
         const COUNT: usize = 256;
