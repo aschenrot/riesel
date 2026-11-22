@@ -41,7 +41,9 @@ impl SqlitePlanRevisionRepository {
         new_rust_plans: &[ValidatedExecutionPlan],
         limits: S2DocumentLimits,
     ) -> Result<Vec<PlanAuthoringHead>, PlanRevisionError> {
-        let old_registration_stamp = expected_heads.first().map_or("", |head| head.registration_stamp.as_str());
+        let old_registration_stamp = expected_heads
+            .first()
+            .map_or("", |head| head.registration_stamp.as_str());
         if !valid_registration(old_registration_stamp)
             || old_registration_stamp == self.trusted_registration_stamp
             || expected_heads.is_empty()
