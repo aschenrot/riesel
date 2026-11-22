@@ -229,6 +229,68 @@ mod tests {
         assert!(occupancy.occupied[56]);
     }
 
+    /// Current S2 control completion is not a guarantee that a typed output
+    /// exists. This deliberately faulty producer is marked Completed without
+    /// publishing a value, and the dependent callback must reject it itself.
+    #[test]
+    fn control_completion_without_data_must_fail_inside_consumer() {
+        use riesel::OperationState;
+
+        Application::new("Research S3 Missing Data").run(|context| {
+            let value = Arc::new(Mutex::new(None::<u64>));
+            let visited = Arc::new(Mutex::new(false));
+            let mut registry = OperationRegistry::<AsyncOperation>::new();
+
+            registry.register(
+                OperationKey::new("source.completes_without_data", 1)?,
+                async_operation(|| async { OperationOutcome::Completed }),
+            )?;
+            registry.register(
+                OperationKey::new("consumer.must_validate_data", 1)?,
+                async_operation({
+                    let value = Arc::clone(&value);
+                    let visited = Arc::clone(&visited);
+                    move || {
+                        let value = Arc::clone(&value);
+                        let visited = Arc::clone(&visited);
+                        async move {
+                            *visited.lock().unwrap() = true;
+                            if value.lock().unwrap().is_some() {
+                                OperationOutcome::Completed
+                            } else {
+                                OperationOutcome::Failed(
+                                    "control dependency completed but input artifact absent".into(),
+                                )
+                            }
+                        }
+                    }
+                }),
+            )?;
+            let plan = ExecutionPlanDraft::new("research.187.missing-data", 1)
+                .operation(OperationNode::new(
+                    "source", OperationKey::new("source.completes_without_data", 1)?,
+                ))
+                .operation(OperationNode::new(
+                    "consumer", OperationKey::new("consumer.must_validate_data", 1)?,
+                ).after("source"))
+                .validate()?
+                .bind(&registry)?;
+            let runner = context.execution_graph(plan, NonZeroUsize::new(1).unwrap())?;
+            let observer = runner.observer();
+            let tokio = tokio::runtime::Builder::new_current_thread()
+                .enable_all().build()?;
+            let report = tokio.block_on(runner.execute());
+
+            assert!(!report.succeeded());
+            assert!(*visited.lock().unwrap(), "consumer was admitted after control completion");
+            assert_eq!(
+                observer.snapshot().operations["consumer"].state,
+                OperationState::Failed,
+            );
+            Ok(())
+        }).unwrap();
+    }
+
     #[test]
     fn actual_riesel_graph_schedules_control_edges_but_data_is_app_owned() {
         run_current_production_graph_with_domain_owned_data().unwrap();
