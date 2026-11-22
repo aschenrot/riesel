@@ -117,7 +117,11 @@ def gui_main_pid(session_mod, unit, log, uid, scope, executable):
     if unit_state["ActiveState"] == "activating":
         print("RESEARCH_M59_PAM_GUI_CALLABLE_WHILE_OS_SERVICE_ACTIVATING",
               flush=True)
-    proc_exe = os.readlink(f"/proc/{pid}/exe")
+    # Linux may deny /proc/PID/exe to a DIFFERENT ordinary user because
+    # readlink is subject to ptrace access checks. Use the already-trusted
+    # root-only *research observer* for kernel executable provenance, not a
+    # hostile same-UID bypass or a relaxed identity assertion.
+    proc_exe = invoke(root("readlink", "-f", f"/proc/{pid}/exe")).stdout.strip()
     if proc_exe != str(executable):
         raise AssertionError(f"GUI executable differs from pinned installed GUI: {proc_exe}")
     return pid, observed["tick"]
