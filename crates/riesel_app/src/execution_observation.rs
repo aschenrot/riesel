@@ -549,3 +549,42 @@ impl Drop for GraphRunPublication {
         self.phase(GraphRunPhase::Abandoned);
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::execution_plan::OperationKey;
+
+    #[test]
+    fn callback_guard_closes_recording_before_coordinator_observes_completion() {
+        let nodes = vec![OperationNode::new(
+            "tick",
+            OperationKey::new("test.tick", 1).unwrap(),
+        )];
+        let identity = GraphRunIdentity::new(Uuid::new_v4(), 1, "guard-test".into(), 1);
+        let mut publication = GraphRunPublication::new(identity, &nodes, SessionToken::new());
+        publication.start();
+        publication.transition(0, OperationState::Running);
+        let (recorder, guard) = publication.recorder(0);
+        recorder.confirm_prefix("ticks", 1).unwrap();
+
+        // Simulate the callback future returning before the outer runner has
+        // polled the JoinSet. A retained clone must no longer mutate state.
+        let stale = recorder.clone();
+        drop(guard);
+        assert_eq!(
+            publication.observer().snapshot().operations["tick"].state,
+            OperationState::Running
+        );
+        assert!(matches!(
+            stale.confirm_prefix("ticks", 2),
+            Err(GraphEffectError::InactiveAttempt)
+        ));
+        assert_eq!(
+            publication.observer().snapshot().operations["tick"].confirmed_prefixes["ticks"],
+            1
+        );
+        publication.transition(0, OperationState::Completed);
+        publication.finish(false);
+    }
+}
