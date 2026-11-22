@@ -153,6 +153,11 @@ mod tests {
             .async_handler(move |records: Records<TaskData>, tasks: AsyncTasks| {
                 let captured = Arc::clone(&for_handler);
                 async move {
+                    assert_eq!(
+                        tasks.internal_entrypoint_phase(),
+                        riesel::InternalEntrypointPhase::Executing,
+                        "this is a real SDK async handler, not just provider startup"
+                    );
                     // The actual typed Todo command commits to linked SQLite.
                     let task = Todo::new(records)
                         .create_task("Observed persistent task")
@@ -249,6 +254,68 @@ mod tests {
             .unwrap()
             .run()
             .unwrap();
+    }
+
+    /// Test actual lifecycle ordering: provider startup precedes hooks, but
+    /// start/stop hooks must not be mistaken for the typed app entrypoint.
+    #[cfg(feature = "internal-observation")]
+    #[test]
+    fn sdk_async_handler_phase_excludes_start_and_stop_hooks() {
+        use riesel::InternalEntrypointPhase;
+        use std::sync::Mutex;
+        let phases = Arc::new(Mutex::new(Vec::new()));
+        let start = Arc::clone(&phases);
+        let running = Arc::clone(&phases);
+        let stop = Arc::clone(&phases);
+
+        Application::new("TodoScopedEntrypoint")
+            .on_start("phase", move |tasks: AsyncTasks| {
+                let phases = Arc::clone(&start);
+                async move {
+                    let phase = tasks.internal_entrypoint_phase();
+                    assert_eq!(phase, InternalEntrypointPhase::NotEntered);
+                    phases.lock().unwrap().push(phase);
+                    Ok::<(), io::Error>(())
+                }
+            })
+            .unwrap()
+            .on_stop("phase", move |tasks: AsyncTasks| {
+                let phases = Arc::clone(&stop);
+                async move {
+                    let phase = tasks.internal_entrypoint_phase();
+                    assert_eq!(phase, InternalEntrypointPhase::Left);
+                    phases.lock().unwrap().push(phase);
+                    Ok::<(), io::Error>(())
+                }
+            })
+            .unwrap()
+            .async_handler(move |tasks: AsyncTasks| {
+                let phases = Arc::clone(&running);
+                async move {
+                    let phase = tasks.internal_entrypoint_phase();
+                    assert_eq!(phase, InternalEntrypointPhase::Executing);
+                    phases.lock().unwrap().push(phase);
+                    // Cross an actual async suspension without losing the
+                    // lexical entrypoint witness.
+                    tokio::task::yield_now().await;
+                    assert_eq!(
+                        tasks.internal_entrypoint_phase(),
+                        InternalEntrypointPhase::Executing
+                    );
+                    Ok::<(), io::Error>(())
+                }
+            })
+            .unwrap()
+            .run()
+            .unwrap();
+        assert_eq!(
+            *phases.lock().unwrap(),
+            vec![
+                InternalEntrypointPhase::NotEntered,
+                InternalEntrypointPhase::Executing,
+                InternalEntrypointPhase::Left
+            ]
+        );
     }
 
     /// HTTP requests cannot bypass the runtime's eight owned blocking slots.

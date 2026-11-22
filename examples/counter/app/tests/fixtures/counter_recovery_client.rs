@@ -5,8 +5,8 @@ use riesel_counter::CounterContract;
 
 #[cfg(feature = "internal-publication")]
 use riesel::internal_observation::{
-    GenerationEvidence, ObservationSnapshot, ObservationSource, ObservationState,
-    ObservationSubject,
+    GenerationEvidence, ObservationEvidence, ObservationSnapshot, ObservationSource,
+    ObservationState, ObservationSubject,
 };
 use std::io;
 use std::time::Duration;
@@ -68,6 +68,26 @@ fn main() -> riesel::Result<()> {
                     observed.generation_evidence(),
                     GenerationEvidence::RuntimeIssued
                 );
+                let entrypoint = observed
+                    .facts()
+                    .iter()
+                    .find(|fact| fact.subject == ObservationSubject::ApplicationEntrypoint)
+                    .expect("SDK must observe actual Rust entrypoint after provider startup");
+                assert_eq!(
+                    entrypoint.evidence,
+                    ObservationEvidence::SdkEntrypointExecuting,
+                    "a live managed provider is not enough to claim handler execution"
+                );
+                assert_eq!(
+                    observed.state_of(
+                        &ObservationSubject::ApplicationEntrypoint,
+                        std::time::Instant::now()
+                    ),
+                    ObservationState::Observed
+                );
+                if executions == 2 {
+                    println!("SDK_ENTRYPOINT_COUNTER_OK handler_entered=true recovered=true");
+                }
                 let binding_index = observed
                     .facts()
                     .iter()

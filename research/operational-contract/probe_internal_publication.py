@@ -81,6 +81,7 @@ def main() -> None:
             "generation_changed=true",
             "old_effect_rejected=true",
             "SOURCE_QUALIFIED_COUNTER_OBSERVATION_OK",
+            "SDK_ENTRYPOINT_COUNTER_OK handler_entered=true recovered=true",
         ),
     )
     verify_scenario(

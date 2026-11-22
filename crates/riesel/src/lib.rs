@@ -73,6 +73,9 @@ pub use riesel_app::{AsyncTasks, ProviderBlocking, ProviderBlockingError, Provid
 pub use rpc_connector::AsyncRpcConnector;
 pub use rpc_connector::RpcConnector;
 
+#[cfg(feature = "internal-publication")]
+#[doc(hidden)]
+pub use riesel_app::InternalEntrypointPhase;
 /// Internal, opt-in research adapter only; no stable observer/export API.
 #[cfg(feature = "internal-publication")]
 #[doc(hidden)]

@@ -504,7 +504,12 @@ impl Application {
         }
         let deployment = self.selected_deployment()?;
         let app = App::from_definition(self.definition)?;
-        let invoke = |running: &RunningApp| entrypoint(&Context { running });
+        let invoke = |running: &RunningApp| {
+            let context = Context { running };
+            #[cfg(feature = "internal-publication")]
+            let _entrypoint = context.internal_enter_entrypoint()?;
+            entrypoint(&context)
+        };
         if let Some(deployment) = deployment {
             app.run(&deployment, &self.providers, invoke)?;
         } else {
