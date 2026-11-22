@@ -390,7 +390,10 @@ mod tests {
     fn owned_child() -> std::process::Command {
         let mut command = std::process::Command::new(std::env::current_exe().unwrap());
         command
-            .args(["--exact", "operational_observation::tests::process_owner_probe_child"])
+            .args([
+                "--exact",
+                "operational_observation::tests::process_owner_probe_child",
+            ])
             .env("RIESEL_OPERATIONAL_CHILD", "1")
             .stdin(std::process::Stdio::null())
             .stdout(std::process::Stdio::null())
