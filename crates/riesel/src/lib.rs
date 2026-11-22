@@ -73,6 +73,10 @@ pub use riesel_app::{AsyncTasks, ProviderBlocking, ProviderBlockingError, Provid
 pub use rpc_connector::AsyncRpcConnector;
 pub use rpc_connector::RpcConnector;
 
+/// Internal, opt-in research adapter only; no stable observer/export API.
+#[cfg(feature = "internal-publication")]
+#[doc(hidden)]
+pub use riesel_app::operational_observation as internal_observation;
 pub use riesel_app::{
     AccessMode, App, AppError, AppRunError, BoundExecutionPlan, CancellationToken,
     CapabilityConnector, CatalogError, ConnectedProvider, ConnectorError, ConnectorRegistry,
@@ -85,11 +89,6 @@ pub use riesel_app::{
     ResolvedCapability, ResourceAccess, RunningApp, RuntimeError, ServiceEndpoint, SessionToken,
     ValidatedExecutionPlan,
 };
-/// Internal, opt-in research adapter only; no stable observer/export API.
-#[cfg(feature = "internal-publication")]
-#[doc(hidden)]
-pub use riesel_app::operational_observation as internal_observation;
-
 pub use riesel_macros::{RieselModel, RieselType, app, capability, component};
 
 /// An application entrypoint result that retains typed source errors behind
