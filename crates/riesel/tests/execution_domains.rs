@@ -447,10 +447,7 @@ async fn delegated_policy(
                                 // graph terminal status or signal proposals.
                                 if frame.committed_ticks != 0 {
                                     effects
-                                        .confirm_prefix(
-                                            "world.ticks",
-                                            frame.committed_ticks as u64,
-                                        )
+                                        .confirm_prefix("world.ticks", frame.committed_ticks as u64)
                                         .unwrap();
                                 }
                                 *final_frame.lock().unwrap() = Some(frame);
@@ -600,7 +597,10 @@ fn fixed_tick_modes_preserve_world_semantics_with_independent_async_work() {
         assert!(central_report.succeeded());
         assert!(delegated_report.succeeded());
         assert_eq!(frame.committed_ticks, 2);
-        assert_eq!(delegated_report.confirmed_prefixes["frame"]["world.ticks"], 2);
+        assert_eq!(
+            delegated_report.confirmed_prefixes["frame"]["world.ticks"],
+            2
+        );
         assert_eq!(
             delegated_report.operations["frame"],
             OperationState::Completed
