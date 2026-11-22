@@ -98,8 +98,7 @@ fn bounded_replenishing_hot_runs_measure_cold_service_rank() {
 
                 let hot_plan = ExecutionPlanDraft::new("hot-replenishing", 1)
                     .operation(
-                        OperationNode::new("hot", key("hot"))
-                            .access("contested", AccessMode::Write),
+                        OperationNode::new("hot", key("hot")).access("contested", AccessMode::Write),
                     )
                     .validate()
                     .unwrap()
@@ -107,8 +106,7 @@ fn bounded_replenishing_hot_runs_measure_cold_service_rank() {
                     .unwrap();
                 let cold_plan = ExecutionPlanDraft::new("cold-waiting", 1)
                     .operation(
-                        OperationNode::new("cold", key("cold"))
-                            .access("contested", AccessMode::Write),
+                        OperationNode::new("cold", key("cold")).access("contested", AccessMode::Write),
                     )
                     .validate()
                     .unwrap()
@@ -237,8 +235,7 @@ fn abandoning_pending_cold_run_releases_session_slot_without_dispatch() {
         let writer = |name: &str| {
             ExecutionPlanDraft::new(name, 1)
                 .operation(
-                    OperationNode::new(name, key(name))
-                        .access("shared", AccessMode::Write),
+                    OperationNode::new(name, key(name)).access("shared", AccessMode::Write),
                 )
                 .validate()
                 .unwrap()
