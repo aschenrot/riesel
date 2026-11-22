@@ -4,10 +4,11 @@
 //! owner-confirmed prefixes through its attempt-fenced reporter. Snapshots
 //! and the bounded, lossy transition ring share one authoritative mutex.
 //! Neither the trace nor its cursor authorizes operations or executes a graph.
-use crate::execution_plan::OperationNode;
+use crate::execution_plan::{DomainAdmissionMode, DomainBoundary, OperationNode};
 use crate::execution_runner::OperationState;
 use riesel_protocol::SessionToken;
 use std::collections::{BTreeMap, VecDeque};
+use tokio::sync::Notify;
 use std::sync::{Arc, Mutex, PoisonError};
 use thiserror::Error;
 use uuid::Uuid;
@@ -86,11 +87,36 @@ pub struct GraphObservedOperation {
     pub confirmed_prefixes: BTreeMap<String, u64>,
 }
 
+/// The explicitly advertised cooperative boundaries in this run.
+///
+/// All operations expose a safe point *before graph dispatch*, and the whole
+/// run can gate future dispatch. A domain tick group is controllable only
+/// when Riesel owns each outer tick. A delegated frame supports only its
+/// outer operation boundary; its internal ticks/systems are never claimed.
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
+pub enum GraphControlTarget {
+    Run,
+    Operation(String),
+    RieselDomainTicks(String),
+}
+
+/// Control applies to future admission, not already running Rust or remote
+/// work. StepArmed grants one dispatch, then returns to Paused.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum GraphControlMode {
+    Running,
+    Paused,
+    StepArmed,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct GraphRunSnapshot {
     pub identity: GraphRunIdentity,
     pub phase: GraphRunPhase,
     pub operations: BTreeMap<String, GraphObservedOperation>,
+    /// Authoritative admission controls, including available safe-point
+    /// targets. Read-only observers cannot modify these modes.
+    pub controls: BTreeMap<GraphControlTarget, GraphControlMode>,
     pub latest_sequence: u64,
     pub session_expired: bool,
 }
@@ -110,6 +136,12 @@ pub enum GraphRunChange {
         attempt: u64,
         stream: String,
         cumulative: u64,
+    },
+    /// A control policy transition. Like all trace events it may be lost;
+    /// resnapshot is authoritative.
+    Control {
+        target: GraphControlTarget,
+        mode: GraphControlMode,
     },
 }
 
@@ -136,6 +168,29 @@ pub enum GraphObservationError {
     FutureCursor { requested: u64, latest: u64 },
 }
 
+/// A controller is a session/run-bound in-process handle, not external
+/// authorization. Unsupported internal-domain control fails explicitly.
+#[derive(Debug, Clone, PartialEq, Eq, Error)]
+pub enum GraphControlError {
+    #[error("the application session expired")]
+    SessionExpired,
+    #[error("the graph run has finished or been abandoned")]
+    RunClosed,
+    #[error("graph control target {target:?} is not advertised")]
+    UnknownTarget { target: GraphControlTarget },
+    #[error("domain {domain} belongs to {owner:?}, not Riesel-owned outer ticks")]
+    UnsupportedDomainAuthority {
+        domain: String,
+        owner: DomainAdmissionMode,
+    },
+    #[error("control target {target:?} has no remaining pending admission safe point")]
+    NoPendingSafePoint { target: GraphControlTarget },
+    #[error("step requires a paused control target")]
+    NotPaused,
+    #[error("exactly one step is already armed for this target")]
+    StepAlreadyArmed,
+}
+
 /// Invalid owner-confirmed effect reports fail without changing the ledger.
 /// An acknowledged external mutation is never inferred from operation success.
 #[derive(Debug, Clone, PartialEq, Eq, Error)]
@@ -159,6 +214,10 @@ struct ObservationState {
     // Closed by the child future's drop guard, even before the parent runner
     // processes the JoinSet completion. Not part of a public snapshot.
     recording_attempts: BTreeMap<String, u64>,
+    // Private plan-derived ownership information used to reject a request
+    // to step delegated internal ticks or a fully dispatched boundary.
+    domain_owners: BTreeMap<String, DomainAdmissionMode>,
+    domain_nodes: BTreeMap<String, Vec<String>>,
 }
 
 impl ObservationState {
@@ -223,6 +282,127 @@ impl GraphRunObserver {
                 .cloned()
                 .collect(),
         })
+    }
+}
+
+/// A trusted, local handle to one existing run's cooperative admission gate.
+///
+/// Obtain from `ExecutionGraphRunner::controller()` before moving the runner
+/// into an async task. Pause is linearized against *future graph dispatch*
+/// under the authoritative snapshot mutex; it does not suspend work that has
+/// already been admitted. A step arms one future dispatch, not a completed
+/// effect, frame, ECS system or external operation.
+#[derive(Clone)]
+pub struct GraphRunController {
+    state: Arc<Mutex<ObservationState>>,
+    session: SessionToken,
+    changed: Arc<Notify>,
+}
+
+enum ControlAction {
+    Pause,
+    Step,
+    Resume,
+}
+
+impl GraphRunController {
+    pub fn identity(&self) -> GraphRunIdentity {
+        self.state
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .snapshot
+            .identity
+            .clone()
+    }
+
+    pub fn pause(&self, target: GraphControlTarget) -> Result<(), GraphControlError> {
+        self.update(target, ControlAction::Pause)
+    }
+
+    pub fn step(&self, target: GraphControlTarget) -> Result<(), GraphControlError> {
+        self.update(target, ControlAction::Step)
+    }
+
+    pub fn resume(&self, target: GraphControlTarget) -> Result<(), GraphControlError> {
+        self.update(target, ControlAction::Resume)
+    }
+
+    fn update(
+        &self,
+        target: GraphControlTarget,
+        action: ControlAction,
+    ) -> Result<(), GraphControlError> {
+        if !self.session.is_active() {
+            return Err(GraphControlError::SessionExpired);
+        }
+        let mut state = self.state.lock().unwrap_or_else(PoisonError::into_inner);
+        // Recheck under lock before updating; a revoked session can never
+        // grant a new run a control capability by sharing a plan ID.
+        if !self.session.is_active() {
+            return Err(GraphControlError::SessionExpired);
+        }
+        if matches!(
+            state.snapshot.phase,
+            GraphRunPhase::Finished | GraphRunPhase::Abandoned
+        ) {
+            return Err(GraphControlError::RunClosed);
+        }
+        if let GraphControlTarget::RieselDomainTicks(domain) = &target {
+            if let Some(&owner) = state.domain_owners.get(domain)
+                && owner != DomainAdmissionMode::RieselTick
+            {
+                return Err(GraphControlError::UnsupportedDomainAuthority {
+                    domain: domain.clone(),
+                    owner,
+                });
+            }
+        }
+        let Some(&current) = state.snapshot.controls.get(&target) else {
+            return Err(GraphControlError::UnknownTarget { target });
+        };
+        let pending = match &target {
+            GraphControlTarget::Run => state
+                .snapshot
+                .operations
+                .values()
+                .any(|op| matches!(op.state, OperationState::Pending)),
+            GraphControlTarget::Operation(name) => state
+                .snapshot
+                .operations
+                .get(name)
+                .is_some_and(|op| matches!(op.state, OperationState::Pending)),
+            GraphControlTarget::RieselDomainTicks(domain) => state
+                .domain_nodes
+                .get(domain)
+                .is_some_and(|nodes| nodes.iter().any(|name| {
+                    matches!(
+                        state.snapshot.operations[name].state,
+                        OperationState::Pending
+                    )
+                })),
+        };
+        if !pending {
+            return Err(GraphControlError::NoPendingSafePoint { target });
+        }
+        let next = match action {
+            ControlAction::Pause => GraphControlMode::Paused,
+            ControlAction::Resume => GraphControlMode::Running,
+            ControlAction::Step => match current {
+                GraphControlMode::Running => return Err(GraphControlError::NotPaused),
+                GraphControlMode::StepArmed => return Err(GraphControlError::StepAlreadyArmed),
+                GraphControlMode::Paused => GraphControlMode::StepArmed,
+            },
+        };
+        if current != next {
+            state.snapshot.controls.insert(target.clone(), next);
+            state.push(GraphRunChange::Control { target, mode: next });
+            drop(state);
+            // The runner already registers a shared admission notification
+            // before testing capacity. Reuse it; no second scheduler or
+            // polling loop is introduced by the controller.
+            self.changed.notify_waiters();
+        }
+        Ok(())
     }
 }
 
@@ -347,6 +527,28 @@ impl GraphRunPublication {
                     .collect()
             })
             .collect();
+        let mut controls = BTreeMap::from([(GraphControlTarget::Run, GraphControlMode::Running)]);
+        let mut domain_owners = BTreeMap::new();
+        let mut domain_nodes = BTreeMap::<String, Vec<String>>::new();
+        for node in nodes {
+            controls.insert(
+                GraphControlTarget::Operation(node.id().to_owned()),
+                GraphControlMode::Running,
+            );
+            if let Some(boundary) = node.domain_boundary() {
+                domain_owners.insert(boundary.domain().to_owned(), boundary.mode());
+                domain_nodes
+                    .entry(boundary.domain().to_owned())
+                    .or_default()
+                    .push(node.id().to_owned());
+                if boundary.mode() == DomainAdmissionMode::RieselTick {
+                    controls.insert(
+                        GraphControlTarget::RieselDomainTicks(boundary.domain().to_owned()),
+                        GraphControlMode::Running,
+                    );
+                }
+            }
+        }
         let operations = names
             .iter()
             .map(|name| {
@@ -367,11 +569,14 @@ impl GraphRunPublication {
                         identity,
                         phase: GraphRunPhase::Created,
                         operations,
+                        controls,
                         latest_sequence: 0,
                         session_expired: false,
                     },
                     transitions: VecDeque::new(),
                     recording_attempts: BTreeMap::new(),
+                    domain_owners,
+                    domain_nodes,
                 })),
             },
             nodes: names,
@@ -383,6 +588,104 @@ impl GraphRunPublication {
 
     pub(crate) fn observer(&self) -> GraphRunObserver {
         self.observer.clone()
+    }
+
+    pub(crate) fn controller(&self, changed: Arc<Notify>) -> GraphRunController {
+        GraphRunController {
+            state: Arc::clone(&self.observer.state),
+            session: self.session.clone(),
+            changed,
+        }
+    }
+
+    /// Cheap read avoids momentarily reserving shared resource capacity
+    /// while this run is paused. Admission rechecks under the same mutex
+    /// after reservation to prevent races with concurrent control commands.
+    pub(crate) fn may_admit(
+        &self,
+        index: usize,
+        domain: Option<&DomainBoundary>,
+    ) -> bool {
+        let state = self
+            .observer
+            .state
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner);
+        Self::targets(&self.nodes[index], domain).iter().all(|target| {
+            state.snapshot.controls.get(target) != Some(&GraphControlMode::Paused)
+        })
+    }
+
+    /// Atomically consume at most one armed step at every matching boundary
+    /// and publish the actual running attempt. Caller must already own its
+    /// session-level operation reservation, but not yet have spawned work.
+    pub(crate) fn admit(
+        &mut self,
+        index: usize,
+        domain: Option<&DomainBoundary>,
+    ) -> bool {
+        let mut state = self
+            .observer
+            .state
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner);
+        let name = &self.nodes[index];
+        if state.snapshot.phase != GraphRunPhase::Running
+            || !matches!(state.snapshot.operations[name].state, OperationState::Pending)
+        {
+            return false;
+        }
+        let targets = Self::targets(name, domain);
+        if targets.iter().any(|target| {
+            state.snapshot.controls.get(target) == Some(&GraphControlMode::Paused)
+        }) {
+            return false;
+        }
+        for target in targets {
+            if state.snapshot.controls.get(&target) == Some(&GraphControlMode::StepArmed) {
+                state
+                    .snapshot
+                    .controls
+                    .insert(target.clone(), GraphControlMode::Paused);
+                state.push(GraphRunChange::Control {
+                    target,
+                    mode: GraphControlMode::Paused,
+                });
+            }
+        }
+        let op = state
+            .snapshot
+            .operations
+            .get_mut(name)
+            .expect("validated operation id");
+        op.attempt = op
+            .attempt
+            .checked_add(1)
+            .expect("one operation exhausted u64 attempts");
+        op.state = OperationState::Running;
+        let attempt = op.attempt;
+        state.recording_attempts.insert(name.clone(), attempt);
+        state.push(GraphRunChange::Operation {
+            operation_id: name.clone(),
+            attempt,
+            state: OperationState::Running,
+        });
+        true
+    }
+
+    fn targets(name: &str, domain: Option<&DomainBoundary>) -> Vec<GraphControlTarget> {
+        let mut targets = vec![
+            GraphControlTarget::Run,
+            GraphControlTarget::Operation(name.to_owned()),
+        ];
+        if let Some(boundary) = domain
+            && boundary.mode() == DomainAdmissionMode::RieselTick
+        {
+            targets.push(GraphControlTarget::RieselDomainTicks(
+                boundary.domain().to_owned(),
+            ));
+        }
+        targets
     }
 
     pub(crate) fn recorder(&self, index: usize) -> (GraphEffectRecorder, GraphEffectAttemptGuard) {
