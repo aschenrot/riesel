@@ -388,7 +388,10 @@ fn resource_contended_ready_nodes_preserve_independent_progress() {
                 key("unrelated"),
             ));
         }
-        let runner = owner()
+        // Retain the application's session owner until the run has finished.
+        // Dropping a temporary RunningApp would revoke the graph session.
+        let application = owner();
+        let runner = application
             .execution_graph(
                 draft.validate().unwrap().bind(&registry).unwrap(),
                 NonZeroUsize::new(32).unwrap(),
@@ -430,7 +433,10 @@ fn reverse_declared_fanout_fanin_completes_all_registered_operations() {
             );
         }
         draft = draft.operation(OperationNode::new("root", key("noop")));
-        let runner = owner()
+        // Retain the application's session owner until the run has finished.
+        // Dropping a temporary RunningApp would revoke the graph session.
+        let application = owner();
+        let runner = application
             .execution_graph(
                 draft.validate().unwrap().bind(&registry).unwrap(),
                 NonZeroUsize::new(32).unwrap(),
