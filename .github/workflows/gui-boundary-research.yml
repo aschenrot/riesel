@@ -1,0 +1,47 @@
+name: GUI boundary research (#248)
+
+permissions:
+  contents: read
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - "crates/riesel/examples/execution_graph_inspection_export.rs"
+      - "research/gui-boundary/**"
+      - ".github/workflows/gui-boundary-research.yml"
+
+jobs:
+  actual-graph-and-independent-browser:
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install pinned Rust
+        run: |
+          rustup toolchain install 1.100.0 --profile minimal
+          rustup default 1.100.0
+      - name: Execute real headless graph and export an immutable read model
+        run: |
+          cargo run --locked -p riesel --features async-tcp --example execution_graph_inspection_export -- "$RUNNER_TEMP/graph.json"
+          python3 research/gui-boundary/verify.py "$RUNNER_TEMP/graph.json"
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - name: Reuse existing locked Playwright dependency
+        working-directory: examples/todo/web
+        run: npm ci --no-audit --no-fund
+      - name: Install headless Chromium
+        working-directory: examples/todo/web
+        run: npx playwright install --with-deps --only-shell chromium
+      - name: Verify independent real browser interaction and screenshot
+        env:
+          GUI_SCREENSHOT: /tmp/gui-boundary-inspector.png
+        run: node research/gui-boundary/browser-test.mjs "$RUNNER_TEMP/graph.json"
+      - name: Retain actual rendered GUI screenshot
+        uses: actions/upload-artifact@v4
+        with:
+          name: gui-boundary-research-inspector
+          path: /tmp/gui-boundary-inspector.png
+          retention-days: 14
+          if-no-files-found: error
