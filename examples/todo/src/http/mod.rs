@@ -350,8 +350,14 @@ mod tests {
                     "todo.task.create",
                     AdapterOperationEvidence::DomainConfirmedSuccess,
                 )?;
-                assert_eq!(success.disposition(), OperationDisposition::ConfirmedSuccess);
-                assert_eq!(success.state_at(std::time::Instant::now()), ObservationState::Observed);
+                assert_eq!(
+                    success.disposition(),
+                    OperationDisposition::ConfirmedSuccess
+                );
+                assert_eq!(
+                    success.state_at(std::time::Instant::now()),
+                    ObservationState::Observed
+                );
 
                 let id = created.id;
                 let failed = state
