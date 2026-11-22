@@ -246,9 +246,7 @@ pub(super) fn compare_exact_content(
     let copied_version: i64 = snapshot
         .pragma_query_value(None, "user_version", |row| row.get(0))
         .map_err(storage)?;
-    if src_version != copied_version
-        || (src_version != FORMAT && src_version != LEGACY_FORMAT)
-    {
+    if src_version != copied_version || (src_version != FORMAT && src_version != LEGACY_FORMAT) {
         return Err(PlanRevisionError::Conflict);
     }
     for (table, columns) in [
