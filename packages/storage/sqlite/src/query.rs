@@ -131,6 +131,43 @@ mod tests {
     }
 
     #[test]
+    fn cursor_sql_plan_seeks_existing_primary_key_instead_of_scanning_prefix() {
+        let dir = tempfile::tempdir().unwrap();
+        let db = dir.path().join("query-plan.db");
+        let store = SqliteStore::open(&db, models()).unwrap();
+        let connection = store.lock().unwrap();
+
+        let first_plan = format!("EXPLAIN QUERY PLAN {QUERY_SCAN_FIRST}");
+        let details: Vec<String> = connection
+            .prepare(&first_plan)
+            .unwrap()
+            .query_map(params!["task", 32_i64], |row| row.get(3))
+            .unwrap()
+            .map(|item| item.unwrap())
+            .collect();
+        assert!(
+            details.iter().any(|d| d.contains("PRIMARY KEY") && d.contains("model=?")),
+            "initial bounded scan must use the existing model/id key: {details:?}"
+        );
+
+        let after_plan = format!("EXPLAIN QUERY PLAN {QUERY_SCAN_AFTER}");
+        let cursor = Uuid::new_v4().as_bytes().to_vec();
+        let details: Vec<String> = connection
+            .prepare(&after_plan)
+            .unwrap()
+            .query_map(params!["task", cursor, 32_i64], |row| row.get(3))
+            .unwrap()
+            .map(|item| item.unwrap())
+            .collect();
+        assert!(
+            details.iter().any(|d| {
+                d.contains("PRIMARY KEY") && d.contains("model=?") && d.contains("id>?")
+            }),
+            "continuation must seek the keyed suffix rather than scan a growing prefix: {details:?}"
+        );
+    }
+
+    #[test]
     fn native_sqlite_query_is_bounded_and_survives_confirmed_writes() {
         let dir = tempfile::tempdir().unwrap();
         let db = dir.path().join("records.db");
