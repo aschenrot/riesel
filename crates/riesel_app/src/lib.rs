@@ -24,6 +24,7 @@ mod recovery;
 mod resolver;
 mod runtime;
 mod s2_document;
+mod source_coverage;
 mod supervisor;
 mod tasks;
 
@@ -94,5 +95,7 @@ pub use s2_document::{
     S2DocumentDomainMode, S2DocumentError, S2DocumentLimits, S2DocumentTrigger, S2OperationBinding,
     S2OperationDocument, S2PlanDocument, S2SourceDocument, bind_s2_document, inspect_s2_source,
 };
+
+pub use source_coverage::{PlanSourceCoverageReport, SourceCoverageFinding, SourceCoverageProblem};
 
 pub use riesel_protocol::SessionToken;
