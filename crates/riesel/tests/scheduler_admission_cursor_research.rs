@@ -453,3 +453,88 @@ fn reverse_declared_fanout_fanin_completes_all_registered_operations() {
         eprintln!("research #226 reverse fanout/fanin branches={BRANCHES} finished");
     });
 }
+
+#[test]
+fn coalesced_signal_before_prerequisite_completion_admits_dependent_once() {
+    runtime().block_on(async {
+        let permits = Arc::new(tokio::sync::Semaphore::new(0));
+        let root_started = Arc::new(AtomicUsize::new(0));
+        let child_started = Arc::new(AtomicUsize::new(0));
+        let mut registry = OperationRegistry::<AsyncOperation>::new();
+        registry
+            .register(
+                key("root"),
+                async_operation({
+                    let permits = Arc::clone(&permits);
+                    let root_started = Arc::clone(&root_started);
+                    move || {
+                        let permits = Arc::clone(&permits);
+                        let root_started = Arc::clone(&root_started);
+                        async move {
+                            root_started.fetch_add(1, Ordering::SeqCst);
+                            let permit = permits.acquire().await.unwrap();
+                            drop(permit);
+                            OperationOutcome::Completed
+                        }
+                    }
+                }),
+            )
+            .unwrap();
+        registry
+            .register(
+                key("child"),
+                async_operation({
+                    let child_started = Arc::clone(&child_started);
+                    move || {
+                        let child_started = Arc::clone(&child_started);
+                        async move {
+                            child_started.fetch_add(1, Ordering::SeqCst);
+                            OperationOutcome::Completed
+                        }
+                    }
+                }),
+            )
+            .unwrap();
+        let plan = ExecutionPlanDraft::new("signal-after-dependency", 1)
+            .operation(
+                OperationNode::new("child", key("child"))
+                    .after("root")
+                    .on_signal("release"),
+            )
+            .operation(OperationNode::new("root", key("root")))
+            .validate()
+            .unwrap()
+            .bind(&registry)
+            .unwrap();
+        let application = owner();
+        let runner = application
+            .execution_graph(plan, NonZeroUsize::new(2).unwrap())
+            .unwrap();
+        let sender = runner.signal_sender();
+        let observer = runner.observer();
+        let task = tokio::spawn(runner.execute());
+        tokio::time::timeout(Duration::from_secs(5), async {
+            while root_started.load(Ordering::SeqCst) == 0 {
+                tokio::task::yield_now().await;
+            }
+        })
+        .await
+        .unwrap();
+
+        // Two notifications before root completes are one trigger
+        // eligibility condition, not two independent callback executions.
+        sender.fire("release").unwrap();
+        sender.fire("release").unwrap();
+        assert_eq!(child_started.load(Ordering::SeqCst), 0);
+        permits.add_permits(1);
+        let report = tokio::time::timeout(Duration::from_secs(5), task)
+            .await
+            .unwrap()
+            .unwrap();
+        assert!(report.succeeded());
+        assert_eq!(report.started, 2);
+        assert_eq!(child_started.load(Ordering::SeqCst), 1);
+        assert_eq!(observer.snapshot().operations["child"].attempt, 1);
+        eprintln!("research #226 signalled dependent executed once after prerequisite completion");
+    });
+}
