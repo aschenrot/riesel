@@ -465,6 +465,31 @@ impl ValidatedExecutionPlan {
         self.order.iter().map(|&i| &self.description.operations[i])
     }
 
+    /// Internal node-specific binding for the opt-in typed adapter. Exact
+    /// registered operation types and port descriptors are checked by that
+    /// adapter first. Node-specific closures allow two instances of one
+    /// registered operation to consume different inputs without changing the
+    /// existing S2 operation-key binding contract.
+    #[cfg(feature = "experimental-typed-dataflow")]
+    pub(crate) fn bind_typed_node_handlers<H: ?Sized>(
+        &self,
+        handlers: BTreeMap<String, Arc<H>>,
+    ) -> Result<BoundExecutionPlan<H>, ExecutionPlanError> {
+        for node in &self.description.operations {
+            if !handlers.contains_key(node.id()) {
+                return Err(ExecutionPlanError::MissingBinding {
+                    node: node.id().to_owned(),
+                    name: node.binding().name().to_owned(),
+                    version: node.binding().version(),
+                });
+            }
+        }
+        Ok(BoundExecutionPlan {
+            plan: self.clone(),
+            handlers,
+        })
+    }
+
     /// Requires a matching exact-version handler for every graph node. This is
     /// a pure lookup; handlers are not invoked, and providers are not started.
     pub fn bind<H: ?Sized>(
