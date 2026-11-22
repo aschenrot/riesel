@@ -319,11 +319,7 @@ pub trait PlanRevisionRepository: Send + Sync {
     /// The head and document are read within one consistent store snapshot.
     /// A document gained by source handoff without a semantic change remains
     /// available, and later S2 revisions use their own exact document bytes.
-    fn current_authoring(
-        &self,
-        plan_id: &str,
-    ) -> Result<PlanAuthoringSnapshot, PlanRevisionError>;
-
+    fn current_authoring(&self, plan_id: &str) -> Result<PlanAuthoringSnapshot, PlanRevisionError>;
 
     fn semantic(
         &self,
