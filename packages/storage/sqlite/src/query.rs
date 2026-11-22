@@ -9,8 +9,6 @@ use riesel_storage::{
     record_matches_predicate, validate_record_query,
 };
 use rusqlite::params;
-use uuid::Uuid;
-
 fn failed(source: impl std::fmt::Display) -> RecordQueryError {
     RecordQueryError::Failed(source.to_string())
 }
@@ -99,6 +97,7 @@ mod tests {
     use riesel_schema::{ModelDefinition, TypeRef};
     use riesel_storage::{RecordCompare, RecordPredicate, RecordStore};
     use serde_json::json;
+    use uuid::Uuid;
     use std::collections::{BTreeMap, BTreeSet};
 
     fn models() -> BTreeMap<String, ModelDefinition> {
@@ -120,7 +119,7 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let db = dir.path().join("records.db");
         let m = models();
-        let mut store = SqliteStore::open(&db, m.clone())
+        let store = SqliteStore::open(&db, m.clone())
             .unwrap()
             .with_query_grants(BTreeSet::from(["task".into()]))
             .unwrap();
