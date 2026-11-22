@@ -5,4 +5,9 @@ edition.workspace = true
 license.workspace = true
 repository.workspace = true
 
+[features]
+default = []
+# Internal, test-only owned OS-attempt status scope; not #59 Manager control.
+internal-observation = []
+
 [dependencies]
