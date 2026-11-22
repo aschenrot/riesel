@@ -48,7 +48,7 @@ def root(*args):
 
 def unit_safe(value):
     if not re.fullmatch(
-        r"riesel-m59-session-[a-f0-9]{12}-(login|bound|machine)\.service",
+        r"riesel-m59-session-[a-f0-9]{12}-(login|peerlogin|bound|machine)\.service",
         value
     ):
         raise AssertionError("refusing nonresearch systemd unit")
@@ -211,6 +211,7 @@ def main(pinned):
     account = account_safe(ACCOUNT_PREFIX + nonce[:10])
     path = root_safe(Path(APP_PREFIX + nonce))
     login_unit = unit_safe(UNIT_PREFIX + nonce + "-login.service")
+    peer_login_unit = unit_safe(UNIT_PREFIX + nonce + "-peerlogin.service")
     bound_unit = unit_safe(UNIT_PREFIX + nonce + "-bound.service")
     machine_unit = unit_safe(UNIT_PREFIX + nonce + "-machine.service")
     registry = Path(tempfile.mkdtemp(prefix=REGISTRY_PREFIX))
@@ -221,6 +222,7 @@ def main(pinned):
     account_created = False
     installed = False
     session = None
+    peer_session = None
     started = []
     try:
         if run(root("id", "-u", account), check=False).returncode == 0:
@@ -335,12 +337,58 @@ def main(pinned):
                 f"rc={attack_result.returncode}; "
                 f"out={attack_result.stdout[-600:]}; "
                 f"err={attack_result.stderr[-600:]}")
+        print(attack_result.stdout.strip(), flush=True)
         if (service_state(bound_unit)["InvocationID"] != bound["invocation"]
             or not live_same(bound["pid"], bound["tick"])
             or service_state(machine_unit)["InvocationID"] != machine["invocation"]
             or not live_same(machine["pid"], machine["tick"])):
             raise AssertionError("unprivileged login attack changed OS attempt")
         print("RESEARCH_M59_UNTRUSTED_LOGIN_UID_UNCHANGED_ATTEMPTS",
+              flush=True)
+
+        # Second ACTUAL PAM/logind session for the SAME login UID. Ending
+        # this unrelated scope must not stop app bound to the first scope.
+        # This differentiates exact-session lifetime from per-user presence.
+        started.append(peer_login_unit)
+        run(root("systemd-run", "--system", "--no-block", "--no-ask-password",
+                 "--unit", peer_login_unit, "--property=Type=exec",
+                 "--property=Restart=no", "--property=User=" + account,
+                 "--property=PAMName=login",
+                 "--property=WorkingDirectory=/tmp",
+                 "/usr/bin/sleep", "480"))
+        for _ in range(120):
+            all_sessions = sessions_for(account)
+            extras = [x for x in all_sessions if x != session]
+            if len(extras) == 1:
+                candidate = extras[0]
+                attrs = session_state(candidate)
+                if (attrs.get("Scope") and attrs.get("Service") == "login"
+                    and int(attrs.get("User", "-1")) == info.pw_uid
+                    and attrs["Scope"] != scope):
+                    peer_session = candidate
+                    break
+            time.sleep(0.2)
+        if peer_session is None:
+            raise AssertionError(
+                f"second independent same-user PAM/logind session not observed: "
+                f"current={sessions_for(account)}; "
+                f"unit={service_state(peer_login_unit)}")
+        peer_scope = scope_safe(session_state(peer_session)["Scope"])
+        if peer_scope == scope:
+            raise AssertionError("two same-user sessions reused the same scope")
+        print("RESEARCH_M59_TWO_PARALLEL_SAME_USER_LOGIN_SCOPES", flush=True)
+
+        run(root("loginctl", "terminate-session", peer_session))
+        # Another session closing is not a privileged Manager stop of app A.
+        if (service_state(bound_unit)["ActiveState"] != "active"
+            or service_state(bound_unit)["InvocationID"] != bound["invocation"]
+            or not live_same(bound["pid"], bound["tick"])
+            or service_state(machine_unit)["ActiveState"] != "active"
+            or service_state(machine_unit)["InvocationID"] != machine["invocation"]
+            or not live_same(machine["pid"], machine["tick"])):
+            raise AssertionError(
+                "unrelated same-user session logout stopped protected Riesel app")
+        print("RESEARCH_M59_UNRELATED_LOGIN_LOGOUT_LEAVES_BOTH_APPS_ALIVE",
               flush=True)
 
         # Explicit ROOT test operator terminates only the exact generated
@@ -373,9 +421,10 @@ def main(pinned):
                      unit_safe(unit)), check=False)
             run(root("systemctl", "--system", "--no-pager", "reset-failed",
                      unit_safe(unit)), check=False)
-        if session is not None and re.fullmatch(r"[A-Za-z0-9_-]{1,64}", session):
-            # Only exact discovered session of our disposable account.
-            run(root("loginctl", "terminate-session", session), check=False)
+        for sid in (peer_session, session):
+            if sid is not None and re.fullmatch(r"[A-Za-z0-9_-]{1,64}", sid):
+                # Only exact sessions observed for our random disposable user.
+                run(root("loginctl", "terminate-session", sid), check=False)
         if account_created:
             # Newly created random NSS account is exclusively our fixture.
             run(root("pkill", "-KILL", "-u", account_safe(account)),
