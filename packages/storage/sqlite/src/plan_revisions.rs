@@ -17,6 +17,18 @@ use std::{
     time::Duration,
 };
 
+/// Only built when the explicit, disabled-by-default testing feature is
+/// enabled. Each stage runs inside the *real production adapter* call, not
+/// against a parallel research-only transaction implementation.
+#[cfg(feature = "v2-fault-injection")]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum V2FaultStage {
+    SemanticBeforeCommit,
+    SemanticAfterCommitBeforeReply,
+    LayoutBeforeCommit,
+    LayoutAfterCommitBeforeReply,
+}
+
 const FORMAT: i64 = 1;
 
 const SCHEMA: &str = "
@@ -143,6 +155,8 @@ fn read_head(connection: &Connection, id: &str) -> Result<PlanAuthoringHead, Pla
 pub struct SqlitePlanRevisionRepository {
     path: PathBuf,
     trusted_registration_stamp: String,
+    #[cfg(feature = "v2-fault-injection")]
+    test_hook: Option<std::sync::Arc<dyn Fn(V2FaultStage) + Send + Sync>>,
 }
 
 impl SqlitePlanRevisionRepository {
@@ -239,7 +253,27 @@ impl SqlitePlanRevisionRepository {
         Ok(Self {
             path: path.to_path_buf(),
             trusted_registration_stamp,
+            #[cfg(feature = "v2-fault-injection")]
+            test_hook: None,
         })
+    }
+
+    /// Test fixture only: opt-in pause/kill callback at real transaction
+    /// boundaries. Compiled out entirely from ordinary application builds.
+    #[cfg(feature = "v2-fault-injection")]
+    pub fn with_test_hook(
+        mut self,
+        callback: impl Fn(V2FaultStage) + Send + Sync + 'static,
+    ) -> Self {
+        self.test_hook = Some(std::sync::Arc::new(callback));
+        self
+    }
+
+    #[cfg(feature = "v2-fault-injection")]
+    fn fire_test_hook(&self, stage: V2FaultStage) {
+        if let Some(callback) = &self.test_hook {
+            callback(stage);
+        }
     }
 
     fn connection(&self) -> Result<Connection, PlanRevisionError> {
@@ -498,7 +532,11 @@ impl PlanRevisionRepository for SqlitePlanRevisionRepository {
             return Err(PlanRevisionError::Conflict);
         }
         Self::insert_semantic(&tx, next)?;
+        #[cfg(feature = "v2-fault-injection")]
+        self.fire_test_hook(V2FaultStage::SemanticBeforeCommit);
         tx.commit().map_err(storage)?;
+        #[cfg(feature = "v2-fault-injection")]
+        self.fire_test_hook(V2FaultStage::SemanticAfterCommitBeforeReply);
         self.head(&expected.plan_id)
     }
 
@@ -573,7 +611,11 @@ impl PlanRevisionRepository for SqlitePlanRevisionRepository {
             ],
         )
         .map_err(storage)?;
+        #[cfg(feature = "v2-fault-injection")]
+        self.fire_test_hook(V2FaultStage::LayoutBeforeCommit);
         tx.commit().map_err(storage)?;
+        #[cfg(feature = "v2-fault-injection")]
+        self.fire_test_hook(V2FaultStage::LayoutAfterCommitBeforeReply);
         Ok(StoredPlanLayout {
             plan_id: expected.plan_id.clone(),
             version: next_version,
