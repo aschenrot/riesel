@@ -4,12 +4,12 @@ mod async_tasks;
 mod catalog;
 mod component;
 mod deployment;
+mod editor_catalog;
 #[cfg(feature = "async-tcp")]
 mod execution_nested;
 #[cfg(feature = "async-tcp")]
 mod execution_observation;
 mod execution_plan;
-mod editor_catalog;
 #[cfg(feature = "async-tcp")]
 mod execution_runner;
 mod fixed_step;
@@ -31,6 +31,7 @@ pub use async_tasks::AsyncTasks;
 pub use catalog::{CatalogError, ProviderCatalog, ProviderSelectionConfig};
 pub use component::{ComponentDefinition, DeclarativeComponent};
 pub use deployment::{DeploymentConfig, DeploymentError, ServiceEndpoint};
+pub use editor_catalog::{EditorAffinity, EditorCatalogError, EditorOperationDescriptor};
 #[cfg(feature = "async-tcp")]
 pub use execution_nested::{
     MAX_NESTED_TRANSITIONS, NestedCursor, NestedDescription, NestedDomainOwner,
@@ -44,7 +45,6 @@ pub use execution_observation::{
     GraphRunIdentity, GraphRunObserver, GraphRunPhase, GraphRunSnapshot, GraphRunTransition,
     GraphRunTransitions, MAX_GRAPH_EFFECT_STREAMS, MAX_GRAPH_TRANSITIONS,
 };
-pub use editor_catalog::{EditorAffinity, EditorCatalogError, EditorOperationDescriptor};
 pub use execution_plan::{
     AccessMode, BoundExecutionPlan, DomainAdmissionMode, DomainBoundary, ExecutionPlanDescription,
     ExecutionPlanDraft, ExecutionPlanError, OperationKey, OperationNode, OperationRegistry,
