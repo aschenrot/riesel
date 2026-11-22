@@ -94,7 +94,12 @@ fn sparse_open_after_first_32_completed_is_partial_not_empty() {
 
         let first_old = legacy_page(store);
         assert_eq!(first_old.records.len(), 32, "{name}");
-        assert!(first_old.records.iter().all(|r| r.data["completed"] == true));
+        assert!(
+            first_old
+                .records
+                .iter()
+                .all(|r| r.data["completed"].as_bool() == Some(true))
+        );
         assert!(first_old.next_cursor.is_some());
 
         let first = query(store, false, None, 32);
@@ -124,10 +129,7 @@ fn sparse_open_in_100_records_advances_four_bounded_pages() {
         for position in [70, 98, 99] {
             change_status(store, &records[position], false);
         }
-        let expected: Vec<_> = [70, 98, 99]
-            .iter()
-            .map(|i| records[*i].id)
-            .collect();
+        let expected: Vec<_> = [70, 98, 99].iter().map(|i| records[*i].id).collect();
         let mut next = None;
         let mut found = Vec::new();
         let mut inspected = 0;
