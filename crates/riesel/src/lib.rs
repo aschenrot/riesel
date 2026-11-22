@@ -93,6 +93,13 @@ pub use riesel_app::{
     ResourceAccess, RunningApp, RuntimeError, ServiceEndpoint, SessionToken,
     ValidatedExecutionPlan,
 };
+pub use riesel_app::{
+    S2_DOCUMENT_VERSION, S2DocumentAccess, S2DocumentAccessMode, S2DocumentDomain,
+    S2DocumentDomainMode, S2DocumentError, S2DocumentLimits, S2DocumentTrigger,
+    S2OperationBinding, S2OperationDocument, S2PlanDocument, S2SourceDocument,
+    bind_s2_document, inspect_s2_source,
+};
+
 pub use riesel_macros::{RieselModel, RieselType, app, capability, component};
 
 /// An application entrypoint result that retains typed source errors behind
