@@ -6,7 +6,7 @@
 use serde_json::{Value, json};
 use std::io::{BufRead, BufReader, Read, Write};
 use std::net::Shutdown;
-use std::os::unix::net::UnixStream;
+use std::os::unix::net::{UnixListener, UnixStream};
 use std::path::Path;
 use std::process::{Child, Command, Stdio};
 use std::thread;
@@ -38,6 +38,17 @@ fn snapshot(socket: &Path, generation: &str, extra: Option<&str>) -> Value {
         req["research_pause"] = json!(pause);
     }
     request(socket, req)
+}
+
+fn cursor_status(socket: &Path, generation: &str, cursor: u64) -> Value {
+    request(socket, json!({
+        "app": "research.riesel.gui-owner",
+        "interface": "research.graph.read",
+        "version": 1,
+        "operation": "cursor_status",
+        "generation": generation,
+        "cursor": cursor
+    }))
 }
 
 fn status(value: &Value) -> &str {
@@ -229,6 +240,48 @@ fn actual_os_client_session_fencing_and_revocation() {
         "withdrawn"
     );
 
+    // More real graph transitions than the retained 128-event ring can store:
+    // recovery must use a new authoritative snapshot, never a guessed replay.
+    control(&mut host.0, "OVERFLOW");
+    let overflow_line = owner_line(&mut reader, "RESTARTED ");
+    let overflow_parts: Vec<_> = overflow_line.split_whitespace().collect();
+    assert_eq!(overflow_parts[1], pid);
+    let overflow_generation = overflow_parts[2];
+    assert_ne!(overflow_generation, next_generation);
+    assert_eq!(
+        status(&snapshot(&socket, &next_generation, None)),
+        "stale_generation"
+    );
+    let overflow = snapshot(&socket, overflow_generation, None);
+    assert_eq!(status(&overflow), "ok");
+    assert_eq!(overflow["phase"], "Finished");
+    assert_eq!(overflow["completed"], 80);
+    assert_eq!(overflow["operations"].as_object().unwrap().len(), 80);
+    assert!(
+        overflow["operations"]
+            .as_object()
+            .unwrap()
+            .values()
+            .all(|state| state == "Completed")
+    );
+    let lost = cursor_status(&socket, overflow_generation, 0);
+    assert_eq!(status(&lost), "ok");
+    assert_eq!(lost["truncated"], true, "old cursor must report real ring loss");
+    assert_eq!(lost["event_payload_not_exported"], true);
+    assert_eq!(lost["latest_sequence"], overflow["latest_sequence"]);
+    assert_eq!(lost["graph_generation"], overflow["graph_generation"]);
+    assert!(lost["retained_count"].as_u64().unwrap() <= 128);
+    let tip = overflow["latest_sequence"].as_u64().unwrap();
+    assert!(tip > 128, "real graph must have overflowed the transition ring");
+    let after_resnapshot = cursor_status(&socket, overflow_generation, tip);
+    assert_eq!(after_resnapshot["truncated"], false);
+    assert_eq!(after_resnapshot["retained_count"], 0);
+    assert_eq!(
+        status(&cursor_status(&socket, overflow_generation, tip + 1)),
+        "future_cursor",
+        "future and mixed-run cursors must not synthesize history"
+    );
+
     control(&mut host.0, "STOP");
     owner_line(&mut reader, "STOPPED");
     assert!(
@@ -236,5 +289,38 @@ fn actual_os_client_session_fencing_and_revocation() {
         "headless owner exited cleanly"
     );
     assert!(!socket.exists(), "test-owned socket was removed on stop");
-    println!("GUI_PROCESS_SESSION_FENCE_AND_REVOCATION_PROOF_PASSED");
+
+    // Negative identity test: a different process can bind the same path
+    // after owner exit and copy the old descriptor fields. Path/PID/epoch
+    // are claims from an unauthenticated server, not verified app identity.
+    let forged_listener = UnixListener::bind(&socket).unwrap();
+    let forged_generation = overflow_generation.to_owned();
+    let forged_pid = pid.parse::<u32>().unwrap();
+    let responder = thread::spawn(move || {
+        let (mut stream, _) = forged_listener.accept().unwrap();
+        let mut input = Vec::new();
+        stream.read_to_end(&mut input).unwrap();
+        assert_eq!(
+            serde_json::from_slice::<Value>(&input).unwrap()["operation"],
+            "describe"
+        );
+        let claimed = json!({
+            "status": "descriptor",
+            "app": "research.riesel.gui-owner",
+            "interface": "research.graph.read",
+            "version": 1,
+            "generation": forged_generation,
+            "pid": forged_pid
+        });
+        stream
+            .write_all(serde_json::to_string(&claimed).unwrap().as_bytes())
+            .unwrap();
+        stream.shutdown(Shutdown::Write).unwrap();
+    });
+    let fake = request(&socket, json!({"operation": "describe"}));
+    assert_eq!(status(&fake), "descriptor");
+    assert_eq!(fake["pid"], forged_pid);
+    assert_eq!(fake["generation"], overflow_generation);
+    responder.join().unwrap();
+    println!("GRAPH_TRACE_LOSS_RESNAPSHOT_AND_UNAUTHENTICATED_SERVER_IMPERSONATION_VERIFIED");
 }
