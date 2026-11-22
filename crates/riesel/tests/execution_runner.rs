@@ -970,7 +970,12 @@ fn observer_exposes_live_running_state_and_correlated_completion_without_polling
         assert!(!handle.is_finished());
         let events = observer.changes_since(0).unwrap();
         assert!(!events.truncated);
-        assert!(events.events.iter().all(|event| event.identity == created.identity));
+        assert!(
+            events
+                .events
+                .iter()
+                .all(|event| event.identity == created.identity)
+        );
         assert!(events.events.iter().any(|event| matches!(
             &event.change,
             GraphRunChange::Operation { operation_id, attempt: 1, state: OperationState::Running }
@@ -992,10 +997,12 @@ fn observer_exposes_live_running_state_and_correlated_completion_without_polling
         assert_eq!(done.operations["follow"].attempt, 1);
         let tail = observer.changes_since(events.latest_sequence).unwrap();
         assert!(!tail.truncated);
-        assert!(tail.events.iter().any(|event| matches!(
-            event.change,
-            GraphRunChange::Phase(GraphRunPhase::Finished)
-        )));
+        assert!(
+            tail.events.iter().any(|event| matches!(
+                event.change,
+                GraphRunChange::Phase(GraphRunPhase::Finished)
+            ))
+        );
     });
 }
 
@@ -1026,7 +1033,10 @@ fn run_identities_bind_one_immutable_revision_to_distinct_session_generations() 
         .unwrap();
     let first_id = first_observer.snapshot().identity;
     let second_id = second.observer().snapshot().identity;
-    assert_eq!(first_id.session_generation(), second_id.session_generation());
+    assert_eq!(
+        first_id.session_generation(),
+        second_id.session_generation()
+    );
     assert_ne!(first_id.run_sequence(), second_id.run_sequence());
     assert_eq!(first_id.revision(), 2);
     assert_eq!(second_id.revision(), 3);
@@ -1036,7 +1046,10 @@ fn run_identities_bind_one_immutable_revision_to_distinct_session_generations() 
         .execution_graph(plan(2), NonZeroUsize::new(1).unwrap())
         .unwrap();
     let restarted_id = restarted.observer().snapshot().identity;
-    assert_ne!(first_id.session_generation(), restarted_id.session_generation());
+    assert_ne!(
+        first_id.session_generation(),
+        restarted_id.session_generation()
+    );
     assert_ne!(first_id, restarted_id);
     assert_eq!(first_observer.snapshot().identity, first_id);
     // Dropping an unexecuted plan never creates a completed trace.
@@ -1076,7 +1089,12 @@ fn lossy_transition_ring_reports_overflow_and_resnapshot_reconciles_every_operat
         assert!(history.truncated, "ring overflow is detectable");
         assert_eq!(history.events.len(), MAX_GRAPH_TRANSITIONS);
         assert!(history.events[0].sequence > 1);
-        assert!(history.events.windows(2).all(|pair| pair[0].sequence + 1 == pair[1].sequence));
+        assert!(
+            history
+                .events
+                .windows(2)
+                .all(|pair| pair[0].sequence + 1 == pair[1].sequence)
+        );
         assert_eq!(history.latest_sequence, observer.snapshot().latest_sequence);
         assert!(matches!(
             observer.changes_since(history.latest_sequence + 1),
@@ -1100,7 +1118,13 @@ fn lossy_transition_ring_reports_overflow_and_resnapshot_reconciles_every_operat
             recent.events[0].change,
             GraphRunChange::Phase(GraphRunPhase::Finished)
         ));
-        assert!(observer.changes_since(recovered.latest_sequence).unwrap().events.is_empty());
+        assert!(
+            observer
+                .changes_since(recovered.latest_sequence)
+                .unwrap()
+                .events
+                .is_empty()
+        );
     });
 }
 
@@ -1153,13 +1177,26 @@ fn abrupt_graph_future_abort_reports_in_flight_unknown_and_blocks_success_depend
             OperationState::OutcomeUnknown
         );
         assert_eq!(terminal.operations["pending"].attempt, 1);
-        assert_eq!(terminal.operations["dependent"].state, OperationState::Blocked);
+        assert_eq!(
+            terminal.operations["dependent"].state,
+            OperationState::Blocked
+        );
         assert_eq!(terminal.operations["dependent"].attempt, 0);
-        assert_eq!(terminal.operations["unrelated"].state, OperationState::Cancelled);
+        assert_eq!(
+            terminal.operations["unrelated"].state,
+            OperationState::Cancelled
+        );
         assert_eq!(terminal.operations["unrelated"].attempt, 0);
-        assert!(observer.changes_since(0).unwrap().events.iter().any(|event| matches!(
-            event.change,
-            GraphRunChange::Phase(GraphRunPhase::Abandoned)
-        )));
+        assert!(
+            observer
+                .changes_since(0)
+                .unwrap()
+                .events
+                .iter()
+                .any(|event| matches!(
+                    event.change,
+                    GraphRunChange::Phase(GraphRunPhase::Abandoned)
+                ))
+        );
     });
 }
