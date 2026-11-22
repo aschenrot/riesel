@@ -6,7 +6,8 @@
 use riesel_app::{
     App, AsyncOperation, BoundExecutionPlan, CapabilityConnector, ConnectedProvider,
     ConnectorError, ConnectorRegistry, DeploymentConfig, ExecutionPlanDraft, GraphRunError,
-    OperationKey, OperationNode, OperationOutcome, OperationRegistry, OperationState, RunningApp,
+    GraphRunPhase, OperationKey, OperationNode, OperationOutcome, OperationRegistry,
+    OperationState, RunningApp,
     RuntimeError, ServiceEndpoint, async_operation,
 };
 use riesel_protocol::SessionToken;
@@ -234,6 +235,8 @@ fn managed_process_crash_fences_run_and_preserves_confirmed_prefix() {
         )
         .unwrap();
     let stale_signal = runner.signal_sender();
+    let observer = runner.observer();
+    let address = observer.snapshot().identity;
 
     let result = execution().block_on(async {
         tokio::time::timeout(Duration::from_secs(8), runner.execute())
@@ -244,6 +247,20 @@ fn managed_process_crash_fences_run_and_preserves_confirmed_prefix() {
     assert_eq!(result.operations["commit"], OperationState::Completed);
     assert_eq!(result.operations["crash"], OperationState::OutcomeUnknown);
     assert_eq!(result.operations["successor"], OperationState::Blocked);
+    // The same runner owns the authoritative snapshot even after a genuine
+    // child process dies. The trace does not invent a committed CRASH effect.
+    let snapshot = observer.snapshot();
+    assert_eq!(result.identity, address);
+    assert_eq!(snapshot.identity, address);
+    assert_eq!(snapshot.phase, GraphRunPhase::Finished);
+    assert!(snapshot.session_expired);
+    assert_eq!(snapshot.operations["commit"].state, OperationState::Completed);
+    assert_eq!(snapshot.operations["commit"].attempt, 1);
+    assert_eq!(snapshot.operations["crash"].state, OperationState::OutcomeUnknown);
+    assert_eq!(snapshot.operations["crash"].attempt, 1);
+    assert_eq!(snapshot.operations["successor"].state, OperationState::Blocked);
+    assert_eq!(snapshot.operations["successor"].attempt, 0);
+    assert!(!observer.changes_since(0).unwrap().truncated);
     assert_eq!(confirmed.load(Ordering::SeqCst), 1);
     assert_eq!(dispatched.load(Ordering::SeqCst), 1);
     assert_eq!(successor.load(Ordering::SeqCst), 0);
