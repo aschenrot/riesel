@@ -41,7 +41,7 @@ struct PauseGate {
 }
 
 impl PauseGate {
-    fn wait(&self, name: &str) {
+    fn wait(&self, name: &str) -> bool {
         let mut guard = self.generation.lock().unwrap();
         let before = *guard;
         println!("{name}");
@@ -53,11 +53,11 @@ impl PauseGate {
                 .unwrap();
             guard = next;
             if deadline.timed_out() {
-                // Fail closed: a research test that forgot RESUME is not
-                // permitted to resume execution on its own.
-                return;
+                // A missing test-harness RESUME must not admit or complete work.
+                return false;
             }
         }
+        true
     }
 
     fn resume(&self) {
@@ -141,7 +141,9 @@ fn respond(
     };
     let pause = request.get("research_pause").and_then(Value::as_str);
     if pause == Some("before") {
-        paused.wait("WAIT_BEFORE_ADMISSION");
+        if !paused.wait("WAIT_BEFORE_ADMISSION") {
+            return reject("pause_timeout");
+        }
     }
     // A small, short-held application policy lock makes withdrawal and
     // ingress admission one ordered decision. It is NOT held over user work.
@@ -159,7 +161,9 @@ fn respond(
     };
     drop(gate);
     if pause == Some("after") {
-        paused.wait("WAIT_AFTER_ADMISSION");
+        if !paused.wait("WAIT_AFTER_ADMISSION") {
+            return reject("pause_timeout");
+        }
     }
     let snapshot = view.observer.snapshot();
     let completed = snapshot
@@ -263,7 +267,7 @@ fn main() -> Result<(), Box<dyn Error>> {
     // Research-owner-only stdin control. No socket client can restart or
     // revoke the Riesel application. This is NOT a production control API.
     let stdin = io::stdin();
-    for line in stdin.lines() {
+    for line in stdin.lock().lines() {
         match line?.trim() {
             "REVOKE" => {
                 let view = current.read().unwrap();
@@ -291,6 +295,12 @@ fn main() -> Result<(), Box<dyn Error>> {
     paused.resume();
     background.join().map_err(|_| "listener thread panicked")?;
     // Test asserts there are no retained in-flight requests at teardown.
+    for _ in 0..100 {
+        if active.load(Ordering::Acquire) == 0 {
+            break;
+        }
+        thread::sleep(Duration::from_millis(10));
+    }
     if active.load(Ordering::Acquire) != 0 {
         return Err("test exited with in-flight clients".into());
     }
