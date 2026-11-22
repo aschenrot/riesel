@@ -190,7 +190,10 @@ fn record_query_read_only_model_has_no_writable_storage_requirement() {
         .record_query_at::<TodoModel, TestRecordReaderContract>(&read_alias)
         .unwrap();
 
-    assert_eq!(from_handler.definition_json().unwrap(), direct.definition_json().unwrap());
+    assert_eq!(
+        from_handler.definition_json().unwrap(),
+        direct.definition_json().unwrap()
+    );
     let schema = riesel_schema::parse_schema(&direct.definition_json().unwrap()).unwrap();
     assert_eq!(schema.version, 2);
     assert!(schema.model_bindings.is_empty());
