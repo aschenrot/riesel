@@ -245,7 +245,9 @@ def as_untrusted(script, root, msg):
     cmd = ["setpriv", "--reuid", str(ATTACKER_UID), "--regid", str(ATTACKER_UID),
            "--clear-groups", "/usr/bin/python3", str(script),
            "--client", str(root), json.dumps(msg)]
-    result = run(cmd, timeout=12)
+    # Only the privileged CI setup can create a process with another UID.
+    # The resulting client has UID 60090 and no effective privilege.
+    result = run(sudo(*cmd), timeout=12)
     return json.loads(result.stdout)
 
 
@@ -358,35 +360,35 @@ def main(pinned):
             })
             if no_auth.get("status") != "rejected":
                 raise AssertionError("untrusted public channel elevated a request")
-            client_deny = run(["setpriv", "--reuid", str(ATTACKER_UID),
+            client_deny = run(sudo("setpriv", "--reuid", str(ATTACKER_UID),
                                "--regid", str(ATTACKER_UID), "--clear-groups",
                                "/usr/bin/python3", str(script), "--admin",
                                str(root), json.dumps({
                                    "kind": "approve", "request_id": hostile["request_id"],
                                    "unit": unit, "invocation": original["InvocationID"],
                                    "verb": "stop",
-                               })], check=False)
+                               })), check=False)
             if client_deny.returncode == 0:
                 raise AssertionError("same-UID client accessed protected approval channel")
             print("RESEARCH_M59_UNTRUSTED_SAME_UID_CANNOT_APPROVE", flush=True)
 
             # Must test actual shared OS privilege, not assume numeric UID safe.
-            no_sudo = run(["setpriv", "--reuid", str(ATTACKER_UID),
+            no_sudo = run(sudo("setpriv", "--reuid", str(ATTACKER_UID),
                            "--regid", str(ATTACKER_UID), "--clear-groups",
-                           "sudo", "-n", "true"], check=False)
+                           "sudo", "-n", "true"), check=False)
             if no_sudo.returncode == 0:
                 raise AssertionError("attacker unexpectedly inherited ambient sudo")
-            denied_stop = run(["setpriv", "--reuid", str(ATTACKER_UID),
+            denied_stop = run(sudo("setpriv", "--reuid", str(ATTACKER_UID),
                                "--regid", str(ATTACKER_UID), "--clear-groups",
                                "systemctl", "--system", "--no-ask-password",
-                               "stop", unit], check=False)
+                               "stop", unit), check=False)
             if denied_stop.returncode == 0:
                 raise AssertionError("attacker stopped OS-owned app directly")
-            signal_attempt = run([
+            signal_attempt = run(sudo(
                 "setpriv", "--reuid", str(ATTACKER_UID),
                 "--regid", str(ATTACKER_UID), "--clear-groups",
                 "/usr/bin/python3", str(script), "--attack-signal", str(actual),
-            ], check=False)
+            ), check=False)
             if (signal_attempt.returncode != 0 or
                 "RESEARCH_M59_UNTRUSTED_DIRECT_SIGNAL_DENIED" not in signal_attempt.stdout):
                 raise AssertionError(
