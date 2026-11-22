@@ -51,8 +51,9 @@ footer { padding: 0 clamp(16px,4vw,48px) 24px; color: #a6b8cd; font-size: .78rem
 <body>
 <a class="skip" href="#node-list">Skip graph to accessible operation list</a>
 <header>
-  <div><div class="eyebrow">Read-only research · Riesel #248</div><h1>Execution graph inspector</h1><div class="sub">Independent local file viewer · no connection or execution authority</div></div>
-  <label>Open Riesel inspection JSON <input id="file" type="file" accept=".json,application/json" aria-describedby="input-help"></label>
+  <div><div class="eyebrow">Read-only inspection research · Riesel #248</div><h1>Execution graph inspector</h1><div class="sub">Independent browser viewer · offline or local read-only live proof</div></div>
+  <label id="file-label">Open Riesel inspection JSON <input id="file" type="file" accept=".json,application/json" aria-describedby="input-help"></label>
+  <p id="connection" class="notice" role="status" aria-live="polite" hidden></p>
 </header>
 <main>
   <section class="panel graph-panel" aria-labelledby="graph-title">
@@ -71,7 +72,7 @@ footer { padding: 0 clamp(16px,4vw,48px) 24px; color: #a6b8cd; font-size: .78rem
     <section class="panel" aria-labelledby="trace-title"><h2 id="trace-title">Authoritative run transitions</h2><p id="trace-warning" class="notice"></p><ol id="timeline" class="timeline"></ol></section>
   </aside>
 </main>
-<footer>Research proof only. This file is not a secure GUI attachment, public schema, live stream, editor or #114 completion. Unknown outcomes and missing transitions are never silently treated as success.</footer>
+<footer>Research proof only. Live mode is an unauthenticated local adapter, not an approved secure GUI attachment, public schema, editor or #114 completion. Unknown outcomes and missing transitions are never silently treated as success.</footer>
 <script src="./inspector.js"></script>
 </body>
 </html>
