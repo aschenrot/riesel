@@ -48,6 +48,15 @@ impl Context<'_> {
         self.running.internal_operational_observations()
     }
 
+    /// Internal, test-feature-only SDK lexical entrypoint marker. The runtime
+    /// records this phase independently of provider startup or module hooks.
+    #[cfg(feature = "internal-publication")]
+    pub(crate) fn internal_enter_entrypoint(
+        &self,
+    ) -> std::io::Result<riesel_app::InternalEntrypointGuard> {
+        self.running.async_tasks().internal_enter_entrypoint()
+    }
+
     /// Construct a bounded graph runner in this application's actual session.
     /// Operations remain the application's own Rust bindings; no provider
     /// resolution or independent executor is performed.
