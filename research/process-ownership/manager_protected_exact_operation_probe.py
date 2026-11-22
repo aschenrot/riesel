@@ -374,6 +374,17 @@ def main(pinned):
                                "stop", unit], check=False)
             if denied_stop.returncode == 0:
                 raise AssertionError("attacker stopped OS-owned app directly")
+            signal_attempt = run([
+                "setpriv", "--reuid", str(ATTACKER_UID),
+                "--regid", str(ATTACKER_UID), "--clear-groups",
+                "/usr/bin/python3", str(script), "--attack-signal", str(actual),
+            ], check=False)
+            if (signal_attempt.returncode != 0 or
+                "RESEARCH_M59_UNTRUSTED_DIRECT_SIGNAL_DENIED" not in signal_attempt.stdout):
+                raise AssertionError(
+                    f"direct SIGTERM attack was not correctly denied: "
+                    f"{signal_attempt.returncode} {signal_attempt.stderr!r}"
+                )
             try:
                 os.kill(actual, 0)
             except ProcessLookupError as exc:
@@ -461,6 +472,15 @@ if __name__ == "__main__":
         else:
             reply = transact(root / "public.sock", json.loads(sys.argv[3]))
         print(json.dumps(reply), flush=True)
+    elif len(sys.argv) == 3 and sys.argv[1] == "--attack-signal":
+        if os.geteuid() != ATTACKER_UID:
+            raise AssertionError("signal probe did not execute as untrusted principal")
+        try:
+            os.kill(int(sys.argv[2]), signal.SIGTERM)
+        except PermissionError:
+            print("RESEARCH_M59_UNTRUSTED_DIRECT_SIGNAL_DENIED", flush=True)
+        else:
+            raise AssertionError("untrusted same-UID caller directly stopped app")
     elif len(sys.argv) == 3 and sys.argv[1] == "--exercise":
         main(Path(sys.argv[2]).resolve())
     else:
