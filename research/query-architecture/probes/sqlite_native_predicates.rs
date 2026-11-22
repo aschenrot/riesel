@@ -109,6 +109,7 @@ fn select_ids(conn: &Connection, sql: &str, values: impl Params) -> Vec<Uuid> {
 fn provider_seeded_sqlite_json_token_equality_is_exact_where_extraction_is_not() {
     let (_scratch, path, ids) = fixture();
     let conn = Connection::open_with_flags(path, OpenFlags::SQLITE_OPEN_READ_ONLY).unwrap();
+    println!("SQLite runtime version: {}", rusqlite::version());
     let exact_u64 = select_ids(
         &conn,
         "SELECT id FROM records WHERE model=?1 AND

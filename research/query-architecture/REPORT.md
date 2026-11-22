@@ -155,6 +155,55 @@ or transaction test.
 
 **Architectural significance:** Riesel needs an explicit choice between *portable logical semantics* and *native provider acceleration*. A bounded output count does not bound scan cost. Full-width integers, optional-field presence and cursor provenance must be defined before freezing a shared Query contract. These tests strengthen semantic feasibility but do **not** decide between independent domain APIs, shared validation, separate Record Query or Storage evolution.
 
+## Native SQLite equality, optional-field semantics and interruption research (2026-11-22)
+
+**Scope:** [`sqlite_native_predicates.rs`](probes/sqlite_native_predicates.rs) is imported by a **test-only** integration wrapper in `packages/storage/sqlite/tests/`. The fixture calls the real, unchanged `SqliteStore::open`, writes 65 schema-registered records through `RecordStore v2`, revision-checks targeted updates, **drops the provider to relinquish the exclusive cooperative owner**, and only then opens the disposable database using raw `rusqlite`. It **does not** add query methods to Riesel or execute SQL through a live authenticated provider handle.
+
+**Reproduction:** `cargo test -p riesel_storage_sqlite --test query_architecture_research -- --nocapture` on Rust 1.100.0, with the repository's pinned `rusqlite 0.43.0` bundled SQLite. The separate [research CI #44971176543](https://github.com/aschenrot/riesel/actions/runs/44971176543) passed **3/3 native SQL Rust tests** on the source revision `1e8bab4`, along with the existing two-provider reference and Python continuity tests. Later changes must receive an independent exact-head check.
+
+| Scenario | Verified behavior | What is **not** proved |
+| --- | --- | --- |
+| Exact unsigned equality | `(CAST(data AS TEXT) -> '$.big') = ?` with a bound **decimal string** returns `u64::MAX` and `u64::MAX - 1` individually from actual provider-serialized JSON | Universal correctness for every numeric model/operator, range order or other database providers |
+| Unsafe extraction falsifier | `json_extract(...,'$.big') = ?` with a bound `f64` matches **both** distinct large values | A defect in the published Storage v2 interface (which does not expose these predicates) |
+| Signed extremes | JSON numeric **text tokens** match persisted `i64::MIN` and `i64::MAX` individually | Full numeric sorting/collation, mixed signed/unsigned or conversion/normalization guarantees |
+| Missing versus explicit null | `json_type(...,'$.note') IS NULL` finds omitted fields; `= 'null'` finds explicitly null properties | An automatically chosen public semantic mapping for `Option<T>`; typed Rust decoding may erase presence |
+| Boolean sparse lookup | `json_type(...,'$.completed')='false'` identifies the 65th record | A resource/latency budget for unindexed scans or a stable snapshot |
+| Scratch index | A disposable expression index on `(model, (CAST(data AS TEXT)->'$.big'), id)` returns the same exact records; **forced** `INDEXED BY` plan reports `USING COVERING INDEX` | Automatic planner choice, production index migration, transparent provider integration, or an end-to-end performance/SLA claim |
+| Cooperative cancellation | `Connection::progress_handler(1, ...)` interrupts one test-only read and is then removed; a subsequent read succeeds | Application session cancellation, cross-process/RPC abort propagation, bounded owner-lock hold time, or cancellation of a mutation |
+
+The expression-index proof is deliberately **not a benchmark**: 65 records, query plan forced, SQL executed after releasing the authoritative provider, no concurrent writer or network transport. Physical index installation is expressly **outside** the accepted model-only offline migration contract and would need its own authorization, backup/rollback, compatibility and lifecycle decision. See the upstream [SQLite JSON operators](https://www.sqlite.org/json1.html) and [rusqlite progress-handler API](https://docs.rs/rusqlite/0.43.0/rusqlite/struct.Connection.html).
+
+**Security and correctness consequence:** Any logical query layer would need a model-aware typed comparator and a controlled provider-owned translation. The exact SQL approach depends on validated, canonical integer JSON encoding and a *bound string* value, not arbitrary raw SQL or unchecked runtime JSON paths. Equality on these scalar types does **not** establish correct numeric ordering, UUID normalization, Unicode collation, float special cases or arbitrary nested JSON search. A Riesel Query API cannot authorize an external connection merely because it can read the same SQLite file.
+
+### Query/read versus mutation authority — implementation-grounded comparison
+
+From `crates/riesel_app/src/deployment.rs`, `runtime/bootstrap.rs`,
+`plan.rs`, `crates/riesel_protocol/src/session.rs`, the accepted authoring
+contract and #107's **research-only** co-location fixture:
+
+- `RecordStore v2` publishes **get/list_page and create/update/delete on one capability interface**. A client holding the typed handle exposes both operation families; it is **not** an enforced read-only facet. The current loopback transport is unauthenticated.
+- Local aliases selecting one registered provider ID share its **component instance**; this is a feasible same-state realization. A managed `instance: Some(name)` permits multiple requirements to reuse a child with consistent launch parameters. However, the planner's metadata pins are not authenticated remote identity, and two unpinned/unnamed managed selections can be distinct.
+- `SessionToken::shares_session_with` compares **in-process** shared revocation ownership; it is explicitly not a remote principal credential, durable session generation or proof that a browser/IPC caller may inspect a model.
+- A separately versioned read interface allows a *potential* contract-level read-only facet but introduces an explicit pairing requirement when its writer is a separate selection. Co-exposing two interfaces from **one actual component instance** can solve linked same-state identity; managed/external session, startup authorization and invalidation remain separate guarantees.
+- A unified versioned Storage interface chooses one provider for both read and mutation methods, eliminating the *inter-interface pairing* problem for one handle. It still does not automatically provide read-only permission, and it couples query evolution to the storage contract; an optional **read-only facet of a unified provider** remains a viable hybrid, not a forbidden alternative.
+- Domain-owned typed query methods and reusable **authoring/validation helpers** avoid imposing a universal execution contract. They may reduce runtime coupling but cannot guarantee the *same* semantics, performance or SDK behavior across independently implemented providers unless those are defined and verified separately.
+- A centralized planner or federated engine cannot derive cross-provider snapshot, data-sharing authority or safe access to untrusted provider data from existing metadata alone. Demonstrated engine expressiveness does not resolve Riesel's operational identity/authorization specification #75.
+
+| Viable architectural packaging (not a fixed shortlist) | Main benefit for registered records | Additional verified or outstanding obligation |
+| --- | --- | --- |
+| Domain-owned retrieval with shared optional helpers | No new cross-contract pairing, preserves full domain authority | Repeated operator, pagination and index semantics; unindexed reads can be costly |
+| Independent read/query capability co-exposed with Storage v2 | Read-only *interface shape* with independently evolvable version; one component can own both | Need fail-closed pairing in deployment, real session/instance proof and **actual** read authorization; local evidence from #107 is not remote certification |
+| Unified versioned Storage replacement or co-exposure | Intrinsically same handle for read/write, fewer cross-interface relationships | Query grammar versioning, v2 client co-exposure, contract surface and mutation privilege/read-facet design |
+| Hybrid read-only facet with shared logical vocabulary and domain-owned execution | Separates operator portability from physical execution and permits narrow read privilege | Higher authoring/selection complexity if each facet needs its own contract; must prove reduction in long-term duplication |
+| Broader planner, third-party language or federation | Potential expressiveness for separately accepted analytical/integrated workloads | No demonstrated first-release need; additional owner, cost, security and cross-domain consistency proof |
+
+**Assessment:** The SQLite-native results remove one **feasibility uncertainty**
+for exact equality and optional-field presence, but **do not** decide
+between these packaging choices. Security and single-authority
+guarantees require actual operational controls, not only a DSL.
+The lowest-cost Todo fix and the platform's longest-lived abstraction
+remain separate architectural questions. No architecture is accepted.
+
 ## Comparative candidate synthesis — derived *after* discovery
 
 These are **design families, not mandated alternatives**. Each remains
@@ -211,7 +260,7 @@ comparison must account for the *cumulative* cost of duplicate predicates,
 index changes, invalid cursors, and SDK versioning across credible consumers,
 even if new shared infrastructure costs more initially.
 
-**Speculative abstraction bias:** 16 upstream mechanisms do not imply
+**Speculative abstraction bias:** 22 upstream mechanisms do not imply
 16 required Riesel features; neither does a shared name `query` justify
 an AST/engine. A generic contract must improve a real multi-consumer
 outcome without misrepresenting each domain's authority/consistency.
@@ -249,11 +298,12 @@ The decision *could* change with:
 
 1. A real second registered-model consumer proving equivalent typed
    operations, not merely contrived analogies to Todo;
-2. Extend the new **research-only typed interpreter** proof to actual
-   provider-native predicates, signed/UUID ordering, projection and
-   cursor version/restart behavior. So far the probe covers scalar
-   equality/presence/invalid-operator and *caller-supplied* epoch checks,
-   not a production or managed-provider Query API;
+2. Build on the now-verified scratch SQLite **native expression** proof:
+   resolve provider-owned execution without raw connection bypass,
+   complete signed/UUID ordering and query version/projection semantics,
+   native Memory/SQLite parity and real authenticated cursor/session
+   fencing. The SQL and Rust interpreter fixtures do not publish a
+   Query contract or prove managed-provider access;
 3. A measured/practical comparison of **same-instance binding and
    read-only authorization** versus co-exposed unified storage;
 4. Real bounded-selectivity/cancellation behavior on linked Memory/
@@ -278,6 +328,7 @@ federation engine or analytics runtime is a prerequisite for Todo.
   no user filesystem side effects. Initial SQLite **3.46.1** run
   asserted all **3/3** outcomes; [research CI #44967915491](https://github.com/aschenrot/riesel/actions/runs/44967915491) passed **3/3** tests at earlier commit `403ecaed`. A later doc update requires an independent **new exact-head** CI check; do not transfer the old run's pass status automatically.
 - Typed provider research: run **cargo test -p todo --test query_architecture_research -- --nocapture**. [Research CI #44968670157](https://github.com/aschenrot/riesel/actions/runs/44968670157) passed two Rust tests against Memory and SQLite at earlier commit **a3aa116c**. The interpreter filters retrieved v2 data in Rust, not inside either provider.
+- Provider-authored SQLite native SQL experiment: `cargo test -p riesel_storage_sqlite --test query_architecture_research -- --nocapture`. [CI #44971176543](https://github.com/aschenrot/riesel/actions/runs/44971176543) passed 3 native SQL Rust tests at earlier source `1e8bab4`, covering exact decimal token, missing/null, forced scratch index and interrupted read. Its SQL is **direct on a released, disposable provider file**, not a published provider operation.
 - Comparative claims: upstream documentation links in
   `DISCOVERY.md`. **Not verified** here: legal licensing audit,
   upstream package MSRV at pinned Rust 1.100, actual integration
