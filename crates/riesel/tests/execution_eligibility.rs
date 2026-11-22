@@ -4,7 +4,8 @@
 
 use riesel::{
     App, AsyncOperation, ConnectorRegistry, DeploymentConfig, ExecutionPlanDraft, OperationKey,
-    OperationNode, OperationOutcome, OperationRegistry, OperationState, RunningApp, async_operation,
+    OperationNode, OperationOutcome, OperationRegistry, OperationState, RunningApp,
+    async_operation,
 };
 use std::num::NonZeroUsize;
 use std::sync::{
@@ -223,8 +224,7 @@ fn ready_index_handles_wide_and_forward_reverse_chains() {
                     } else {
                         position
                     };
-                    let mut operation =
-                        OperationNode::new(format!("op-{index}"), key("noop"));
+                    let mut operation = OperationNode::new(format!("op-{index}"), key("noop"));
                     if shape != "wide" && index > 0 {
                         operation = operation.after(format!("op-{}", index - 1));
                     }
