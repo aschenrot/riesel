@@ -35,6 +35,7 @@
   let confirmingDeleteId = $state<string | null>(null);
   let errorMessage = $state('');
   let conflicted = $state(false);
+  let uncertain = $state(false);
   let toastMessage = $state('');
   let toastId = $state(0);
   let undoOperation = $state<UndoOperation | null>(null);
@@ -67,6 +68,7 @@
   function clearFeedback() {
     errorMessage = '';
     conflicted = false;
+    uncertain = false;
     toastMessage = '';
     undoOperation = null;
     batchSummary = '';
@@ -82,9 +84,22 @@
   function report(error: unknown) {
     toastMessage = '';
     conflicted = error instanceof ApiError && error.code === 'revision_conflict';
-    errorMessage = error instanceof ApiError
-      ? error.message
-      : 'An unexpected error occurred. Please try again.';
+    uncertain = error instanceof ApiError && error.code === 'outcome_unknown';
+    errorMessage = uncertain
+      ? 'This change may have been applied. Check current tasks before repeating the action.'
+      : error instanceof ApiError
+        ? error.message
+        : 'An unexpected error occurred. Please try again.';
+  }
+
+  function checkCurrentTasks() {
+    // Only an explicit user choice may discard an uncertain edit draft.
+    // A GET refresh is reconciliation, never a mutation retry.
+    if (uncertain && editingId !== null) {
+      editingId = null;
+      editError = '';
+    }
+    void refresh();
   }
 
   function sortedUnique(records: Task[]): Task[] {
@@ -628,13 +643,19 @@
       {#if errorMessage}
         <div class="feedback error" role="alert">
           <span>{errorMessage}</span>
-          {#if editingId !== null && !conflicted}
+          {#if editingId !== null && !conflicted && !uncertain}
             <button type="button" class="text-action" onclick={() => clearFeedback()}>
               Dismiss
             </button>
           {:else}
-            <button type="button" class="text-action" onclick={() => void refresh()}>
-              {conflicted ? 'Reload current tasks' : 'Try again'}
+            <button type="button" class="text-action" onclick={checkCurrentTasks}>
+              {conflicted
+                ? 'Reload current tasks'
+                : uncertain
+                  ? editingId !== null
+                    ? 'Discard draft and check tasks'
+                    : 'Check current tasks'
+                  : 'Try again'}
             </button>
           {/if}
         </div>
