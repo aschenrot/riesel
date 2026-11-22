@@ -333,3 +333,129 @@ fn real_owned_unix_client_attach_detach_and_recover() {
         println!("REAL_T1_UNIX_SDK_CLIENT_LIFECYCLE_OK");
     });
 }
+
+#[test]
+fn counterfeit_read_endpoint_process() {
+    // A *different OS process* with the same UID can recreate an endpoint
+    // and invent the advertised non-secret publication fields. This is
+    // intentionally an expected T1 limitation, NOT a protected-identity test.
+    let Ok(path) = std::env::var("RIESEL_T1_FORGED_SOCKET") else {
+        return;
+    };
+    runtime().block_on(async {
+        let listener = tokio::net::UnixListener::bind(path).unwrap();
+        for _ in 0..2 {
+            let (mut stream, _) = tokio::time::timeout(Duration::from_secs(8), listener.accept())
+                .await
+                .unwrap()
+                .unwrap();
+            let mut request = Vec::new();
+            stream.read_to_end(&mut request).await.unwrap();
+            let message: Value = serde_json::from_slice(&request).unwrap();
+            let answer = match message["action"].as_str() {
+                Some("describe") => json!({
+                    "wire_version": 1,
+                    "status": "descriptor",
+                    "descriptor": {
+                        "application": "forged.app",
+                        "interface": "gui.counter_value",
+                        "publication_id": "not-an-authentication-credential",
+                        "contract": {
+                            "id": "riesel.counter.public_value",
+                            "version": 1
+                        },
+                        "generation": "fabricated-session-generation",
+                        "allowed_queries": ["snapshot"],
+                        "exposure": "non_sensitive_shared_user"
+                    }
+                }),
+                Some("query") => json!({
+                    "wire_version": 1,
+                    "status": "ok",
+                    "value": {"Ok": 999}
+                }),
+                other => panic!("unexpected fake-endpoint request: {other:?}"),
+            };
+            stream
+                .write_all(&serde_json::to_vec(&answer).unwrap())
+                .await
+                .unwrap();
+            stream.shutdown().await.unwrap();
+        }
+        println!("SAME_USER_ENDPOINT_IMPERSONATION_REPRODUCED");
+    });
+}
+
+#[test]
+fn same_uid_endpoint_rebinding_is_not_protected_server_authentication() {
+    runtime().block_on(async {
+        let dir = socket_directory();
+        fs::create_dir(&dir).unwrap();
+        fs::set_permissions(&dir, fs::Permissions::from_mode(0o700)).unwrap();
+        let path = dir.join("read.sock");
+
+        // A legitimate application-owned endpoint was here, but is now gone.
+        // UnixReadServer correctly removes its owned socket on drop; the
+        // pathname, OS UID and known contract name do not authenticate a
+        // later process taking over the same path.
+        let original = UnixReadServer::bind(&path).unwrap();
+        assert!(path.exists());
+        drop(original);
+        assert!(!path.exists());
+
+        let child = std::env::current_exe().unwrap();
+        let endpoint = path.to_string_lossy().into_owned();
+        let (tx, rx) = tokio::sync::oneshot::channel();
+        std::thread::spawn(move || {
+            let result = Command::new(child)
+                .arg("--exact")
+                .arg("counterfeit_read_endpoint_process")
+                .arg("--nocapture")
+                .env("RIESEL_T1_FORGED_SOCKET", endpoint)
+                .stdin(Stdio::null())
+                .output();
+            let _ = tx.send(result);
+        });
+        tokio::time::timeout(Duration::from_secs(8), async {
+            while !path.exists() {
+                tokio::time::sleep(Duration::from_millis(15)).await;
+            }
+        })
+        .await
+        .unwrap();
+
+        let client = UnixReadClient::new(&path);
+        let forged = client.describe().await.unwrap();
+        assert_eq!(forged.application, "forged.app");
+        assert_eq!(forged.generation, "fabricated-session-generation");
+        assert_eq!(
+            forged.contract.id,
+            "riesel.counter.public_value",
+            "matching an advertised contract is not server authentication"
+        );
+        let fake_read = client
+            .query(&forged, "snapshot", json!({}))
+            .await
+            .unwrap();
+        assert_eq!(fake_read["status"], "ok");
+        assert_eq!(fake_read["value"]["Ok"], 999);
+        // This accepted *counterfeit* demonstrates why sensitive data and
+        // mutations MUST use a different, stronger protected profile.
+        let result = tokio::time::timeout(Duration::from_secs(8), rx)
+            .await
+            .unwrap()
+            .unwrap()
+            .unwrap();
+        assert!(
+            result.status.success(),
+            "fake child: {}",
+            String::from_utf8_lossy(&result.stderr)
+        );
+        assert!(
+            String::from_utf8_lossy(&result.stdout)
+                .contains("SAME_USER_ENDPOINT_IMPERSONATION_REPRODUCED")
+        );
+        fs::remove_file(path).unwrap();
+        fs::remove_dir(dir).unwrap();
+    });
+}
