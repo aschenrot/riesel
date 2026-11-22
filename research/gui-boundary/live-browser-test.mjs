@@ -40,11 +40,18 @@ try {
   assert.equal(await first.locator('#file-label').isVisible(), false,
     'live mode must not request an offline JSON import');
   assert.match(await first.locator('#connection').innerText(), /Connected/);
+  const selected = first.locator('#node-list button[data-operation-id="join"]');
+  await selected.click();
   const initial = await first.locator('#meta').innerText();
   assert.match(initial, /Session|Run/);
   await first.waitForFunction(() =>
-    document.querySelector('[data-node="join"]')?.getAttribute('class') === 'node completed',
-    { timeout: 15_000 });
+    document.querySelector('[data-node="join"]')?.getAttribute('class') === 'node completed' &&
+    document.getElementById('meta')?.textContent?.includes('Finished'),
+    null, { timeout: 15_000 });
+  assert.equal(await selected.getAttribute('aria-pressed'), 'true',
+    'selected operation must survive live state changes');
+  assert.equal(await first.evaluate(() => document.activeElement?.dataset?.operationId), 'join',
+    'keyboard focus must survive live state changes');
   await first.locator('#after').click();
   assert.equal(await first.locator('[data-node="join"]').getAttribute('class'), 'node completed');
   assert.match(await first.locator('#meta').innerText(), /Finished/);
