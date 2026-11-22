@@ -143,7 +143,7 @@ mod tests {
         },
     }
 
-    #[derive(Debug)]
+    #[derive(Debug, PartialEq, Eq)]
     struct Reply {
         confirmed: u64,
         cancelled: bool,
