@@ -9,6 +9,7 @@ mod execution_nested;
 #[cfg(feature = "async-tcp")]
 mod execution_observation;
 mod execution_plan;
+mod editor_catalog;
 #[cfg(feature = "async-tcp")]
 mod execution_runner;
 mod fixed_step;
@@ -43,6 +44,7 @@ pub use execution_observation::{
     GraphRunIdentity, GraphRunObserver, GraphRunPhase, GraphRunSnapshot, GraphRunTransition,
     GraphRunTransitions, MAX_GRAPH_EFFECT_STREAMS, MAX_GRAPH_TRANSITIONS,
 };
+pub use editor_catalog::{EditorAffinity, EditorCatalogError, EditorOperationDescriptor};
 pub use execution_plan::{
     AccessMode, BoundExecutionPlan, DomainAdmissionMode, DomainBoundary, ExecutionPlanDescription,
     ExecutionPlanDraft, ExecutionPlanError, OperationKey, OperationNode, OperationRegistry,
