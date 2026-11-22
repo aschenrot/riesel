@@ -86,10 +86,11 @@ fn main() -> riesel::Result<()> {
                 return Err(std::io::Error::other("paused tick dispatched unexpectedly"));
             }
 
-            controller.step(target.clone()).map_err(std::io::Error::other)?;
+            controller
+                .step(target.clone())
+                .map_err(std::io::Error::other)?;
             tokio::time::timeout(Duration::from_secs(3), async {
-                while observer.snapshot().operations["tick-one"].state
-                    != OperationState::Completed
+                while observer.snapshot().operations["tick-one"].state != OperationState::Completed
                 {
                     tokio::task::yield_now().await;
                 }
@@ -97,14 +98,15 @@ fn main() -> riesel::Result<()> {
             .await
             .map_err(std::io::Error::other)?;
             if ticks.load(Ordering::SeqCst) != 1
-                || observer.snapshot().operations["tick-two"].state
-                    != OperationState::Pending
+                || observer.snapshot().operations["tick-two"].state != OperationState::Pending
                 || observer.snapshot().controls[&target] != GraphControlMode::Paused
             {
                 return Err(std::io::Error::other("single domain step was not enforced"));
             }
 
-            controller.step(target.clone()).map_err(std::io::Error::other)?;
+            controller
+                .step(target.clone())
+                .map_err(std::io::Error::other)?;
             tokio::time::timeout(Duration::from_secs(3), task)
                 .await
                 .map_err(std::io::Error::other)?
