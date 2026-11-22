@@ -26,17 +26,17 @@ pub use catalog::{CatalogError, ProviderCatalog, ProviderSelectionConfig};
 pub use component::{ComponentDefinition, DeclarativeComponent};
 pub use deployment::{DeploymentConfig, DeploymentError, ServiceEndpoint};
 #[cfg(feature = "async-tcp")]
+pub use execution_nested::{
+    MAX_NESTED_TRANSITIONS, NestedCursor, NestedDescription, NestedDomainOwner,
+    NestedDomainRegistration, NestedObservationError, NestedObserver, NestedParent,
+    NestedPublisher, NestedSnapshot, NestedStatus, NestedTransitions,
+};
+#[cfg(feature = "async-tcp")]
 pub use execution_observation::{
     GraphControlError, GraphControlMode, GraphControlTarget, GraphEffectError, GraphEffectRecorder,
     GraphObservationError, GraphObservedOperation, GraphRunChange, GraphRunController,
     GraphRunIdentity, GraphRunObserver, GraphRunPhase, GraphRunSnapshot, GraphRunTransition,
     GraphRunTransitions, MAX_GRAPH_EFFECT_STREAMS, MAX_GRAPH_TRANSITIONS,
-};
-#[cfg(feature = "async-tcp")]
-pub use execution_nested::{
-    MAX_NESTED_TRANSITIONS, NestedCursor, NestedDescription, NestedDomainOwner,
-    NestedDomainRegistration, NestedObservationError, NestedObserver, NestedParent, NestedPublisher,
-    NestedSnapshot, NestedStatus, NestedTransitions,
 };
 pub use execution_plan::{
     AccessMode, BoundExecutionPlan, DomainAdmissionMode, DomainBoundary, ExecutionPlanDescription,
