@@ -1,0 +1,16 @@
+name: Query Architecture Research
+
+on:
+  pull_request:
+    paths:
+      - "research/query-architecture/**"
+      - ".github/workflows/query-architecture-research.yml"
+  workflow_dispatch:
+
+jobs:
+  sqlite-live-keyset-probe:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Reproduce scratch-only live keyset continuity counterexamples
+        run: python3 research/query-architecture/probes/sqlite_live_keyset.py
