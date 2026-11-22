@@ -380,6 +380,96 @@ pub struct GraphExecutionFailure {
 /// reusable runner containing stale Running nodes. In-flight operations are
 /// aborted on session invalidation, but effects already dispatched may be
 /// irreversible; they are conservatively reported as OutcomeUnknown.
+/// Run-local readiness is derived from the immutable validated plan. It
+/// proposes operations only; the existing session resource/domain authority
+/// and atomic cooperative safe-point still decide every actual admission.
+///
+/// This structure retains O(nodes + dependency edges + signal subscribers)
+/// state for exactly one live run, with no process-global cache or timer.
+struct ReadyEligibility {
+    remaining: Vec<usize>,
+    dependents: Vec<Vec<usize>>,
+    signal_subscribers: BTreeMap<String, Vec<usize>>,
+    ready: BTreeSet<usize>,
+}
+
+impl ReadyEligibility {
+    fn new(
+        operations: &[crate::execution_plan::OperationNode],
+        index: &BTreeMap<String, usize>,
+    ) -> Self {
+        let mut remaining = vec![0; operations.len()];
+        let mut dependents = vec![Vec::new(); operations.len()];
+        let mut signal_subscribers = BTreeMap::<String, Vec<usize>>::new();
+        for (child, operation) in operations.iter().enumerate() {
+            for dependency in operation.dependencies() {
+                let parent = *index.get(dependency).expect("validated prerequisite");
+                dependents[parent].push(child);
+                remaining[child] += 1;
+            }
+            if let OperationTrigger::Signal(signal) = operation.trigger() {
+                signal_subscribers
+                    .entry(signal.clone())
+                    .or_default()
+                    .push(child);
+            }
+        }
+        let ready = operations
+            .iter()
+            .enumerate()
+            .filter_map(|(index, operation)| {
+                (remaining[index] == 0
+                    && matches!(operation.trigger(), OperationTrigger::Immediate))
+                .then_some(index)
+            })
+            .collect();
+        Self {
+            remaining,
+            dependents,
+            signal_subscribers,
+            ready,
+        }
+    }
+
+    fn signal(&mut self, signal: &str, states: &[OperationState]) {
+        // Multiple signals are one persistent one-shot eligibility fact.
+        // A signal arriving before the final prerequisite will be used later.
+        if let Some(subscribers) = self.signal_subscribers.get(signal) {
+            for &index in subscribers {
+                if self.remaining[index] == 0
+                    && matches!(states[index], OperationState::Pending)
+                {
+                    self.ready.insert(index);
+                }
+            }
+        }
+    }
+
+    fn completed(
+        &mut self,
+        completed: usize,
+        operations: &[crate::execution_plan::OperationNode],
+        states: &[OperationState],
+        fired: &BTreeSet<String>,
+    ) {
+        for &child in &self.dependents[completed] {
+            let remaining = &mut self.remaining[child];
+            debug_assert!(*remaining > 0);
+            *remaining -= 1;
+            if *remaining != 0 || !matches!(states[child], OperationState::Pending) {
+                continue;
+            }
+            let released = match operations[child].trigger() {
+                OperationTrigger::Immediate => true,
+                OperationTrigger::Signal(signal) => fired.contains(signal),
+            };
+            if released {
+                self.ready.insert(child);
+            }
+        }
+    }
+}
+
 pub struct ExecutionGraphRunner {
     plan: BoundExecutionPlan<AsyncOperation>,
     session: SessionToken,
@@ -389,6 +479,7 @@ pub struct ExecutionGraphRunner {
     publication: GraphRunPublication,
     _run_lease: GraphRunLease,
     index: BTreeMap<String, usize>,
+    eligibility: ReadyEligibility,
     states: Vec<OperationState>,
     fired: BTreeSet<String>,
     signal_rx: mpsc::Receiver<String>,
@@ -431,6 +522,7 @@ impl ExecutionGraphRunner {
             .enumerate()
             .map(|(i, node)| (node.id().to_owned(), i))
             .collect();
+        let eligibility = ReadyEligibility::new(operations, &index);
         let allowed = operations
             .iter()
             .filter_map(|node| match node.trigger() {
@@ -447,6 +539,7 @@ impl ExecutionGraphRunner {
             publication,
             _run_lease: run_lease,
             index,
+            eligibility,
             fired: BTreeSet::new(),
             signal_rx,
             signal_tx: GraphSignalSender {
@@ -525,7 +618,8 @@ impl ExecutionGraphRunner {
             let mut admission_changed = std::pin::pin!(admission.changed.notified());
             admission_changed.as_mut().enable();
             while let Ok(signal) = self.signal_rx.try_recv() {
-                self.fired.insert(signal);
+                self.fired.insert(signal.clone());
+                self.eligibility.signal(&signal, &self.states);
             }
             if needs_blocking_scan {
                 self.block_dependents();
@@ -565,7 +659,8 @@ impl ExecutionGraphRunner {
                     break;
                 }
                 Wake::Signal(signal) => {
-                    self.fired.insert(signal);
+                    self.fired.insert(signal.clone());
+                    self.eligibility.signal(&signal, &self.states);
                 }
                 Wake::AdmissionReleased => {}
                 Wake::Completed(result) => match result {
@@ -581,6 +676,14 @@ impl ExecutionGraphRunner {
                         };
                         self.publication
                             .transition(index, self.states[index].clone());
+                        if matches!(self.states[index], OperationState::Completed) {
+                            self.eligibility.completed(
+                                index,
+                                self.plan.plan().description().operations(),
+                                &self.states,
+                                &self.fired,
+                            );
+                        }
                     }
                     Err(error) => {
                         needs_blocking_scan = true;
@@ -654,71 +757,86 @@ impl ExecutionGraphRunner {
         jobs: &mut JoinSet<(usize, OperationOutcome)>,
         active: &mut HashMap<Id, usize>,
     ) {
-        let operations = self.plan.plan().description().operations();
-        for (index, node) in operations.iter().enumerate() {
+        // BTreeSet preserves declaration order among currently eligible
+        // independent operations. A refused resource/paused node does not
+        // prevent later candidates from progressing; it remains Pending.
+        let mut candidate = self.eligibility.ready.first().copied();
+        while let Some(index) = candidate {
             if active.len() >= self.max_in_flight {
                 break;
             }
-            if !matches!(self.states[index], OperationState::Pending) {
-                continue;
-            }
-            if node.dependencies().iter().any(|dep| {
-                !matches!(
-                    self.states[*self.index.get(dep).expect("validated dependency")],
-                    OperationState::Completed
-                )
-            }) {
-                continue;
-            }
-            if let OperationTrigger::Signal(signal) = node.trigger()
-                && !self.fired.contains(signal)
-            {
-                continue;
-            }
-            // Check the local safe-point gate before claiming scarce
-            // session capacity. The final admission rechecks atomically
-            // against concurrent pause/step commands after reservation.
-            if !self.publication.may_admit(index, node.domain_boundary()) {
-                continue;
-            }
-            // The one session-level admission table enforces conflicts for
-            // both this run and every other run in the same application.
-            let Some(lease) = self
-                .admission
-                .reserve(node.resources(), node.domain_boundary())
-            else {
-                continue;
-            };
-            let handler = Arc::clone(
-                self.plan
-                    .handler(node.id())
-                    .expect("validated exact-version operation binding"),
-            );
-            // One authoritative lock atomically consumes the admitted
-            // safe-point step and marks the callback Running, so a pause
-            // cannot retroactively claim to stop already dispatched work.
-            if !self.publication.admit(index, node.domain_boundary()) {
-                drop(lease);
-                continue;
-            }
-            self.states[index] = OperationState::Running;
-            let (effects, effect_scope) = self.publication.recorder(index);
-            let session = self.session.clone();
-            let handle = jobs.spawn(async move {
-                let _lease = lease;
-                // Drop before the operation lease; no leaked reporter can
-                // publish after this child future finishes or is aborted.
-                let _effect_scope = effect_scope;
-                if !session.is_active() {
-                    (index, OperationOutcome::Cancelled)
-                } else {
-                    (index, handler(effects).await)
-                }
-            });
-            active.insert(handle.id(), index);
-            self.started += 1;
-            self.peak_in_flight = self.peak_in_flight.max(active.len());
+            candidate = self
+                .eligibility
+                .ready
+                .range((index + 1)..)
+                .next()
+                .copied();
+            self.admit_candidate(index, jobs, active);
         }
+    }
+
+    fn admit_candidate(
+        &mut self,
+        index: usize,
+        jobs: &mut JoinSet<(usize, OperationOutcome)>,
+        active: &mut HashMap<Id, usize>,
+    ) {
+        let node = &self.plan.plan().description().operations()[index];
+        if !matches!(self.states[index], OperationState::Pending) {
+            return;
+        }
+        // Readiness is a derived optimization, not authority. Recheck plan
+        // prerequisites and signals before attempting the existing gates.
+        if node.dependencies().iter().any(|dep| {
+            !matches!(
+                self.states[*self.index.get(dep).expect("validated dependency")],
+                OperationState::Completed
+            )
+        }) {
+            return;
+        }
+        if let OperationTrigger::Signal(signal) = node.trigger()
+            && !self.fired.contains(signal)
+        {
+            return;
+        }
+        // Preserve the exact pre-reservation and atomic post-reservation
+        // cooperative control checks. No speculative resource claims.
+        if !self.publication.may_admit(index, node.domain_boundary()) {
+            return;
+        }
+        let Some(lease) = self
+            .admission
+            .reserve(node.resources(), node.domain_boundary())
+        else {
+            return;
+        };
+        let handler = Arc::clone(
+            self.plan
+                .handler(node.id())
+                .expect("validated exact-version operation binding"),
+        );
+        if !self.publication.admit(index, node.domain_boundary()) {
+            drop(lease);
+            return;
+        }
+        self.states[index] = OperationState::Running;
+        self.eligibility.ready.remove(&index);
+        let (effects, effect_scope) = self.publication.recorder(index);
+        let session = self.session.clone();
+        let handle = jobs.spawn(async move {
+            let _lease = lease;
+            // Reporter scope must be gone before the reservation is freed.
+            let _effect_scope = effect_scope;
+            if !session.is_active() {
+                (index, OperationOutcome::Cancelled)
+            } else {
+                (index, handler(effects).await)
+            }
+        });
+        active.insert(handle.id(), index);
+        self.started += 1;
+        self.peak_in_flight = self.peak_in_flight.max(active.len());
     }
 
     fn block_dependents(&mut self) {
@@ -741,6 +859,7 @@ impl ExecutionGraphRunner {
             });
             if failed_prerequisite {
                 self.states[index] = OperationState::Blocked;
+                self.eligibility.ready.remove(&index);
                 self.publication.transition(index, OperationState::Blocked);
             }
         }
