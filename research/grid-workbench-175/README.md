@@ -7,10 +7,12 @@ This is a **separate Cargo application** using the actual Riesel session-owned e
 Use Rust 1.100.0. From the Riesel repository root:
 
 ```sh
-cargo test --manifest-path research/grid-workbench-175/Cargo.toml
-cargo run --manifest-path research/grid-workbench-175/Cargo.toml -- --seed 42 --width 64 --height 64 --threshold 0.55 --iterations 5 --border 1 --revision 1
-cargo run --manifest-path research/grid-workbench-175/Cargo.toml -- --seed 42 --width 64 --height 64 --threshold 0.70 --iterations 0 --revision 2
+cargo test --locked --manifest-path research/grid-workbench-175/Cargo.toml
+cargo run --locked --manifest-path research/grid-workbench-175/Cargo.toml -- --seed 42 --width 64 --height 64 --threshold 0.55 --iterations 5 --border 1 --revision 1
+cargo run --locked --manifest-path research/grid-workbench-175/Cargo.toml -- --seed 42 --width 64 --height 64 --threshold 0.70 --iterations 0 --revision 2
 ```
+
+The nested `Cargo.lock` and all four Git dependencies pin the exact tested Grid commit; CI uses `--locked` to reject dependency drift.
 
 The app accepts `--width`, `--height`, `--seed`, `--frequency`, `--threshold`, `--iterations`, `--border`, and `--revision`. All numeric arguments are checked before creating the application. Dimensions are limited to 1–512 in each axis and iteration count to 0–16. The first supported scope is an in-process, one-run-at-a-time reference; it does not claim a generic worker cluster, high-precision world-region sampler or GPU execution.
 
