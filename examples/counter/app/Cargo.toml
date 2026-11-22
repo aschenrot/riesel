@@ -9,6 +9,8 @@ publish = false
 [features]
 # Test-only internal session publication; no general external client API.
 internal-publication = ["riesel/internal-publication"]
+# Independent T1 local read-only Counter example, no GUI or Manager dependency.
+t1-public-read = ["riesel/app-publication-unix"]
 
 [dependencies]
 riesel = { workspace = true, features = ["async-tcp"] }
