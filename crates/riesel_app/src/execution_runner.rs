@@ -387,6 +387,8 @@ pub struct GraphExecutionFailure {
 struct ResearchReadyIndex {
     unmet: Vec<usize>,
     dependents: Vec<Vec<usize>>,
+    signal_subscribers: BTreeMap<String, Vec<usize>>,
+    signal_filtered: bool,
     ready: BTreeSet<usize>,
 }
 
@@ -394,34 +396,76 @@ impl ResearchReadyIndex {
     fn build(
         operations: &[crate::execution_plan::OperationNode],
         index: &BTreeMap<String, usize>,
+        signal_filtered: bool,
     ) -> Self {
         let mut unmet = vec![0; operations.len()];
         let mut dependents = vec![Vec::new(); operations.len()];
+        let mut signal_subscribers = BTreeMap::<String, Vec<usize>>::new();
         for (child, node) in operations.iter().enumerate() {
             for prerequisite in node.dependencies() {
                 let parent = *index.get(prerequisite).expect("validated prerequisite");
                 dependents[parent].push(child);
                 unmet[child] += 1;
             }
+            if let OperationTrigger::Signal(signal) = node.trigger() {
+                signal_subscribers
+                    .entry(signal.clone())
+                    .or_default()
+                    .push(child);
+            }
         }
         let ready = unmet
             .iter()
             .enumerate()
-            .filter_map(|(node, count)| (*count == 0).then_some(node))
+            .filter_map(|(node, count)| {
+                (*count == 0
+                    && (!signal_filtered
+                        || matches!(operations[node].trigger(), OperationTrigger::Immediate)))
+                .then_some(node)
+            })
             .collect();
         Self {
             unmet,
             dependents,
+            signal_subscribers,
+            signal_filtered,
             ready,
         }
     }
 
-    fn completed(&mut self, completed: usize, states: &[OperationState]) {
+    fn on_signal(&mut self, signal: &str, states: &[OperationState]) {
+        if !self.signal_filtered {
+            return;
+        }
+        if let Some(subscribers) = self.signal_subscribers.get(signal) {
+            for &node in subscribers {
+                if self.unmet[node] == 0 && matches!(states[node], OperationState::Pending) {
+                    self.ready.insert(node);
+                }
+            }
+        }
+    }
+
+    fn completed(
+        &mut self,
+        completed: usize,
+        states: &[OperationState],
+        operations: &[crate::execution_plan::OperationNode],
+        fired: &BTreeSet<String>,
+    ) {
         for &child in &self.dependents[completed] {
             let remaining = &mut self.unmet[child];
             debug_assert!(*remaining > 0);
             *remaining -= 1;
-            if *remaining == 0 && matches!(states[child], OperationState::Pending) {
+            if *remaining != 0 || !matches!(states[child], OperationState::Pending) {
+                continue;
+            }
+            let eligible_trigger = !self.signal_filtered
+                || match operations[child].trigger() {
+                    OperationTrigger::Immediate => true,
+                    OperationTrigger::Signal(signal) => fired.contains(signal),
+                };
+            if eligible_trigger {
                 self.ready.insert(child);
             }
         }
@@ -502,15 +546,19 @@ impl ExecutionGraphRunner {
             Vec::new()
         };
         let ready_started = std::time::Instant::now();
-        let research_ready_index = std::env::var_os("RIESEL_RESEARCH_READY_INDEX")
-            .map(|_| ResearchReadyIndex::build(operations, &index));
+        let signal_filtered =
+            std::env::var_os("RIESEL_RESEARCH_SIGNAL_ACTIVATION").is_some();
+        let research_ready_index = (signal_filtered
+            || std::env::var_os("RIESEL_RESEARCH_READY_INDEX").is_some())
+        .then(|| ResearchReadyIndex::build(operations, &index, signal_filtered));
         if let Some(ref ready) = research_ready_index
             && std::env::var_os("RIESEL_RESEARCH_ADMISSION_COUNTERS").is_some()
         {
             eprintln!(
-                "research #226 ready_index_build nodes={} edges={} initial_ready={} build_us={}",
+                "research #226 ready_index_build nodes={} edges={} signal_filtered={} initial_ready={} build_us={}",
                 operations.len(),
                 ready.dependents.iter().map(Vec::len).sum::<usize>(),
+                ready.signal_filtered,
                 ready.ready.len(),
                 ready_started.elapsed().as_micros(),
             );
@@ -618,7 +666,10 @@ impl ExecutionGraphRunner {
             let mut admission_changed = std::pin::pin!(admission.changed.notified());
             admission_changed.as_mut().enable();
             while let Ok(signal) = self.signal_rx.try_recv() {
-                self.fired.insert(signal);
+                self.fired.insert(signal.clone());
+                if let Some(ref mut ready) = self.research_ready_index {
+                    ready.on_signal(&signal, &self.states);
+                }
             }
             if needs_blocking_scan {
                 self.block_dependents();
@@ -661,7 +712,10 @@ impl ExecutionGraphRunner {
                     break;
                 }
                 Wake::Signal(signal) => {
-                    self.fired.insert(signal);
+                    self.fired.insert(signal.clone());
+                    if let Some(ref mut ready) = self.research_ready_index {
+                        ready.on_signal(&signal, &self.states);
+                    }
                 }
                 Wake::AdmissionReleased => {}
                 Wake::Completed(result) => match result {
@@ -680,7 +734,12 @@ impl ExecutionGraphRunner {
                         if matches!(self.states[index], OperationState::Completed)
                             && let Some(ref mut ready) = self.research_ready_index
                         {
-                            ready.completed(index, &self.states);
+                            ready.completed(
+                                index,
+                                &self.states,
+                                self.plan.plan().description().operations(),
+                                &self.fired,
+                            );
                         }
                     }
                     Err(error) => {
@@ -719,12 +778,15 @@ impl ExecutionGraphRunner {
         self.publication.finish(session_expired);
         if std::env::var_os("RIESEL_RESEARCH_ADMISSION_COUNTERS").is_some() {
             eprintln!(
-                "research #226 admission plan={} nodes={} cursor={} topo={} ready={} passes={} visited={} started={}",
+                "research #226 admission plan={} nodes={} cursor={} topo={} ready={} signal={} passes={} visited={} started={}",
                 self.plan.plan().description().id(),
                 self.states.len(),
                 self.research_pending_cursor_enabled,
                 self.research_topological_cursor_enabled,
                 self.research_ready_index.is_some(),
+                self.research_ready_index
+                    .as_ref()
+                    .is_some_and(|ready| ready.signal_filtered),
                 self.research_admit_passes,
                 self.research_admit_visits,
                 self.started,
