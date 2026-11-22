@@ -1,0 +1,27 @@
+# #158 — Independent Todo client: local route, missing peer authority and dead backend
+
+**Status:** Research-only test extension; results must be taken from exact-revision GitHub [Todo Web](../../.github/workflows/todo-web.yml) and repository Validate workflows before acceptance. **Not** an app-export architecture selection, authentication implementation or supported new public API.
+
+**Source contracts:** [shared operational semantics](../../docs/product/riesel/operational-contract.md), [#158](https://github.com/aschenrot/riesel/issues/158), [accepted Todo local HTTP contract](../../docs/product/todo/http-local-browser-contract.md) and [Todo read-versus-write lost-reply fix #201](https://github.com/aschenrot/riesel/pull/201). Build on merged source-qualified runtime, process-owner, SDK entrypoint and operation-outcome implementation #183/#186/#194/#202; do not duplicate those producers.
+
+## Hypotheses and threat model
+
+1. `TODO_HTTP_READY 127.0.0.1:port` is emitted **after the actual socket bind**, but before a separate process has proved any route can accept work. It does not attest a verified client, per-operation authorization, currently running handler or protected process.
+2. An independent Node 22 process can make **one actually handled HTTP GET** to the real Rust Todo HTTP backend, while an incorrect `Host` request, cross-site `Sec-Fetch-Site` request and foreign-`Origin` POST must be refused **before** domain effects. This is a test of the **trusted-local browser-policy** path, not an individual OS-client authorization.
+3. A separate local non-browser Node process can freely supply the *allowed* `Host` (implicit from a numeric loopback URL) and `Origin` value and make a real typed Todo create request. If it succeeds, that conclusively proves Host/Origin are **not individual-app-client authentication**, consistent with the accepted product threat model; it is not a security regression or proof of a protected exporter.
+4. After the owning Rust backend process actually exits, a new bounded HTTP request must no longer return a response. A client-observed network failure alone means **transport unavailable/unknown**, not an authoritative OS exit, app-generation, domain failure or permission denial. The test runner separately owns and waits for the child exit.
+
+## Reproducible real-producer and real-client sequence
+
+- Existing `examples/todo/web/e2e/run.mjs` launches the actual `todo_http` Rust executable as a child with isolated disposable SQLite data and OS-selected numeric loopback port; reads only a strictly parsed `TODO_HTTP_READY` line (existing 20-second limit).
+- New `examples/todo/web/e2e/trusted-local-probe.mjs` uses Node's **real HTTP socket client**, with a 2-second per-request deadline, at most 6-second startup GET-only bounded retry, 16 KiB request and 64 KiB response caps. No browser/UI code or capabilities are promoted to the Riesel core.
+- Immediately after bind announcement, an actual `GET /api/v1/tasks` must return 200 and empty records; false Host GET, cross-site metadata GET and wrong-Origin POST must each return 403, and the domain still has zero tasks. There is no implicit mutation retry.
+- Run the existing full Playwright Chromium desktop/mobile browser integration **unchanged** against the same actual Rust host. Only **after** it completes successfully, use the independent non-browser Node client to send a real `POST /api/v1/tasks` with easily forgeable allowed Origin. Its 201 and typed returned Todo task are the deliberate **negative authorization control**, not endorsement of client identity.
+- Gracefully terminate/join the real Rust child (existing finite SIGINT deadline/kill fallback), then attempt a new GET from Node. A successful response is a test failure; a transport exception is recorded as unavailable. Finally remove only the temporary test database/assets.
+- Three unique `RESEARCH_I158_...` markers distinguish demonstrated route handling/denial, forged-allowed-header negative identity, and post-exit transport loss. Actual CI success is required before linking them as verified findings.
+
+## Trust boundaries and long-term evolution
+
+An `Observed` local route is a past success of **that one request and adapter**. It cannot prove the interface is deliberately published with a versioned contract, that the present session is active after the request, or that another caller is authorized. The probe deliberately does **not** set `AuthorizedApplicationOperation: Observed` or mint an external Riesel epoch. No new Manager registration, port discovery service, SDK public API, daemon, global ready flag, Rust app-module bridge, credential, grant, backend status endpoint or renderer is introduced.
+
+The actual [Counter private-network experiment #149](https://github.com/aschenrot/riesel/pull/149) proved an allowed second same-UID client could mutate despite UID grants, and [AppArmor experiment #151](https://github.com/aschenrot/riesel/pull/151) proved a self-selectable trusted label was insufficient. They are validated research, not accepted production protection. The protected-client mechanism and individual permission-issuing authority remain #60 decisions; protected Manager commands remain #59, and universal foreground developer workflows remain #68. Until a genuine issuer and non-self-selectable peer admission path are approved, **do not** report authenticated external interface callability or close #158 on this experiment alone.
