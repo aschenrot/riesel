@@ -120,7 +120,7 @@ The in-memory reference Storage provider is ephemeral; a linked SQLite provider 
 - Authentication, authorization, and protected remote transport.
 - Operational visibility, configurable resource budgets, and reliable deployment management.
 - Standalone manager workflows and independently executed native interfaces.
-- Investigate coherent **cross-project developer tooling** and **shared application identity/readiness/interface semantics** without assuming one daemon, supervisor, public exporter or new configuration source ([developer tooling #68](https://github.com/aschenrot/riesel/issues/68), [operational boundary #75](https://github.com/aschenrot/riesel/issues/75), [Manager #59](https://github.com/aschenrot/riesel/issues/59), [native host #60](https://github.com/aschenrot/riesel/issues/60)). The architecture and expanded product scope remain subject to explicit acceptance.
+- **Shared application-operational semantics are accepted** in the [#75 architecture contract](operational-contract.md), with implementation pending and no mandatory daemon, supervisor, public exporter or configuration source. **Cross-project developer tooling #68**, **Manager #59** and **native GUI/export #60** retain separate technical specification, security and implementation acceptance gates; acceptance of common meanings does not choose their adapters or shipped scope.
 
 These outcomes require separate designs and acceptance criteria; they must not be treated as already implemented.
 
