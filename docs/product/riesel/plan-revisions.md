@@ -99,6 +99,20 @@ cargo test --locked -p riesel_storage_sqlite --test v2_format_migration
 
 Tests cover an actual persisted format-1 fixture containing both document- and Rust-owned plans, verified matching pre-upgrade snapshot, source-generation fencing across both plans, immutable semantic/layout history, current document retention, readable old and new snapshots, and stale or corrupt backup rejection with no partial schema update.
 
+## Explicit trusted-local installed-build registration rollover
+
+Once the old application has stopped, a new trusted Rust application build can open the same format-2 plan store using a **different local registration stamp** and call `adopt_registered_build`. The caller supplies all exact expected heads, a separately verified matching backup from the old registration, the replacement build's **actual registered handlers**, its validated Rust-owned plans, and bounded S2 parsing limits. The store checks **every** persisted plan under one immediate transaction: code-owned plans must match the immutable semantics and bind the new exact Rust callback versions; document-owned plans must parse as supported S2 and bind against the new build's editor-safe descriptor policy. Missing, duplicate, changed, unknown-future or extra plans reject with no partial adoption.
+
+On success, the store atomically updates build correlation, increments all plan source generations, preserves authoritative current S2 source, and records per-plan `registration` events in the format-2 ledger. Old store handles cannot mutate the new generation. Semantic revisions, layouts and running sessions are not changed. Format-1 stores must first undergo the separately verified physical migration.
+
+**Trust boundary:** this is an explicit trusted-local *compatibility and fencing* operation, not proof that the new executable has an OS-verified identity. Both build stamps are copyable labels; the trusted application/OS owner must quiesce the old process, protect the database and select the new artifact. It does not grant cross-process editor permissions, authenticate a Manager/GUI client or activate the saved graph. Those require #75/#195 and suitable real-OS evidence.
+
+Focused tests:
+
+```sh
+cargo test --locked -p riesel_storage_sqlite --test v2_registration_rollover
+```
+
 ## Verification and explicit remaining work
 
 Focused production adapter tests target independent OS processes racing the actual `SqlitePlanRevisionRepository` semantic and layout operations, immutable plan history, independent layout streams, invalid anchor rebase, checked code↔document source handoffs, stale-writer fences across reopen, installed-build stamp mismatch and unknown on-disk version rejection. Preserve exact-head `cargo validate --check` and `cargo smoke` evidence for the implementation PR, not just the research fixtures.
