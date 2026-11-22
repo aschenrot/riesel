@@ -24,6 +24,15 @@ pub enum ObservationSource {
     ApplicationAdapter,
 }
 
+/// How the snapshot's runtime-generation reference was obtained. An
+/// application adapter can reference a generation but cannot issue or
+/// independently attest it as a Riesel-runtime identity.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum GenerationEvidence {
+    RuntimeIssued,
+    AdapterReferenceOnly,
+}
+
 /// Typed, non-interchangeable scopes. The whole-runtime generation is carried
 /// by the snapshot, not invented from a PID, address or provider ID.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -91,16 +100,18 @@ pub enum ObservationError {
 #[derive(Clone, Debug)]
 pub struct ObservationSnapshot {
     generation: String,
+    generation_evidence: GenerationEvidence,
     observed_at: Instant,
     session: SessionToken,
     facts: Vec<ObservationFact>,
 }
 
 impl ObservationSnapshot {
-    fn new(session: SessionToken) -> Self {
+    fn new(session: SessionToken, generation_evidence: GenerationEvidence) -> Self {
         let generation = session.internal_publication_session().generation();
         Self {
             generation,
+            generation_evidence,
             observed_at: Instant::now(),
             session,
             facts: Vec::new(),
@@ -149,7 +160,7 @@ impl ObservationSnapshot {
         if resolved.len() > MAX_OPERATIONAL_FACTS - 3 {
             return Err(ObservationError::TooManyFacts);
         }
-        let mut snapshot = Self::new(session);
+        let mut snapshot = Self::new(session, GenerationEvidence::RuntimeIssued);
         let current = checks_passed && snapshot.session.is_active();
         snapshot.push(ObservationFact {
             source: ObservationSource::Runtime,
@@ -168,6 +179,11 @@ impl ObservationSnapshot {
                 &binding.provider,
             ] {
                 Self::check_label(label)?;
+            }
+            match &binding.instance {
+                Some(InstanceIdentity::Local { provider }) => Self::check_label(provider)?,
+                Some(InstanceIdentity::Managed { name }) => Self::check_label(name)?,
+                Some(InstanceIdentity::ExternalTcp { .. }) | None => {}
             }
             snapshot.push(ObservationFact {
                 source: ObservationSource::Runtime,
@@ -204,7 +220,7 @@ impl ObservationSnapshot {
         if !address.ip().is_loopback() || address.port() == 0 {
             return Err(ObservationError::InvalidLoopbackListener);
         }
-        let mut snapshot = Self::new(session);
+        let mut snapshot = Self::new(session, GenerationEvidence::AdapterReferenceOnly);
         let active = snapshot.session.is_active();
         snapshot.push(ObservationFact {
             source: ObservationSource::ApplicationAdapter,
@@ -225,6 +241,10 @@ impl ObservationSnapshot {
 
     pub fn generation(&self) -> &str {
         &self.generation
+    }
+
+    pub fn generation_evidence(&self) -> GenerationEvidence {
+        self.generation_evidence
     }
 
     pub fn observed_at(&self) -> Instant {
@@ -288,6 +308,7 @@ mod tests {
             frame.generation(),
             session.internal_publication_session().generation()
         );
+        assert_eq!(frame.generation_evidence(), GenerationEvidence::RuntimeIssued);
         assert_eq!(frame.facts().len(), 4);
         assert_eq!(
             frame.state_at(1, frame.observed_at()),
@@ -355,6 +376,10 @@ mod tests {
         assert_eq!(
             frame.facts()[0].source,
             ObservationSource::ApplicationAdapter
+        );
+        assert_eq!(
+            frame.generation_evidence(),
+            GenerationEvidence::AdapterReferenceOnly
         );
         assert_eq!(
             frame.state_at(0, Instant::now()),
