@@ -20,21 +20,15 @@ fn main() {
     let code_head = old
         .initialize(&code, PlanAuthoringSource::Rust, OLD)
         .unwrap();
-    let doc = PlanSemanticCandidate::from_s2(
-        &document(1),
-        &handlers(1),
-        S2DocumentLimits::default(),
-    )
-    .unwrap();
+    let doc =
+        PlanSemanticCandidate::from_s2(&document(1), &handlers(1), S2DocumentLimits::default())
+            .unwrap();
     let initial = old
         .initialize(&doc, PlanAuthoringSource::Document, OLD)
         .unwrap();
-    let next = PlanSemanticCandidate::from_s2(
-        &document(2),
-        &handlers(1),
-        S2DocumentLimits::default(),
-    )
-    .unwrap();
+    let next =
+        PlanSemanticCandidate::from_s2(&document(2), &handlers(1), S2DocumentLimits::default())
+            .unwrap();
     let updated = old.append(&initial, &next).unwrap();
     old.save_layout(
         &updated,
@@ -42,13 +36,12 @@ fn main() {
         &PlanLayoutDraft {
             layout_id: "desktop".into(),
             semantic_anchor: 2,
-            node_positions: BTreeMap::from([
-                ("work".into(), PlanLayoutPoint { x: 18, y: 25 }),
-            ]),
+            node_positions: BTreeMap::from([("work".into(), PlanLayoutPoint { x: 18, y: 25 })]),
         },
     )
     .unwrap();
     assert_eq!(code_head.plan_id, CODE_ID);
     assert_eq!(updated.plan_id, DOCUMENT_ID);
-    old.backup_to(&snapshot, V2SnapshotBudget::default()).unwrap();
+    old.backup_to(&snapshot, V2SnapshotBudget::default())
+        .unwrap();
 }
