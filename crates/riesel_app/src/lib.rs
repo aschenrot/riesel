@@ -28,8 +28,8 @@ pub use deployment::{DeploymentConfig, DeploymentError, ServiceEndpoint};
 #[cfg(feature = "async-tcp")]
 pub use execution_nested::{
     MAX_NESTED_TRANSITIONS, NestedCursor, NestedDescription, NestedDomainOwner,
-    NestedDomainRegistration, NestedObservationError, NestedObserver, NestedParent,
-    NestedPublisher, NestedSnapshot, NestedStatus, NestedTransitions,
+    NestedDomainRegistration, NestedHeaderObserver, NestedObservationError, NestedObserver,
+    NestedParent, NestedPublisher, NestedSnapshot, NestedStatus, NestedTransitions, NestedViewInfo,
 };
 #[cfg(feature = "async-tcp")]
 pub use execution_observation::{
