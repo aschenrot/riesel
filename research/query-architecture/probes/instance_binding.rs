@@ -150,3 +150,80 @@ fn reader_contract_has_no_mutation_operations_but_is_not_authorization() {
     // The absence of a command in a trait is NOT a guarantee that the
     // runtime refuses unauthorized clients or authenticates the service.
 }
+
+/// Research-only ergonomic adapter: a typed read-only parameter can be
+/// injected with one alias, but current ApplicationParam::declare only
+/// registers the capability. It has no model-only registration mechanism.
+struct ResearchReadView<T: RieselModel> {
+    reader: Capability<ResearchReadOnlyContract>,
+    _model: std::marker::PhantomData<T>,
+}
+
+impl<T: RieselModel> ResearchReadView<T> {
+    fn count(&self) -> Result<u64, StoreError> {
+        self.reader.count_records(T::MODEL_NAME)
+    }
+}
+
+impl<T: RieselModel> riesel::ApplicationParam for ResearchReadView<T> {
+    fn default_alias() -> riesel::Result<String> {
+        <Capability<ResearchReadOnlyContract> as riesel::ApplicationParam>::default_alias()
+    }
+
+    fn declare(application: Application, alias: &str) -> riesel::Result<Application> {
+        <Capability<ResearchReadOnlyContract> as riesel::ApplicationParam>::declare(
+            application, alias,
+        )
+    }
+
+    fn extract(context: &riesel::Context<'_>, alias: &str) -> riesel::Result<Self> {
+        Ok(Self {
+            reader: <Capability<ResearchReadOnlyContract> as riesel::ApplicationParam>::extract(
+                context, alias,
+            )?,
+            _model: std::marker::PhantomData,
+        })
+    }
+}
+
+#[test]
+fn research_typed_read_parameter_requires_no_writer_but_lacks_model_registration() {
+    let ready = Application::new("ResearchOnlyReadView")
+        .handler(|reader: ResearchReadView<TaskData>| -> Result<(), StoreError> {
+            assert_eq!(reader.count()?, 0);
+            Ok(())
+        })
+        .unwrap();
+    assert_eq!(ready.definition().requires.len(), 1);
+    assert!(
+        ready.definition().models.is_empty(),
+        "research-only ApplicationParam did not register the typed model"
+    );
+    assert!(ready.definition().model_bindings.is_empty());
+    ready.provider(reader_only("research.readonly.local")).unwrap().run().unwrap();
+}
+
+#[test]
+fn compared_authoring_shapes_show_distinct_model_and_alias_tradeoffs() {
+    let writer = Application::new("ResearchWriterShape")
+        .handler(|_records: riesel::Records<TaskData>| -> Result<(), StoreError> { Ok(()) })
+        .unwrap();
+    assert_eq!(writer.definition().requires.len(), 1);
+    assert!(writer.definition().models.contains_key(TaskData::MODEL_NAME));
+    assert_eq!(writer.definition().model_bindings[TaskData::MODEL_NAME], ["storage"]);
+    // Records<T> also exposes create/update/delete, even for read-only use.
+
+    let combined = Application::new("ResearchPairShape")
+        .handler_with_aliases(
+            |_writer: riesel::Records<TaskData>,
+             _reader: ResearchReadView<TaskData>|
+             -> Result<(), StoreError> { Ok(()) },
+            ["writer", "read"],
+        )
+        .unwrap();
+    assert_eq!(combined.definition().requires.len(), 2);
+    assert_eq!(combined.definition().model_bindings[TaskData::MODEL_NAME], ["writer"]);
+    // There is no relation in today's schema saying that "read" resolves
+    // against the same logical data authority as "writer".
+    assert!(combined.definition().requires.iter().all(|r| r.name == "writer" || r.name == "read"));
+}
