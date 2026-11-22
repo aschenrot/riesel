@@ -232,6 +232,23 @@ pub struct GraphEffectRecorder {
     state: Arc<Mutex<ObservationState>>,
     operation_id: String,
     attempt: u64,
+    // A callback may clone its recorder into other async tasks. Close all
+    // clones when the actual graph-owned operation future finishes or drops,
+    // not only when the coordinator next observes a JoinSet result.
+    active: Arc<Mutex<bool>>,
+}
+
+/// Held by the actual graph-owned child future and dropped on completion,
+/// panic or cancellation. Lock ordering is active -> observation in both
+/// this guard's lifetime and the reporter's confirmation path.
+pub(crate) struct GraphEffectAttemptGuard {
+    active: Arc<Mutex<bool>>,
+}
+
+impl Drop for GraphEffectAttemptGuard {
+    fn drop(&mut self) {
+        *self.active.lock().unwrap_or_else(PoisonError::into_inner) = false;
+    }
 }
 
 impl GraphEffectRecorder {
@@ -246,6 +263,13 @@ impl GraphEffectRecorder {
         }
         if cumulative == 0 {
             return Err(GraphEffectError::ZeroProgress);
+        }
+        // Hold this guard through the mutation. A cloned reporter racing
+        // with the operation future's completion must never publish after
+        // its attempt guard has closed.
+        let active = self.active.lock().unwrap_or_else(PoisonError::into_inner);
+        if !*active {
+            return Err(GraphEffectError::InactiveAttempt);
         }
         let mut state = self.state.lock().unwrap_or_else(PoisonError::into_inner);
         if state.snapshot.phase != GraphRunPhase::Running {
@@ -356,7 +380,10 @@ impl GraphRunPublication {
         self.observer.clone()
     }
 
-    pub(crate) fn recorder(&self, index: usize) -> GraphEffectRecorder {
+    pub(crate) fn recorder(
+        &self,
+        index: usize,
+    ) -> (GraphEffectRecorder, GraphEffectAttemptGuard) {
         let state = self
             .observer
             .state
@@ -365,11 +392,16 @@ impl GraphRunPublication {
         let operation_id = self.nodes[index].clone();
         let attempt = state.snapshot.operations[&operation_id].attempt;
         debug_assert!(attempt > 0, "only dispatched attempts may confirm effects");
-        GraphEffectRecorder {
-            state: Arc::clone(&self.observer.state),
-            operation_id,
-            attempt,
-        }
+        let active = Arc::new(Mutex::new(true));
+        (
+            GraphEffectRecorder {
+                state: Arc::clone(&self.observer.state),
+                operation_id,
+                attempt,
+                active: Arc::clone(&active),
+            },
+            GraphEffectAttemptGuard { active },
+        )
     }
 
     pub(crate) fn identity(&self) -> GraphRunIdentity {
