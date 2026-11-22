@@ -168,7 +168,9 @@ impl Application {
     pub fn records_at<T: RieselModel>(self, storage_alias: impl Into<String>) -> Result<Self> {
         let storage_alias = storage_alias.into();
         let name = T::MODEL_NAME.to_owned();
-        let mut app = self.model::<T>()?.rpc::<RecordStoreContract>(storage_alias.clone())?;
+        let mut app = self
+            .model::<T>()?
+            .rpc::<RecordStoreContract>(storage_alias.clone())?;
         let bindings = app.definition.model_bindings.entry(name).or_default();
         if !bindings.contains(&storage_alias) {
             bindings.push(storage_alias);
