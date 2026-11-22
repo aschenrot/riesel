@@ -7,17 +7,12 @@
 #[cfg(unix)]
 mod unix {
     use riesel::{
-        App, AsyncOperation, ConnectorError, ConnectorRegistry, ExecutionGraphReadAsyncRpcDispatcher,
-        ExecutionGraphReadFacade, ExecutionPlanDraft, OperationKey, OperationNode,
-        OperationOutcome, OperationRegistry, ReadExposure, UnixReadServer, async_operation,
+        App, AsyncOperation, ConnectorError, ConnectorRegistry,
+        ExecutionGraphReadAsyncRpcDispatcher, ExecutionGraphReadFacade, ExecutionPlanDraft,
+        OperationKey, OperationNode, OperationOutcome, OperationRegistry, ReadExposure,
+        UnixReadServer, async_operation,
     };
-    use std::{
-        fs, io,
-        num::NonZeroUsize,
-        os::unix::fs::PermissionsExt,
-        sync::Arc,
-        time::Duration,
-    };
+    use std::{fs, io, num::NonZeroUsize, os::unix::fs::PermissionsExt, sync::Arc, time::Duration};
 
     const SCHEMA: &str =
         r#"{"version":1,"app":{"name":"GraphReadHost"},"models":{},"requires":[]}"#;
@@ -39,10 +34,8 @@ mod unix {
             .enable_all()
             .build()?;
         rt.block_on(async move {
-            let path = std::env::temp_dir().join(format!(
-                "riesel-graph-read-{}",
-                uuid::Uuid::new_v4()
-            ));
+            let path =
+                std::env::temp_dir().join(format!("riesel-graph-read-{}", uuid::Uuid::new_v4()));
             fs::create_dir(&path)?;
             fs::set_permissions(&path, fs::Permissions::from_mode(0o700))?;
             let socket = path.join("read.sock");
@@ -68,20 +61,16 @@ mod unix {
                         .after("right"),
                 )
                 .validate()?;
-            let runner = app.execution_graph(
-                plan.bind(&operations)?,
-                NonZeroUsize::new(2).unwrap(),
-            )?;
+            let runner =
+                app.execution_graph(plan.bind(&operations)?, NonZeroUsize::new(2).unwrap())?;
             let facade = ExecutionGraphReadFacade::new(&plan, runner.observer())?;
-            let reader = Arc::new(
-                app.publish_local_reads(
-                    "example.graph_inspector",
-                    "gui.execution_graph",
-                    ReadExposure::NonSensitiveSharedUser,
-                    Arc::new(ExecutionGraphReadAsyncRpcDispatcher::new(facade)),
-                    ["snapshot".to_owned(), "changes".to_owned()],
-                )?,
-            );
+            let reader = Arc::new(app.publish_local_reads(
+                "example.graph_inspector",
+                "gui.execution_graph",
+                ReadExposure::NonSensitiveSharedUser,
+                Arc::new(ExecutionGraphReadAsyncRpcDispatcher::new(facade)),
+                ["snapshot".to_owned(), "changes".to_owned()],
+            )?);
             let server = UnixReadServer::bind(&socket)?;
             let tasks = app.async_tasks();
             tasks.begin_scope()?;
