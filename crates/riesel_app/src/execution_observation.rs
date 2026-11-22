@@ -347,15 +347,14 @@ impl GraphRunController {
         ) {
             return Err(GraphControlError::RunClosed);
         }
-        if let GraphControlTarget::RieselDomainTicks(domain) = &target {
-            if let Some(&owner) = state.domain_owners.get(domain)
-                && owner != DomainAdmissionMode::RieselTick
-            {
-                return Err(GraphControlError::UnsupportedDomainAuthority {
-                    domain: domain.clone(),
-                    owner,
-                });
-            }
+        if let GraphControlTarget::RieselDomainTicks(domain) = &target
+            && let Some(&owner) = state.domain_owners.get(domain)
+            && owner != DomainAdmissionMode::RieselTick
+        {
+            return Err(GraphControlError::UnsupportedDomainAuthority {
+                domain: domain.clone(),
+                owner,
+            });
         }
         let Some(&current) = state.snapshot.controls.get(&target) else {
             return Err(GraphControlError::UnknownTarget { target });
