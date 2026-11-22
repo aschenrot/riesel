@@ -586,6 +586,12 @@ test('system dark theme preserves readable completed rows, feedback, and focus',
   await page.getByRole('button', { name: 'Completed', exact: true }).click();
   await expect(page.locator('.done .task-title')).toHaveCSS('text-decoration-line', 'line-through');
   const trigger = page.getByRole('button', { name: 'Edit Dark task', exact: true });
+  // Completed is fetched on first expand. Its rows can become visible while
+  // the bounded GET is still finishing; edit controls intentionally remain
+  // disabled until the read is settled. A keyboard focus test must wait for
+  // actual interactive readiness rather than racing that transition.
+  await expect(page.locator('.completed-section .section-progress')).toHaveCount(0);
+  await expect(trigger).toBeEnabled();
   await trigger.focus();
   await expect(trigger).toBeFocused();
   await page.keyboard.press('Enter');
