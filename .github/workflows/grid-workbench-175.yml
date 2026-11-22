@@ -1,0 +1,27 @@
+name: Research Grid Workbench #175
+
+permissions:
+  contents: read
+
+on:
+  pull_request:
+    branches:
+      - main
+    paths:
+      - "research/grid-workbench-175/**"
+      - ".github/workflows/grid-workbench-175.yml"
+  workflow_dispatch:
+
+jobs:
+  bounded-capability-contracts:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install Rust 1.100.0
+        run: |
+          rustup toolchain install 1.100.0 --profile minimal
+          rustup default 1.100.0
+      - name: Compile and test research contracts
+        run: cargo test --manifest-path research/grid-workbench-175/Cargo.toml -- --nocapture
+      - name: Run real Riesel linked-provider composition
+        run: cargo run --manifest-path research/grid-workbench-175/Cargo.toml
