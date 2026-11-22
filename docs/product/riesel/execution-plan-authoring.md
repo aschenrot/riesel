@@ -49,12 +49,47 @@ the read-only #113 observer. Explicit owner-confirmed cumulative effect
 prefixes are available as a bounded #113 increment; a claimed tick
 proposal or successful callback is not proof of an external mutation.
 
+## Trusted-local editor-safe operation registration (first A2 increment)
+
+The accepted [#111 architecture](execution-plan-contract.md) requires editor-selectable operations to have **application-owned** descriptors, distinct from arbitrary code-first `OperationRegistry::register` calls. The initial trusted-local SDK path is `OperationRegistry::register_editor_operation` and `OperationRegistry::bind_editor_plan`:
+
+```rust
+use riesel::{
+    AccessMode, EditorOperationDescriptor, ExecutionPlanDraft, OperationKey,
+    OperationNode, OperationRegistry,
+};
+use std::sync::Arc;
+
+let key = OperationKey::new("example.update", 1)?;
+let authoring = EditorOperationDescriptor::new(key.clone())
+    .require_access("state", AccessMode::Write)
+    .permit_signal("ready");
+
+let mut handlers = OperationRegistry::<dyn Fn() + Send + Sync>::new();
+handlers.register_editor_operation(authoring, Arc::new(|| {}))?;
+
+let candidate = ExecutionPlanDraft::new("example.plan", 1)
+    .operation(OperationNode::new("update", key)
+        .access("state", AccessMode::Write)
+        .on_signal("ready"))
+    .validate()?;
+
+// This step checks compulsory trusted resources and permitted triggers
+// *before* binding the exact Rust callback, without executing the callback.
+let bound = handlers.bind_editor_plan(&candidate)?;
+assert!(bound.handler("update").is_some());
+```
+
+This is a **trusted application process registration and preflight**, not a remote editor exporter, persisted document format, credential, code generator or publication/activation permission. The descriptor is inert/Serialize-only. It cannot prove the true Rust aliasing/affinity behavior of an opaque closure; the **application/domain author must attest** compulsory resource and domain constraints. Unsupported native-thread-affine editing fails closed until a verified owner adapter exists. Existing `register` and `ValidatedExecutionPlan::bind` remain valid for trusted Rust code-owned plans but **must not be used alone to approve untrusted document-owned edits**.
+
+The first A2 increment supports mandatory resource access, separately permitted optional access, permitted immediate/signal triggers and one fixed required domain boundary. It does not allow arbitrary reclassification of a domain owner or native `!Send` state. Strict B2 executable document parsing, V2 persistent ownership/CAS and C3 app-owned publication/activation are [separate tracked implementation increments](https://github.com/aschenrot/riesel/issues/111). S2→S3 typed value edges remain a separate research gate in [#187](https://github.com/aschenrot/riesel/issues/187).
+
 ## Boundaries and next steps
 
 - This graph is **not** the capability/provider startup dependency graph, the `AppSchema`, or the provider `DeploymentPlan`. Existing provider selection and session identity remain authoritative.
 - The authoring-only `execution_plan` example never invokes callbacks. The separate `execution_graph`, `execution_fixed_step` and `execution_control` examples demonstrate real bounded execution, deterministic external-clock tick proposals, and cooperative **outer** safe-point stepping respectively; all are still headless.
 - Resource declarations do not establish Rust borrowing safety. A signal declaration does not independently create an event source or execute a node. This **authoring-only foundation** provides no typed value transfer, clock policy, runtime scheduling, cancellation, retry, GUI or remote authorization by itself. The separate session-owned async runner supports bounded one-shot execution and cancellation within its documented limits.
 - A new semantic revision must be published for a changed plan. Catalog immutability holds within that catalog's lifetime, not across trusted or untrusted processes.
-- The implemented [session-owned runner (#112)](execution-runner.md) invokes supported bound async operations under the existing application lifecycle. [Authoritative run inspection, effects and local cooperative controls (#113)](https://github.com/aschenrot/riesel/issues/113) reuse that same runner and do not grant external client authority. [Optional visual inspection (#114)](https://github.com/aschenrot/riesel/issues/114) is a separate supported-product goal; the bounded [visual editing specification (#111)](https://github.com/aschenrot/riesel/issues/111) must precede executable editor development.
+- The implemented [session-owned runner (#112)](execution-runner.md) invokes supported bound async operations under the existing application lifecycle. [Authoritative run inspection, effects and local cooperative controls (#113)](https://github.com/aschenrot/riesel/issues/113) reuse that same runner and do not grant external client authority. [Optional visual inspection (#114)](https://github.com/aschenrot/riesel/issues/114) is a separate supported-product goal; the [accepted visual editing specification (#111)](https://github.com/aschenrot/riesel/issues/111) now gates separately tracked executable editor implementation, beginning with trusted-local catalog safety.
 
 For accepted invariants see the [execution-plan contract](execution-plan-contract.md) and [delivery roadmap](implementation-roadmap.md). This example is intentionally **not** evidence of a production-ready runtime scheduler.
