@@ -252,7 +252,7 @@ pub(crate) fn expand_capability(
             // dependency or a blocking Future wrapper.
             method.sig.asyncness = None;
             method.sig.output = syn::parse_quote!(
-                -> impl ::std::future::Future<Output = Result<#result_type, #error_type>> + Send
+                -> impl ::std::future::Future<Output = ::std::result::Result<#result_type, #error_type>> + Send
             );
 
             async_service_methods.push(quote! {
@@ -260,7 +260,7 @@ pub(crate) fn expand_capability(
                     &'a self,
                     #(#service_arguments),*
                 ) -> ::std::pin::Pin<::std::boxed::Box<
-                    dyn ::std::future::Future<Output = Result<#result_type, #error_type>>
+                    dyn ::std::future::Future<Output = ::std::result::Result<#result_type, #error_type>>
                         + Send + 'a
                 >>;
             });
@@ -269,7 +269,7 @@ pub(crate) fn expand_capability(
                     &'a self,
                     #(#service_arguments),*
                 ) -> ::std::pin::Pin<::std::boxed::Box<
-                    dyn ::std::future::Future<Output = Result<#result_type, #error_type>>
+                    dyn ::std::future::Future<Output = ::std::result::Result<#result_type, #error_type>>
                         + Send + 'a
                 >> {
                     ::std::boxed::Box::pin(#trait_name::#method_name(
@@ -282,7 +282,7 @@ pub(crate) fn expand_capability(
                 pub async fn #method_name(
                     &self,
                     #(#client_arguments),*
-                ) -> Result<#result_type, ::riesel_protocol::CallError<#error_type>> {
+                ) -> ::std::result::Result<#result_type, ::riesel_protocol::CallError<#error_type>> {
                     match &self.backend {
                         #handle_backend_name::Local(local) =>
                             local.#method_name(#(#arg_names),*).await,
@@ -295,7 +295,7 @@ pub(crate) fn expand_capability(
                 fn #method_name(
                     &self,
                     #(#client_arguments),*
-                ) -> impl ::std::future::Future<Output = Result<#result_type, #error_type>> + Send {
+                ) -> impl ::std::future::Future<Output = ::std::result::Result<#result_type, #error_type>> + Send {
                     #trait_name::#method_name(self.as_ref(), #(#arg_names),*)
                 }
             });
@@ -304,7 +304,7 @@ pub(crate) fn expand_capability(
                 pub async fn #method_name(
                     &self,
                     #(#client_arguments),*
-                ) -> Result<#result_type, ::riesel_protocol::CallError<#error_type>> {
+                ) -> ::std::result::Result<#result_type, ::riesel_protocol::CallError<#error_type>> {
                     self.session.check()?;
                     let result = #async_service_name::#service_method_name(
                         self.provider.as_ref(), #(#arg_names),*
@@ -337,7 +337,7 @@ pub(crate) fn expand_capability(
             fn #method_name(
                 &self,
                 #(#client_arguments),*
-            ) -> Result<#result_type, #error_type> {
+            ) -> ::std::result::Result<#result_type, #error_type> {
                 #client_name::#method_name(self, #(#arg_names),*)
                     .map_err(|error| match error {
                         ::riesel_protocol::CallError::Domain(domain) => domain,
@@ -351,7 +351,7 @@ pub(crate) fn expand_capability(
             fn #method_name(
                 &self,
                 #(#client_arguments),*
-            ) -> Result<#result_type, #error_type> {
+            ) -> ::std::result::Result<#result_type, #error_type> {
                 self.as_ref().#method_name(#(#arg_names),*)
             }
         });
@@ -359,7 +359,7 @@ pub(crate) fn expand_capability(
             fn #method_name(
                 &self,
                 #(#client_arguments),*
-            ) -> Result<#result_type, #error_type> {
+            ) -> ::std::result::Result<#result_type, #error_type> {
                 self.session
                     .check()
                     .map_err(<#error_type as ::std::convert::From<::riesel_protocol::RpcError>>::from)?;
@@ -371,7 +371,7 @@ pub(crate) fn expand_capability(
             pub fn #method_name(
                 &self,
                 #(#client_arguments),*
-            ) -> Result<#result_type, ::riesel_protocol::CallError<#error_type>> {
+            ) -> ::std::result::Result<#result_type, ::riesel_protocol::CallError<#error_type>> {
                 let mut arguments = ::serde_json::Map::new();
                 #(#client_encoding)*
                 let response = self.transport.call(
@@ -390,7 +390,7 @@ pub(crate) fn expand_capability(
             pub async fn #method_name(
                 &self,
                 #(#client_arguments),*
-            ) -> Result<#result_type, ::riesel_protocol::CallError<#error_type>> {
+            ) -> ::std::result::Result<#result_type, ::riesel_protocol::CallError<#error_type>> {
                 let mut arguments = ::serde_json::Map::new();
                 #(#client_encoding)*
                 let response = self.transport.call(
@@ -597,7 +597,7 @@ pub(crate) fn expand_capability(
             {
                 fn contract(
                     &self,
-                ) -> Result<::riesel_schema::CapabilityContract, ::riesel_protocol::RpcError> {
+                ) -> ::std::result::Result<::riesel_schema::CapabilityContract, ::riesel_protocol::RpcError> {
                     #descriptor_name::definition().map_err(|error| {
                         ::riesel_protocol::RpcError::Contract(error.to_string())
                     })
@@ -656,7 +656,7 @@ pub(crate) fn expand_capability(
             impl<T: #trait_name + Send + Sync> ::riesel_protocol::RpcHandler
                 for #dispatcher_name<T>
             {
-                fn contract(&self) -> Result<
+                fn contract(&self) -> ::std::result::Result<
                     ::riesel_schema::CapabilityContract,
                     ::riesel_protocol::RpcError
                 > {
@@ -669,7 +669,7 @@ pub(crate) fn expand_capability(
                     &self,
                     operation: &str,
                     payload: ::serde_json::Value,
-                ) -> Result<::serde_json::Value, ::riesel_protocol::RpcError> {
+                ) -> ::std::result::Result<::serde_json::Value, ::riesel_protocol::RpcError> {
                     match operation {
                         #(#dispatch_arms,)*
                         _ => Err(::riesel_protocol::RpcError::UnknownOperation(
@@ -727,7 +727,7 @@ pub(crate) fn expand_capability(
 
         impl #descriptor_name {
             /// Inspect the API contract generated from the Rust trait.
-            pub fn definition() -> Result<
+            pub fn definition() -> ::std::result::Result<
                 ::riesel_schema::CapabilityContract,
                 ::riesel_schema::ContractError
             > {
@@ -748,7 +748,7 @@ pub(crate) fn expand_capability(
         }
 
         impl ::riesel_schema::CapabilityDescriptor for #descriptor_name {
-            fn definition() -> Result<
+            fn definition() -> ::std::result::Result<
                 ::riesel_schema::CapabilityContract,
                 ::riesel_schema::ContractError
             > {
