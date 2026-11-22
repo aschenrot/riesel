@@ -207,10 +207,26 @@ impl Application {
     #[cfg(feature = "dev-memory-storage")]
     pub fn development(self) -> Result<Self> {
         let models = self.definition.models.clone();
-        self.provider(
-            riesel_storage_component::memory_storage_provider_with_models(models)
-                .map_err(|source| RuntimeError::ProviderFactory { source })?,
-        )
+        if self.definition.record_query_links.is_empty() {
+            return self.provider(
+                riesel_storage_component::memory_storage_provider_with_models(models)
+                    .map_err(|source| RuntimeError::ProviderFactory { source })?,
+            );
+        }
+        self.definition.validate()?;
+        let readable = self.definition.record_query_links.keys().cloned().collect();
+        let writable = self.definition.requires.iter().any(|requirement| {
+            RecordStoreContract::definition()
+                .is_ok_and(|contract| contract.capability == requirement.capability)
+        });
+        let provider = if writable {
+            riesel_storage_component::memory_record_query_and_storage_provider_with_models(
+                models, readable,
+            )
+        } else {
+            riesel_storage_component::memory_record_query_provider_with_models(models, readable)
+        };
+        self.provider(provider.map_err(|source| RuntimeError::ProviderFactory { source })?)
     }
 
     /// Choose the only declared Record Storage requirement as an explicit
@@ -218,6 +234,9 @@ impl Application {
     /// Call after records<T>() / handler() has declared the model requirements.
     #[cfg(feature = "sqlite-storage")]
     pub fn sqlite_storage(self, path: impl Into<PathBuf>) -> Result<Self> {
+        if !self.definition.record_query_links.is_empty() {
+            return self.sqlite_record_query(path);
+        }
         let expected = RecordStoreContract::definition()?.capability;
         let matching: Vec<_> = self
             .definition
@@ -247,6 +266,36 @@ impl Application {
         )
         .map_err(|source| RuntimeError::ProviderFactory { source })?;
         self.provider(factory)
+    }
+
+    /// Attach a trusted linked, provider-owned SQLite Record Query facet.
+    /// The Query-only form opens an *existing* database read-only; if this
+    /// application also declares Storage v2, both facets share one owner.
+    #[cfg(feature = "sqlite-storage")]
+    pub fn sqlite_record_query(self, path: impl Into<PathBuf>) -> Result<Self> {
+        self.definition.validate()?;
+        if self.definition.record_query_links.is_empty() {
+            return Err(SdkError::MissingCapability("record Query model relation".into()));
+        }
+        let expected_storage = RecordStoreContract::definition()?.capability;
+        let writers = self
+            .definition
+            .requires
+            .iter()
+            .filter(|requirement| requirement.capability == expected_storage)
+            .count();
+        if writers > 1 {
+            return Err(SdkError::AmbiguousStorage);
+        }
+        let readable = self.definition.record_query_links.keys().cloned().collect();
+        let provider = riesel_storage_sqlite::sqlite_record_query_provider(
+            path.into(),
+            self.definition.models.clone(),
+            readable,
+            writers == 1,
+        )
+        .map_err(|source| RuntimeError::ProviderFactory { source })?;
+        self.provider(provider)
     }
 
     /// Configure an explicit local provider or external/managed service.
