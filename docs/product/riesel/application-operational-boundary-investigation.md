@@ -1,6 +1,6 @@
 # Shared application operational boundary — cross-product investigation
 
-**Status:** research coordination only. No accepted new SDK contract, crate, CLI, daemon, protocol, Manager, exporter or implementation authorization.  
+**Historical research status:** this document records pre-decision comparisons and still-unverified mechanisms. **The #75 conceptual architecture has since been ACCEPTED** (22 November 2026): shared transport-neutral operational semantics with independent product-specific adapters. The authoritative accepted boundaries are in the [operational contract](operational-contract.md) and [owner decision](https://github.com/aschenrot/riesel/issues/75#issuecomment-7073783350). Older proposals below should not be interpreted as an open choice among basic semantic architectures. No public SDK, crate, daemon, protocol, Manager, exporter or production authorization mechanism was approved by acceptance.  
 **Specification:** [#75](https://github.com/aschenrot/riesel/issues/75) · **Reviewed:** 2026-11-20 · **Repository starting point:** `main` at `7456dbce`.  
 This report compares common semantics relevant to [developer tooling #68](https://github.com/aschenrot/riesel/issues/68), [Manager #59](https://github.com/aschenrot/riesel/issues/59), and [native GUI #60](https://github.com/aschenrot/riesel/issues/60). **Each product retains its own Gate B decision.** The [delivery workflow](../../project/delivery.md) prefers architecture-first investment when it improves credible cross-product reuse; it does not preselect shared infrastructure.
 

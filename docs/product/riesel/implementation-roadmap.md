@@ -1,6 +1,6 @@
 # Riesel — Implementation Roadmap
 
-Status reviewed: 2026-11-21. Stage 5 reference commit: `b862e3f` (Linux [validation and smoke passed](https://github.com/aschenrot/riesel/actions/runs/44535298922)). This document tracks **accepted delivery scope and tested progress**. Git commits, Pull Requests and CI retain implementation history; this roadmap is not a running change log.
+Status reviewed: 2026-11-22. Stage 5 reference commit: `b862e3f` (Linux [validation and smoke passed](https://github.com/aschenrot/riesel/actions/runs/44535298922)). This document tracks **accepted delivery scope and tested progress**. Git commits, Pull Requests and CI retain implementation history; this roadmap is not a running change log.
 
 ## Current delivery position
 
@@ -73,6 +73,12 @@ Plan and separately accept production features by user value and operational ris
 | Interfaces | Independent native window hosts, once their lifecycle and connection contract is accepted |
 
 Selective provider restarts with transparent rebinding, distributed orchestration, automatic multiplayer, UI frameworks and **unrestricted visual application building** remain **exploratory** until independently scoped and justified. The accepted bounded execution-plan/visual-inspection direction is tracked separately below. Current loopback plaintext RPC and in-memory reference Storage are not production equivalents.
+
+## Accepted shared operational architecture — implementation pending
+
+The [owner-accepted #75 decision](https://github.com/aschenrot/riesel/issues/75#issuecomment-7073783350) establishes **shared transport-neutral operational semantics with independent product adapters**, documented in the [durable operational contract](operational-contract.md). Application/registration/artifact/OS-attempt/session/interface/client identities, evidence-scoped readiness, deliberate export, scoped permission, revocation and uncertain mutation outcomes have common meanings; no daemon, protocol, production exporter or security implementation is thereby delivered. The [delivery model](../../project/delivery.md) governs separately verifiable implementation Issues and exact-revision CI.
+
+**Delivery boundaries:** first implement compatible internal runtime-session publication/fencing and provenance-qualified observations where supported by accepted requirements. Independently progress [#68](https://github.com/aschenrot/riesel/issues/68) foreground tooling and locally owned graph/nested-domain work without a Manager dependency. Actual app-facing export/native GUI remains owned by [#60](https://github.com/aschenrot/riesel/issues/60), and privileged OS process control, protected CLI/browser and installed lifecycle by [#59](https://github.com/aschenrot/riesel/issues/59). Do not describe Linux UID/label research as production strong client authorization or as equivalent to the required hostile-same-UID Manager protections. First Manager release still requires real Linux, Windows and macOS behavior and the applicable manual OS evidence.
 
 ## Accepted execution-plan and inspector outcomes — headless reference delivery
 
