@@ -49,7 +49,10 @@ impl RunningApp {
     #[doc(hidden)]
     pub fn internal_operational_observations(
         &self,
-    ) -> Result<crate::operational_observation::ObservationSnapshot, crate::operational_observation::ObservationError> {
+    ) -> Result<
+        crate::operational_observation::ObservationSnapshot,
+        crate::operational_observation::ObservationError,
+    > {
         let verified = self.check_processes().is_ok();
         crate::operational_observation::ObservationSnapshot::runtime(
             self.session.clone(),
