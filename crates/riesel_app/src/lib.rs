@@ -4,6 +4,7 @@ mod async_tasks;
 mod catalog;
 mod component;
 mod deployment;
+mod editor_catalog;
 #[cfg(feature = "async-tcp")]
 mod execution_nested;
 #[cfg(feature = "async-tcp")]
@@ -30,6 +31,7 @@ pub use async_tasks::AsyncTasks;
 pub use catalog::{CatalogError, ProviderCatalog, ProviderSelectionConfig};
 pub use component::{ComponentDefinition, DeclarativeComponent};
 pub use deployment::{DeploymentConfig, DeploymentError, ServiceEndpoint};
+pub use editor_catalog::{EditorAffinity, EditorCatalogError, EditorOperationDescriptor};
 #[cfg(feature = "async-tcp")]
 pub use execution_nested::{
     MAX_NESTED_TRANSITIONS, NestedCursor, NestedDescription, NestedDomainOwner,
