@@ -2,7 +2,7 @@ use riesel_schema::ModelDefinition;
 use riesel_storage::{
     MAX_PAGE_SIZE, RecordPage, RecordQuery, RecordQueryCursors, RecordQueryError, RecordQueryPage,
     RecordQueryRequest, RecordStore, StoreError, StoredRecord, record_matches_predicate,
-    validate_record_query,
+    validate_record_query, validate_record_query_envelope,
 };
 
 use serde_json::Value;
@@ -191,6 +191,7 @@ impl RecordStore for MemoryStore {
 /// RecordStore RPC or performs a consumer-side full scan.
 impl RecordQuery for MemoryStore {
     fn query_page(&self, request: RecordQueryRequest) -> Result<RecordQueryPage, RecordQueryError> {
+        validate_record_query_envelope(&request)?;
         let definition = self
             .models
             .as_ref()
