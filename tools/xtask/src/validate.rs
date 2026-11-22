@@ -68,6 +68,19 @@ pub fn run(mode: FormatMode) -> TaskResult {
             ],
         ),
         (
+            "Indexed graph prerequisite and signal admission regression",
+            &[
+                "test",
+                "--locked",
+                "-p",
+                "riesel",
+                "--features",
+                "async-tcp",
+                "--test",
+                "execution_eligibility",
+            ],
+        ),
+        (
             "Real managed child crash during session-owned graph execution",
             &[
                 "test",
