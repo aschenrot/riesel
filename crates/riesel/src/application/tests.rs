@@ -144,6 +144,10 @@ fn native_record_query_and_storage_v2_share_one_confirmed_writer() {
                 })?;
                 assert_eq!(result.records.len(), 1);
                 assert_eq!(result.records[0].data["title"], "Committed");
+                let typed = reader.page(None, 16, 16, None)?;
+                assert_eq!(typed.records.len(), 1);
+                assert_eq!(typed.records[0].value.title, "Committed");
+                assert_eq!(typed.records[0].value.completed, false);
                 Ok(())
             },
             ["read", "writer"],
@@ -180,7 +184,7 @@ fn sqlite_native_query_reads_existing_record_without_mutating_storage_contract()
     let reader = Application::new("QueryExisting")
         .handler(
             |query: ModelRead<TodoModel, RecordQueryContract>|
-             -> std::result::Result<(), crate::storage::RecordQueryError> {
+             -> std::result::Result<(), Box<dyn std::error::Error + Send + Sync>> {
                 let result = query.query_page(RecordQueryRequest {
                     model: "todo".into(),
                     predicate: None,
@@ -190,6 +194,9 @@ fn sqlite_native_query_reads_existing_record_without_mutating_storage_contract()
                 })?;
                 assert_eq!(result.records.len(), 1);
                 assert_eq!(result.records[0].data["title"], "Durable");
+                let typed = query.page(None, 16, 16, None)?;
+                assert_eq!(typed.records.len(), 1);
+                assert_eq!(typed.records[0].value.title, "Durable");
                 Ok(())
             },
         )
@@ -224,6 +231,9 @@ fn sqlite_combined_query_and_storage_share_one_confirmed_linked_owner() {
                 })?;
                 assert_eq!(page.records.len(), 1);
                 assert_eq!(page.records[0].data["title"], "Confirmed SQLite");
+                let typed = reader.page(None, 16, 16, None)?;
+                assert_eq!(typed.records.len(), 1);
+                assert_eq!(typed.records[0].value.title, "Confirmed SQLite");
                 Ok(())
             },
             ["read", "writer"],
