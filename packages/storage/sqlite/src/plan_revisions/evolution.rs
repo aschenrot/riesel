@@ -3,10 +3,8 @@
 //! Requires the trusted application owner to quiesce live use before adopting
 //! the migrated store; SQLite transactional CAS fences stale local writers.
 
-use super::{
-    FORMAT, LEGACY_FORMAT, SqlitePlanRevisionRepository, read_head, storage,
-};
 use super::backup::{V2SnapshotBudget, compare_exact_content};
+use super::{FORMAT, LEGACY_FORMAT, SqlitePlanRevisionRepository, read_head, storage};
 use riesel_app::{PlanAuthoringHead, PlanRevisionError, PlanRevisionRepository};
 use rusqlite::{Connection, OpenFlags, TransactionBehavior, params};
 use std::path::Path;
@@ -42,21 +40,14 @@ impl SqlitePlanRevisionRepository {
         budget: V2SnapshotBudget,
     ) -> Result<PlanAuthoringHead, PlanRevisionError> {
         let backup_path = backup_path.as_ref();
-        let verified = Self::verify_backup(
-            backup_path,
-            &self.trusted_registration_stamp,
-            budget,
-        )?;
+        let verified = Self::verify_backup(backup_path, &self.trusted_registration_stamp, budget)?;
         if verified.format_version != LEGACY_FORMAT {
             return Err(PlanRevisionError::UnsupportedFormat(
                 verified.format_version,
             ));
         }
-        let backup = Connection::open_with_flags(
-            backup_path,
-            OpenFlags::SQLITE_OPEN_READ_ONLY,
-        )
-        .map_err(storage)?;
+        let backup = Connection::open_with_flags(backup_path, OpenFlags::SQLITE_OPEN_READ_ONLY)
+            .map_err(storage)?;
         let mut connection = self.connection()?;
         let tx = connection
             .transaction_with_behavior(TransactionBehavior::Immediate)
@@ -68,9 +59,7 @@ impl SqlitePlanRevisionRepository {
             return Err(PlanRevisionError::UnsupportedFormat(version));
         }
         let current = read_head(&tx, &expected.plan_id)?;
-        if current != *expected
-            || current.registration_stamp != self.trusted_registration_stamp
-        {
+        if current != *expected || current.registration_stamp != self.trusted_registration_stamp {
             return Err(PlanRevisionError::Conflict);
         }
         // The supplied independent copy must describe the EXACT current
