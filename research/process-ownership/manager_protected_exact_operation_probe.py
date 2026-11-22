@@ -377,8 +377,14 @@ def main(pinned):
                                    "unit": unit, "invocation": original["InvocationID"],
                                    "verb": "stop",
                                })), check=False)
-            if client_deny.returncode == 0:
-                raise AssertionError("same-UID client accessed protected approval channel")
+            if (client_deny.returncode == 0 or
+                "PermissionError" not in client_deny.stderr or
+                "Permission denied" not in client_deny.stderr or
+                "admin.sock" not in client_deny.stderr):
+                raise AssertionError(
+                    "protected socket denial not specifically established: "
+                    f"{client_deny.returncode}, {client_deny.stderr[-600:]!r}"
+                )
             print("RESEARCH_M59_UNTRUSTED_SAME_UID_CANNOT_APPROVE", flush=True)
 
             # Must test actual shared OS privilege, not assume numeric UID safe.
@@ -410,8 +416,12 @@ def main(pinned):
             # SIGTERM result asserted above.
             if not Path(f"/proc/{actual}").exists():
                 raise AssertionError("app died before approval")
-            if system_show(unit, elevated=True)["InvocationID"] != original["InvocationID"]:
-                raise AssertionError("untrusted attempt changed app generation")
+            after_attack = system_show(unit, elevated=True)
+            if (after_attack.get("InvocationID") != original["InvocationID"] or
+                after_attack.get("ActiveState") != "active"):
+                raise AssertionError(
+                    f"untrusted attempt modified OS owner state: {after_attack}"
+                )
             print("RESEARCH_M59_DIRECT_OS_BYPASS_DENIED_FOR_TEST_PRINCIPAL", flush=True)
 
             wrong = as_admin(script, root, {"kind": "approve",
