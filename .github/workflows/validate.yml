@@ -62,6 +62,15 @@ jobs:
           RIESEL_RESEARCH_READY_INDEX=1 cargo test -p riesel --release --features async-tcp --test scheduler_ready_index_research ready_index_differential_shapes -- --nocapture --test-threads=1
           echo "research #226 ready A2 baseline"
           cargo test -p riesel --release --features async-tcp --test scheduler_ready_index_research ready_index_differential_shapes -- --nocapture --test-threads=1
+      - name: Research #226 allocation-cost differential for 16 live runners (draft only)
+        if: ${{ github.event_name == 'pull_request' && github.head_ref == 'research/226-event-driven-ready-index' }}
+        run: |
+          echo "research #226 allocator baseline"
+          cargo test -p riesel --release --features async-tcp --test scheduler_ready_index_alloc -- --nocapture --test-threads=1
+          echo "research #226 allocator candidate"
+          RIESEL_RESEARCH_READY_INDEX=1 cargo test -p riesel --release --features async-tcp --test scheduler_ready_index_alloc -- --nocapture --test-threads=1
+          echo "research #226 allocator baseline repeat"
+          cargo test -p riesel --release --features async-tcp --test scheduler_ready_index_alloc -- --nocapture --test-threads=1
 
   windows:
     if: ${{ github.event_name == 'workflow_dispatch' && inputs.windows }}
