@@ -19,6 +19,7 @@ mod internal_publication_tests;
 #[doc(hidden)]
 pub mod operational_observation;
 mod plan;
+mod plan_revision;
 mod recovery;
 mod resolver;
 mod runtime;
@@ -80,6 +81,12 @@ pub use runtime::{
 pub use supervisor::CancellationToken;
 
 pub use plan::{DeploymentPlan, PlannedService, PlannedTarget};
+pub use plan_revision::{
+    MAX_STORED_LAYOUT_BYTES, MAX_STORED_PLAN_BYTES, CheckedSourceHandoff, PlanAuthoringHead,
+    PlanAuthoringSource, PlanLayoutDraft, PlanLayoutPoint, PlanRevisionError,
+    PlanRevisionRepository, PlanSemanticCandidate, StoredPlanLayout, StoredSemanticPlan,
+    check_layout_nodes,
+};
 
 pub use recovery::RecoveryPolicy;
 pub use s2_document::{
