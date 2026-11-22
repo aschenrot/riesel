@@ -1,6 +1,6 @@
 # #59/#75 — Durable unknown OS mutation outcome, real Riesel Counter
 
-**Status:** bounded research-only fixture, pending actual GitHub Actions execution at a verified commit. This is not a production Manager architecture, a selected ledger schema, accepted authorization mechanism or release guarantee. Parent [#59](https://github.com/aschenrot/riesel/issues/59), shared outcome terminology [#75](https://github.com/aschenrot/riesel/issues/75), draft proof gates [#86](https://github.com/aschenrot/riesel/pull/86).
+**Status:** bounded Linux research fixture **EXECUTED and PASSED** on strengthened source commit e69a7704d9562d83d8cf7e25a3747abbaca9f897: [actual real Counter/systemd research CI 44971156711](https://github.com/aschenrot/riesel/actions/runs/44971156711). Independent Linux Validate/smoke and final report-head CI are separate checks. This is not a production Manager architecture, a selected ledger schema, accepted authorization mechanism or release guarantee. Parent [#59](https://github.com/aschenrot/riesel/issues/59), shared outcome terminology [#75](https://github.com/aschenrot/riesel/issues/75), draft proof gates [#86](https://github.com/aschenrot/riesel/pull/86).
 
 ## Original requirement and gap
 
@@ -34,7 +34,15 @@ The source deliberately has **no production policy issuance, broker, user consen
 | Hostile UID | All tested root journal/OS access paths refused | Conditional on no attacker ambient elevation |
 | Cleanup | Only uniquely named research resources removed | No permanent install or Manager source changes |
 
-The dedicated workflow is [here](../../.github/workflows/manager-durable-unknown-outcome-research.yml) and [the probe](manager_durable_unknown_outcome_probe.py) must be run only on a disposable Ubuntu real-systemd host. **No CI outcome is claimed until the workflow has completed.**
+The dedicated workflow is [here](../../.github/workflows/manager-durable-unknown-outcome-research.yml) and [the probe](manager_durable_unknown_outcome_probe.py) must be run only on a disposable Ubuntu real-systemd host. The exact tested source and real OS evidence are recorded above. This confirms the stated **process-crash** cases only; the production architecture/authority remains open.
+
+## Executed source-revision result and strict interpretation
+
+**Committed source e69a7704...** executed successfully on Ubuntu 24.04 with **real systemd and the pinned original Counter binary**, not a mocked command. Its dedicated job emitted all seven listed markers. The second research run specifically strengthened the hostile case: the low-privilege client tries to read/write the **existing SQLite database after the first committed command**, not a nonexistent path. The script verifies actual root ownership/directory restrictions and the same attacker cannot sudo, invoke systemctl stop or signal the differently owned Counter PID.
+
+The two root mutation workers deliberately terminate with distinct nonzero codes after a protected SQLite submission; their responses were never reported as completed. Independent observer processes then either retained an **unknown/active no-retry** record or observed real OS inactivity after stop and preserved the uncertain submission history. Between these cases a separately authorized **root test controller** restarted the systemd unit, and the stale command did **not** stop its new InvocationID. Final inspection confirmed two historical commands and four appended observations across restarted processes. This is **not proof of crash-safe power-loss commits or exactly-once systemd mutation**.
+
+The process used root authority by fixture design; consequently these observations **cannot** solve the #59 secure interactive operator approval problem or distinguish a hostile same-desktop-UID process with access to unconfined sudo. The accepted long-term semantics remain a decision gate rather than a chosen SQLite schema or Manager API.
 
 ## Architecture alternatives and bias audit
 
@@ -63,7 +71,7 @@ From a disposable Ubuntu systemd runner after building the pinned unchanged Coun
     python3 -m py_compile research/process-ownership/manager_durable_unknown_outcome_probe.py
     timeout 160 python3 research/process-ownership/manager_durable_unknown_outcome_probe.py --exercise "$PINNED_COUNTER_ROOT"
 
-Expected, **not yet verified**, markers:
+**Verified research markers** from CI 44971156711:
 
 - RESEARCH_M59_UNKNOWN_REAL_RIESEL_OS_OWNER_VERIFIED
 - RESEARCH_M59_UNKNOWN_OUTCOME_UNTRUSTED_OS_AND_JOURNAL_DENIED
