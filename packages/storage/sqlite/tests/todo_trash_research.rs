@@ -283,3 +283,26 @@ fn failed_todo_lifecycle_transform_keeps_original_database_readable() {
     drop(still_old);
     assert!(SqliteStore::open(&database, models::<CandidateTask>()).is_err());
 }
+
+#[test]
+fn task_location_string_is_not_provider_validated_as_a_closed_set() {
+    let unrestricted = CandidateTask::model_definition();
+    let invalid_state = json!({"title":"task","completed":false,"location":"unknown"});
+    // ModelDefinition supports scalar String, not a checked application enum.
+    // A Rust Todo domain may reject this value, but Storage itself does not.
+    assert!(unrestricted.validate_record(&invalid_state).is_ok());
+
+    let mut guarded = unrestricted;
+    guarded.fields.insert("location".into(), TypeRef::Bool);
+    assert!(guarded.validate_record(&invalid_state).is_err());
+    assert!(
+        guarded
+            .validate_record(&json!({"title":"task","completed":false,"location":true}))
+            .is_ok()
+    );
+    assert!(
+        guarded
+            .validate_record(&json!({"title":"task","completed":false,"location":false}))
+            .is_ok()
+    );
+}
