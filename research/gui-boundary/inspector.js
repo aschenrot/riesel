@@ -23,8 +23,15 @@ function validate(doc) {
   if (!doc || doc.schema !== "riesel.research.graph-inspection.v1" ||
       typeof doc.plan_id !== "string" || !Number.isSafeInteger(doc.revision) ||
       typeof doc.session_generation !== "string" || !Number.isSafeInteger(doc.run_sequence) ||
+      typeof doc.session_expired !== "boolean" || typeof doc.trace_truncated !== "boolean" ||
+      typeof doc.phase !== "string" ||
+      !Number.isSafeInteger(doc.initial_sequence) || doc.initial_sequence < 0 ||
+      !Number.isSafeInteger(doc.latest_sequence) || doc.latest_sequence < doc.initial_sequence ||
       !Array.isArray(doc.nodes) || doc.nodes.length < 1 || doc.nodes.length > 256 ||
-      !Array.isArray(doc.transitions) || doc.transitions.length > 1024) {
+      !Array.isArray(doc.transitions) || doc.transitions.length > 1024 ||
+      doc.transitions.some((event) => !event || !Number.isSafeInteger(event.sequence) ||
+        event.sequence <= 0 || event.sequence > doc.latest_sequence ||
+        typeof event.change !== "string")) {
     throw new Error("Unsupported or oversized research inspection document");
   }
   const ids = new Set();
