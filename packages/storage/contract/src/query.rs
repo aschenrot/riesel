@@ -168,17 +168,23 @@ fn validate_record_predicate(
             if value.is_null() {
                 return Err(RecordQueryError::InvalidOperand);
             }
-            match field_value_kind(kind) {
-                TypeRef::Bool if matches!(op, Op::Eq | Op::Ne) && value.is_boolean() => {}
-                TypeRef::String if matches!(op, Op::Eq | Op::Ne) && value.is_string() => {}
-                TypeRef::Uuid
-                    if matches!(op, Op::Eq | Op::Ne)
-                        && value.as_str().is_some_and(|s| Uuid::parse_str(s).is_ok()) => {}
-                TypeRef::U64 if value.as_u64().is_some() => {}
-                TypeRef::I64 if value.as_i64().is_some() => {}
+            let valid = match field_value_kind(kind) {
+                TypeRef::Bool | TypeRef::String | TypeRef::Uuid
+                    if !matches!(op, Op::Eq | Op::Ne) =>
+                {
+                    return Err(RecordQueryError::UnsupportedPredicate);
+                }
+                TypeRef::Bool => value.is_boolean(),
+                TypeRef::String => value.is_string(),
+                TypeRef::Uuid => value.as_str().is_some_and(|s| Uuid::parse_str(s).is_ok()),
+                TypeRef::U64 => value.as_u64().is_some(),
+                TypeRef::I64 => value.as_i64().is_some(),
                 // Floating and untyped JSON comparisons need their own
                 // precision/collation profile; reject rather than coerce.
                 _ => return Err(RecordQueryError::UnsupportedPredicate),
+            };
+            if !valid {
+                return Err(RecordQueryError::InvalidOperand);
             }
         }
     }
@@ -468,6 +474,23 @@ mod tests {
         ] {
             assert!(validate_record_query(&m, &request(Some(p))).is_err());
         }
+        for invalid in [
+            pred("big", RecordCompare::Eq, Some(json!(-1))),
+            pred("completed", RecordCompare::Eq, Some(json!("false"))),
+            pred("external_id", RecordCompare::Eq, Some(json!("not-a-uuid"))),
+        ] {
+            assert!(matches!(
+                validate_record_query(&m, &request(Some(invalid))),
+                Err(RecordQueryError::InvalidOperand)
+            ));
+        }
+        assert!(matches!(
+            validate_record_query(
+                &m,
+                &request(Some(pred("completed", RecordCompare::Gt, Some(json!(false)))))
+            ),
+            Err(RecordQueryError::UnsupportedPredicate)
+        ));
         let mut q = request(None);
         q.limit = 33;
         assert!(matches!(
