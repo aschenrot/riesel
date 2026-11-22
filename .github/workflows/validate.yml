@@ -41,6 +41,32 @@ jobs:
         run: cargo test --locked -p riesel_storage_sqlite --test v2_backup
       - name: Smoke test runtime and managed providers
         run: cargo smoke
+      - name: Research #226 production scheduler probes (diagnostic; no API changes)
+        if: ${{ github.event_name == 'pull_request' && github.head_ref == 'research/226-scheduler-policy-probes' }}
+        run: cargo test -p riesel --features async-tcp --test scheduler_policy_research -- --nocapture --test-threads=1
+      - name: Research #226 release-profile admission A/B scan counts (unmerged)
+        if: ${{ github.event_name == 'pull_request' && github.head_ref == 'research/226-scheduler-policy-probes' }}
+        env:
+          RIESEL_SCHEDULER_RESEARCH_SCAN_COUNTS: "1"
+        run: |
+          echo "research #226 release A1: original blocking scan on every wake"
+          cargo test -p riesel --release --features async-tcp --test scheduler_policy_research diagnostic_repeated_wide_and_chain_graph_samples -- --nocapture --test-threads=1
+          echo "research #226 release B1: skip blocking scan unless a non-success terminal occurs"
+          RIESEL_SCHEDULER_RESEARCH_SKIP_CLEAN_BLOCK_SCANS=1 cargo test -p riesel --release --features async-tcp --test scheduler_policy_research diagnostic_repeated_wide_and_chain_graph_samples -- --nocapture --test-threads=1
+          echo "research #226 release B2: repeated candidate before baseline"
+          RIESEL_SCHEDULER_RESEARCH_SKIP_CLEAN_BLOCK_SCANS=1 cargo test -p riesel --release --features async-tcp --test scheduler_policy_research diagnostic_repeated_wide_and_chain_graph_samples -- --nocapture --test-threads=1
+          echo "research #226 release A2: repeat baseline after candidate"
+          cargo test -p riesel --release --features async-tcp --test scheduler_policy_research diagnostic_repeated_wide_and_chain_graph_samples -- --nocapture --test-threads=1
+          echo "research #226 resource control under B path"
+          RIESEL_SCHEDULER_RESEARCH_SKIP_CLEAN_BLOCK_SCANS=1 cargo test -p riesel --release --features async-tcp --test scheduler_policy_research paused_hot_resource_owner_allows_independent_cold_progress -- --nocapture --test-threads=1
+      - name: Research #226 differential must preserve accepted graph correctness
+        if: ${{ github.event_name == 'pull_request' && github.head_ref == 'research/226-scheduler-policy-probes' }}
+        env:
+          RIESEL_SCHEDULER_RESEARCH_SKIP_CLEAN_BLOCK_SCANS: "1"
+        run: |
+          cargo test -p riesel --features async-tcp --test execution_runner
+          cargo test -p riesel --features async-tcp --test execution_domains
+          cargo test -p riesel --features async-tcp --test execution_nested
 
   windows:
     if: ${{ github.event_name == 'workflow_dispatch' && inputs.windows }}

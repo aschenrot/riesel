@@ -380,7 +380,18 @@ pub struct GraphExecutionFailure {
 /// reusable runner containing stale Running nodes. In-flight operations are
 /// aborted on session invalidation, but effects already dispatched may be
 /// irreversible; they are conservatively reported as OutcomeUnknown.
+// RESEARCH-ONLY instrumentation for #226. This branch must not merge these
+// counters as an unapproved public scheduler API or production feature.
+#[derive(Default)]
+struct ResearchScanCounts {
+    admission_passes: u64,
+    admission_visits: u64,
+    blocked_passes: u64,
+    blocked_visits: u64,
+}
+
 pub struct ExecutionGraphRunner {
+    research_scans: ResearchScanCounts,
     plan: BoundExecutionPlan<AsyncOperation>,
     session: SessionToken,
     admission: Arc<SessionGraphAdmission>,
@@ -441,6 +452,7 @@ impl ExecutionGraphRunner {
         let (sender, signal_rx) = mpsc::channel(MAX_PENDING_SIGNALS);
         Ok(Self {
             states: vec![OperationState::Pending; operations.len()],
+            research_scans: ResearchScanCounts::default(),
             plan,
             session: session.clone(),
             admission,
@@ -503,6 +515,11 @@ impl ExecutionGraphRunner {
         let mut active = HashMap::<Id, usize>::new();
         let mut session_expired = false;
         let mut stopped_by_owner = false;
+        // Research-only differential. The production baseline always scans;
+        // opt-in compares only scanning after non-success terminal outcomes.
+        let research_skip_clean_scans =
+            std::env::var_os("RIESEL_SCHEDULER_RESEARCH_SKIP_CLEAN_BLOCK_SCANS").is_some();
+        let mut needs_blocking_scan = false;
         let mut stop = std::pin::pin!(stop);
         self.publication.start();
 
@@ -522,7 +539,10 @@ impl ExecutionGraphRunner {
             while let Ok(signal) = self.signal_rx.try_recv() {
                 self.fired.insert(signal);
             }
-            self.block_dependents();
+            if !research_skip_clean_scans || needs_blocking_scan {
+                self.block_dependents();
+                needs_blocking_scan = false;
+            }
             if !self.session.is_active() {
                 session_expired = true;
                 break;
@@ -564,6 +584,7 @@ impl ExecutionGraphRunner {
                     Ok((id, (index, outcome))) => {
                         let owned = active.remove(&id);
                         debug_assert_eq!(owned, Some(index));
+                        needs_blocking_scan |= !matches!(outcome, OperationOutcome::Completed);
                         self.states[index] = match outcome {
                             OperationOutcome::Completed => OperationState::Completed,
                             OperationOutcome::Failed(message) => OperationState::Failed(message),
@@ -574,6 +595,7 @@ impl ExecutionGraphRunner {
                             .transition(index, self.states[index].clone());
                     }
                     Err(error) => {
+                        needs_blocking_scan = true;
                         let index = active
                             .remove(&error.id())
                             .expect("tracked operation task identity");
@@ -606,6 +628,18 @@ impl ExecutionGraphRunner {
 
         let identity = self.publication.identity();
         self.publication.finish(session_expired);
+        if std::env::var_os("RIESEL_SCHEDULER_RESEARCH_SCAN_COUNTS").is_some() {
+            eprintln!(
+                "research #226 scan plan={} nodes={} admit_passes={} admit_visits={} block_passes={} block_visits={} started={}",
+                self.plan.plan().description().id(),
+                self.states.len(),
+                self.research_scans.admission_passes,
+                self.research_scans.admission_visits,
+                self.research_scans.blocked_passes,
+                self.research_scans.blocked_visits,
+                self.started,
+            );
+        }
         let confirmed_prefixes = self
             .publication
             .observer()
@@ -645,10 +679,12 @@ impl ExecutionGraphRunner {
         active: &mut HashMap<Id, usize>,
     ) {
         let operations = self.plan.plan().description().operations();
+        self.research_scans.admission_passes += 1;
         for (index, node) in operations.iter().enumerate() {
             if active.len() >= self.max_in_flight {
                 break;
             }
+            self.research_scans.admission_visits += 1;
             if !matches!(self.states[index], OperationState::Pending) {
                 continue;
             }
@@ -715,7 +751,9 @@ impl ExecutionGraphRunner {
         // Every prerequisite precedes its dependents in the validated plan.
         // A single pass therefore propagates terminal blocking through even
         // a reverse-declared chain; repeated whole-plan scans are unnecessary.
+        self.research_scans.blocked_passes += 1;
         for node in self.plan.plan().dependency_order() {
+            self.research_scans.blocked_visits += 1;
             let index = *self.index.get(node.id()).expect("validated operation id");
             if !matches!(self.states[index], OperationState::Pending) {
                 continue;
