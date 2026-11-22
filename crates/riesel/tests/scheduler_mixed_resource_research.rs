@@ -186,7 +186,9 @@ fn pending_multi_key_writer_does_not_hold_unavailable_or_unrelated_resources() {
             .unwrap();
         assert!(multi_report.succeeded());
         assert_eq!(both_started.load(Ordering::SeqCst), 1);
-        eprintln!("research #226 multi_key_waiter=blocked beta_independent=completed before_alpha_release");
+        eprintln!(
+            "research #226 multi_key_waiter=blocked beta_independent=completed before_alpha_release"
+        );
     });
 }
 
