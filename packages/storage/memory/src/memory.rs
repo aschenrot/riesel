@@ -446,4 +446,120 @@ mod tests {
             Err(StoreError::Failed(_))
         ));
     }
+    #[test]
+    fn native_bounded_sparse_query_returns_empty_partial_pages_then_match() {
+        use riesel_schema::TypeRef;
+        use riesel_storage::{RecordCompare, RecordPredicate, RecordQueryRequest};
+        let definition = ModelDefinition {
+            fields: BTreeMap::from([
+                ("completed".into(), TypeRef::Bool),
+                ("big".into(), TypeRef::U64),
+            ]),
+        };
+        let store = MemoryStore::with_query_models(
+            BTreeMap::from([("task".into(), definition)]),
+            BTreeSet::from(["task".into()]),
+        );
+        let mut seeded = Vec::new();
+        for _ in 0..65 {
+            seeded.push(
+                store
+                    .create("task", json!({"completed":true,"big":u64::MAX}))
+                    .unwrap(),
+            );
+        }
+        let last = seeded.iter().max_by_key(|record| record.id).unwrap();
+        store
+            .update(
+                "task",
+                last.id,
+                last.revision,
+                json!({"completed":false,"big":u64::MAX}),
+            )
+            .unwrap();
+        let mut request = RecordQueryRequest {
+            model: "task".into(),
+            predicate: Some(RecordPredicate {
+                field: "completed".into(),
+                operator: RecordCompare::Eq,
+                value: Some(json!(false)),
+            }),
+            limit: 32,
+            scan_budget: 32,
+            cursor: None,
+        };
+        for _ in 0..2 {
+            let page = store.query_page(request.clone()).unwrap();
+            assert!(page.records.is_empty());
+            assert_eq!(page.inspected, 32);
+            assert!(!page.exhausted);
+            request.cursor = page.next_cursor;
+            assert!(request.cursor.is_some());
+        }
+        let final_page = store.query_page(request.clone()).unwrap();
+        assert_eq!(final_page.records.len(), 1);
+        assert_eq!(final_page.records[0].id, last.id);
+        assert_eq!(final_page.inspected, 1);
+        assert!(final_page.exhausted);
+        assert!(final_page.next_cursor.is_none());
+
+        let mut changed = request;
+        changed.cursor = None;
+        changed.predicate.as_mut().unwrap().value = Some(json!(true));
+        let page = store.query_page(changed).unwrap();
+        assert!(!page.records.is_empty());
+        assert_eq!(page.inspected, 32);
+    }
+
+    #[test]
+    fn native_query_rejects_undeclared_read_models_and_wrong_cursor_query() {
+        use riesel_schema::TypeRef;
+        use riesel_storage::{RecordCompare, RecordPredicate, RecordQueryError, RecordQueryRequest};
+        let definition = ModelDefinition {
+            fields: BTreeMap::from([("big".into(), TypeRef::U64)]),
+        };
+        let models = BTreeMap::from([
+            ("task".into(), definition.clone()),
+            ("asset".into(), definition),
+        ]);
+        let store = MemoryStore::with_query_models(models.clone(), BTreeSet::from(["task".into()]));
+        let no_read_grant = MemoryStore::with_models(models);
+        let request = RecordQueryRequest {
+            model: "task".into(),
+            predicate: Some(RecordPredicate {
+                field: "big".into(),
+                operator: RecordCompare::Eq,
+                value: Some(json!(u64::MAX)),
+            }),
+            limit: 1,
+            scan_budget: 1,
+            cursor: None,
+        };
+        assert!(matches!(
+            no_read_grant.query_page(request.clone()),
+            Err(RecordQueryError::ModelDenied)
+        ));
+        assert!(matches!(
+            store.query_page(RecordQueryRequest {
+                model: "asset".into(),
+                ..request.clone()
+            }),
+            Err(RecordQueryError::ModelDenied)
+        ));
+        store.create("task", json!({"big":u64::MAX})).unwrap();
+        store.create("task", json!({"big":u64::MAX})).unwrap();
+        let page = store.query_page(request.clone()).unwrap();
+        assert_eq!(page.records.len(), 1);
+        let mut wrong = request.clone();
+        wrong.cursor = page.next_cursor.clone();
+        wrong.predicate.as_mut().unwrap().value = Some(json!(u64::MAX - 1));
+        assert!(matches!(
+            store.query_page(wrong),
+            Err(RecordQueryError::InvalidCursor)
+        ));
+        let mut correct = request;
+        correct.cursor = page.next_cursor;
+        assert_eq!(store.query_page(correct).unwrap().records.len(), 1);
+    }
+
 }
