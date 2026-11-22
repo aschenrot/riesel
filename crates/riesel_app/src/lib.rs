@@ -37,6 +37,8 @@ pub use app::{App, AppError};
 pub use app_publication::{
     AppReadPublication, ReadExposure, ReadPublicationDescriptor, ReadPublicationError,
 };
+#[cfg(all(unix, feature = "app-publication-unix"))]
+pub use app_publication_unix::{UnixReadClient, UnixReadServer};
 #[cfg(feature = "async-tcp")]
 pub use async_tasks::AsyncTasks;
 #[cfg(feature = "internal-publication")]
