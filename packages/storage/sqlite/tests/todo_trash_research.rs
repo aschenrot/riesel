@@ -218,6 +218,15 @@ fn offline_lifecycle_model_evolution_and_trash_restore_keep_identity_and_revisio
     );
     drop(current);
 
+    // The same UUID, latest revision and restored completion survive closing
+    // and reopening the actual linked SQLite owner (not a browser-only cache).
+    let reopened = SqliteStore::open(&database, models::<CandidateTask>()).unwrap();
+    let persisted = reopened.get("task", open.id).unwrap().unwrap();
+    assert_eq!(persisted.id, restored.id);
+    assert_eq!(persisted.revision, restored.revision);
+    assert_eq!(persisted.data, restored.data);
+    drop(reopened);
+
     // Distinct, explicitly authorized *offline* restore discards all writes
     // since the source snapshot; it is not Undo and cannot be automatic.
     let maintenance =
