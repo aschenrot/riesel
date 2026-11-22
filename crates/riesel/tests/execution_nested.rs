@@ -553,7 +553,7 @@ fn replacing_owner_generation_retires_old_readers_and_publishers() {
                                 effects.attach_nested::<i32>(&first, 1),
                                 Err(NestedObservationError::AlreadyAttached)
                             ));
-                            attached_tx.send(original).unwrap();
+                            assert!(attached_tx.send(original).is_ok(), "test receiver must still exist");
                             continue_rx.await.unwrap();
                             let replacement = effects.attach_nested::<i32>(&second, 2).unwrap();
                             replacement.publish(42).unwrap();
