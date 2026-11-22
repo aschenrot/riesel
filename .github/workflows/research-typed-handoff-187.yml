@@ -25,3 +25,11 @@ jobs:
         run: cargo test --manifest-path research/typed-handoff-187/Cargo.toml -- --nocapture
       - name: Run headless example
         run: cargo run --manifest-path research/typed-handoff-187/Cargo.toml
+      - name: Record controlled runner context
+        run: |
+          uname -a
+          lscpu | grep -E 'Model name:|CPU\(s\):|Architecture:' || true
+          free -h || true
+          rustc --version
+      - name: Measure local value sharing, copies and JSON boundaries (release)
+        run: cargo run --release --manifest-path research/typed-handoff-187/Cargo.toml --bin value_costs
