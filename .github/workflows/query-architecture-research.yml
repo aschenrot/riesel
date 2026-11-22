@@ -14,3 +14,7 @@ jobs:
       - uses: actions/checkout@v4
       - name: Reproduce scratch-only live keyset continuity counterexamples
         run: python3 research/query-architecture/probes/sqlite_live_keyset.py
+      - name: Install pinned Rust toolchain
+        uses: dtolnay/rust-toolchain@1.100.0
+      - name: Verify research-only semantic predicate and cursor contract on real providers
+        run: cargo test -p todo --test query_architecture_research -- --nocapture
