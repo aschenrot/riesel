@@ -310,11 +310,16 @@ mod tests {
     fn serialized_scalar_payload_growth_is_visible() {
         for (width, height) in [(64u64, 64u64), (512, 512)] {
             let field = ScalarGridDto {
-                width, height, samples: vec![0.123456789; (width * height) as usize],
+                width, height, samples: vec![0.12345678912345678; (width * height) as usize],
             };
             let bytes = serde_json::to_vec(&field).unwrap();
             eprintln!("scalar JSON payload {width}x{height}: {} bytes", bytes.len());
             assert!(bytes.len() >= (width * height) as usize * 8);
+            if width == 512 {
+                // Baseline Riesel TCP uses a 4 MiB JSON frame cap. This
+                // particular valid full-precision scalar grid exceeds it.
+                assert!(bytes.len() > 4 * 1024 * 1024);
+            }
         }
     }
 
