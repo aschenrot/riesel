@@ -517,6 +517,88 @@ mod tests {
     }
 
     #[test]
+    fn runtime_entrypoint_phase_is_owned_and_stales_on_lexical_transitions() {
+        use crate::{AsyncTasks, CancellationToken};
+        let session = SessionToken::new();
+        let tasks = AsyncTasks::new(session.clone(), CancellationToken::default());
+        let activity = tasks.internal_entrypoint_activity();
+
+        let before = ObservationSnapshot::runtime_with_entrypoint(
+            session.clone(),
+            &[],
+            true,
+            Some(activity.clone()),
+        )
+        .unwrap();
+        let subject = ObservationSubject::ApplicationEntrypoint;
+        assert_eq!(before.facts().len(), 4);
+        assert_eq!(
+            before.facts()[1].evidence,
+            ObservationEvidence::SdkEntrypointNotEntered
+        );
+        assert_eq!(
+            before.state_of(&subject, Instant::now()),
+            ObservationState::Observed
+        );
+        assert_eq!(
+            before.state_of(
+                &ObservationSubject::AuthorizedApplicationOperation,
+                Instant::now()
+            ),
+            ObservationState::Unsupported
+        );
+
+        let active_guard = tasks.internal_enter_entrypoint().unwrap();
+        assert_eq!(activity.phase(), InternalEntrypointPhase::Executing);
+        assert_eq!(
+            before.state_of(&subject, Instant::now()),
+            ObservationState::Stale
+        );
+        assert!(tasks.internal_enter_entrypoint().is_err());
+
+        let executing = ObservationSnapshot::runtime_with_entrypoint(
+            session.clone(),
+            &[],
+            true,
+            Some(activity.clone()),
+        )
+        .unwrap();
+        assert_eq!(
+            executing.facts()[1].evidence,
+            ObservationEvidence::SdkEntrypointExecuting
+        );
+        assert_eq!(
+            executing.state_of(&subject, Instant::now()),
+            ObservationState::Observed
+        );
+
+        drop(active_guard);
+        assert_eq!(activity.phase(), InternalEntrypointPhase::Left);
+        assert_eq!(
+            executing.state_of(&subject, Instant::now()),
+            ObservationState::Stale
+        );
+        let left = ObservationSnapshot::runtime_with_entrypoint(
+            session.clone(),
+            &[],
+            true,
+            Some(activity.clone()),
+        )
+        .unwrap();
+        assert_eq!(left.facts()[1].evidence, ObservationEvidence::SdkEntrypointLeft);
+        assert_eq!(left.state_of(&subject, Instant::now()), ObservationState::Observed);
+
+        let unrelated = SessionToken::new();
+        assert!(matches!(
+            ObservationSnapshot::runtime_with_entrypoint(unrelated, &[], true, Some(activity)),
+            Err(ObservationError::ForeignEntrypointSession)
+        ));
+        session.invalidate();
+        assert_eq!(left.state_of(&subject, Instant::now()), ObservationState::Stale);
+        assert!(tasks.internal_enter_entrypoint().is_err());
+    }
+
+    #[test]
     fn verified_binding_does_not_authorize_an_interface_or_os_attempt() {
         let session = SessionToken::new();
         let resolved = vec![ResolvedCapability {
