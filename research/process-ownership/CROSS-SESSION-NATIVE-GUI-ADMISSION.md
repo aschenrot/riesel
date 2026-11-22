@@ -1,6 +1,6 @@
 # #59 / #60 / #75 — Native GUI access across two real logind sessions
 
-**Status:** bounded Linux integration/security research, **not yet executed**. This is **not** a production process-owner backend, chosen application-export API, user authorization, desktop login implementation or acceptance of a GUI framework.
+**Status:** bounded Linux integration/security research **EXECUTED and PASSED** on actual Ubuntu at code revision 813a1faf3bf56a4195e2b69ee3f2143a06ac1ff2: [real native GUI/logind/Counter research 44974748385](https://github.com/aschenrot/riesel/actions/runs/44974748385) and independent [Linux Validate + smoke 44974748386](https://github.com/aschenrot/riesel/actions/runs/44974748386) both **PASSED**. Final report-head CI is separately required. This is **not** a production process-owner backend, chosen application-export API, user authorization, desktop login implementation or acceptance of a GUI framework.
 
 Primary [Manager #59](https://github.com/aschenrot/riesel/issues/59), [native GUI #60](https://github.com/aschenrot/riesel/issues/60), coordination [shared operational identities #75](https://github.com/aschenrot/riesel/issues/75). Relevant independent sources: the real, unchanged SDK-resolved Counter + eframe GUI in [PR #90](https://github.com/aschenrot/riesel/pull/90), Linux protected OS-owned Counter and same-UID X11 injection in [PR #134](https://github.com/aschenrot/riesel/pull/134), actual two-login-session lifecycle and differently OS-owned Riesel services in [PR #145](https://github.com/aschenrot/riesel/pull/145), and polkit/input-origin research in [PR #142](https://github.com/aschenrot/riesel/pull/142). No duplicate native GUI or protocol is introduced.
 
@@ -44,16 +44,41 @@ The CI X11 server is owned by the GitHub runner and uses a test-only MIT-MAGIC-C
 
 **Third executable fixture observation:** [Ubuntu run 44974567176](https://github.com/aschenrot/riesel/actions/runs/44974567176) **PASSED** the real X11 cookie admission, PAM/logind session A, actual protected Counter and initial native GUI `GUI_VALUE 0`, including the observation `RESEARCH_M59_PAM_GUI_CALLABLE_WHILE_OS_SERVICE_ACTIVATING`. It then **FAILED** attempting to use the ordinary CI coordinator to `readlink` a *different-UID* GUI process executable through `/proc/<pid>/exe`, which is subject to actual Linux kernel process-inspection permissions. The fixture retains this provenance check but now obtains the executable path via the privileged root **test observer**. No cross-session authorization claim follows from these failures.
 
+## Executed real OS/native GUI observations and decision boundary
+
+At exact tested source revision 813a1faf3bf56a4195e2b69ee3f2143a06ac1ff2, the actual [Ubuntu real-native-GUI research job 44974748385](https://github.com/aschenrot/riesel/actions/runs/44974748385) **PASSED** and independently [Linux workspace validation + smoke 44974748386](https://github.com/aschenrot/riesel/actions/runs/44974748386) **PASSED**. The dedicated research workflow checked the unchanged pinned PR #90 Counter and native executable, pinned PR #145 logind helper, real session IDs/scopes, independently observed GUI PID/UID/executable/cgroup, real native X11 window ownership, bound app OS InvocationID, and actual keyboard commands.
+
+| Asserted source-revision marker | Direct observation |
+| --- | --- |
+| RESEARCH_M59_DISPOSABLE_X11_COOKIE_ADMISSION_VERIFIED | Different-UID PAM test user could actually connect to Xvfb using a disposable test display cookie; not Riesel authentication |
+| RESEARCH_M59_REAL_GUI_PAM_SESSION_A_SCOPE | GUI launcher ran in real first PAM/logind session and exact scoped UID |
+| RESEARCH_M59_REAL_COUNTER_PROTECTED_EXACT_GUI_SESSION_BOUND | Actual Riesel Counter had a separate OS DynamicUser principal and exact BindsTo dependency on login session A |
+| RESEARCH_M59_PAM_GUI_CALLABLE_WHILE_OS_SERVICE_ACTIVATING | Actual PAM-backed GUI returned an app snapshot even while the systemd service reported activating |
+| RESEARCH_M59_REAL_SESSION_A_NATIVE_GUI_MODIFIED_COUNTER | Native GUI A actual Ctrl+I performed SDK typed RPC, value 0 → 1 |
+| RESEARCH_M59_CROSS_LOGIND_SESSION_UNAUTHENTICATED_GUI_MUTATED_APP | Another real GUI in session B, same account UID but distinct logind scope, saw value 1 then its own Ctrl+I changed the real app to 2, observed by both native GUIs. It received only the deliberately disclosed TCP address; no app grant |
+| RESEARCH_M59_UNRELATED_GUI_LOGOUT_PRESERVES_APP_A | Closing only session B stopped GUI B, but A and its separately owned Counter retained original PID/OS attempt. GUI A still changed value 2 → 3 |
+| RESEARCH_M59_BOUND_GUI_LOGOUT_TERMINATES_EXACT_COUNTER_APP | Terminating exact login session A stopped both GUI A and separately owned Counter |
+| RESEARCH_M59_REAL_CROSS_SESSION_NATIVE_GUI_SECURITY_RESEARCH_PASS | All bounded assertions, setup and cleanup completed |
+
+**Security interpretation:** OS-protected Riesel process ownership and exact login-session lifetime do **not** automatically authorize callers of separately exposed application RPC. The reference Counter's plain-loopback typed endpoint accepts both GUIs, including GUI B in a distinct logind session, because the current adapter has **no authenticated application-export admission or per-client grant**. This is a missing enforcement mechanism for applications *requiring restrictions*, **not** proof that all cross-session sharing should be forbidden: intentionally authorized multiple clients, shared games or a remote visual inspector may be legitimate. It is a Counter capability mutation, **not** a privileged Manager OS stop or an experiment with PR #91's simulated policy gateway.
+
+**Independent readiness observation:** The real PAMName=login Type=exec test unit could report ActiveState=activating while a GUI process in its kernel-attested logind session had already returned typed RPC state and rendered a native window. Consequently service activation is not equivalent to application-interface callability. This is bounded to the tested PAM configuration, not an all-OS guarantee.
+
+**Trust limitations:** Both sessions are real PAM/logind scopes, but Xvfb is runner-owned and virtual. A disposable Xauthority cookie deliberately gives both same-UID native GUIs access to the same display. There is no real display-manager/physical-seat user login, independent Wayland permission model, trustworthy human input, or client-credential theft. The app endpoint was deliberately disclosed to GUI B; this demonstrates lack of authorization **after discovery**, not unapproved endpoint discovery. Root test controller terminates sessions; that does not prove Manager human operator approval. No app runtime-issued epoch, authenticated exporter implementation, session internal hostile process defense, app-specific graceful stop, Windows/macOS parity, data ownership or production Manager control was tested.
+
+**Next decision-critical gate:** #75 should preserve distinct login session, OS launch attempt, Riesel runtime session generation and independently **issued** app-capability grant identity. #60 should research real authenticated app-owned publish/attach for intentionally same-session and explicitly cross-session GUI clients, granular read-versus-mutate policy, authorized sharing, revocation, epoch fencing and unknown write results against full Counter and Todo interfaces. #59 protected CLI/browser operator approval remains a separate, higher-trust boundary. No concrete exporter API, IPC, credential or implementation Issue follows automatically.
+
 ## Reproducible Linux research
 
 The dedicated [workflow](../../.github/workflows/manager-cross-session-native-gui-research.yml) builds both original pinned real binaries and executes [the main probe](manager_cross_session_native_gui_probe.py) and [the disposable PAM GUI launcher](manager_cross_session_gui_launcher.py) under actual Xvfb/systemd/logind. Execute only on disposable hosts with permitted root fixture setup and a trusted test X server.
 
-Expected markers are **test assertions, not verified claims until CI passes**:
+**Verified research markers** at tested code source 813a1faf, CI 44974748385:
 
 - RESEARCH_M59_PINNED_NATIVE_GUI_AND_SESSION_SOURCE_VERIFIED
 - RESEARCH_M59_DISPOSABLE_X11_COOKIE_ADMISSION_VERIFIED
 - RESEARCH_M59_REAL_GUI_PAM_SESSION_A_SCOPE
 - RESEARCH_M59_REAL_COUNTER_PROTECTED_EXACT_GUI_SESSION_BOUND
+- RESEARCH_M59_PAM_GUI_CALLABLE_WHILE_OS_SERVICE_ACTIVATING
 - RESEARCH_M59_REAL_SESSION_A_NATIVE_GUI_MODIFIED_COUNTER
 - RESEARCH_M59_CROSS_LOGIND_SESSION_UNAUTHENTICATED_GUI_MUTATED_APP
 - RESEARCH_M59_UNRELATED_GUI_LOGOUT_PRESERVES_APP_A
