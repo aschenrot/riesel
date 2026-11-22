@@ -6,6 +6,14 @@ const NS = "http://www.w3.org/2000/svg";
 const KNOWN = new Set(["pending", "running", "completed", "failed", "cancelled", "unknown", "blocked"]);
 let current = null;
 let checkpoint = "final";
+const liveMode = location.protocol === "http:" && location.hostname === "127.0.0.1";
+let liveRequestInFlight = false;
+let connectionText = "";
+function connectionStatus(message) {
+  if (message === connectionText) return;
+  connectionText = message;
+  $("connection").textContent = message;
+}
 
 function element(tag, text, cls) {
   const result = document.createElement(tag);
@@ -24,7 +32,7 @@ function validate(doc) {
       typeof doc.plan_id !== "string" || !Number.isSafeInteger(doc.revision) ||
       typeof doc.session_generation !== "string" || !Number.isSafeInteger(doc.run_sequence) ||
       typeof doc.session_expired !== "boolean" || typeof doc.trace_truncated !== "boolean" ||
-      typeof doc.phase !== "string" ||
+      !["Created", "Running", "Finished", "Abandoned"].includes(doc.phase) ||
       !Number.isSafeInteger(doc.initial_sequence) || doc.initial_sequence < 0 ||
       !Number.isSafeInteger(doc.latest_sequence) || doc.latest_sequence < doc.initial_sequence ||
       !Array.isArray(doc.nodes) || doc.nodes.length < 1 || doc.nodes.length > 256 ||
@@ -140,7 +148,7 @@ function render() {
   const meta = $("meta");
   meta.replaceChildren();
   for (const [label, value] of [
-    ["Plan", doc.plan_id], ["Revision", doc.revision], ["Run", doc.run_sequence],
+    ["Plan", doc.plan_id], ["Revision", doc.revision], ["Run", doc.run_sequence], ["Phase", doc.phase],
     ["Session", doc.session_generation.slice(0, 8) + "…"], ["Latest sequence", doc.latest_sequence]
   ]) {
     const item = element("span");
@@ -195,3 +203,55 @@ $("file").addEventListener("change", async (event) => {
 });
 $("before").addEventListener("click", () => { checkpoint = "initial"; render(); });
 $("after").addEventListener("click", () => { checkpoint = "final"; render(); });
+
+if (liveMode) {
+  $("file-label").hidden = true;
+  $("connection").hidden = false;
+  $("before").textContent = "Initial state";
+  $("after").textContent = "Latest observed";
+  $("input-help").textContent =
+    "Read-only local research endpoint. Refreshes from the real application observer; " +
+    "not authenticated against another local program and not a supported public interface. " +
+    "Closing this browser does not stop the application.";
+  connectionStatus("Connecting to local inspection source…");
+
+  async function refreshLive() {
+    if (liveRequestInFlight) return;
+    liveRequestInFlight = true;
+    try {
+      const response = await fetch("/snapshot", {
+        cache: "no-store",
+        signal: AbortSignal.timeout(2000)
+      });
+      if (!response.ok) throw new Error("HTTP " + response.status);
+      const text = await response.text();
+      if (text.length > 2 * 1024 * 1024) throw new Error("Snapshot exceeds the 2 MiB budget");
+      const doc = JSON.parse(text);
+      const depth = validate(doc);
+      const old = current?.doc;
+      const sameRun = old && old.session_generation === doc.session_generation &&
+        old.run_sequence === doc.run_sequence && old.plan_id === doc.plan_id &&
+        old.revision === doc.revision;
+      if (sameRun && doc.latest_sequence < old.latest_sequence) {
+        throw new Error("Source returned a stale sequence");
+      }
+      const changed = !sameRun || old.latest_sequence !== doc.latest_sequence ||
+        old.phase !== doc.phase || old.session_expired !== doc.session_expired ||
+        old.trace_truncated !== doc.trace_truncated;
+      current = { doc, depth };
+      if (changed) render();
+      connectionStatus(doc.session_expired
+        ? "Session expired · last authoritative snapshot is not current"
+        : "Connected · local read-only research · " + doc.phase);
+    } catch (error) {
+      // Preserve the last validated graph but never label it current.
+      connectionStatus("Disconnected or invalid source · cached graph is stale (" +
+        error.message + ")");
+      if (!current) fail("No live inspection snapshot available.");
+    } finally {
+      liveRequestInFlight = false;
+    }
+  }
+  refreshLive();
+  setInterval(refreshLive, 500);
+}
