@@ -222,7 +222,8 @@ fn independent_connections_race_on_the_same_persistent_semantic_revision() {
     gate.wait();
     let accepted = handles
         .into_iter()
-        .filter(|handle| handle.join().unwrap())
+        .map(|handle| handle.join().unwrap())
+        .filter(|accepted| *accepted)
         .count();
     assert_eq!(accepted, 1);
     let connection = connect(&path);
