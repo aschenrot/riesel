@@ -82,7 +82,10 @@ fn contending_runs_retain_independent_progress_without_a_fairness_claim() {
                             let order = Arc::clone(&order);
                             let cold_rank = Arc::clone(&cold_rank);
                             async move {
-                                cold_rank.store(order.fetch_add(1, Ordering::SeqCst) + 1, Ordering::SeqCst);
+                                cold_rank.store(
+                                    order.fetch_add(1, Ordering::SeqCst) + 1,
+                                    Ordering::SeqCst,
+                                );
                                 OperationOutcome::Completed
                             }
                         }
