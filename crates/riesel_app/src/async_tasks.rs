@@ -8,6 +8,8 @@ use crate::supervisor::CancellationToken;
 use riesel_protocol::SessionToken;
 use std::future::Future;
 use std::io;
+#[cfg(feature = "internal-publication")]
+use std::sync::atomic::AtomicU8;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 use tokio::sync::{Notify, Semaphore};
@@ -21,6 +23,57 @@ const MAX_BLOCKING_TASKS: usize = 8;
 struct TaskFailure {
     name: String,
     source: Arc<dyn std::error::Error + Send + Sync>,
+}
+
+/// Phase of the SDK application entrypoint; this does not attest provider
+/// readiness, interface publication, or external client authorization.
+#[cfg(feature = "internal-publication")]
+#[repr(u8)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum InternalEntrypointPhase {
+    NotEntered = 0,
+    Executing = 1,
+    Left = 2,
+}
+
+/// Read-only, session-scoped witness of the SDK's actual entrypoint boundary.
+/// It grants no operation access and does not issue another runtime generation.
+#[cfg(feature = "internal-publication")]
+#[derive(Clone, Debug)]
+pub struct InternalEntrypointActivity {
+    phase: Arc<AtomicU8>,
+    session: SessionToken,
+}
+
+#[cfg(feature = "internal-publication")]
+impl InternalEntrypointActivity {
+    pub fn phase(&self) -> InternalEntrypointPhase {
+        match self.phase.load(Ordering::Acquire) {
+            0 => InternalEntrypointPhase::NotEntered,
+            1 => InternalEntrypointPhase::Executing,
+            _ => InternalEntrypointPhase::Left,
+        }
+    }
+
+    pub(crate) fn same_session(&self, session: &SessionToken) -> bool {
+        self.session.shares_session_with(session)
+    }
+}
+
+/// A lexical marker installed only around an SDK Rust entrypoint. Dropping
+/// the guard also handles panicking sync code or cancelled async futures.
+#[cfg(feature = "internal-publication")]
+#[doc(hidden)]
+pub struct InternalEntrypointGuard {
+    phase: Arc<AtomicU8>,
+}
+
+#[cfg(feature = "internal-publication")]
+impl Drop for InternalEntrypointGuard {
+    fn drop(&mut self) {
+        self.phase
+            .store(InternalEntrypointPhase::Left as u8, Ordering::Release);
+    }
 }
 
 #[derive(Default)]
@@ -41,6 +94,18 @@ pub(crate) struct AsyncTaskGroup {
     blocking_slots: Arc<Semaphore>,
     stopping: AtomicBool,
     stop_signal: Notify,
+    #[cfg(feature = "internal-publication")]
+    entrypoint: Arc<AtomicU8>,
+}
+
+#[cfg(feature = "internal-publication")]
+impl AsyncTaskGroup {
+    fn internal_entrypoint_activity(&self) -> InternalEntrypointActivity {
+        InternalEntrypointActivity {
+            phase: Arc::clone(&self.entrypoint),
+            session: self.session.clone(),
+        }
+    }
 }
 
 /// Cloneable, session-bound task spawner for typed async application handlers.
@@ -69,6 +134,39 @@ impl AsyncTasks {
         self.inner.session.clone()
     }
 
+    #[cfg(feature = "internal-publication")]
+    #[doc(hidden)]
+    pub fn internal_entrypoint_phase(&self) -> InternalEntrypointPhase {
+        self.inner.internal_entrypoint_activity().phase()
+    }
+
+    #[cfg(feature = "internal-publication")]
+    pub(crate) fn internal_entrypoint_activity(&self) -> InternalEntrypointActivity {
+        self.inner.internal_entrypoint_activity()
+    }
+
+    /// Deliberate test-feature SDK instrumentation, never an app publication.
+    /// The same session cannot execute two concurrently admitted entrypoints.
+    #[cfg(feature = "internal-publication")]
+    #[doc(hidden)]
+    pub fn internal_enter_entrypoint(&self) -> io::Result<InternalEntrypointGuard> {
+        if !self.inner.session.is_active() {
+            return Err(io::Error::other("cannot enter expired application session"));
+        }
+        self.inner
+            .entrypoint
+            .compare_exchange(
+                InternalEntrypointPhase::NotEntered as u8,
+                InternalEntrypointPhase::Executing as u8,
+                Ordering::AcqRel,
+                Ordering::Acquire,
+            )
+            .map_err(|_| io::Error::other("application entrypoint already admitted"))?;
+        Ok(InternalEntrypointGuard {
+            phase: Arc::clone(&self.inner.entrypoint),
+        })
+    }
+
     pub(crate) fn new(session: SessionToken, cancellation: CancellationToken) -> Self {
         Self {
             inner: Arc::new(AsyncTaskGroup {
@@ -79,6 +177,8 @@ impl AsyncTasks {
                 blocking_slots: Arc::new(Semaphore::new(MAX_BLOCKING_TASKS)),
                 stopping: AtomicBool::new(false),
                 stop_signal: Notify::new(),
+                #[cfg(feature = "internal-publication")]
+                entrypoint: Arc::new(AtomicU8::new(InternalEntrypointPhase::NotEntered as u8)),
             }),
         }
     }
