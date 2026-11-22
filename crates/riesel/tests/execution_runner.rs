@@ -2000,3 +2000,64 @@ fn control_transition_overflow_resnapshots_authoritative_gate_without_replay() {
             .is_empty()
     );
 }
+
+#[test]
+fn paused_structured_background_graph_drains_on_owner_scope_stop() {
+    runtime().block_on(async {
+        let invoked = Arc::new(AtomicUsize::new(0));
+        let mut registry = OperationRegistry::<AsyncOperation>::new();
+        registry
+            .register(
+                key("must-not-run"),
+                async_operation({
+                    let invoked = Arc::clone(&invoked);
+                    move || {
+                        let invoked = Arc::clone(&invoked);
+                        async move {
+                            invoked.fetch_add(1, Ordering::SeqCst);
+                            OperationOutcome::Completed
+                        }
+                    }
+                }),
+            )
+            .unwrap();
+        let plan = ExecutionPlanDraft::new("cooperative.structured-shutdown", 1)
+            .operation(OperationNode::new("pending", key("must-not-run")))
+            .validate()
+            .unwrap()
+            .bind(&registry)
+            .unwrap();
+        let owner = application_session();
+        let runner = owner
+            .execution_graph(plan, NonZeroUsize::new(1).unwrap())
+            .unwrap();
+        let control = runner.controller();
+        let observer = runner.observer();
+        control.pause(GraphControlTarget::Run).unwrap();
+        let tasks = owner.async_tasks();
+        tasks.begin_scope().unwrap();
+        tasks.spawn_graph("paused-graph", runner).unwrap();
+        tokio::time::timeout(Duration::from_secs(3), async {
+            while observer.snapshot().phase != GraphRunPhase::Running {
+                tokio::task::yield_now().await;
+            }
+        })
+        .await
+        .unwrap();
+        assert_eq!(observer.snapshot().operations["pending"].attempt, 0);
+        tokio::time::timeout(Duration::from_secs(3), tasks.finish_scope())
+            .await
+            .expect("paused graph must not block structured owner shutdown")
+            .expect("planned shutdown must not become a background graph failure");
+        assert_eq!(invoked.load(Ordering::SeqCst), 0);
+        assert_eq!(observer.snapshot().phase, GraphRunPhase::Finished);
+        assert_eq!(
+            observer.snapshot().operations["pending"].state,
+            OperationState::Cancelled
+        );
+        assert!(matches!(
+            control.step(GraphControlTarget::Run),
+            Err(GraphControlError::SessionExpired)
+        ));
+    });
+}
