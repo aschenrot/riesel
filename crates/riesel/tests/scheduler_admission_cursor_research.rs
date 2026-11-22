@@ -10,7 +10,7 @@ use riesel::{
 };
 use std::num::NonZeroUsize;
 use std::sync::{
-    Arc,
+    Arc, Mutex,
     atomic::{AtomicUsize, Ordering},
 };
 use std::time::{Duration, Instant};
@@ -162,5 +162,97 @@ fn pending_signal_at_prefix_does_not_block_independent_ready_work() {
             .unwrap();
         assert!(report.succeeded());
         assert_eq!(report.started, INDEPENDENT + 1);
+    });
+}
+#[test]
+fn topology_changes_ready_tie_break_after_shared_signal() {
+    runtime().block_on(async {
+        let prerequisites = Arc::new(AtomicUsize::new(0));
+        let observed = Arc::new(Mutex::new(Vec::<&'static str>::new()));
+        let mut registry = OperationRegistry::<AsyncOperation>::new();
+        for name in ["a", "b"] {
+            registry
+                .register(
+                    key(name),
+                    async_operation({
+                        let prerequisites = Arc::clone(&prerequisites);
+                        move || {
+                            let prerequisites = Arc::clone(&prerequisites);
+                            async move {
+                                prerequisites.fetch_add(1, Ordering::SeqCst);
+                                OperationOutcome::Completed
+                            }
+                        }
+                    }),
+                )
+                .unwrap();
+        }
+        for name in ["x", "y"] {
+            registry
+                .register(
+                    key(name),
+                    async_operation({
+                        let observed = Arc::clone(&observed);
+                        move || {
+                            let observed = Arc::clone(&observed);
+                            async move {
+                                observed.lock().unwrap().push(name);
+                                OperationOutcome::Completed
+                            }
+                        }
+                    }),
+                )
+                .unwrap();
+        }
+        // Declaration order: X, Y, B, A. Both X and Y are held by the
+        // same signal until A and B have finished. Dynamic declaration-order
+        // scheduling chooses X then Y. Validated topological traversal is
+        // B, Y, A, X and chooses Y then X. Both are legal dependency orders,
+        // but a mechanism change must not silently promise identical order.
+        let plan = ExecutionPlanDraft::new("ready-tie-break", 1)
+            .operation(
+                OperationNode::new("x", key("x"))
+                    .after("a")
+                    .on_signal("go"),
+            )
+            .operation(
+                OperationNode::new("y", key("y"))
+                    .after("b")
+                    .on_signal("go"),
+            )
+            .operation(OperationNode::new("b", key("b")))
+            .operation(OperationNode::new("a", key("a")))
+            .validate()
+            .unwrap()
+            .bind(&registry)
+            .unwrap();
+        let owner = owner();
+        let runner = owner
+            .execution_graph(plan, NonZeroUsize::new(1).unwrap())
+            .unwrap();
+        let signals = runner.signal_sender();
+        let task = tokio::spawn(runner.execute());
+        tokio::time::timeout(Duration::from_secs(5), async {
+            while prerequisites.load(Ordering::SeqCst) < 2 {
+                tokio::task::yield_now().await;
+            }
+        })
+        .await
+        .unwrap();
+        signals.fire("go").unwrap();
+        let report = tokio::time::timeout(Duration::from_secs(5), task)
+            .await
+            .unwrap()
+            .unwrap();
+        assert!(report.succeeded());
+        assert_eq!(report.started, 4);
+        let order = observed.lock().unwrap().clone();
+        let expected = if std::env::var_os("RIESEL_RESEARCH_TOPO_CURSOR").is_some() {
+            vec!["y", "x"]
+        } else {
+            vec!["x", "y"]
+        };
+        assert_eq!(order, expected);
+        eprintln!("research #226 tie_break topology={} order={order:?}", std::env::var_os("RIESEL_RESEARCH_TOPO_CURSOR").is_some());
     });
 }
