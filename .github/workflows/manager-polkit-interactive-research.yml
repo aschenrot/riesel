@@ -9,6 +9,7 @@ on:
     paths:
       - ".github/workflows/manager-polkit-interactive-research.yml"
       - "research/process-ownership/manager_polkit_interactive_challenge_probe.py"
+      - "research/process-ownership/manager_polkit_x11_submit_attacker.py"
       - "research/process-ownership/POLKIT-INTERACTIVE-AUTH-RESEARCH.md"
   workflow_dispatch:
 
@@ -39,3 +40,10 @@ jobs:
         run: |
           set -euo pipefail
           timeout 100 python3 research/process-ownership/manager_polkit_interactive_challenge_probe.py --keep
+      - name: Real X11 polkit terminal input-origin negative control
+        run: |
+          set -euo pipefail
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends xvfb xterm xdotool
+          python3 -m py_compile research/process-ownership/manager_polkit_x11_submit_attacker.py
+          xvfb-run -a -s "-screen 0 1280x900x24" timeout 100 python3 research/process-ownership/manager_polkit_interactive_challenge_probe.py --x11
