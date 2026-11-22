@@ -29,7 +29,9 @@ pub use app::{App, AppError};
 pub use async_tasks::AsyncTasks;
 #[cfg(feature = "internal-publication")]
 #[doc(hidden)]
-pub use async_tasks::{InternalEntrypointActivity, InternalEntrypointGuard, InternalEntrypointPhase};
+pub use async_tasks::{
+    InternalEntrypointActivity, InternalEntrypointGuard, InternalEntrypointPhase,
+};
 pub use catalog::{CatalogError, ProviderCatalog, ProviderSelectionConfig};
 pub use component::{ComponentDefinition, DeclarativeComponent};
 pub use deployment::{DeploymentConfig, DeploymentError, ServiceEndpoint};
