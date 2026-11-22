@@ -6,9 +6,7 @@
 use riesel::{Application, ReadExposure, UnixReadClient, UnixReadServer};
 use riesel_counter::{Counter, CounterContract};
 use riesel_counter_component::memory_counter_provider;
-use riesel_counter_example::public_read::{
-    CounterT1ReadAsyncRpcDispatcher, CounterT1ReadFacade,
-};
+use riesel_counter_example::public_read::{CounterT1ReadAsyncRpcDispatcher, CounterT1ReadFacade};
 use serde_json::json;
 use std::{
     fs,
@@ -41,12 +39,18 @@ fn independent_resolved_counter_reader() {
         assert_eq!(descriptor.contract.id, "riesel.counter.public_value");
         assert_eq!(descriptor.contract.version, 1);
         assert_eq!(descriptor.allowed_queries, ["snapshot"]);
-        let read = client.query(&descriptor, "snapshot", json!({})).await.unwrap();
+        let read = client
+            .query(&descriptor, "snapshot", json!({}))
+            .await
+            .unwrap();
         assert_eq!(read["status"], "ok");
         assert_eq!(read["value"]["Ok"], 5);
         // A program cannot bypass T1 simply by requesting the underlying
         // CounterContract add command over the public read socket.
-        let denied = client.query(&descriptor, "add", json!({"amount":100})).await.unwrap();
+        let denied = client
+            .query(&descriptor, "add", json!({"amount":100}))
+            .await
+            .unwrap();
         assert_eq!(denied["status"], "error");
         assert_eq!(denied["code"], "not_published");
         println!("RESOLVED_COUNTER_PUBLIC_QUERY_ONLY");
@@ -81,16 +85,20 @@ fn selected_counter_provider_is_only_authoritative_mutation_owner() {
                 let active = Arc::clone(&publication);
                 tasks
                     .spawn("counter-t1-reader", async move {
-                        server.serve(active).await.map_err(|error| -> riesel::ConnectorError {
-                            Box::new(error)
-                        })
+                        server
+                            .serve(active)
+                            .await
+                            .map_err(|error| -> riesel::ConnectorError { Box::new(error) })
                     })
                     .unwrap();
 
                 let client = UnixReadClient::new(&socket);
                 let descriptor = client.describe().await.unwrap();
                 assert_eq!(
-                    client.query(&descriptor, "snapshot", json!({})).await.unwrap()["value"]["Ok"],
+                    client
+                        .query(&descriptor, "snapshot", json!({}))
+                        .await
+                        .unwrap()["value"]["Ok"],
                     5
                 );
 
@@ -99,7 +107,11 @@ fn selected_counter_provider_is_only_authoritative_mutation_owner() {
                 let (tx, rx) = tokio::sync::oneshot::channel();
                 std::thread::spawn(move || {
                     let result = Command::new(executable)
-                        .args(["--exact", "independent_resolved_counter_reader", "--nocapture"])
+                        .args([
+                            "--exact",
+                            "independent_resolved_counter_reader",
+                            "--nocapture",
+                        ])
                         .env("RIESEL_T1_COUNTER_SOCKET", pathname)
                         .stdin(Stdio::null())
                         .output();
@@ -122,16 +134,28 @@ fn selected_counter_provider_is_only_authoritative_mutation_owner() {
 
                 // Only the app-owned actual Counter provider may mutate.
                 assert_eq!(counter.add(4).unwrap(), 9);
-                let fresh = client.query(&descriptor, "snapshot", json!({})).await.unwrap();
+                let fresh = client
+                    .query(&descriptor, "snapshot", json!({}))
+                    .await
+                    .unwrap();
                 assert_eq!(fresh["value"]["Ok"], 9);
-                let bad = client.query(&descriptor, "label", json!({"prefix":"x"})).await.unwrap();
+                let bad = client
+                    .query(&descriptor, "label", json!({"prefix":"x"}))
+                    .await
+                    .unwrap();
                 assert_eq!(bad["code"], "not_published");
                 let mut wrong_contract = descriptor.clone();
                 wrong_contract.contract.version += 1;
-                let bad = client.query(&wrong_contract, "snapshot", json!({})).await.unwrap();
+                let bad = client
+                    .query(&wrong_contract, "snapshot", json!({}))
+                    .await
+                    .unwrap();
                 assert_eq!(bad["code"], "wrong_contract");
                 publication.withdraw();
-                let bad = client.query(&descriptor, "snapshot", json!({})).await.unwrap();
+                let bad = client
+                    .query(&descriptor, "snapshot", json!({}))
+                    .await
+                    .unwrap();
                 assert_eq!(bad["code"], "withdrawn");
                 tasks.finish_scope().await.unwrap();
                 assert!(!socket.exists());
