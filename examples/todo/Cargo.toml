@@ -12,6 +12,8 @@ http = ["dep:axum", "dep:tokio", "dep:tower-http"]
 e2e-fixture = []
 # Test-only #158 semantics; never enabled by normal HTTP builds.
 internal-observation = ["riesel/internal-publication"]
+# Opt-in non-sensitive T1 demonstration; never enabled by the Todo CLI/HTTP.
+t1-public-read = ["riesel/app-publication-unix", "dep:tokio", "dep:riesel_protocol", "dep:riesel_schema"]
 
 [dependencies]
 riesel = { workspace = true, features = ["dev-memory-storage", "sqlite-storage", "async-tcp"] }
@@ -19,6 +21,8 @@ thiserror.workspace = true
 uuid.workspace = true
 serde.workspace = true
 serde_json.workspace = true
+riesel_protocol = { workspace = true, features = ["async-tcp"], optional = true }
+riesel_schema = { workspace = true, optional = true }
 axum = { version = "=0.8.9", default-features = false, features = ["http1", "json", "query", "tokio"], optional = true }
 tokio = { workspace = true, features = ["signal", "macros"], optional = true }
 tower-http = { version = "=0.6.11", default-features = false, features = ["fs"], optional = true }
@@ -43,3 +47,8 @@ required-features = ["http"]
 name = "todo_seed_status"
 path = "src/bin/todo_seed_status.rs"
 required-features = ["e2e-fixture"]
+
+[[bin]]
+name = "todo_t1_read_host"
+path = "src/bin/todo_t1_read_host.rs"
+required-features = ["t1-public-read"]
