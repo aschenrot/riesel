@@ -436,9 +436,7 @@ impl ReadyEligibility {
         // A signal arriving before the final prerequisite will be used later.
         if let Some(subscribers) = self.signal_subscribers.get(signal) {
             for &index in subscribers {
-                if self.remaining[index] == 0
-                    && matches!(states[index], OperationState::Pending)
-                {
+                if self.remaining[index] == 0 && matches!(states[index], OperationState::Pending) {
                     self.ready.insert(index);
                 }
             }
@@ -765,12 +763,7 @@ impl ExecutionGraphRunner {
             if active.len() >= self.max_in_flight {
                 break;
             }
-            candidate = self
-                .eligibility
-                .ready
-                .range((index + 1)..)
-                .next()
-                .copied();
+            candidate = self.eligibility.ready.range((index + 1)..).next().copied();
             self.admit_candidate(index, jobs, active);
         }
     }
