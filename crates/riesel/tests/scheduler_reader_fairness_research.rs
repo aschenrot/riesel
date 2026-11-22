@@ -1,5 +1,7 @@
 //! Specification #226: real-runner reader/writer service-order investigation.
 //! Only an observed finite scheduling experiment; never a fairness contract.
+//! Callback-start ranks are NOT authoritative resource reservation or
+//! GraphRunPublication::admit order, particularly on multi-worker Tokio.
 #![cfg(feature = "async-tcp")]
 
 use riesel::{
@@ -208,12 +210,12 @@ fn long_reader_service_probe(rt: tokio::runtime::Runtime, mode: &str) {
 }
 
 #[test]
-fn long_reader_run_vs_waiting_writer_records_actual_callback_rank() {
+fn long_reader_run_vs_waiting_writer_records_callback_start_rank() {
     long_reader_service_probe(runtime(), "current_thread");
 }
 
 #[test]
-fn long_reader_run_multithread_records_actual_callback_rank() {
+fn long_reader_run_multithread_records_callback_start_rank() {
     long_reader_service_probe(multithread_runtime(), "four_workers");
 }
 
@@ -746,11 +748,11 @@ fn capacity_only_service_probe(rt: tokio::runtime::Runtime, mode: &str) {
 }
 
 #[test]
-fn capacity_only_contention_records_waiting_run_admission_rank() {
+fn capacity_only_contention_records_waiting_callback_start_rank() {
     capacity_only_service_probe(runtime(), "current_thread");
 }
 
 #[test]
-fn capacity_only_contention_multithread_records_waiting_run_admission_rank() {
+fn capacity_only_contention_multithread_records_waiting_callback_start_rank() {
     capacity_only_service_probe(multithread_runtime(), "four_workers");
 }
