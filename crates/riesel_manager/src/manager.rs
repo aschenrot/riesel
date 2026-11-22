@@ -1,10 +1,13 @@
 use std::collections::HashMap;
 use std::io::{self, Write};
 use std::process::{Child, ChildStdout, Command, ExitStatus};
+#[cfg(feature = "internal-observation")]
+use std::sync::{
+    Arc, Weak,
+    atomic::{AtomicU8, Ordering},
+};
 use std::thread;
 use std::time::{Duration, Instant};
-#[cfg(feature = "internal-observation")]
-use std::sync::{Arc, Weak, atomic::{AtomicU8, Ordering}};
 
 /// Uniquely identifies a process instance owned by this registry.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
@@ -94,9 +97,9 @@ impl OwnedAttemptEvidence {
         if now < self.observed_at || now.duration_since(self.observed_at) > max_age {
             return false;
         }
-        self.owner.upgrade().is_some_and(|owner| {
-            owner.load(Ordering::Acquire) == self.phase.value()
-        })
+        self.owner
+            .upgrade()
+            .is_some_and(|owner| owner.load(Ordering::Acquire) == self.phase.value())
     }
 }
 
@@ -209,7 +212,10 @@ impl ProcessRegistry {
             ProcessStatus::Exited(exit) if exit.success() => OwnedAttemptPhase::ExitedSuccess,
             ProcessStatus::Exited(_) => OwnedAttemptPhase::ExitedFailure,
         };
-        let process = self.processes.get(key).expect("status verified the same registry key");
+        let process = self
+            .processes
+            .get(key)
+            .expect("status verified the same registry key");
         Ok(OwnedAttemptEvidence {
             key: key.clone(),
             phase,
@@ -383,7 +389,14 @@ mod tests {
         assert_eq!(first.phase(), OwnedAttemptPhase::Running);
         // Child remains blocked on its private stdin, so a startup delay
         // cannot cause an accidental already-exited first observation.
-        let mut release = registry.processes.get_mut(&key).unwrap().child.stdin.take().unwrap();
+        let mut release = registry
+            .processes
+            .get_mut(&key)
+            .unwrap()
+            .child
+            .stdin
+            .take()
+            .unwrap();
         release.write_all(b"FINISH\n").unwrap();
         drop(release);
         let deadline = Instant::now() + Duration::from_secs(4);
