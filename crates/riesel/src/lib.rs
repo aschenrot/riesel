@@ -60,8 +60,8 @@ pub use riesel_app::{
     GraphRunObserver, GraphRunPhase, GraphRunReport, GraphRunSnapshot, GraphRunTransition,
     GraphRunTransitions, GraphSignalSender, MAX_GRAPH_EFFECT_STREAMS, MAX_GRAPH_TRANSITIONS,
     MAX_NESTED_TRANSITIONS, NestedCursor, NestedDescription, NestedDomainOwner,
-    NestedDomainRegistration, NestedObservationError, NestedObserver, NestedParent,
-    NestedPublisher, NestedSnapshot, NestedStatus, NestedTransitions, OperationFuture,
+    NestedDomainRegistration, NestedHeaderObserver, NestedObservationError, NestedObserver,
+    NestedParent, NestedPublisher, NestedSnapshot, NestedStatus, NestedTransitions, NestedViewInfo, OperationFuture,
     OperationOutcome, OperationState, async_operation, async_operation_with_effects,
 };
 #[cfg(feature = "async-tcp")]
