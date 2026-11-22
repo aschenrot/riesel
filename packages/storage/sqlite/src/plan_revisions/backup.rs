@@ -143,11 +143,17 @@ fn audit(
     let layout_count = rows(connection, "SELECT count(*) FROM layout_revisions")?;
     let layout_heads = rows(connection, "SELECT count(*) FROM layout_heads")?;
     let handoffs = rows(connection, "SELECT count(*) FROM source_handoffs")?;
+    let migration_rows = if version == FORMAT {
+        rows(connection, "SELECT count(*) FROM plan_migrations")?
+    } else {
+        0
+    };
     let total = plan_count
         .checked_add(semantic_count)
         .and_then(|value| value.checked_add(layout_count))
         .and_then(|value| value.checked_add(layout_heads))
         .and_then(|value| value.checked_add(handoffs))
+        .and_then(|value| value.checked_add(migration_rows))
         .ok_or_else(|| PlanRevisionError::Invalid("snapshot row count overflow".into()))?;
     if total > budget.max_rows {
         return Err(PlanRevisionError::Invalid(
