@@ -83,6 +83,16 @@ reduction, transport throughput or general GPU performance claim is valid.
   demonstrates live browser graph rendering. Neither proves a production
   authorized attachment, safe session rebind or a portable protected principal.
 
+**Additional local policy race, from source review:** `ResearchExport::invoke`
+reads the `accepting` atomic and later awaits `handler.dispatch_for` without
+a shared admission permit/lock. Concurrent `revoke()` can occur between
+that check and actual dispatch. The sequential revocation tests do **not**
+prove linearizable revocation-before-dispatch, nor do they cover draining
+in-flight work. A production adapter must compose the actual #157
+runtime-owned ingress permit with a revocable publication/grant admission
+policy, and deterministically test both race orderings. Do not promote the
+simulated gateway to production based on passing the three-app tests.
+
 **Trust separation needed for acceptance:** explicitly state a constrained
 trusted-local/shared-OS-user profile when its real limits are accepted for
 non-sensitive reads. Sensitive reads and cross-client mutations require a
