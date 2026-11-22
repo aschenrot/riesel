@@ -255,13 +255,17 @@ def main(pinned):
         # PAMName=login creates a real, but NON-GRAPHICAL, logind session
         # under a temporary account. No display manager/session bus is
         # inferred from the presence of a session scope.
-        run(root("systemd-run", "--system", "--no-ask-password",
+        # No blocking wait for Type=exec/PAM session setup. systemd-run
+        # may otherwise wait on the login session job for longer than the
+        # caller timeout; observe the REAL logind session separately.
+        started.append(login_unit)  # clean exact unit even if launch times out
+        run(root("systemd-run", "--system", "--no-block",
+                 "--no-ask-password",
                  "--unit", login_unit, "--property=Type=exec",
                  "--property=Restart=no", "--property=User=" + account,
                  "--property=PAMName=login",
                  "--property=WorkingDirectory=/tmp",
                  "/usr/bin/sleep", "480"))
-        started.append(login_unit)
 
         observed_session = None
         for _ in range(120):
@@ -274,10 +278,14 @@ def main(pinned):
                     break
             time.sleep(0.2)
         if not observed_session:
+            status = service_state(login_unit)
+            diag = run(root("journalctl", "--no-pager",
+                            "--unit", login_unit, "--lines", "18"),
+                       check=False)
             raise AssertionError(
-                f"actual PAM/logind login session not established: "
-                f"sessions={sessions_for(account)}; "
-                f"login_unit={service_state(login_unit)}")
+                f"actual PAM/logind session not established: "
+                f"sessions={sessions_for(account)}; unit={status}; "
+                f"journal_tail={diag.stdout[-1800:]!r}")
         scope = scope_safe(observed_session["Scope"])
         if int(observed_session["User"]) != info.pw_uid:
             raise AssertionError("session has wrong actual kernel user")
@@ -291,6 +299,7 @@ def main(pinned):
               "--property=After=" + scope]),
             (machine_unit, machine_exe, "rieselm" + nonce[:9], []),
         ):
+            started.append(unit)  # always clean even on delayed job failure
             run(root("systemd-run", "--system", "--no-ask-password",
                      "--unit", unit, "--property=Type=exec",
                      "--property=Restart=no", "--property=DynamicUser=yes",
@@ -299,7 +308,6 @@ def main(pinned):
                      "--property=TimeoutStopSec=4s",
                      "--property=WorkingDirectory=/tmp", *extra,
                      "/bin/sh", "-c", f"sleep 600 | {exe}"))
-            started.append(unit)
         bound = observe_service(bound_unit, bound_exe)
         machine = observe_service(machine_unit, machine_exe)
         if (len({bound["uid"], machine["uid"], info.pw_uid,
