@@ -13,6 +13,7 @@ mod tests {
         GraphRunObserver, OperationKey, OperationNode, OperationOutcome, OperationRegistry,
         OperationState, RunningApp, async_operation, async_operation_with_effects,
     };
+    use runen_ecs::prelude::*;
     use std::cell::Cell;
     use std::collections::{BTreeMap, BTreeSet, VecDeque};
     use std::num::NonZeroUsize;
@@ -34,6 +35,33 @@ mod tests {
     enum Kind {
         SimulationTick,
         PipelineStage,
+        ActualRunenEcsTick,
+    }
+
+    // The production Riesel runner never touches the RunenECS world.
+    // Real RunenECS and its non-Send resource live on the owner OS thread.
+    #[derive(ScheduleLabel)]
+    struct SimulationSchedule;
+    #[derive(SystemSet)]
+    struct MoveSet;
+    #[derive(Component)]
+    struct EcsPosition(i32);
+    #[derive(Resource)]
+    struct EcsInput(i32);
+    #[derive(Resource)]
+    struct EcsTickCount(u32);
+    #[derive(Resource)]
+    struct EcsThreadCalls(Rc<Cell<u32>>);
+
+    fn move_ecs_positions(mut positions: Query<&mut EcsPosition>, input: Res<EcsInput>) {
+        for position in positions.iter() {
+            position.0 += input.0;
+        }
+    }
+
+    fn finish_ecs_tick(mut ticks: ResMut<EcsTickCount>, local: Res<EcsThreadCalls>) {
+        ticks.0 += 1;
+        local.0.set(local.0.get() + 1);
     }
 
     #[derive(Debug, Clone, PartialEq, Eq)]
@@ -190,6 +218,27 @@ mod tests {
                 // Only this actor thread ever holds this !Send world. The
                 // projection contains copied values, not Rc or &mut World.
                 let world = Rc::new(Cell::new(0_i32));
+                let mut real_ecs = if kind == Kind::ActualRunenEcsTick {
+                    let mut ecs_world = World::new();
+                    ecs_world.spawn(EcsPosition(0)).unwrap();
+                    ecs_world.insert_resource(EcsInput(2));
+                    ecs_world.insert_resource(EcsTickCount(0));
+                    ecs_world.insert_resource(EcsThreadCalls(Rc::new(Cell::new(0))));
+
+                    let mut runtime = Runtime::new();
+                    runtime
+                        .add_systems(
+                            SimulationSchedule,
+                            (
+                                move_ecs_positions.in_set(MoveSet),
+                                finish_ecs_tick.on_invoker_thread().after(MoveSet),
+                            ),
+                        )
+                        .unwrap();
+                    Some((ecs_world, runtime))
+                } else {
+                    None
+                };
                 // Only a local, single-owner in-memory duplicate fence for
                 // this experiment. NOT durable idempotency or remote trust.
                 let mut seen_attempts = BTreeSet::<(String, u64)>::new();
@@ -232,11 +281,39 @@ mod tests {
                                             let _ = accepted.send(Err(Error::UnsupportedSafePoint));
                                             continue;
                                         }
-                                        let new_value = world.get()
-                                            + match kind {
-                                                Kind::SimulationTick => 2,
-                                                Kind::PipelineStage => 5,
-                                            };
+                                        let new_value = match kind {
+                                            Kind::SimulationTick => world.get() + 2,
+                                            Kind::PipelineStage => world.get() + 5,
+                                            Kind::ActualRunenEcsTick => {
+                                                let (ecs_world, ecs_runtime) = real_ecs
+                                                    .as_mut()
+                                                    .expect("real ECS exists only on owner thread");
+                                                ecs_runtime
+                                                    .run_schedule::<SimulationSchedule>(ecs_world)
+                                                    .expect("pinned RunenECS tick");
+                                                // These checks are part of the domain owner's
+                                                // actual execution, never inferred from an
+                                                // outer graph Completed event.
+                                                let tick = ecs_world
+                                                    .resource::<EcsTickCount>()
+                                                    .unwrap()
+                                                    .0;
+                                                let calls = ecs_world
+                                                    .resource::<EcsThreadCalls>()
+                                                    .unwrap()
+                                                    .0
+                                                    .get();
+                                                assert_eq!(tick, calls);
+                                                let positions: Vec<_> = ecs_world
+                                                    .query::<&EcsPosition>()
+                                                    .iter(&*ecs_world)
+                                                    .map(|p| p.0)
+                                                    .collect();
+                                                assert_eq!(positions.len(), 1);
+                                                assert_eq!(positions[0], 2 * tick as i32);
+                                                positions[0]
+                                            }
+                                        };
                                         world.set(new_value);
                                         confirmed += 1;
                                         published
@@ -764,4 +841,74 @@ mod tests {
             assert_eq!(actor.stop(), 4);
         });
     }
+    #[test]
+    fn actual_runenecs_delegated_frame_preserves_first_committed_tick_on_cancel() {
+        executor().block_on(async {
+            let setup = setup(Kind::ActualRunenEcsTick, 2, false);
+            let controller = setup.runner.controller();
+            assert!(matches!(
+                controller.pause(GraphControlTarget::RieselDomainTicks("domain".into())),
+                Err(GraphControlError::UnsupportedDomainAuthority { .. })
+            ));
+            let task = tokio::spawn(setup.runner.execute());
+            until(|| {
+                setup.independent.load(Ordering::SeqCst) == 1
+                    && setup.observer.snapshot().operations["frame"].state
+                        == OperationState::Running
+            }).await;
+
+            // A wrong-kind permit cannot call the actual RunenECS schedule.
+            assert_eq!(
+                grant(&setup.permits, OWNER_EPOCH, Kind::SimulationTick).await,
+                Err(Error::UnsupportedSafePoint)
+            );
+            assert_eq!(setup.actor.observer.snapshot().cumulative_world, 0);
+            grant(&setup.permits, OWNER_EPOCH, Kind::ActualRunenEcsTick)
+                .await
+                .unwrap();
+            let domain_before_cancel = setup.actor.observer.snapshot();
+            assert_eq!(domain_before_cancel.latest_sequence, 1);
+            assert_eq!(domain_before_cancel.committed[&("frame".into(), 1)], 1);
+            assert_eq!(domain_before_cancel.cumulative_world, 2);
+            assert_eq!(
+                setup.observer.snapshot().operations["frame"].state,
+                OperationState::Running
+            );
+            cancel(&setup.permits, OWNER_EPOCH).await.unwrap();
+            let report = tokio::time::timeout(WAIT, task).await.unwrap().unwrap();
+            assert_eq!(report.operations["frame"], OperationState::Cancelled);
+            assert_eq!(report.operations["after"], OperationState::Blocked);
+            assert_eq!(report.confirmed_prefixes["frame"]["domain.committed"], 1);
+            assert_eq!(setup.downstream.load(Ordering::SeqCst), 0);
+            assert_eq!(setup.actor.stop(), 2);
+        });
+    }
+
+    #[test]
+    fn actual_runenecs_lost_reply_preserves_domain_commits_and_outer_unknown() {
+        executor().block_on(async {
+            let setup = setup(Kind::ActualRunenEcsTick, 2, true);
+            let task = tokio::spawn(setup.runner.execute());
+            until(|| {
+                setup.observer.snapshot().operations["frame"].state
+                    == OperationState::Running
+            }).await;
+            for _ in 0..2 {
+                grant(&setup.permits, OWNER_EPOCH, Kind::ActualRunenEcsTick)
+                    .await
+                    .unwrap();
+            }
+            let report = tokio::time::timeout(WAIT, task).await.unwrap().unwrap();
+            assert_eq!(report.operations["frame"], OperationState::OutcomeUnknown);
+            assert_eq!(report.operations["after"], OperationState::Blocked);
+            assert!(!report.confirmed_prefixes.contains_key("frame"));
+            let domain = setup.actor.observer.snapshot();
+            assert_eq!(domain.parent_run, report.identity);
+            assert_eq!(domain.latest_sequence, 2);
+            assert_eq!(domain.committed[&("frame".into(), 1)], 2);
+            assert_eq!(domain.cumulative_world, 4);
+            assert_eq!(setup.actor.stop(), 4);
+        });
+    }
+
 }
