@@ -1,0 +1,14 @@
+[package]
+name = "riesel-grid-capability-research"
+version = "0.0.0"
+edition = "2024"
+publish = false
+
+# Standalone research workspace, intentionally not a production Riesel crate.
+[workspace]
+
+[dependencies]
+riesel = { path = "../../crates/riesel", features = ["async-tcp"] }
+riesel_protocol = { path = "../../crates/riesel_protocol" }
+serde = { version = "1", features = ["derive"] }
+thiserror = "2"
