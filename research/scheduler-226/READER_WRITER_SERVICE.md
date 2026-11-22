@@ -24,6 +24,8 @@ Earlier #245 used long exclusive writers and demonstrated one run repeatedly rea
 
 **Case V — Session-capacity-only contention (four rounds, debug and release).** One graph starts 64 independent resource-free callbacks with run parallelism 32; the first 32 hold their leases on an explicit semaphore, saturating the shared session's 32-operation budget. A second graph has one resource-free callback and remains undispatched until at least one hot lease releases. Release the hot semaphore and record the cold callback's actual admission rank among 65 starts. Test successful completion without asserting a specific fairness rank. This isolates a **capacity bottleneck without a declared read/write/domain conflict**. #226 still requires an explicit product-scope choice about whether B1 protects capacity-only competing runs. An ordinary (resource-free) callback competing for session capacity is not proof that the current scheduler violates an unaccepted capacity fairness guarantee.
 
+**Case W — Multi-worker scheduling control (four rounds in each build profile).** Re-run the long 64-reader graph versus one waiting writer and the 64-operation resource-free 32-slot capacity workload using a **four-worker Tokio runtime**, alongside the current-thread fixture. Preserve all invariant assertions and record actual callback start rank without imposing a fairness guarantee. The multi-worker result may differ from the current-thread rank; a changed order is not a correctness violation. Each case must still complete exactly once, obey resource/capacity exclusivity and retain non-conflicting progress. Reuse the same fixture body for both runtime modes to avoid comparing different scheduling workloads.
+
 ## Why these cases matter for B1
 
 - **Run-fair turns:** preventing an active long graph from repeatedly reacquiring the same resource when a competing run is *grantable* is a narrower objective than requiring every newly arriving compatible reader to stop the moment a writer waits.
@@ -41,7 +43,7 @@ cargo test --locked -p riesel --features async-tcp --test scheduler_reader_fairn
 cargo test --locked --release -p riesel --features async-tcp --test scheduler_reader_fairness_research -- --nocapture --test-threads=1
 ```
 
-Cases U and V also run through the same debug and release commands; a green result means they exercised the current runner, **not** that a B1 fairness policy passed. The temporary workflow steps are **strictly gated** to the draft research branch. No changes to `crates/riesel_app/src/execution_runner.rs`, shared resource admission, public API, product contract or standard validation path are permitted in this PR.
+Cases U, V and W also run through the same debug and release commands; a green result means they exercised the current runner, **not** that a B1 fairness policy passed. The temporary workflow steps are **strictly gated** to the draft research branch. A test-only `tokio` dev-dependency enables `rt-multi-thread` for Case W; this does not change the production runner, public API, product contract or standard validation workflow. No changes to `crates/riesel_app/src/execution_runner.rs` or shared resource admission are permitted in this PR.
 
 ## Decision disposition
 
