@@ -47,7 +47,7 @@ The application uses capabilities; components implement capabilities; Riesel res
 - Recovery never implies that ambiguous external side effects were not executed; individual commands are not silently replayed.
 - Independent native window hosts use separate operating-system processes, with lifecycles independent from application logic. This is an **accepted target requirement**, not a claim of current delivery.
 
-### Executable plans and operational inspection (accepted target, not yet delivered)
+### Executable plans and operational inspection (partially delivered)
 
 - Developers can compose and validate inspectable, versioned **execution plans** of registered Rust/capability operations and run them **headlessly**. This operation graph is distinct from capability/provider selection and the startup dependency DAG.
 - Riesel provides reusable general graph execution for the operations it owns, with **one declared admission/control authority per execution boundary**. Specialized domain runtimes may retain their own internal tick, frame and system scheduling.
@@ -56,7 +56,7 @@ The application uses capabilities; components implement capabilities; Riesel res
 - **Optional graphical inspection** is an accepted product goal over the same headless semantics, not a required GUI or separate execution owner.
 - **Editable executable visual composition** is an accepted **long-term direction** for an explicitly specified subset of registered operations. Its source of truth, graph edits, typed data edges, version/layout semantics and executable round trip must be specified before implementing an editor. An unrestricted visual Rust builder is not an accepted guarantee.
 
-Durable boundaries and delivery gates are defined in the [accepted execution-plan contract](execution-plan-contract.md), based on [specification #83](https://github.com/aschenrot/riesel/issues/83). These are accepted outcomes, **not** assertions of runtime delivery or approved API formats.
+Durable boundaries and delivery gates are defined in the [accepted execution-plan contract](execution-plan-contract.md), based on [specification #83](https://github.com/aschenrot/riesel/issues/83). A bounded session-owned headless runner, live observation, confirmed-effect prefixes and cooperative **outer admission** controls are implemented in the reference SDK; see the [runner's verified scope](execution-runner.md). The optional graphical inspector, editing contract, external authorization and deeper domain-owner integration remain separate and are **not** delivered by these local APIs.
 
 ### Contracts, identity, and interfaces
 
