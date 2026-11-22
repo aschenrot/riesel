@@ -9,8 +9,8 @@ publish = false
 
 [dependencies]
 riesel = { path = "../../crates/riesel", features = ["experimental-typed-dataflow"] }
-grid_generation = { git = "https://github.com/aschenrot/grid", rev = "7a1a803eff6c34243873b656b739c589a3ce4606" }
-grid_math = { git = "https://github.com/aschenrot/grid", rev = "7a1a803eff6c34243873b656b739c589a3ce4606" }
-grid_storage = { git = "https://github.com/aschenrot/grid", rev = "7a1a803eff6c34243873b656b739c589a3ce4606" }
-tile_topology = { git = "https://github.com/aschenrot/grid", rev = "7a1a803eff6c34243873b656b739c589a3ce4606" }
+grid_generation = { git = "https://github.com/aschenrot/grid", rev = "6f71daf89c2be94aa9a32d4ba879afb2e37f4302" }
+grid_math = { git = "https://github.com/aschenrot/grid", rev = "6f71daf89c2be94aa9a32d4ba879afb2e37f4302" }
+grid_storage = { git = "https://github.com/aschenrot/grid", rev = "6f71daf89c2be94aa9a32d4ba879afb2e37f4302" }
+tile_topology = { git = "https://github.com/aschenrot/grid", rev = "6f71daf89c2be94aa9a32d4ba879afb2e37f4302" }
 tokio = { version = "=1.54.1", features = ["rt", "sync", "time"] }
