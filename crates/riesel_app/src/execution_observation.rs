@@ -611,9 +611,14 @@ impl GraphRunPublication {
             .state
             .lock()
             .unwrap_or_else(PoisonError::into_inner);
-        Self::targets(&self.nodes[index], domain).iter().all(|target| {
-            state.snapshot.controls.get(target) != Some(&GraphControlMode::Paused)
-        })
+        Self::targets(&self.nodes[index], domain)
+            .iter()
+            .all(|target| {
+                matches!(
+                    state.snapshot.controls.get(target),
+                    Some(GraphControlMode::Running | GraphControlMode::StepArmed)
+                )
+            })
     }
 
     /// Atomically consume at most one armed step at every matching boundary
@@ -637,7 +642,10 @@ impl GraphRunPublication {
         }
         let targets = Self::targets(name, domain);
         if targets.iter().any(|target| {
-            state.snapshot.controls.get(target) == Some(&GraphControlMode::Paused)
+            !matches!(
+                state.snapshot.controls.get(target),
+                Some(GraphControlMode::Running | GraphControlMode::StepArmed)
+            )
         }) {
             return false;
         }
@@ -732,6 +740,28 @@ impl GraphRunPublication {
             .lock()
             .unwrap_or_else(PoisonError::into_inner);
         if state.snapshot.phase != phase {
+            if matches!(phase, GraphRunPhase::Finished | GraphRunPhase::Abandoned) {
+                // A step that never found an eligible boundary cannot remain
+                // armed after the owning run has ceased accepting work.
+                let armed: Vec<_> = state
+                    .snapshot
+                    .controls
+                    .iter()
+                    .filter_map(|(target, mode)| {
+                        (*mode == GraphControlMode::StepArmed).then_some(target.clone())
+                    })
+                    .collect();
+                for target in armed {
+                    state
+                        .snapshot
+                        .controls
+                        .insert(target.clone(), GraphControlMode::Paused);
+                    state.push(GraphRunChange::Control {
+                        target,
+                        mode: GraphControlMode::Paused,
+                    });
+                }
+            }
             state.snapshot.phase = phase;
             state.push(GraphRunChange::Phase(phase));
         }
