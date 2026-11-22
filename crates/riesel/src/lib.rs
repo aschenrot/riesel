@@ -54,6 +54,10 @@ pub use application::{
 };
 #[cfg(feature = "records")]
 pub use records::{QueryPage, Record, RecordPage, Records};
+#[cfg(feature = "app-publication")]
+pub use riesel_app::{
+    AppReadPublication, ReadExposure, ReadPublicationDescriptor, ReadPublicationError,
+};
 #[cfg(feature = "async-tcp")]
 pub use riesel_app::{
     AsyncOperation, ExecutionGraphRunner, GraphControlError, GraphControlMode, GraphControlTarget,
@@ -69,8 +73,6 @@ pub use riesel_app::{
 };
 #[cfg(feature = "async-tcp")]
 pub use riesel_app::{AsyncTasks, ProviderBlocking, ProviderBlockingError, ProviderCancellation};
-#[cfg(feature = "app-publication")]
-pub use riesel_app::{AppReadPublication, ReadExposure, ReadPublicationDescriptor, ReadPublicationError};
 #[cfg(feature = "async-tcp")]
 pub use rpc_connector::AsyncRpcConnector;
 pub use rpc_connector::RpcConnector;
