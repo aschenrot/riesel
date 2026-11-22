@@ -171,6 +171,63 @@ mod tests {
     }
 
     #[test]
+    fn sqlite_native_query_distinguishes_optional_missing_null_and_present() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("optional-values.db");
+        let schema = ModelDefinition {
+            fields: BTreeMap::from([
+                ("flag".into(), TypeRef::Bool),
+                (
+                    "note".into(),
+                    TypeRef::Optional {
+                        item: Box::new(TypeRef::String),
+                    },
+                ),
+            ]),
+        };
+        let store = SqliteStore::open(&path, BTreeMap::from([("asset".into(), schema)]))
+            .unwrap()
+            .with_query_grants(BTreeSet::from(["asset".into()]))
+            .unwrap();
+        let missing = store.create("asset", json!({"flag":true})).unwrap();
+        let null = store
+            .create("asset", json!({"flag":true,"note":null}))
+            .unwrap();
+        let present = store
+            .create("asset", json!({"flag":true,"note":"ready"}))
+            .unwrap();
+
+        let fetch = |operator| {
+            store
+                .query_page(RecordQueryRequest {
+                    model: "asset".into(),
+                    predicate: Some(RecordPredicate {
+                        field: "note".into(),
+                        operator,
+                        value: None,
+                    }),
+                    limit: 8,
+                    scan_budget: 8,
+                    cursor: None,
+                })
+                .unwrap()
+        };
+        let absent = fetch(RecordCompare::IsMissing);
+        assert!(absent.exhausted);
+        assert_eq!(absent.records.len(), 1);
+        assert_eq!(absent.records[0].id, missing.id);
+
+        let explicitly_null = fetch(RecordCompare::IsNull);
+        assert_eq!(explicitly_null.records.len(), 1);
+        assert_eq!(explicitly_null.records[0].id, null.id);
+
+        let all_present = fetch(RecordCompare::IsPresent);
+        assert_eq!(all_present.records.len(), 2);
+        assert!(all_present.records.iter().any(|r| r.id == null.id));
+        assert!(all_present.records.iter().any(|r| r.id == present.id));
+    }
+
+    #[test]
     fn native_sqlite_query_is_bounded_and_survives_confirmed_writes() {
         let dir = tempfile::tempdir().unwrap();
         let db = dir.path().join("records.db");
