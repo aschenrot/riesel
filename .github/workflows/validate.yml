@@ -39,6 +39,8 @@ jobs:
         run: cargo test --locked -p riesel_storage_sqlite --features v2-fault-injection --test v2_process_crash
       - name: V2 verified backup and offline restore
         run: cargo test --locked -p riesel_storage_sqlite --test v2_backup
+      - name: V2 explicit backup-checked physical format migration
+        run: cargo test --locked -p riesel_storage_sqlite --test v2_format_migration
       - name: Smoke test runtime and managed providers
         run: cargo smoke
 
