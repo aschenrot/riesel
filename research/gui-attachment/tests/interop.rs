@@ -46,7 +46,10 @@ fn status(value: &Value) -> &str {
 
 fn owner_line(reader: &mut BufReader<impl Read>, prefix: &str) -> String {
     let mut line = String::new();
-    assert!(reader.read_line(&mut line).unwrap() > 0, "owner exited early");
+    assert!(
+        reader.read_line(&mut line).unwrap() > 0,
+        "owner exited early"
+    );
     assert!(
         line.starts_with(prefix),
         "expected owner {prefix} but received {line:?}"
@@ -131,21 +134,30 @@ fn actual_os_client_session_fencing_and_revocation() {
         "version": 2, "operation": "snapshot",
         "generation": first_generation
     });
-    assert_eq!(status(&request(&socket, wrong_version.clone())), "wrong_interface");
+    assert_eq!(
+        status(&request(&socket, wrong_version.clone())),
+        "wrong_interface"
+    );
     wrong_version["version"] = json!(1);
     wrong_version["interface"] = json!("provider.internal");
     assert_eq!(status(&request(&socket, wrong_version)), "wrong_interface");
     assert_eq!(
-        status(&request(&socket, json!({
-            "app": "research.riesel.gui-owner",
-            "interface": "research.graph.read",
-            "version": 1, "operation": "activate",
-            "generation": first_generation
-        }))),
+        status(&request(
+            &socket,
+            json!({
+                "app": "research.riesel.gui-owner",
+                "interface": "research.graph.read",
+                "version": 1, "operation": "activate",
+                "generation": first_generation
+            })
+        )),
         "not_exposed",
         "UI has no graph-control or plan-activation route"
     );
-    assert_eq!(status(&snapshot(&socket, "forged-generation", None)), "stale_generation");
+    assert_eq!(
+        status(&snapshot(&socket, "forged-generation", None)),
+        "stale_generation"
+    );
 
     // Real OS client B has the same UID and no individually granted identity.
     // It can independently discover the public generation and read the view.
@@ -169,14 +181,18 @@ fn actual_os_client_session_fencing_and_revocation() {
     // A request stopped before admission MUST lose the race to withdrawal.
     let paused_socket = socket.clone();
     let paused_generation = first_generation.clone();
-    let before = thread::spawn(move || snapshot(&paused_socket, &paused_generation, Some("before")));
+    let before =
+        thread::spawn(move || snapshot(&paused_socket, &paused_generation, Some("before")));
     owner_line(&mut reader, "WAIT_BEFORE_ADMISSION");
     control(&mut host.0, "REVOKE");
     owner_line(&mut reader, "REVOKED");
     control(&mut host.0, "RESUME");
     owner_line(&mut reader, "RESUMED");
     assert_eq!(status(&before.join().unwrap()), "withdrawn");
-    assert_eq!(status(&snapshot(&socket, &first_generation, None)), "withdrawn");
+    assert_eq!(
+        status(&snapshot(&socket, &first_generation, None)),
+        "withdrawn"
+    );
 
     // The exact OS process and socket remain the same, but the real
     // RunningApp session is shut down and replaced with a new generation.
@@ -187,7 +203,10 @@ fn actual_os_client_session_fencing_and_revocation() {
     assert_eq!(parts[1], pid);
     let next_generation = parts[2].to_owned();
     assert_ne!(first_generation, next_generation);
-    assert_eq!(status(&snapshot(&socket, &first_generation, None)), "stale_generation");
+    assert_eq!(
+        status(&snapshot(&socket, &first_generation, None)),
+        "stale_generation"
+    );
     let next = snapshot(&socket, &next_generation, None);
     assert_eq!(status(&next), "ok");
     assert_eq!(next["completed"], 2);
@@ -205,11 +224,17 @@ fn actual_os_client_session_fencing_and_revocation() {
     control(&mut host.0, "RESUME");
     owner_line(&mut reader, "RESUMED");
     assert_eq!(status(&after.join().unwrap()), "ok");
-    assert_eq!(status(&snapshot(&socket, &next_generation, None)), "withdrawn");
+    assert_eq!(
+        status(&snapshot(&socket, &next_generation, None)),
+        "withdrawn"
+    );
 
     control(&mut host.0, "STOP");
     owner_line(&mut reader, "STOPPED");
-    assert!(host.0.wait().unwrap().success(), "headless owner exited cleanly");
+    assert!(
+        host.0.wait().unwrap().success(),
+        "headless owner exited cleanly"
+    );
     assert!(!socket.exists(), "test-owned socket was removed on stop");
     println!("GUI_PROCESS_SESSION_FENCE_AND_REVOCATION_PROOF_PASSED");
 }
