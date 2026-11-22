@@ -57,7 +57,7 @@ footer { padding: 0 clamp(16px,4vw,48px) 24px; color: #a6b8cd; font-size: .78rem
 <main>
   <section class="panel graph-panel" aria-labelledby="graph-title">
     <h2 id="graph-title">Plan and operation states</h2>
-    <p class="notice" id="input-help">Run the headless exporter, then select its generated JSON file. Only files you choose are read. No data is sent over the network.</p>
+    <p class="notice" id="input-help">Run the headless exporter, then select its generated JSON file. Only files you choose are read; no data is sent over the network. Imported files are not authenticated. Their contents may be forged.</p>
     <div class="toolbar" role="group" aria-label="Graph checkpoint">
       <button id="before" aria-pressed="false" disabled>Before execution</button>
       <button id="after" aria-pressed="true" disabled>After execution</button>
