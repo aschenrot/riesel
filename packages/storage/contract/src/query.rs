@@ -526,4 +526,5 @@ mod tests {
         }
         cursors.issue(&request, Uuid::new_v4()).unwrap();
         assert_eq!(cursors.entries.len(), 1);
-    }}
+    }
+}
