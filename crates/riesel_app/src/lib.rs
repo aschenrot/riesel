@@ -5,6 +5,8 @@ mod catalog;
 mod component;
 mod deployment;
 #[cfg(feature = "async-tcp")]
+mod execution_nested;
+#[cfg(feature = "async-tcp")]
 mod execution_observation;
 mod execution_plan;
 #[cfg(feature = "async-tcp")]
@@ -29,6 +31,12 @@ pub use execution_observation::{
     GraphObservationError, GraphObservedOperation, GraphRunChange, GraphRunController,
     GraphRunIdentity, GraphRunObserver, GraphRunPhase, GraphRunSnapshot, GraphRunTransition,
     GraphRunTransitions, MAX_GRAPH_EFFECT_STREAMS, MAX_GRAPH_TRANSITIONS,
+};
+#[cfg(feature = "async-tcp")]
+pub use execution_nested::{
+    MAX_NESTED_TRANSITIONS, NestedCursor, NestedDescription, NestedDomainOwner,
+    NestedDomainRegistration, NestedObservationError, NestedObserver, NestedParent, NestedPublisher,
+    NestedSnapshot, NestedStatus, NestedTransitions,
 };
 pub use execution_plan::{
     AccessMode, BoundExecutionPlan, DomainAdmissionMode, DomainBoundary, ExecutionPlanDescription,
