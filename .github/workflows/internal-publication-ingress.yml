@@ -8,6 +8,7 @@ on:
     branches: [main]
     paths:
       - "crates/riesel_protocol/**"
+      - "crates/riesel_app/**"
       - "crates/riesel/src/application/context.rs"
       - "crates/riesel/Cargo.toml"
       - "examples/counter/app/**"
@@ -27,6 +28,8 @@ jobs:
           rustup default 1.100.0
       - name: Internal session generation, admission and finite drain tests
         run: cargo test --locked -p riesel_protocol --features internal-publication
+      - name: App-owned async ingress, cancellation, teardown and successor fencing
+        run: cargo test --locked -p riesel_app --features internal-publication
       - name: Compile the genuine recovering Riesel Counter
         run: |
           cargo build --locked -p riesel_counter_example --bin counter_crash_fixture
