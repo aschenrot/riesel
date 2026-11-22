@@ -13,6 +13,14 @@ use std::path::PathBuf;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
 
+/// Classifies whether a lost admitted worker reply can hide a committed write.
+/// Read-only requests cannot report an uncertain mutation outcome.
+#[derive(Clone, Copy)]
+enum OperationClass {
+    Read,
+    Mutation,
+}
+
 #[derive(Clone)]
 struct HttpState {
     records: Records<TaskData>,
@@ -22,7 +30,7 @@ struct HttpState {
 }
 
 impl HttpState {
-    async fn invoke<R, F>(&self, operation: F) -> Result<R, ApiError>
+    async fn invoke<R, F>(&self, class: OperationClass, operation: F) -> Result<R, ApiError>
     where
         R: Send + 'static,
         F: FnOnce(Todo) -> Result<R, TodoError> + Send + 'static,
@@ -45,18 +53,22 @@ impl HttpState {
                 Ok(())
             })
             .map_err(|_| ApiError::Unavailable)?;
-        receive_owned_result(receiver).await
+        receive_owned_result(receiver, class).await
     }
 }
 
-/// An accepted blocking operation may have changed persistent data even if
-/// its result sender disappears (worker failure, cancellation or teardown).
-/// Unlike synchronous task-admission refusal, this outcome is ambiguous.
-/// Never automatically replay the command merely because its reply was lost.
+/// A lost reply after an admitted mutation has an unknown outcome, because
+/// a write may have committed. A read-only request has no mutation to infer:
+/// its result is unavailable, never a claim that no matching records exist.
+/// Admission rejection remains unavailable for both request classes.
 async fn receive_owned_result<R>(
     receiver: tokio::sync::oneshot::Receiver<Result<R, ApiError>>,
+    class: OperationClass,
 ) -> Result<R, ApiError> {
-    receiver.await.map_err(|_| ApiError::OutcomeUnknown)?
+    receiver.await.map_err(|_| match class {
+        OperationClass::Read => ApiError::Unavailable,
+        OperationClass::Mutation => ApiError::OutcomeUnknown,
+    })?
 }
 
 fn router(state: HttpState, directory: Option<&std::path::Path>) -> axum::Router {
@@ -274,7 +286,7 @@ mod tests {
                 let executed = Arc::new(AtomicBool::new(false));
                 let observed = Arc::clone(&executed);
                 let result = state
-                    .invoke(move |todo| {
+                    .invoke(OperationClass::Read, move |todo| {
                         observed.store(true, Ordering::SeqCst);
                         todo.list_tasks()
                     })
@@ -282,6 +294,43 @@ mod tests {
                 assert!(matches!(result, Err(ApiError::Unavailable)));
                 assert!(!executed.load(Ordering::SeqCst));
                 Ok::<(), std::io::Error>(())
+            })
+            .unwrap()
+            .development()
+            .unwrap()
+            .run()
+            .unwrap();
+    }
+
+    /// An admitted read may complete before its reply disappears, but it
+    /// cannot be classified as an uncertain mutation or a confirmed empty list.
+    #[test]
+    fn lost_reply_after_successful_todo_read_is_unavailable() {
+        Application::new("Todo HTTP lost read response")
+            .async_handler(|records: Records<TaskData>, tasks: AsyncTasks| async move {
+                Todo::new(records.clone()).create_task("Persisted task")?;
+                let reader = records.clone();
+                let (sender, receiver) = tokio::sync::oneshot::channel::<Result<usize, ApiError>>();
+                tasks.spawn_blocking("read-lost-reply", move |_cancellation| {
+                    let rows = Todo::new(reader).list_tasks()?;
+                    assert_eq!(rows.len(), 1);
+                    drop(sender);
+                    Ok(())
+                })?;
+                assert!(matches!(
+                    receive_owned_result(receiver, OperationClass::Read).await,
+                    Err(ApiError::Unavailable)
+                ));
+                let response = ApiError::Unavailable.into_response();
+                assert_eq!(
+                    response.status(),
+                    axum::http::StatusCode::SERVICE_UNAVAILABLE
+                );
+                let body = axum::body::to_bytes(response.into_body(), 1024).await?;
+                let json: serde_json::Value = serde_json::from_slice(&body)?;
+                assert_eq!(json["error"]["code"], "unavailable");
+                assert_eq!(Todo::new(records).list_tasks()?.len(), 1);
+                Ok::<(), Box<dyn std::error::Error + Send + Sync>>(())
             })
             .unwrap()
             .development()
@@ -307,7 +356,7 @@ mod tests {
                     Ok(())
                 })?;
                 assert!(matches!(
-                    receive_owned_result(receiver).await,
+                    receive_owned_result(receiver, OperationClass::Mutation).await,
                     Err(ApiError::OutcomeUnknown)
                 ));
                 let tasks_after = Todo::new(records).list_tasks()?;
