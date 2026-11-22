@@ -203,7 +203,10 @@ fn provider_cursor_is_filter_scoped_and_one_use_across_http_like_reads() {
         };
 
         let wrong_filter = store.query_page(request(true, token.clone()));
-        assert!(matches!(wrong_filter, Err(RecordQueryError::InvalidCursor)), "{name}");
+        assert!(
+            matches!(wrong_filter, Err(RecordQueryError::InvalidCursor)),
+            "{name}"
+        );
 
         // Rejected wrong-filter use does not consume a valid cursor. A
         // successful use does consume it, including if the HTTP reply is lost.
@@ -211,8 +214,66 @@ fn provider_cursor_is_filter_scoped_and_one_use_across_http_like_reads() {
         assert!(resumed.exhausted, "{name}");
         assert!(resumed.records.is_empty(), "{name}");
         let replayed = store.query_page(request(false, token));
-        assert!(matches!(replayed, Err(RecordQueryError::InvalidCursor)), "{name}");
+        assert!(
+            matches!(replayed, Err(RecordQueryError::InvalidCursor)),
+            "{name}"
+        );
     });
+}
+
+fn check_linked_todo_sdk_application(
+    reader: riesel::ModelRead<TaskData, riesel::storage::RecordQueryContract>,
+    writer: riesel::Records<TaskData>,
+) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+    use todo::Todo;
+
+    let todo = Todo::new(writer);
+    let open = todo.create_task("Open from domain")?;
+    let done = todo.create_task("Completed from domain")?;
+    let completed = todo.set_completed(done.id, done.revision, true)?;
+
+    let predicate = Some(RecordPredicate {
+        field: "completed".into(),
+        operator: RecordCompare::Eq,
+        value: Some(json!(false)),
+    });
+    let first = reader.page(predicate.clone(), 32, 256, None)?;
+    assert_eq!(first.records.len(), 1);
+    assert_eq!(first.records[0].id, open.id);
+    assert!(first.exhausted);
+
+    // This is the actual generated Query handle and the same real writer,
+    // not a test-only one-off observer, synthetic capability or a second DB.
+    todo.set_completed(completed.id, completed.revision, false)?;
+    let refreshed = reader.page(predicate, 32, 256, None)?;
+    let ids: Vec<_> = refreshed.records.iter().map(|task| task.id).collect();
+    assert_eq!(ids.len(), 2);
+    assert!(ids.contains(&open.id));
+    assert!(ids.contains(&completed.id));
+    assert!(refreshed.exhausted);
+    Ok(())
+}
+
+#[test]
+fn todo_domain_and_generated_sdk_query_share_real_linked_owner() {
+    use riesel::Application;
+
+    Application::new("TodoStatusResearchMemory")
+        .handler_with_aliases(check_linked_todo_sdk_application, ["read", "write"])
+        .unwrap()
+        .development()
+        .unwrap()
+        .run()
+        .unwrap();
+
+    let directory = tempfile::tempdir().unwrap();
+    Application::new("TodoStatusResearchSqlite")
+        .handler_with_aliases(check_linked_todo_sdk_application, ["read", "write"])
+        .unwrap()
+        .sqlite_storage(directory.path().join("todo-status-sdk.db"))
+        .unwrap()
+        .run()
+        .unwrap();
 }
 
 /// Slow, explicit growth-horizon research; run in the dedicated workflow,
