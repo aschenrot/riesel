@@ -13,8 +13,8 @@ use serde_json::json;
 use std::{
     collections::{BTreeMap, BTreeSet},
     sync::{
-        atomic::{AtomicUsize, Ordering},
         Arc, Barrier, Mutex,
+        atomic::{AtomicUsize, Ordering},
     },
     thread,
 };
@@ -38,8 +38,7 @@ fn baseline() -> ValidatedExecutionPlan {
         "research.plan",
         1,
         vec![
-            OperationNode::new("load", key("research.load", 1))
-                .access("store", AccessMode::Write),
+            OperationNode::new("load", key("research.load", 1)).access("store", AccessMode::Write),
             OperationNode::new("frame", key("research.frame", 2))
                 .after("load")
                 .delegated_frame("simulation"),
@@ -147,13 +146,7 @@ fn production_bind_alone_does_not_verify_required_resource_or_domain() {
     // Baseline negative: current exact handler lookup DOES allow this forged
     // declaration. It proves an editor-safe publisher gate is still needed.
     assert!(forged.bind(&registry).is_ok());
-    assert!(research_preflight(
-        &forged,
-        &registry,
-        &descriptors(),
-        "trusted.artifact.v1"
-    )
-    .is_err());
+    assert!(research_preflight(&forged, &registry, &descriptors(), "trusted.artifact.v1").is_err());
     assert_eq!(hits.load(Ordering::SeqCst), 0);
 }
 
@@ -162,13 +155,7 @@ fn trusted_descriptor_rejects_forgery_and_checks_exact_version_without_effects()
     let hits = Arc::new(AtomicUsize::new(0));
     let registry = registry(Arc::clone(&hits));
     let catalog = descriptors();
-    assert!(research_preflight(
-        &baseline(),
-        &registry,
-        &catalog,
-        "trusted.artifact.v1"
-    )
-    .is_ok());
+    assert!(research_preflight(&baseline(), &registry, &catalog, "trusted.artifact.v1").is_ok());
     assert!(research_preflight(&baseline(), &registry, &catalog, "forged.artifact").is_err());
 
     let missing_resource = validated(
@@ -176,43 +163,38 @@ fn trusted_descriptor_rejects_forgery_and_checks_exact_version_without_effects()
         2,
         vec![OperationNode::new("load", key("research.load", 1))],
     );
-    assert!(research_preflight(
-        &missing_resource,
-        &registry,
-        &catalog,
-        "trusted.artifact.v1"
-    )
-    .unwrap_err()
-    .contains("required resource"));
+    assert!(
+        research_preflight(
+            &missing_resource,
+            &registry,
+            &catalog,
+            "trusted.artifact.v1"
+        )
+        .unwrap_err()
+        .contains("required resource")
+    );
 
     let wrong_domain = validated(
         "research.plan",
         2,
-        vec![OperationNode::new("frame", key("research.frame", 2))
-            .domain_tick("simulation")],
+        vec![OperationNode::new("frame", key("research.frame", 2)).domain_tick("simulation")],
     );
-    assert!(research_preflight(
-        &wrong_domain,
-        &registry,
-        &catalog,
-        "trusted.artifact.v1"
-    )
-    .unwrap_err()
-    .contains("domain"));
+    assert!(
+        research_preflight(&wrong_domain, &registry, &catalog, "trusted.artifact.v1")
+            .unwrap_err()
+            .contains("domain")
+    );
 
     let unknown_version = validated(
         "research.plan",
         2,
-        vec![OperationNode::new("load", key("research.load", 3))
-            .access("store", AccessMode::Write)],
+        vec![
+            OperationNode::new("load", key("research.load", 3)).access("store", AccessMode::Write),
+        ],
     );
-    assert!(research_preflight(
-        &unknown_version,
-        &registry,
-        &catalog,
-        "trusted.artifact.v1"
-    )
-    .is_err());
+    assert!(
+        research_preflight(&unknown_version, &registry, &catalog, "trusted.artifact.v1").is_err()
+    );
     assert_eq!(hits.load(Ordering::SeqCst), 0);
 }
 
@@ -266,7 +248,13 @@ fn unsupported_s3_required_features_are_not_dispatched_or_lossily_rewritten() {
         "semantic_revision": 1,
         "operations": [{"id": "node", "key": "research.load", "version": 1}]
     });
-    assert_eq!(import_s2_document(simple.clone()).unwrap().description().revision(), 1);
+    assert_eq!(
+        import_s2_document(simple.clone())
+            .unwrap()
+            .description()
+            .revision(),
+        1
+    );
     let mut future = simple.clone();
     future["required_features"] = json!(["typed_dataflow.v1"]);
     future["data_edges"] = json!([{"from": "node", "to": "sink", "port": "typed"}]);
@@ -425,14 +413,13 @@ fn concurrent_writers_only_one_semantic_update_wins() {
             let plan = validated(
                 "research.plan",
                 2,
-                vec![OperationNode::new(id, key("research.load", 1))
-                    .access("store", AccessMode::Write)],
+                vec![
+                    OperationNode::new(id, key("research.load", 1))
+                        .access("store", AccessMode::Write),
+                ],
             );
             barrier.wait();
-            ledger
-                .lock()
-                .unwrap()
-                .publish(Source::Document, 1, 2, plan)
+            ledger.lock().unwrap().publish(Source::Document, 1, 2, plan)
         }));
     }
     barrier.wait();
@@ -466,26 +453,36 @@ fn layouts_do_not_mutate_semantics_and_reject_missing_nodes_and_stale_edits() {
 #[test]
 fn explicit_source_handoff_refuses_loss_and_fences_old_writers() {
     let mut ledger = LocalLedger::new();
-    assert!(ledger.transfer(Source::Rust, 1, 1, Source::Document, false).is_err());
+    assert!(
+        ledger
+            .transfer(Source::Rust, 1, 1, Source::Document, false)
+            .is_err()
+    );
     assert_eq!(ledger.source, Source::Rust);
     ledger
         .transfer(Source::Rust, 1, 1, Source::Document, true)
         .unwrap();
     assert_eq!(ledger.source_generation, 2);
-    assert!(ledger
-        .publish(
-            Source::Rust,
-            1,
-            1,
-            validated(
-                "research.plan",
-                2,
-                vec![OperationNode::new("stale", key("research.load", 1))]
+    assert!(
+        ledger
+            .publish(
+                Source::Rust,
+                1,
+                1,
+                validated(
+                    "research.plan",
+                    2,
+                    vec![OperationNode::new("stale", key("research.load", 1))]
+                )
             )
-        )
-        .is_err());
+            .is_err()
+    );
     assert!(ledger.save_layout(1, 1, 1, "load").is_err());
-    assert!(ledger.transfer(Source::Rust, 1, 1, Source::Document, true).is_err());
+    assert!(
+        ledger
+            .transfer(Source::Rust, 1, 1, Source::Document, true)
+            .is_err()
+    );
     assert_eq!(ledger.semantic_revision, 1);
 }
 
@@ -503,8 +500,10 @@ fn candidate_publication_is_distinct_from_activation_and_uncertain_reply_can_res
             validated(
                 "research.plan",
                 2,
-                vec![OperationNode::new("load", key("research.load", 1))
-                    .access("store", AccessMode::Write)]
+                vec![
+                    OperationNode::new("load", key("research.load", 1))
+                        .access("store", AccessMode::Write),
+                ],
             ),
         )
         .unwrap();
@@ -517,8 +516,16 @@ fn candidate_publication_is_distinct_from_activation_and_uncertain_reply_can_res
     assert_eq!(ledger.active_revision, 2);
     assert_eq!(ledger.activation_receipts.get("request-1"), Some(&2));
     assert_eq!(ledger.activate("grant:activate", 1, 2, "request-1"), Ok(2));
-    assert!(ledger.activate("grant:activate", 1, 1, "request-1").is_err());
-    assert!(ledger.activate("grant:activate", 1, 1, "request-2").is_err());
+    assert!(
+        ledger
+            .activate("grant:activate", 1, 1, "request-1")
+            .is_err()
+    );
+    assert!(
+        ledger
+            .activate("grant:activate", 1, 1, "request-2")
+            .is_err()
+    );
 }
 
 #[test]
@@ -533,7 +540,7 @@ fn accepted_semantic_revisions_stay_stable_when_later_candidates_are_published()
             validated(
                 "research.plan",
                 2,
-                vec![OperationNode::new("next", key("research.load", 1))]
+                vec![OperationNode::new("next", key("research.load", 1))],
             ),
         )
         .unwrap();
