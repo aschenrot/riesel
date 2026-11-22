@@ -248,6 +248,86 @@ pub fn record_matches_predicate(
     Ok(match_result)
 }
 
+/// Provider-instance-local opaque continuation registry. A token is bound
+/// to one exact logical request and is consumed on successful resume. Storing
+/// the token *inside* the linked provider also fences the provider lifetime;
+/// the application session independently invalidates escaped RPC handles.
+///
+/// This is a reusable mechanism for record providers, not a query executor or
+/// an authorization credential for independent client processes.
+#[derive(Default)]
+pub struct RecordQueryCursors {
+    entries: std::collections::BTreeMap<Uuid, RecordContinuation>,
+}
+
+struct RecordContinuation {
+    signature: RecordQueryRequest,
+    after: Uuid,
+    created: std::time::Instant,
+}
+
+const MAX_ACTIVE_QUERY_CURSORS: usize = 256;
+const QUERY_CURSOR_TTL: std::time::Duration = std::time::Duration::from_secs(300);
+
+impl RecordQueryCursors {
+    fn expire(&mut self) {
+        self.entries
+            .retain(|_, continuation| continuation.created.elapsed() <= QUERY_CURSOR_TTL);
+    }
+
+    /// Return the last examined key for an existing matching token, consuming
+    /// the token only when the complete query identity matches.
+    pub fn resume(&mut self, request: &RecordQueryRequest) -> Result<Option<Uuid>, RecordQueryError> {
+        let Some(token) = &request.cursor else {
+            return Ok(None);
+        };
+        let token = Uuid::parse_str(token).map_err(|_| RecordQueryError::InvalidCursor)?;
+        self.expire();
+        let previous = self
+            .entries
+            .get(&token)
+            .ok_or(RecordQueryError::InvalidCursor)?;
+        let mut expected = request.clone();
+        expected.cursor = None;
+        if previous.signature != expected {
+            return Err(RecordQueryError::InvalidCursor);
+        }
+        let last = previous.after;
+        self.entries.remove(&token);
+        Ok(Some(last))
+    }
+
+    /// Create one finite-lifetime opaque continuation for a partial scan.
+    pub fn issue(
+        &mut self,
+        request: &RecordQueryRequest,
+        after: Uuid,
+    ) -> Result<String, RecordQueryError> {
+        self.expire();
+        if self.entries.len() >= MAX_ACTIVE_QUERY_CURSORS {
+            return Err(RecordQueryError::CursorCapacity);
+        }
+        let mut signature = request.clone();
+        signature.cursor = None;
+        for _ in 0..8 {
+            let token = Uuid::new_v4();
+            if self.entries.contains_key(&token) {
+                continue;
+            }
+            self.entries.insert(
+                token,
+                RecordContinuation {
+                    signature,
+                    after,
+                    created: std::time::Instant::now(),
+                },
+            );
+            return Ok(token.to_string());
+        }
+        Err(RecordQueryError::CursorCapacity)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -398,4 +478,44 @@ mod tests {
             Err(RecordQueryError::InvalidScanBudget)
         ));
     }
+    #[test]
+    fn continuations_bind_exact_query_and_owner_instance() {
+        let mut cursors = RecordQueryCursors::default();
+        let after = Uuid::new_v4();
+        let request = request(Some(pred("big", RecordCompare::Eq, Some(json!(u64::MAX)))));
+        let token = cursors.issue(&request, after).unwrap();
+        let mut changed = request.clone();
+        changed.cursor = Some(token.clone());
+        changed.model = "different".into();
+        assert!(matches!(cursors.resume(&changed), Err(RecordQueryError::InvalidCursor)));
+
+        let mut resumed = request.clone();
+        resumed.cursor = Some(token.clone());
+        assert_eq!(cursors.resume(&resumed).unwrap(), Some(after));
+        assert!(matches!(cursors.resume(&resumed), Err(RecordQueryError::InvalidCursor)));
+        let mut different_owner = RecordQueryCursors::default();
+        assert!(matches!(
+            different_owner.resume(&resumed),
+            Err(RecordQueryError::InvalidCursor)
+        ));
+    }
+
+    #[test]
+    fn abandoned_cursor_state_is_bounded_and_expired() {
+        let mut cursors = RecordQueryCursors::default();
+        let request = request(None);
+        for _ in 0..MAX_ACTIVE_QUERY_CURSORS {
+            cursors.issue(&request, Uuid::new_v4()).unwrap();
+        }
+        assert!(matches!(
+            cursors.issue(&request, Uuid::new_v4()),
+            Err(RecordQueryError::CursorCapacity)
+        ));
+        for entry in cursors.entries.values_mut() {
+            entry.created = std::time::Instant::now() - QUERY_CURSOR_TTL - std::time::Duration::from_secs(1);
+        }
+        cursors.issue(&request, Uuid::new_v4()).unwrap();
+        assert_eq!(cursors.entries.len(), 1);
+    }
+
 }
