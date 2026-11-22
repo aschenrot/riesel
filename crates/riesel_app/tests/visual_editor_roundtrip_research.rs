@@ -213,7 +213,10 @@ fn bounded_document_and_code_authored_subset_agree_on_actual_plan_semantics() {
     let imported = reconstruct(&decoded).unwrap();
 
     assert_eq!(decoded, document);
-    assert_eq!(production_projection(&code_owned), production_projection(&imported));
+    assert_eq!(
+        production_projection(&code_owned),
+        production_projection(&imported)
+    );
     assert_eq!(
         imported
             .dependency_order()
@@ -319,7 +322,12 @@ fn semantic_changes_require_new_immutable_revision_and_old_plan_is_stable() {
         old_projection
     );
     assert_eq!(
-        catalog.get("research.pipeline", 2).unwrap().description().operations().len(),
+        catalog
+            .get("research.pipeline", 2)
+            .unwrap()
+            .description()
+            .operations()
+            .len(),
         3
     );
 }
@@ -347,7 +355,9 @@ fn separate_layout_revision_cannot_mutate_execution_and_rejects_stale_nodes() {
     check_layout(&layout, &plan).unwrap();
     assert_eq!(before, production_projection(&plan));
 
-    layout.positions.insert("ghost".into(), Position { x: 0, y: 0 });
+    layout
+        .positions
+        .insert("ghost".into(), Position { x: 0, y: 0 });
     assert!(check_layout(&layout, &plan).is_err());
     layout.positions.remove("ghost");
     layout.semantic_revision = 2;
