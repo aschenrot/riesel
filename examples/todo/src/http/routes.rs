@@ -172,7 +172,9 @@ pub(super) async fn list(
         return Err(ApiError::BadInput);
     }
     let page = state
-        .invoke(OperationClass::Read, move |todo| todo.list_tasks_page(after, limit))
+        .invoke(OperationClass::Read, move |todo| {
+            todo.list_tasks_page(after, limit)
+        })
         .await?;
     Ok(Json(TaskPage {
         records: page.records.into_iter().map(TaskView::from).collect(),
@@ -217,7 +219,9 @@ pub(super) async fn create(
 ) -> Result<(StatusCode, Json<TaskView>), ApiError> {
     let input = json(input)?;
     let task = state
-        .invoke(OperationClass::Mutation, move |todo| todo.create_task(input.title))
+        .invoke(OperationClass::Mutation, move |todo| {
+            todo.create_task(input.title)
+        })
         .await?;
     Ok((StatusCode::CREATED, Json(task.into())))
 }
@@ -241,7 +245,9 @@ pub(super) async fn patch(
     let task = match (input.title, input.completed) {
         (Some(title), None) => {
             state
-                .invoke(OperationClass::Mutation, move |todo| todo.edit_title(id, revision, title))
+                .invoke(OperationClass::Mutation, move |todo| {
+                    todo.edit_title(id, revision, title)
+                })
                 .await?
         }
         (None, Some(completed)) => {
@@ -270,7 +276,9 @@ pub(super) async fn delete(
     let id = parse_id(&id)?;
     let revision = parse_revision(&json(input)?.revision)?;
     state
-        .invoke(OperationClass::Mutation, move |todo| todo.delete_task(id, revision))
+        .invoke(OperationClass::Mutation, move |todo| {
+            todo.delete_task(id, revision)
+        })
         .await?;
     Ok(StatusCode::NO_CONTENT)
 }
