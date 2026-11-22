@@ -1,7 +1,8 @@
 //! Session-local authoritative read-only observation of the existing graph runner.
 //!
-//! The runner is the only publisher. Snapshots are copied under one short
-//! mutex, while the bounded transition ring is an optional, lossy projection.
+//! The runner owns publication; a dispatched callback may submit explicit
+//! owner-confirmed prefixes through its attempt-fenced reporter. Snapshots
+//! and the bounded, lossy transition ring share one authoritative mutex.
 //! Neither the trace nor its cursor authorizes operations or executes a graph.
 use crate::execution_plan::OperationNode;
 use crate::execution_runner::OperationState;
