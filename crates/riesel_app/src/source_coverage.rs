@@ -94,7 +94,7 @@ impl PlanSourceCoverageReport {
                     SourceCoverageProblem::MissingEditorDescriptor,
                 );
             }
-            if candidate.dependencies != code_node.dependencies() {
+            if candidate.dependencies.as_slice() != code_node.dependencies() {
                 report.add(
                     Some(code_node.id()),
                     SourceCoverageProblem::ControlDependenciesChanged,
@@ -165,10 +165,20 @@ impl PlanSourceCoverageReport {
                 SourceCoverageProblem::RejectedByPreflight(error.to_string()),
             ),
             Ok(bound) => {
-                let code_projection = serde_json::to_vec(source);
-                let candidate_projection = serde_json::to_vec(bound.plan().description());
-                if code_projection != candidate_projection {
-                    report.add(None, SourceCoverageProblem::SemanticProjectionMismatch);
+                match (
+                    serde_json::to_vec(source),
+                    serde_json::to_vec(bound.plan().description()),
+                ) {
+                    (Ok(code), Ok(candidate)) if code == candidate => {}
+                    (Ok(_), Ok(_)) => {
+                        report.add(None, SourceCoverageProblem::SemanticProjectionMismatch);
+                    }
+                    (Err(error), _) | (_, Err(error)) => {
+                        report.add(
+                            None,
+                            SourceCoverageProblem::RejectedByPreflight(error.to_string()),
+                        );
+                    }
                 }
             }
         }
