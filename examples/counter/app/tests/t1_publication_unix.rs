@@ -151,6 +151,7 @@ fn selected_counter_provider_is_only_authoritative_mutation_owner() {
                     .await
                     .unwrap();
                 assert_eq!(bad["code"], "wrong_contract");
+                assert_eq!(counter.value().unwrap(), 9);
                 publication.withdraw();
                 let bad = client
                     .query(&descriptor, "snapshot", json!({}))
@@ -160,7 +161,6 @@ fn selected_counter_provider_is_only_authoritative_mutation_owner() {
                 tasks.finish_scope().await.unwrap();
                 assert!(!socket.exists());
             });
-            assert_eq!(counter.value()?, 9);
             Ok(())
         })
         .unwrap();
