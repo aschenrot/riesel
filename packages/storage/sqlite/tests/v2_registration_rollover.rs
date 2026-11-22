@@ -96,7 +96,6 @@ fn adopt(
     rust: &[ValidatedExecutionPlan],
 ) -> Result<Vec<PlanAuthoringHead>, PlanRevisionError> {
     new.adopt_registered_build(
-        OLD,
         heads,
         backup_path,
         V2SnapshotBudget::default(),
