@@ -297,12 +297,21 @@ fn document_owner_reads_exact_current_revision_in_one_consistent_snapshot() {
     let head = store
         .initialize(&code_candidate(1), PlanAuthoringSource::Rust, STAMP)
         .unwrap();
-    assert!(store.current_authoring(PLAN).unwrap().document_bytes.is_none());
+    assert!(
+        store
+            .current_authoring(PLAN)
+            .unwrap()
+            .document_bytes
+            .is_none()
+    );
     assert_eq!(store.semantic_document(PLAN, 1).unwrap(), None);
 
     let handlers = registry();
     let proof = CheckedSourceHandoff::rust_to_document(
-        &original, &s2(1), &handlers, S2DocumentLimits::default(),
+        &original,
+        &s2(1),
+        &handlers,
+        S2DocumentLimits::default(),
     )
     .unwrap();
     let owned = store.handoff(&head, &proof).unwrap();
@@ -322,27 +331,39 @@ fn document_owner_reads_exact_current_revision_in_one_consistent_snapshot() {
     assert_eq!(second_doc.semantic_revision, 2);
     assert_ne!(second_bytes, first_bytes);
     assert_eq!(store.semantic_document(PLAN, 1).unwrap(), None);
-    assert_eq!(store.semantic_document(PLAN, 2).unwrap(), Some(second_bytes));
+    assert_eq!(
+        store.semantic_document(PLAN, 2).unwrap(),
+        Some(second_bytes)
+    );
 
     let reverse = CheckedSourceHandoff::document_to_rust(
-        &s2(2), &plan(2, false), &handlers, S2DocumentLimits::default(),
+        &s2(2),
+        &plan(2, false),
+        &handlers,
+        S2DocumentLimits::default(),
     )
     .unwrap();
     let back = store.handoff(&newer, &reverse).unwrap();
     let current = repo(&path).current_authoring(PLAN).unwrap();
     assert_eq!(current.head, back);
     assert!(current.document_bytes.is_none());
-    assert_eq!(store.semantic_document(PLAN, 2).unwrap(), Some(candidate.document_bytes().unwrap().to_vec()));
+    assert_eq!(
+        store.semantic_document(PLAN, 2).unwrap(),
+        Some(candidate.document_bytes().unwrap().to_vec())
+    );
 }
 
 #[test]
 fn node_removal_rebase_rejects_stale_layout_coordinates_without_losing_history() {
     let temp = tempdir().unwrap();
     let store = repo(&temp.path().join("layout_rebase.sqlite"));
-    let initial =
-        PlanSemanticCandidate::from_rust(&plan(1, true)).unwrap();
-    let head = store.initialize(&initial, PlanAuthoringSource::Rust, STAMP).unwrap();
-    let old = store.save_layout(&head, None, &layout("desktop", 1, true)).unwrap();
+    let initial = PlanSemanticCandidate::from_rust(&plan(1, true)).unwrap();
+    let head = store
+        .initialize(&initial, PlanAuthoringSource::Rust, STAMP)
+        .unwrap();
+    let old = store
+        .save_layout(&head, None, &layout("desktop", 1, true))
+        .unwrap();
     assert_eq!(old.layout.node_positions.len(), 2);
 
     let reduced = PlanSemanticCandidate::from_rust(&plan(2, false)).unwrap();
@@ -351,11 +372,16 @@ fn node_removal_rebase_rejects_stale_layout_coordinates_without_losing_history()
         store.save_layout(&next, Some(1), &layout("desktop", 2, true)),
         Err(PlanRevisionError::Invalid(_))
     ));
-    let accepted = store.save_layout(&next, Some(1), &layout("desktop", 2, false)).unwrap();
+    let accepted = store
+        .save_layout(&next, Some(1), &layout("desktop", 2, false))
+        .unwrap();
     assert_eq!(accepted.version, 2);
     assert_eq!(accepted.layout.node_positions.len(), 1);
     assert_eq!(store.layout(PLAN, "desktop", 1).unwrap(), old);
-    assert_eq!(store.semantic(PLAN, 1).unwrap().node_ids, vec!["work", "extra"]);
+    assert_eq!(
+        store.semantic(PLAN, 1).unwrap().node_ids,
+        vec!["work", "extra"]
+    );
     assert_eq!(store.semantic(PLAN, 2).unwrap().node_ids, vec!["work"]);
     assert_eq!(store.head(PLAN).unwrap().semantic_revision, 2);
 }
