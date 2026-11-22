@@ -283,9 +283,12 @@ mod tests {
 
             assert!(!report.succeeded());
             assert!(*visited.lock().unwrap(), "consumer was admitted after control completion");
-            assert_eq!(
-                observer.snapshot().operations["consumer"].state,
-                OperationState::Failed,
+            assert!(
+                matches!(
+                    &observer.snapshot().operations["consumer"].state,
+                    OperationState::Failed(_),
+                ),
+                "consumer must fail when its expected value is absent",
             );
             Ok(())
         }).unwrap();
