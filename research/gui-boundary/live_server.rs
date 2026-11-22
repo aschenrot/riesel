@@ -18,7 +18,7 @@ pub async fn run(
     signal: GraphSignalSender,
     source: SnapshotSource,
     linger_seconds: u64,
-) -> riesel::Result<GraphRunReport> {
+) -> io::Result<GraphRunReport> {
     // The OS selects the port. Never bind on a public interface.
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await?;
     let address = listener.local_addr()?;
@@ -89,7 +89,7 @@ pub async fn run(
     // The app, not the GUI, controls admission. Allow time for a browser to
     // attach before beginning the bounded sample workflow.
     tokio::time::sleep(Duration::from_secs(3)).await;
-    signal.fire("start")?;
+    signal.fire("start").map_err(io::Error::other)?;
     let report = runner.execute().await;
 
     // Preserve the finished authoritative snapshot long enough to inspect.
