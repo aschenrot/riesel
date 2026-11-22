@@ -1,13 +1,12 @@
 //! #191 public Rust SDK proof: only trusted app registration can make
 //! an exact Rust handler editor-selectable, and preflight never invokes it.
 use riesel_app::{
-    AccessMode, DomainAdmissionMode, EditorAffinity, EditorCatalogError,
-    EditorOperationDescriptor, ExecutionPlanDraft, OperationKey, OperationNode,
-    OperationRegistry, ValidatedExecutionPlan,
+    AccessMode, DomainAdmissionMode, EditorAffinity, EditorCatalogError, EditorOperationDescriptor,
+    ExecutionPlanDraft, OperationKey, OperationNode, OperationRegistry, ValidatedExecutionPlan,
 };
 use std::sync::{
-    atomic::{AtomicUsize, Ordering},
     Arc,
+    atomic::{AtomicUsize, Ordering},
 };
 
 type Handler = dyn Fn() + Send + Sync;
@@ -72,9 +71,11 @@ fn trusted_exact_registration_and_editor_binding_are_passive() {
     assert_eq!(static_json["descriptor_version"], 1);
     assert_eq!(inspected[0].descriptor_version(), 1);
 
-    let edited = plan(valid_node()
-        .access("cache", AccessMode::Read)
-        .on_signal("ready"));
+    let edited = plan(
+        valid_node()
+            .access("cache", AccessMode::Read)
+            .on_signal("ready"),
+    );
     let bound = registry.bind_editor_plan(&edited).unwrap();
     assert!(bound.handler("update").is_some());
     assert_eq!(counter.load(Ordering::SeqCst), 0);
@@ -87,15 +88,17 @@ fn trusted_exact_registration_and_editor_binding_are_passive() {
 fn editor_cannot_omit_or_weaken_publisher_required_write_access() {
     let counter = Arc::new(AtomicUsize::new(0));
     let registry = registry(Arc::clone(&counter));
-    let missing = plan(OperationNode::new("update", key("editor.update", 1))
-        .delegated_frame("simulation"));
+    let missing =
+        plan(OperationNode::new("update", key("editor.update", 1)).delegated_frame("simulation"));
     assert!(matches!(
         registry.bind_editor_plan(&missing),
         Err(EditorCatalogError::DisallowedNode { .. })
     ));
-    let read_only = plan(OperationNode::new("update", key("editor.update", 1))
-        .access("state", AccessMode::Read)
-        .delegated_frame("simulation"));
+    let read_only = plan(
+        OperationNode::new("update", key("editor.update", 1))
+            .access("state", AccessMode::Read)
+            .delegated_frame("simulation"),
+    );
     assert!(matches!(
         registry.bind_editor_plan(&read_only),
         Err(EditorCatalogError::DisallowedNode { .. })
@@ -109,12 +112,16 @@ fn editor_rejects_unapproved_resources_domain_changes_and_signals() {
     let registry = registry(Arc::clone(&counter));
     let unknown_resource = plan(valid_node().access("secret", AccessMode::Write));
     let wrong_mode_for_optional = plan(valid_node().access("cache", AccessMode::Write));
-    let wrong_domain = plan(OperationNode::new("update", key("editor.update", 1))
-        .access("state", AccessMode::Write)
-        .domain_tick("simulation"));
-    let wrong_name = plan(OperationNode::new("update", key("editor.update", 1))
-        .access("state", AccessMode::Write)
-        .delegated_frame("another-domain"));
+    let wrong_domain = plan(
+        OperationNode::new("update", key("editor.update", 1))
+            .access("state", AccessMode::Write)
+            .domain_tick("simulation"),
+    );
+    let wrong_name = plan(
+        OperationNode::new("update", key("editor.update", 1))
+            .access("state", AccessMode::Write)
+            .delegated_frame("another-domain"),
+    );
     let unexpected_signal = plan(valid_node().on_signal("other"));
     for proposal in [
         unknown_resource,
@@ -171,8 +178,8 @@ fn unsafe_publisher_descriptors_are_rejected_before_handler_registration() {
         registry.register_editor_operation(invalid_signal, Arc::new(|| {})),
         Err(EditorCatalogError::InvalidDescriptor { .. })
     ));
-    let affine =
-        EditorOperationDescriptor::new(key("editor.native", 1)).affinity(EditorAffinity::NativeThread);
+    let affine = EditorOperationDescriptor::new(key("editor.native", 1))
+        .affinity(EditorAffinity::NativeThread);
     assert!(matches!(
         registry.register_editor_operation(affine, Arc::new(|| {})),
         Err(EditorCatalogError::UnsupportedAffinity { .. })
@@ -193,8 +200,7 @@ fn publisher_required_signal_cannot_be_removed_for_immediate_admission() {
     let mut registry = OperationRegistry::<Handler>::new();
     registry
         .register_editor_operation(
-            EditorOperationDescriptor::new(key("editor.signal", 1))
-                .require_signal("clock"),
+            EditorOperationDescriptor::new(key("editor.signal", 1)).require_signal("clock"),
             Arc::new(|| {}),
         )
         .unwrap();
