@@ -117,6 +117,22 @@ owner, authorization or existing operational identity. A plan can be
 metadata-only while a query **execution** necessarily consumes work; no
 "pure inspection" guarantee follows from a validated query string.
 
+## External alternatives and applicability
+
+Do not design a homegrown Query DSL from memory. Discover and screen
+materially different existing Rust data-query APIs, typed query builders,
+relational/document query approaches, and standardized query representations
+or engines **where their semantics could satisfy the stated product
+outcome**. A candidate being familiar, popular, SQL-based, Rust-only or
+compatible with SQLite is neither sufficient nor disqualifying.
+Separate logical API libraries, provider/backend engines, transport
+protocols and physical indices. For any shortlisted candidate, verify
+its current API, licensing, maintenance, Rust 1.100 compatibility,
+deployment model and actual provider boundary from primary sources.
+Give brief evidence-based reasons when excluding an approach. Do not
+add every library or standard to the test matrix without evidence it
+could change the architecture decision.
+
 ## Common comparison criteria and explicit falsifiers
 
 Compare candidates on the **same** accepted/credible outcomes:
