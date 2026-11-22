@@ -5,8 +5,9 @@
 #![cfg(feature = "async-tcp")]
 
 use riesel::{
-    App, AsyncOperation, ConnectorRegistry, DeploymentConfig, ExecutionPlanDraft,
-    FixedStepAdmission, FixedStepBacklog, FixedStepPolicy, GraphRunError, GraphRunPhase,
+    AccessMode, App, AsyncOperation, ConnectorRegistry, DeploymentConfig, ExecutionPlanDraft,
+    FixedStepAdmission, FixedStepBacklog, FixedStepPolicy, GraphControlTarget, GraphRunError,
+    GraphRunPhase,
     OperationKey, OperationNode, OperationOutcome, OperationRegistry, OperationState, RunningApp,
     async_operation,
 };
@@ -253,6 +254,111 @@ fn diagnostic_repeated_wide_and_chain_graph_samples() {
                 );
             }
         }
+    });
+}
+
+
+#[test]
+fn paused_hot_resource_owner_allows_independent_cold_progress() {
+    runtime().block_on(async {
+        const HOT_OPERATIONS: usize = 8;
+        let owner = application_session();
+        let started = Arc::new(AtomicUsize::new(0));
+        let permits = Arc::new(Semaphore::new(0));
+        let mut registry = OperationRegistry::<AsyncOperation>::new();
+        registry
+            .register(
+                key("hot-writer"),
+                async_operation({
+                    let started = Arc::clone(&started);
+                    let permits = Arc::clone(&permits);
+                    move || {
+                        let started = Arc::clone(&started);
+                        let permits = Arc::clone(&permits);
+                        async move {
+                            started.fetch_add(1, Ordering::SeqCst);
+                            let permit = permits.acquire().await.unwrap();
+                            drop(permit);
+                            OperationOutcome::Completed
+                        }
+                    }
+                }),
+            )
+            .unwrap();
+        registry
+            .register(
+                key("cold-writer"),
+                async_operation(|| async { OperationOutcome::Completed }),
+            )
+            .unwrap();
+
+        let mut hot_plan = ExecutionPlanDraft::new("resource-hot", 1);
+        for index in 0..HOT_OPERATIONS {
+            hot_plan = hot_plan.operation(
+                OperationNode::new(format!("hot-{index}"), key("hot-writer"))
+                    .access("shared-writer", AccessMode::Write),
+            );
+        }
+        let hot = owner
+            .execution_graph(
+                hot_plan.validate().unwrap().bind(&registry).unwrap(),
+                NonZeroUsize::new(HOT_OPERATIONS).unwrap(),
+            )
+            .unwrap();
+        let control = hot.controller();
+        let hot_future = tokio::spawn(hot.execute());
+        tokio::time::timeout(Duration::from_secs(5), async {
+            while started.load(Ordering::SeqCst) != 1 {
+                tokio::task::yield_now().await;
+            }
+        })
+        .await
+        .unwrap();
+
+        let cold = owner
+            .execution_graph(
+                ExecutionPlanDraft::new("resource-cold", 1)
+                    .operation(
+                        OperationNode::new("cold", key("cold-writer"))
+                            .access("shared-writer", AccessMode::Write),
+                    )
+                    .validate()
+                    .unwrap()
+                    .bind(&registry)
+                    .unwrap(),
+                NonZeroUsize::new(1).unwrap(),
+            )
+            .unwrap();
+        let observer = cold.observer();
+        let cold_future = tokio::spawn(cold.execute());
+        tokio::time::timeout(Duration::from_secs(5), async {
+            while observer.snapshot().phase != GraphRunPhase::Running {
+                tokio::task::yield_now().await;
+            }
+        })
+        .await
+        .unwrap();
+        // Pause only future hot admissions; do not preempt the running writer.
+        control.pause(GraphControlTarget::Run).unwrap();
+        permits.add_permits(1);
+        let cold_result = tokio::time::timeout(Duration::from_secs(5), cold_future)
+            .await
+            .unwrap()
+            .unwrap();
+        assert!(cold_result.succeeded());
+        assert_eq!(started.load(Ordering::SeqCst), 1);
+
+        control.resume(GraphControlTarget::Run).unwrap();
+        permits.add_permits(HOT_OPERATIONS - 1);
+        let hot_result = tokio::time::timeout(Duration::from_secs(5), hot_future)
+            .await
+            .unwrap()
+            .unwrap();
+        assert!(hot_result.succeeded());
+        assert_eq!(started.load(Ordering::SeqCst), HOT_OPERATIONS);
+        eprintln!(
+            "research #226: paused hot writer released shared resource for cold run, then resumed, no cross-run double admission"
+        );
     });
 }
 
