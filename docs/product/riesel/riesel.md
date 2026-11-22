@@ -65,6 +65,16 @@ Durable boundaries and delivery gates are defined in the [accepted execution-pla
 - CLI and programmatic interfaces should expose comparable supported platform operations with consistent error semantics.
 - New capabilities and specialized execution integrations can be added without replacing the foundational application model.
 
+### Reusable typed Query semantics (accepted direction; implementation pending)
+
+- Riesel shall support **optional, reusable, transport-neutral typed Query semantics** for selective, correctly typed, bounded retrieval of capability-owned application data. Applications and providers may adopt the shared semantic foundation where its behavior is meaningful; specialized domains are not obliged to implement one universal Query interface or executor.
+- Shared semantics shall make supported typed predicates, model/schema binding, result bounds, ordering and continuation, explicit incomplete/consistency outcomes, unsupported-feature errors and resource budgets understandable and verifiable. A query request must not silently change the declared type, ownership, authorization or consistency rules of its domain.
+- **The authoritative data owner remains in control of physical query execution and indexes.** Linked Storage is the first concrete research consumer; ECS, spatial, graph, search, streaming and analytical domains retain specialized execution and data ownership.
+- The reusable semantic direction is **accepted as a product outcome**, not as a public Query contract, language, trait, SQL engine, deployment policy or release claim. The interface for registered records is **not yet selected**: compare a separately versioned read-designated facet, a unified/attenuated Storage surface, a composite typed authoring handle and viable alternatives against the same model/read/write tasks before accepting a technical architecture.
+- Any first read-only application interface must support typed model registration without granting write methods; applications requiring read-your-writes must declare and verify the **logical data authority and supported consistency** rather than assuming two capability aliases or a lifecycle dependency share state. A read-designated method surface alone does not authorize external readers. Secure cross-process access and physical index maintenance require separately accepted guarantees.
+
+**Decision:** [#138, owner acceptance on 2026-11-22](https://github.com/aschenrot/riesel/issues/138#issuecomment-7073259869). **Research:** [PR #140](https://github.com/aschenrot/riesel/pull/140). The product decision does not approve implementation; record-interface packaging, model-only authoring, permissions and query-owner binding remain specification work.
+
 ## Product interfaces and delivery boundaries
 
 | Interface | Intended role | Current boundary |
