@@ -80,6 +80,20 @@ pub enum RuntimeError {
         requirement: String,
         providers: Vec<String>,
     },
+    #[error("record Query model {model} requires trusted linked placement for {requirement}")]
+    UnsupportedLinkedRecordPlacement { model: String, requirement: String },
+    #[error("record Query model {model} links reader {reader} and writer {writer} to different providers")]
+    LinkedRecordOwnerMismatch {
+        model: String,
+        reader: String,
+        writer: String,
+    },
+    #[error("record Query model {model} reader {requirement} must advertise read-only operations")]
+    InvalidLinkedRecordReader { model: String, requirement: String },
+    #[error("record Query model {model} writer {requirement} must advertise mutation operations")]
+    InvalidLinkedRecordWriter { model: String, requirement: String },
+    #[error("record Query model {model} lost its actual linked owner for {requirement}")]
+    LinkedRecordRuntimeMismatch { model: String, requirement: String },
     #[error("unregistered local provider: {0}")]
     UnknownLocalProvider(String),
     #[error("local provider {0} returned different metadata from its registration")]
