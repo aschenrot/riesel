@@ -37,6 +37,16 @@ The first linked Query profile cannot natively express `location == active AND c
 
 For the first release, Q1 versus a bounded, application-owned Q3 should be compared with *real* Memory/SQLite 33/100/10,000 mixed-status/Trash fixtures, provider inspection budgets and a two-client mutation-behind-cursor race. A sparse scan may still be slow; a separately accepted physical index requires offline upgrade and rollback. No latency guarantee or global count can be inferred from existing #107's 514-ms isolated result.
 
+## Additional schema-representation gate (verified from current code)
+
+The current `crates/riesel_schema/src/record_validation.rs` validates persisted `TypeRef::String` only as **any** JSON string and rejects `TypeRef::Named` as an unsupported record field. `crates/riesel_schema/src/model.rs` implements `ModelField` for `bool` and `String`, but not directly for custom enums. Thus the Rust API cannot currently claim a provider-validated, closed-set `Active | Trash` enum merely by introducing a string field:
+
+- **A1: `trashed: bool`**. A first two-state lifecycle is enforced at the Storage model boundary, preserves `completed` as a separate bool and is readable with `Eq bool`. It is the strongest **currently supported** domain shape for this bounded Trash requirement. A future accepted Archive/location model would require a deliberate compatible schema evolution rather than speculative boolean flags.
+- **A2: `location: String`**. A single source of extensible textual location names, but the Storage schema accepts unknown strings. Every Todo-domain mutation, historical transform and read must validate and fail closed; independent holders of a writable `Records<TaskData>` capability can bypass an application-only check. This is weaker than a typed provider-enforced enum and must not be called equivalent.
+- **A3: typed location enum**. Better expressiveness if Archive or other exclusive locations later become accepted, but requires independently justified support for closed enum fields in `RieselModel`, persisted model validation, Query predicates and explicit schema/compatibility migration. Do not silently widen Storage/Query for Todo.
+
+**Revised recommendation:** A single authoritative record is still the preferred data-ownership design, but for the accepted two-state Trash scope **A1 `trashed: bool` now leads over A2 string** on verified invariant strength and implementation compatibility. The existing string-based migration fixture deliberately proves UUID/migration mechanics only; it does *not* prove closed-set state validation. A focused schema test in this research branch documents the difference. Owner must accept the final persisted representation and the future migration boundary before product docs or binaries change.
+
 ## Proposed behavioral contracts requiring owner acceptance
 
 1. **Model:** one closed set of `active` and `trash` locations, independent of `completed`. Every migrated historical task becomes `active`, preserving title and completion. Do not add Archive or retention timestamp without a concrete need. Decide whether a Rust typed enum is supported by registered model/query fields before selecting wire shape; the tested string shape is a *research candidate*, not the approved model API.
