@@ -9,8 +9,8 @@ mod invariants;
 mod maintenance;
 mod operator;
 mod owner;
-mod records;
 mod query;
+mod records;
 mod restore;
 mod review;
 
@@ -59,9 +59,7 @@ pub fn sqlite_record_query_provider(
     readable: BTreeSet<String>,
     writable: bool,
 ) -> Result<impl LocalProviderFactory, ConnectorError> {
-    if readable.is_empty()
-        || !readable.is_subset(&models.keys().cloned().collect())
-    {
+    if readable.is_empty() || !readable.is_subset(&models.keys().cloned().collect()) {
         return Err(Box::new(std::io::Error::new(
             std::io::ErrorKind::InvalidInput,
             "readable Query models must be registered and nonempty",
@@ -75,9 +73,10 @@ pub fn sqlite_record_query_provider(
             } else {
                 SqliteStore::open_query_only(&path, models.clone(), readable.clone())?
             });
-            let instance = LocalProviderInstance::new(definition.clone()).bind::<RecordQueryContract>(
-                Arc::clone(&store) as Arc<dyn RecordQuery + Send + Sync>,
-            )?;
+            let instance = LocalProviderInstance::new(definition.clone())
+                .bind::<RecordQueryContract>(
+                    Arc::clone(&store) as Arc<dyn RecordQuery + Send + Sync>
+                )?;
             if writable {
                 instance.bind::<RecordStoreContract>(store as Arc<dyn RecordStore + Send + Sync>)
             } else {
