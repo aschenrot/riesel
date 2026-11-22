@@ -185,9 +185,7 @@ fn typed_record_reader_and_storage_build_one_canonical_model_authority_link() {
         schema
             .requires
             .iter()
-            .map(|requirement| {
-                (requirement.name.clone(), requirement.capability.clone())
-            })
+            .map(|requirement| (requirement.name.clone(), requirement.capability.clone()))
             .collect::<std::collections::BTreeMap<_, _>>()
     };
     assert_eq!(by_name(&first), by_name(&second));
