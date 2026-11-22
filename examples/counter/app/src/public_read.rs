@@ -2,8 +2,8 @@
 //! SDK-selected provider (not another owned counter or a copied resolver).
 use riesel::{RieselType, capability};
 use riesel_counter::Counter;
-use std::sync::Arc;
 use serde::{Deserialize, Serialize};
+use std::sync::Arc;
 use thiserror::Error;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, RieselType, Error)]
