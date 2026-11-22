@@ -208,19 +208,22 @@ impl AppReadPublication {
 
         // Publication withdrawal and Riesel runtime admission have one
         // pre-dispatch linearization point. No lock spans application code.
-        let policy = self.policy.lock().unwrap_or_else(PoisonError::into_inner);
-        if policy.withdrawn {
-            return Err(ReadPublicationError::Withdrawn);
-        }
-        let permit = self
-            .runtime_ingress
-            .try_admit(&requested.generation)
-            .map_err(|error| match error {
-                InternalAdmissionError::WrongGeneration => ReadPublicationError::StaleGeneration,
-                InternalAdmissionError::Expired => ReadPublicationError::Expired,
-                InternalAdmissionError::AtCapacity => ReadPublicationError::AtCapacity,
-            })?;
-        drop(policy);
+        let permit = {
+            let policy = self.policy.lock().unwrap_or_else(PoisonError::into_inner);
+            if policy.withdrawn {
+                return Err(ReadPublicationError::Withdrawn);
+            }
+            self.runtime_ingress
+                .try_admit(&requested.generation)
+                .map_err(|error| match error {
+                    InternalAdmissionError::WrongGeneration => {
+                        ReadPublicationError::StaleGeneration
+                    }
+                    InternalAdmissionError::Expired => ReadPublicationError::Expired,
+                    InternalAdmissionError::AtCapacity => ReadPublicationError::AtCapacity,
+                })?
+        };
+        // The policy guard is lexically gone before the awaited domain read.
 
         let answer = self
             .handler
