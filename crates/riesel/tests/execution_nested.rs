@@ -5,7 +5,8 @@
 
 use riesel::{
     App, AsyncOperation, ConnectorRegistry, DeploymentConfig, ExecutionGraphRunner,
-    ExecutionPlanDraft, GraphControlError, GraphControlTarget, GraphRunObserver,
+    ExecutionPlanDraft, GraphControlError, GraphControlTarget, GraphEffectRecorder, GraphRunObserver,
+    GraphRunPhase,
     MAX_NESTED_TRANSITIONS, NestedCursor, NestedDomainOwner, NestedDomainRegistration,
     NestedObservationError, NestedPublisher, NestedStatus, OperationKey, OperationNode,
     OperationOutcome, OperationRegistry, OperationState, RunningApp, async_operation,
@@ -466,5 +467,191 @@ fn bounded_snapshot_cursor_overflow_and_owner_generation_fencing() {
             }
         );
         assert_eq!(view.snapshot().status, NestedStatus::OwnerClosed);
+    });
+}
+
+
+#[test]
+fn abandoned_outer_future_does_not_erase_late_domain_owned_effects() {
+    executor().block_on(async {
+        let setup = fixture(2, false);
+        let task = tokio::spawn(setup.graph.execute());
+        until(|| setup.observer.nested_description("frame").is_some()).await;
+        let view = setup
+            .observer
+            .nested::<StageSnapshot>("frame", 1)
+            .unwrap()
+            .unwrap();
+        // Prove the native Frame command reached its owner before abruptly
+        // abandoning the Tokio graph coordinator.
+        step(&setup.permits).await;
+        assert_eq!(view.snapshot().sequence, 1);
+        task.abort();
+        assert!(task.await.unwrap_err().is_cancelled());
+        until(|| setup.observer.snapshot().phase == GraphRunPhase::Abandoned).await;
+        assert_eq!(
+            setup.observer.snapshot().operations["frame"].state,
+            OperationState::OutcomeUnknown
+        );
+        // The already-dispatched native domain continues independently.
+        step(&setup.permits).await;
+        assert_eq!(view.snapshot().sequence, 2);
+        assert_eq!(view.snapshot().payload.as_ref().unwrap().stage, 2);
+        assert_eq!(
+            setup.observer.snapshot().operations["frame"].state,
+            OperationState::OutcomeUnknown
+        );
+        assert_eq!(
+            setup.domain.stop(),
+            StageSnapshot { stage: 2, position: 4 }
+        );
+        assert_eq!(view.snapshot().status, NestedStatus::OwnerClosed);
+    });
+}
+
+#[test]
+fn replacing_owner_generation_retires_old_readers_and_publishers() {
+    executor().block_on(async {
+        let first = NestedDomainOwner::new("world.owner");
+        let second = NestedDomainOwner::new("world.owner");
+        let wrong = NestedDomainOwner::new("other.domain");
+        assert_ne!(first.generation(), second.generation());
+        let (attached_tx, attached_rx) = oneshot::channel::<NestedPublisher<i32>>();
+        let attached_tx = Arc::new(Mutex::new(Some(attached_tx)));
+        let (continue_tx, continue_rx) = oneshot::channel::<()>();
+        let continue_rx = Arc::new(Mutex::new(Some(continue_rx)));
+        let reporter = Arc::new(Mutex::new(None::<GraphEffectRecorder>));
+        let mut registry = OperationRegistry::<AsyncOperation>::new();
+        registry
+            .register(
+                key("frame"),
+                async_operation_with_effects({
+                    let first = first.registration();
+                    let second = second.registration();
+                    let wrong = wrong.registration();
+                    let attached_tx = Arc::clone(&attached_tx);
+                    let continue_rx = Arc::clone(&continue_rx);
+                    let reporter = Arc::clone(&reporter);
+                    move |effects| {
+                        let first = first.clone();
+                        let second = second.clone();
+                        let wrong = wrong.clone();
+                        let attached_tx = attached_tx.lock().unwrap().take().unwrap();
+                        let continue_rx = continue_rx.lock().unwrap().take().unwrap();
+                        *reporter.lock().unwrap() = Some(effects.clone());
+                        async move {
+                            assert!(matches!(
+                                effects.attach_nested::<i32>(&wrong, 1),
+                                Err(NestedObservationError::WrongDomain { .. })
+                            ));
+                            assert!(matches!(
+                                effects.attach_nested::<i32>(&first, 0),
+                                Err(NestedObservationError::InvalidVersion)
+                            ));
+                            let original = effects.attach_nested::<i32>(&first, 1).unwrap();
+                            assert!(matches!(
+                                effects.attach_nested::<i32>(&first, 1),
+                                Err(NestedObservationError::AlreadyAttached)
+                            ));
+                            attached_tx.send(original).unwrap();
+                            continue_rx.await.unwrap();
+                            let replacement = effects.attach_nested::<i32>(&second, 2).unwrap();
+                            replacement.publish(42).unwrap();
+                            OperationOutcome::Completed
+                        }
+                    }
+                }),
+            )
+            .unwrap();
+        let plan = ExecutionPlanDraft::new("nested.replace", 4)
+            .operation(OperationNode::new("frame", key("frame")).delegated_frame("world.owner"))
+            .validate()
+            .unwrap()
+            .bind(&registry)
+            .unwrap();
+        let app = session();
+        let runner = app.execution_graph(plan, NonZeroUsize::new(1).unwrap()).unwrap();
+        let observer = runner.observer();
+        let task = tokio::spawn(runner.execute());
+        let original = tokio::time::timeout(WAIT, attached_rx).await.unwrap().unwrap();
+        original.publish(7).unwrap();
+        let old = observer.nested::<i32>("frame", 1).unwrap().unwrap();
+        assert_eq!(*old.snapshot().payload.unwrap(), 7);
+        assert_eq!(old.snapshot().description.owner_generation, first.generation());
+        let old_cursor = NestedCursor {
+            owner_generation: first.generation(),
+            sequence: 1,
+        };
+        continue_tx.send(()).unwrap();
+        until(|| observer.nested_description("frame").unwrap().owner_generation == second.generation()).await;
+        assert_eq!(old.snapshot().status, NestedStatus::Superseded);
+        assert!(matches!(
+            old.changes_since(old_cursor),
+            Err(NestedObservationError::Superseded)
+        ));
+        assert!(matches!(
+            original.publish(8),
+            Err(NestedObservationError::Superseded)
+        ));
+        assert!(matches!(
+            observer.nested::<i32>("frame", 1),
+            Err(NestedObservationError::UnsupportedVersion { .. })
+        ));
+        let new = observer.nested::<i32>("frame", 2).unwrap().unwrap();
+        assert_eq!(new.snapshot().status, NestedStatus::Current);
+        assert_eq!(*new.snapshot().payload.unwrap(), 42);
+        assert_ne!(new.snapshot().description.owner_generation, old_cursor.owner_generation);
+        assert!(matches!(
+            new.changes_since(old_cursor),
+            Err(NestedObservationError::StaleCursor)
+        ));
+        let report = tokio::time::timeout(WAIT, task).await.unwrap().unwrap();
+        assert_eq!(report.operations["frame"], OperationState::Completed);
+        assert_eq!(new.snapshot().description.parent.run, report.identity);
+        assert_eq!(new.snapshot().description.parent.attempt, 1);
+        assert!(matches!(
+            reporter.lock().unwrap().as_ref().unwrap().attach_nested::<i32>(&second.registration(), 2),
+            Err(NestedObservationError::InactiveAttempt)
+        ));
+        drop(second);
+        assert_eq!(new.snapshot().status, NestedStatus::OwnerClosed);
+        drop(app);
+        assert_eq!(new.snapshot().status, NestedStatus::SessionExpired);
+    });
+}
+
+#[test]
+fn ordinary_operations_cannot_create_domain_owned_nested_views() {
+    executor().block_on(async {
+        let domain = NestedDomainOwner::new("world.owner");
+        let mut registry = OperationRegistry::<AsyncOperation>::new();
+        registry
+            .register(
+                key("ordinary"),
+                async_operation_with_effects({
+                    let registration = domain.registration();
+                    move |effects| {
+                        let registration = registration.clone();
+                        async move {
+                            assert!(matches!(
+                                effects.attach_nested::<usize>(&registration, 1),
+                                Err(NestedObservationError::UnsupportedBoundary)
+                            ));
+                            OperationOutcome::Completed
+                        }
+                    }
+                }),
+            )
+            .unwrap();
+        let plan = ExecutionPlanDraft::new("nested.unsupported", 1)
+            .operation(OperationNode::new("ordinary", key("ordinary")))
+            .validate().unwrap().bind(&registry).unwrap();
+        let app = session();
+        let runner = app.execution_graph(plan, NonZeroUsize::new(1).unwrap()).unwrap();
+        let observer = runner.observer();
+        let report = runner.execute().await;
+        assert!(report.succeeded());
+        assert!(observer.nested_description("ordinary").is_none());
+        assert!(observer.nested::<usize>("ordinary", 1).unwrap().is_none());
     });
 }
