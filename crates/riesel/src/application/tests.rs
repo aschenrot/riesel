@@ -154,6 +154,88 @@ fn native_record_query_and_storage_v2_share_one_confirmed_writer() {
         .unwrap();
 }
 
+#[cfg(feature = "sqlite-storage")]
+#[test]
+fn sqlite_native_query_reads_existing_record_without_mutating_storage_contract() {
+    use crate::ModelRead;
+    use crate::storage::{RecordQueryContract, RecordQueryRequest};
+
+    let directory = tempfile::tempdir().unwrap();
+    let file = directory.path().join("typed-query.db");
+    Application::new("Seed")
+        .records::<TodoModel>()
+        .unwrap()
+        .sqlite_storage(&file)
+        .unwrap()
+        .run(|ctx| {
+            ctx.records::<TodoModel>()?.create(TodoModel {
+                title: "Durable".into(),
+                completed: false,
+            })?;
+            Ok(())
+        })
+        .unwrap();
+
+    let reader = Application::new("QueryExisting")
+        .handler(
+            |query: ModelRead<TodoModel, RecordQueryContract>|
+             -> std::result::Result<(), crate::storage::RecordQueryError> {
+                let result = query.query_page(RecordQueryRequest {
+                    model: "todo".into(),
+                    predicate: None,
+                    limit: 16,
+                    scan_budget: 16,
+                    cursor: None,
+                })?;
+                assert_eq!(result.records.len(), 1);
+                assert_eq!(result.records[0].data["title"], "Durable");
+                Ok(())
+            },
+        )
+        .unwrap();
+    assert!(reader.definition().model_bindings.is_empty());
+    assert_eq!(reader.definition().requires.len(), 1);
+    reader.sqlite_record_query(&file).unwrap().run().unwrap();
+}
+
+#[cfg(feature = "sqlite-storage")]
+#[test]
+fn sqlite_combined_query_and_storage_share_one_confirmed_linked_owner() {
+    use crate::{ModelRead, Records};
+    use crate::storage::{RecordQueryContract, RecordQueryRequest};
+    let directory = tempfile::tempdir().unwrap();
+    let file = directory.path().join("combined-query.db");
+    Application::new("CombinedQuery")
+        .handler_with_aliases(
+            |reader: ModelRead<TodoModel, RecordQueryContract>,
+             writer: Records<TodoModel>|
+             -> std::result::Result<(), Box<dyn std::error::Error + Send + Sync>> {
+                writer.create(TodoModel {
+                    title: "Confirmed SQLite".into(),
+                    completed: true,
+                })?;
+                let page = reader.query_page(RecordQueryRequest {
+                    model: "todo".into(),
+                    predicate: None,
+                    limit: 16,
+                    scan_budget: 16,
+                    cursor: None,
+                })?;
+                assert_eq!(page.records.len(), 1);
+                assert_eq!(page.records[0].data["title"], "Confirmed SQLite");
+                Ok(())
+            },
+            ["read", "writer"],
+        )
+        .unwrap()
+        // Existing writer-oriented SDK selects the co-exposed provider
+        // instead of accidentally splitting read and write authority.
+        .sqlite_storage(&file)
+        .unwrap()
+        .run()
+        .unwrap();
+}
+
 #[cfg(feature = "dev-memory-storage")]
 #[test]
 fn rust_first_app_runs_without_json_or_tcp() {
