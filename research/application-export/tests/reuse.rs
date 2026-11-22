@@ -5,19 +5,19 @@ use riesel::{
     OperationKey, OperationNode, OperationOutcome, OperationRegistry, OperationState, Records,
     async_operation,
 };
-use riesel_counter::{AsyncCounterContract, CounterError};
-use riesel_counter_component::AsyncMemoryCounter;
 use riesel_application_export_research::{
     AttachmentRequest, ExportError, ResearchExport, SimulatedPrincipal, grant,
 };
+use riesel_counter::{AsyncCounterContract, CounterError};
+use riesel_counter_component::AsyncMemoryCounter;
 use riesel_macros::{RieselType, capability};
 use riesel_protocol::{AsyncRpcFuture, AsyncRpcHandler, CallError, RpcError};
 use riesel_schema::{CapabilityContract, CapabilityDescriptor};
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use std::error::Error;
-use std::sync::Arc;
 use std::num::NonZeroUsize;
+use std::sync::Arc;
 use todo::{TaskData, Todo};
 
 type TestResult = Result<(), Box<dyn Error + Send + Sync>>;
@@ -128,57 +128,67 @@ fn success<T: serde::de::DeserializeOwned, E: serde::de::DeserializeOwned + std:
 #[test]
 fn counter_uses_sdk_resolver_and_export_policy_without_a_second_resolver() -> TestResult {
     Application::new("Counter Export Research")
-        .async_handler(|counter: AsyncCapability<AsyncCounterContract>| async move {
-            let relay = Arc::new(ResolvedCounter(counter));
-            let gateway = ResearchExport::new(
-                "org.example.counter",
-                "gui.counter",
-                "s1-provisional-nonce",
-                relay,
-                grant("gui", &["value", "add"]),
-            )?;
-            let descriptor = gateway.descriptor();
-            let attached = gateway.attach(&descriptor, SimulatedPrincipal::for_test("gui"))?;
-            assert_eq!(
-                success::<u64, CounterError>(
-                    gateway.invoke(&attached, "value", json!({})).await?
-                ),
-                0
-            );
-            assert_eq!(
-                success::<u64, CounterError>(
-                    gateway.invoke(&attached, "add", json!({"amount": 5})).await?
-                ),
-                5
-            );
-            // Disallowed operation is blocked *before* dispatch.
-            assert_eq!(
-                gateway.invoke(&attached, "label", json!({"prefix": "x"})).await,
-                Err(ExportError::Forbidden)
-            );
-            assert_eq!(
-                gateway.attach(&descriptor, SimulatedPrincipal::for_test("untrusted")).unwrap_err(),
-                ExportError::Unauthorized
-            );
-            let mut wrong = descriptor.clone();
-            wrong.contract.version += 1;
-            assert_eq!(
-                gateway.attach(&wrong, SimulatedPrincipal::for_test("gui")).unwrap_err(),
-                ExportError::ContractMismatch
-            );
-            assert_eq!(
-                success::<u64, CounterError>(
-                    gateway.invoke(&attached, "value", json!({})).await?
-                ),
-                5
-            );
-            gateway.revoke();
-            assert_eq!(
-                gateway.invoke(&attached, "add", json!({"amount": 1})).await,
-                Err(ExportError::NotReady)
-            );
-            Ok::<(), Box<dyn Error + Send + Sync>>(())
-        })?
+        .async_handler(
+            |counter: AsyncCapability<AsyncCounterContract>| async move {
+                let relay = Arc::new(ResolvedCounter(counter));
+                let gateway = ResearchExport::new(
+                    "org.example.counter",
+                    "gui.counter",
+                    "s1-provisional-nonce",
+                    relay,
+                    grant("gui", &["value", "add"]),
+                )?;
+                let descriptor = gateway.descriptor();
+                let attached = gateway.attach(&descriptor, SimulatedPrincipal::for_test("gui"))?;
+                assert_eq!(
+                    success::<u64, CounterError>(
+                        gateway.invoke(&attached, "value", json!({})).await?
+                    ),
+                    0
+                );
+                assert_eq!(
+                    success::<u64, CounterError>(
+                        gateway
+                            .invoke(&attached, "add", json!({"amount": 5}))
+                            .await?
+                    ),
+                    5
+                );
+                // Disallowed operation is blocked *before* dispatch.
+                assert_eq!(
+                    gateway
+                        .invoke(&attached, "label", json!({"prefix": "x"}))
+                        .await,
+                    Err(ExportError::Forbidden)
+                );
+                assert_eq!(
+                    gateway
+                        .attach(&descriptor, SimulatedPrincipal::for_test("untrusted"))
+                        .unwrap_err(),
+                    ExportError::Unauthorized
+                );
+                let mut wrong = descriptor.clone();
+                wrong.contract.version += 1;
+                assert_eq!(
+                    gateway
+                        .attach(&wrong, SimulatedPrincipal::for_test("gui"))
+                        .unwrap_err(),
+                    ExportError::ContractMismatch
+                );
+                assert_eq!(
+                    success::<u64, CounterError>(
+                        gateway.invoke(&attached, "value", json!({})).await?
+                    ),
+                    5
+                );
+                gateway.revoke();
+                assert_eq!(
+                    gateway.invoke(&attached, "add", json!({"amount": 1})).await,
+                    Err(ExportError::NotReady)
+                );
+                Ok::<(), Box<dyn Error + Send + Sync>>(())
+            },
+        )?
         .component::<AsyncMemoryCounter>()?
         .run()?;
     Ok(())
@@ -200,13 +210,13 @@ fn todo_uses_same_gateway_with_sdk_records_and_a_generated_app_contract() -> Tes
             let descriptor = first.descriptor();
             let one = first.attach(&descriptor, SimulatedPrincipal::for_test("gui"))?;
             assert_eq!(
-                success::<u64, TodoPublicError>(
-                    first.invoke(&one, "count", json!({})).await?
-                ),
+                success::<u64, TodoPublicError>(first.invoke(&one, "count", json!({})).await?),
                 0
             );
             let created: String = success::<String, TodoPublicError>(
-                first.invoke(&one, "create", json!({"title": "Plan"})).await?,
+                first
+                    .invoke(&one, "create", json!({"title": "Plan"}))
+                    .await?,
             );
             assert!(!created.is_empty());
             let domain: Result<String, TodoPublicError> = serde_json::from_value(
@@ -224,7 +234,9 @@ fn todo_uses_same_gateway_with_sdk_records_and_a_generated_app_contract() -> Tes
                 grant("gui", &["count", "create"]),
             )?;
             assert_eq!(
-                second.invoke(&one, "create", json!({"title": "stale"})).await,
+                second
+                    .invoke(&one, "create", json!({"title": "stale"}))
+                    .await,
                 Err(ExportError::StaleGeneration)
             );
             let mut forged = AttachmentRequest {
@@ -232,15 +244,15 @@ fn todo_uses_same_gateway_with_sdk_records_and_a_generated_app_contract() -> Tes
                 ..second.descriptor()
             };
             assert_eq!(
-                second.attach(&forged, SimulatedPrincipal::for_test("gui")).unwrap_err(),
+                second
+                    .attach(&forged, SimulatedPrincipal::for_test("gui"))
+                    .unwrap_err(),
                 ExportError::StaleGeneration
             );
             forged.generation = "session-two".into();
             let fresh = second.attach(&forged, SimulatedPrincipal::for_test("gui"))?;
             assert_eq!(
-                success::<u64, TodoPublicError>(
-                    second.invoke(&fresh, "count", json!({})).await?
-                ),
+                success::<u64, TodoPublicError>(second.invoke(&fresh, "count", json!({})).await?),
                 1
             );
             assert_eq!(
@@ -297,12 +309,14 @@ async fn uncertain_write_is_not_a_domain_error_or_automatic_retry() {
 #[test]
 fn invalid_export_grants_fail_during_construction() {
     let bad = ResearchExport::new(
-        "counter", "facade", "epoch", Arc::new(LostReply),
+        "counter",
+        "facade",
+        "epoch",
+        Arc::new(LostReply),
         grant("gui", &["not_an_operation"]),
     );
     assert!(matches!(bad, Err(ExportError::Invalid(_))));
 }
-
 
 // Third actual SDK owner shape: the graph runner is created inside the real
 // application session. This view never owns execution, a graph-run controller
@@ -339,7 +353,9 @@ struct GraphReadFacade(GraphRunObserver);
 impl GraphRead for GraphReadFacade {
     async fn snapshot(&self) -> Result<GraphReadSummary, GraphReadError> {
         let current = self.0.snapshot();
-        let history = self.0.changes_since(0)
+        let history = self
+            .0
+            .changes_since(0)
             .map_err(|err| GraphReadError::Unavailable(err.to_string()))?;
         Ok(GraphReadSummary {
             plan_id: current.identity.plan_id().to_owned(),
@@ -350,10 +366,14 @@ impl GraphRead for GraphReadFacade {
             latest_sequence: current.latest_sequence,
             session_expired: current.session_expired,
             trace_truncated: history.truncated,
-            pending: current.operations.values()
+            pending: current
+                .operations
+                .values()
                 .filter(|n| matches!(n.state, OperationState::Pending))
                 .count() as u64,
-            completed: current.operations.values()
+            completed: current
+                .operations
+                .values()
                 .filter(|n| matches!(n.state, OperationState::Completed))
                 .count() as u64,
         })
@@ -371,37 +391,54 @@ fn graph_uses_same_gateway_with_sdk_run_and_read_only_generated_contract() -> Te
             )?;
         }
         let plan = ExecutionPlanDraft::new("research.gui-public-graph", 1)
-            .operation(OperationNode::new("source", OperationKey::new("source", 1)?))
-            .operation(OperationNode::new("sink", OperationKey::new("sink", 1)?)
-                .after("source"))
+            .operation(OperationNode::new(
+                "source",
+                OperationKey::new("source", 1)?,
+            ))
+            .operation(OperationNode::new("sink", OperationKey::new("sink", 1)?).after("source"))
             .validate()?
             .bind(&operations)?;
         let runner = context.execution_graph(plan, NonZeroUsize::new(1).unwrap())?;
         let observer = runner.observer();
-        let handler: Arc<dyn AsyncRpcHandler> =
-            Arc::new(GraphReadAsyncRpcDispatcher::new(GraphReadFacade(observer.clone())));
+        let handler: Arc<dyn AsyncRpcHandler> = Arc::new(GraphReadAsyncRpcDispatcher::new(
+            GraphReadFacade(observer.clone()),
+        ));
         let gateway = ResearchExport::new(
-            "org.example.graph", "gui.graph", "simulated-graph-epoch",
-            handler, grant("gui", &["snapshot"]),
-        ).expect("test-only publication policy");
+            "org.example.graph",
+            "gui.graph",
+            "simulated-graph-epoch",
+            handler,
+            grant("gui", &["snapshot"]),
+        )
+        .expect("test-only publication policy");
         let descriptor = gateway.descriptor();
-        let attached = gateway.attach(&descriptor, SimulatedPrincipal::for_test("gui"))
+        let attached = gateway
+            .attach(&descriptor, SimulatedPrincipal::for_test("gui"))
             .expect("simulated approved client");
         let mut stale = descriptor.clone();
         stale.generation = "another-epoch".into();
         assert_eq!(
-            gateway.attach(&stale, SimulatedPrincipal::for_test("gui")).unwrap_err(),
+            gateway
+                .attach(&stale, SimulatedPrincipal::for_test("gui"))
+                .unwrap_err(),
             ExportError::StaleGeneration
         );
         assert_eq!(
-            gateway.attach(&descriptor, SimulatedPrincipal::for_test("other")).unwrap_err(),
+            gateway
+                .attach(&descriptor, SimulatedPrincipal::for_test("other"))
+                .unwrap_err(),
             ExportError::Unauthorized
         );
         let executor = tokio::runtime::Builder::new_current_thread()
-            .enable_all().build().expect("research Tokio runtime");
+            .enable_all()
+            .build()
+            .expect("research Tokio runtime");
         executor.block_on(async {
             let initial: GraphReadSummary = success(
-                gateway.invoke(&attached, "snapshot", json!({})).await.unwrap()
+                gateway
+                    .invoke(&attached, "snapshot", json!({}))
+                    .await
+                    .unwrap(),
             );
             assert_eq!(initial.plan_id, "research.gui-public-graph");
             assert_eq!(initial.revision, 1);
@@ -413,7 +450,10 @@ fn graph_uses_same_gateway_with_sdk_run_and_read_only_generated_contract() -> Te
             let report = runner.execute().await;
             assert!(report.succeeded());
             let finished: GraphReadSummary = success(
-                gateway.invoke(&attached, "snapshot", json!({})).await.unwrap()
+                gateway
+                    .invoke(&attached, "snapshot", json!({}))
+                    .await
+                    .unwrap(),
             );
             assert_eq!(finished.phase, "Finished");
             assert_eq!(finished.completed, 2);
@@ -421,7 +461,10 @@ fn graph_uses_same_gateway_with_sdk_run_and_read_only_generated_contract() -> Te
             assert_eq!(finished.session_generation, initial.session_generation);
             assert_eq!(finished.run_sequence, initial.run_sequence);
             assert!(finished.latest_sequence > initial.latest_sequence);
-            assert_eq!(finished.session_generation, report.identity.session_generation().to_string());
+            assert_eq!(
+                finished.session_generation,
+                report.identity.session_generation().to_string()
+            );
             assert_eq!(
                 gateway.invoke(&attached, "not-exposed", json!({})).await,
                 Err(ExportError::UnknownOperation)
