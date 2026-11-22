@@ -12,7 +12,6 @@ internal-publication = ["riesel/internal-publication"]
 
 [dependencies]
 riesel = { workspace = true, features = ["async-tcp"] }
-riesel_app = { workspace = true, optional = true }
 riesel_counter.workspace = true
 riesel_counter_component = { workspace = true, features = ["async-tcp"] }
 riesel_protocol = { workspace = true, features = ["async-tcp"] }
