@@ -270,7 +270,6 @@ def main(pinned):
     unit = UNIT_PREFIX + nonce + ".service"
     target = restricted_app_dir(Path(OPT_PREFIX + nonce))
     root = Path(tempfile.mkdtemp(prefix=ROOT_PREFIX))
-    broker_log = root / "broker.log"
     broker_proc = None
     installed = target / "counter_resolved_facade_host"
     created_target, started_unit = False, False
@@ -317,7 +316,7 @@ def main(pinned):
         print("RESEARCH_M59_REAL_RIESEL_DIFFERENT_OS_PRINCIPAL", flush=True)
 
         # The mock broker is an independently protected root-side process.
-        with broker_log.open("w+") as log:
+        with tempfile.TemporaryFile(mode="w+") as log:
             broker_proc = subprocess.Popen(
                 sudo("/usr/bin/python3", str(script), "--broker",
                      str(root), unit, original["InvocationID"]),
@@ -327,7 +326,8 @@ def main(pinned):
                 if (root / "public.sock").exists() and (root / "private/admin.sock").exists():
                     break
                 if broker_proc.poll() is not None:
-                    raise AssertionError(f"broker exited {broker_proc.returncode}: {broker_log.read_text()}")
+                    log.seek(0)
+                    raise AssertionError(f"broker exited {broker_proc.returncode}: {log.read()}")
                 time.sleep(0.1)
             else:
                 raise AssertionError("protected broker did not establish both channels")
@@ -451,9 +451,9 @@ def main(pinned):
 
 
 if __name__ == "__main__":
-    if len(sys.argv) == 6 and sys.argv[1] == "--broker":
+    if len(sys.argv) == 5 and sys.argv[1] == "--broker":
         broker(Path(sys.argv[2]), sys.argv[3], sys.argv[4])
-    elif len(sys.argv) == 5 and sys.argv[1] in ("--client", "--admin"):
+    elif len(sys.argv) == 4 and sys.argv[1] in ("--client", "--admin"):
         root = Path(sys.argv[2])
         # Distinguish an actually protected socket from a public one.
         if sys.argv[1] == "--admin":
