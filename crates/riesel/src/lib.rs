@@ -38,6 +38,8 @@
 //! Riesel - a general purpose application engine
 extern crate self as riesel;
 mod application;
+#[cfg(feature = "app-publication")]
+mod graph_read;
 #[cfg(feature = "records")]
 mod records;
 mod rpc_connector;
@@ -51,6 +53,12 @@ pub use application::{
 #[cfg(feature = "async-tcp")]
 pub use application::{
     AsyncApplicationHandler, AsyncCapability, NativeHandleParam, PreparedAsyncApplication,
+};
+#[cfg(feature = "app-publication")]
+pub use graph_read::{
+    ExecutionGraphRead, ExecutionGraphReadAsyncRpcDispatcher, ExecutionGraphReadFacade,
+    GraphReadChanges, GraphReadError, GraphReadEvent, GraphReadIdentity, GraphReadNode,
+    GraphReadPrefix, GraphReadSnapshot,
 };
 #[cfg(feature = "records")]
 pub use records::{QueryPage, Record, RecordPage, Records};

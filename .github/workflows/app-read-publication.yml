@@ -34,3 +34,5 @@ jobs:
         run: cargo test --locked -p riesel_app --features app-publication-unix --test app_publication_unix -- --nocapture
       - name: Compile optional Unix facade in the SDK
         run: cargo check --locked -p riesel --features app-publication-unix
+      - name: Real graph read contract, independent OS client and trace overflow
+        run: cargo test --locked -p riesel --features app-publication-unix --test graph_publication_unix -- --nocapture
