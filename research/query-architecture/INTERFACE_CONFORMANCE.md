@@ -68,6 +68,54 @@ These are **architectural packaging families**, not a forced shortlist or names 
 
 No Rust trait/API name, on-wire expression grammar, state-token format, permission credential, physical index schema or mandatory provider process topology is approved by these invariants.
 
+## Decision gate — first supported linked data-authority profile (2026-11-22)
+
+This is a **research-backed conditional recommendation**, not an accepted public API. It resolves what the first separately versioned record read facet must bind to, and when Riesel can truthfully promise read-your-writes.
+
+### Verified feasibility versus missing enforcement
+
+- [AppSchema v1](../../crates/riesel_schema/src/schema.rs) rejects unknown fields and stores models, writer-oriented model_bindings, and independent requirements. It has no read/write logical data-authority relationship. An unsupported new schema must fail clearly, not overload lifecycle dependencies or silently reinterpret the old bindings.
+- [DeploymentPlan](../../crates/riesel_app/src/plan.rs) selects a target **per requirement alias**. For linked targets, [StartupState::attach_local](../../crates/riesel_app/src/runtime/bootstrap.rs) caches a constructed provider by selected **registration key**, attaching its advertised facets to that one instance within an application session. This is a valid *local implementation mechanism*, but it is **not an enforced schema relationship**, an authenticated identity or a guarantee across sessions. The positive and negative linked research tests above demonstrate both sides.
+- Managed instance names, provider-definition pins and external TCP endpoints are not proof of actual data authority or permitted reader identity. The [#75](https://github.com/aschenrot/riesel/issues/75) operational security and [#60](https://github.com/aschenrot/riesel/issues/60) publication workstreams retain those separate responsibilities.
+- Therefore the initial technical target should be **trusted, linked, same-application-session data ownership**, using one declared logical model/data-authority selection and distinct read/write operation surfaces. Failure to prove the requested consistency must reject the binding, not silently downgrade to an eventual or unverified read.
+
+### One comparison across the same five tasks
+
+| Scenario | Required first linked-release outcome | Deliberate exclusion |
+| --- | --- | --- |
+| **T1. Read-only typed application** | Register and validate its Rust-derived model with **one read/query requirement**, no Storage v2 writer requirement. Provider checks the allowed model and the read contract advertises no mutation methods. | This is operation-surface least privilege, **not** a sandbox or external client grant. |
+| **T2. Read/write typed application** | Select **one logical authority** for the dataset. Bind read and write facets to the **same actual linked instance and application session**. An acknowledged write is observed by a later supported live read. Reject split, missing, ambiguous or unsupported selection before side effects, and check actual instance association on attach. | No multi-record atomicity, multi-page snapshot, durable cross-session handoff or automatic remote identity. |
+| **T3. Independent reader** | An independent read-only application can describe the model/contract without a writer. Unsupported cross-app access to another application's linked authority is denied in this first profile. | A second process opening the same SQLite file, managed/exported readers and replicas are **not** silently implemented. These need separately accepted trust and consistency profiles. |
+| **T4. Correct typed retrieval** | Exact u64, UUID, missing/null and validated predicate behavior; explicit ordering, bounded provider work, partial/exhausted and invalid cursor/session/profile/owner outcomes; honest live/non-snapshot semantics. | Small returned pages and scratch indexes do not establish bounded scan cost or physical index safety. |
+| **T5. Evolution** | Storage v2 code and definitions remain valid. New model-only query/authority metadata require explicit backward-compatible evolution for supported readers and clear rejection by old strict parsers. | Do not claim the current schema accepts new fields, or that index DDL is authorized. |
+
+### Implementation obligations that distinguish the alternatives
+
+**Authoring and data selection:** A model-only registration path must generate inspectable schema from typed handlers and explicit builders without requesting mutation authority. An ergonomic composite may provide one Rust parameter, but must **not** disguise two unverified provider selections. Authority applies per dataset/model; unrelated models may intentionally use different providers. There must be no second manually synchronized schema.
+
+**Preflight and attachment:** The schema validator must check model/requirement/facet roles, supported consistency and one linked provider registration choice before constructing state. Runtime attachment must verify both facets were bound from the one constructed linked instance under the current session. It must fail on missing facets, split providers, stale generation or unsupported selection. Matching capability IDs, provider types, database path strings, or a lifecycle dependency cannot substitute for that check.
+
+**Permissions and future remote use:** A distinct read contract ensures a narrower operation surface. This alone does not authenticate a client or restrict an entire application from independently requesting writable capabilities. Provider-side model scope is still required. Future cross-process publication must reuse approved #75 identity, issuer, operation permission, epoch and revocation semantics; until proven, remote Query access is not an accepted feature.
+
+**Consistency and work:** The initial read-your-writes statement applies to a *sequential acknowledged write followed by a read* from the validated linked owner. It does not convert an ambiguous write to success, make multiple reads transactional, or grant snapshot semantics. Memory and SQLite retain provider-owned execution with explicit resource limits and errors for unsupported budgets/operators.
+
+**Version and migration cost:** A new authority relation changes the strict application-schema interpretation and must have a version/compatibility and rollback strategy, plus macro/builder equivalence tests. Preserve existing Storage v2 consumers. Physical indexes need an independently accepted offline owner/migration/rollback mechanism rather than startup side effects.
+
+### Preferred conditional choice and falsifiers
+
+**Prefer:** a **separately versioned read-designated facet, with one model-scoped logical owner selection**, first realized by verified linked co-exposure with Storage v2. This avoids giving read-only applications a writable RPC contract and allows Query to evolve independently of mutations.
+
+**Viable competitor:** a **unified Storage revision with genuinely enforced operation attenuation**. Its read/write handle intrinsically targets one provider, but a Rust-only read facade over writable Storage v2 is insufficient. If actual first-party owner pairing and model-only authoring are less maintainable or less secure than a genuinely attenuated unified interface on the same tasks, reverse the preference. Do not approve a general-purpose authority-group framework just because the narrow facet needs a relationship.
+
+**Implementation acceptance probes if this direction is approved:**
+1. A read-only typed application generates a model plus read requirement but no writable contract; provider denies an unauthorized model.
+2. One shared linked provider succeeds; split/ambiguous/missing-facet providers fail **before state construction**, and runtime attachment confirms actual instance ownership.
+3. Session replacement and stale/wrong-owner attachment do not silently reuse a prior reader; no hidden cross-app/remote grant is created.
+4. Typed/builder registration results agree; Memory/SQLite have equal query semantics, bounded work and honest cursors; existing Storage v2 files remain usable.
+5. Compare the same applications against an actually attenuated unified surface before final public API naming or schema adoption.
+
+**Research stopping rule:** The existing linked-SDK, strict-schema, and provider experiments support a *first trusted-linked architecture decision*. More scratch SQL benchmarks or unrelated remote security prototypes are unlikely to settle **interface packaging**. The owner must still record **accept / revise / defer / reject** in #138. Neither research CI nor this conditional recommendation authorizes production implementation.
+
 ## Recommendation and owner decision still required
 
 **The shared typed semantic foundation is accepted independently of public interface packaging.** For the first **linked** registered-record realization, prefer testing **a read-designated facet attached to a single declared model/data authority**, potentially using a general facet-bundle relationship, before accepting any public shape. It must support first-party **typed read-only model registration, least-privilege operation exposure, and fail-closed owner/consistency verification**. A composite SDK abstraction is potentially useful to eliminate manual double alias selection, not a substitute for that relation. Evaluate against the unified/attenuated Storage alternative before declaring the facet accepted.
