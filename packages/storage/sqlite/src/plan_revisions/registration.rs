@@ -9,8 +9,8 @@ use super::{
 };
 use riesel_app::{
     OperationRegistry, PlanAuthoringHead, PlanAuthoringSource, PlanRevisionError,
-    PlanSemanticCandidate, S2DocumentLimits, S2SourceDocument,
-    ValidatedExecutionPlan, inspect_s2_source,
+    PlanSemanticCandidate, S2DocumentLimits, S2SourceDocument, ValidatedExecutionPlan,
+    inspect_s2_source,
 };
 use rusqlite::{Connection, OpenFlags, OptionalExtension, TransactionBehavior, params};
 use std::{collections::BTreeMap, path::Path};
