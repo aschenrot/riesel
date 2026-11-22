@@ -11,7 +11,7 @@ paths = {
     "Todo HTTP routing": "examples/todo/src/http/routes.rs",
     "Todo HTTP server/worker": "examples/todo/src/http/mod.rs",
     "Reusable research exporter policy": "research/application-export/src/lib.rs",
-    "Two-application research adapters/tests": "research/application-export/tests/reuse.rs",
+    "Three-application research adapters/tests": "research/application-export/tests/reuse.rs",
 }
 
 def count(src: str) -> int:
@@ -23,7 +23,7 @@ for name, path in paths.items():
     print(f"{count(src):4} nonblank/non-comment LOC | {name} | {path}")
 
 counter = (root / paths["Counter resolved manual facade"]).read_text()
-fixture = (root / paths["Two-application research adapters/tests"]).read_text()
+fixture = (root / paths["Three-application research adapters/tests"]).read_text()
 routes = (root / paths["Todo HTTP routing"]).read_text()
 arm_pattern = r'"(?:value|add|label)"\s*=>'
 route_pattern = r'pub\(super\) async fn (?:list|show|create|patch|delete)\('
@@ -34,3 +34,8 @@ print(f"manual SDK-resolved Counter dispatch arms: {manual_arms} / 3 operations"
 print(f"prototype Counter relay dispatch arms: {prototype_arms} / 3 operations")
 print(f"Todo authored HTTP route functions: {route_functions} / 5 routes")
 print("Interpretation: app-specific behavior/routes are not semantically equivalent to generated RPC operations.")
+
+# The GraphRead facade is one generated typed query, not a complete GUI schema.
+graph_query = len(re.findall(r"async fn snapshot\\(", fixture))
+print(f"GraphRead declared snapshot operations: {graph_query} / 1 expected")
+print("No equivalent app-level user operation count or generalized savings percentage can be inferred.")
