@@ -521,3 +521,105 @@ fn authority_relationship_needs_explicit_schema_evolution_not_reused_bindings() 
     );
     assert_eq!(modified.requires.len(), 2);
 }
+
+
+/// Alternative pressure test: actual provider-side operation denial on a
+/// unified Storage v2 interface. This is NOT a signed caller authorization,
+/// a production permission policy or a read-only capability contract.
+struct ResearchServerAttenuatedStorage(MemoryStore);
+
+impl RecordStore for ResearchServerAttenuatedStorage {
+    fn create(
+        &self,
+        _model: &str,
+        _data: serde_json::Value,
+    ) -> Result<riesel::storage::StoredRecord, StoreError> {
+        Err(StoreError::Failed("research read-only policy".into()))
+    }
+
+    fn get(
+        &self,
+        model: &str,
+        id: uuid::Uuid,
+    ) -> Result<Option<riesel::storage::StoredRecord>, StoreError> {
+        self.0.get(model, id)
+    }
+
+    fn list_page(
+        &self,
+        model: &str,
+        after: Option<uuid::Uuid>,
+        limit: u64,
+    ) -> Result<riesel::storage::RecordPage, StoreError> {
+        self.0.list_page(model, after, limit)
+    }
+
+    fn update(
+        &self,
+        _model: &str,
+        _id: uuid::Uuid,
+        _expected_revision: u64,
+        _data: serde_json::Value,
+    ) -> Result<riesel::storage::StoredRecord, StoreError> {
+        Err(StoreError::Failed("research read-only policy".into()))
+    }
+
+    fn delete(
+        &self,
+        _model: &str,
+        _id: uuid::Uuid,
+        _expected_revision: u64,
+    ) -> Result<(), StoreError> {
+        Err(StoreError::Failed("research read-only policy".into()))
+    }
+}
+
+fn server_attenuated_store(id: &'static str) -> impl LocalProviderFactory {
+    ComponentDefinition::new(id, || {
+        ResearchServerAttenuatedStorage(MemoryStore::with_models(models()))
+    })
+    .exposes::<RecordStoreContract, _>(
+        |state| state as Arc<dyn RecordStore + Send + Sync>,
+        RecordStoreRpcDispatcher::new,
+    )
+    .unwrap()
+}
+
+#[test]
+fn actual_server_side_storage_denial_is_not_a_read_only_capability_contract() {
+    let app = Application::new("ResearchAttenuatedStorage")
+        .handler(
+            |storage: Capability<RecordStoreContract>| -> Result<(), StoreError> {
+                // Read is allowed through the actual generated local adapter.
+                assert!(storage.list_page(TaskData::MODEL_NAME, None, 32)?.records.is_empty());
+
+                // Mutation reaches the provider but is actually denied there;
+                // unlike a Rust-only wrapper, this is more than hidden methods.
+                let denied = storage.create(
+                    TaskData::MODEL_NAME,
+                    json!({"title": "not-created", "completed": false}),
+                );
+                assert!(matches!(
+                    denied,
+                    Err(StoreError::Failed(ref reason)) if reason == "research read-only policy"
+                ));
+                assert!(storage.list_page(TaskData::MODEL_NAME, None, 32)?.records.is_empty());
+                Ok(())
+            },
+        )
+        .unwrap();
+
+    let storage_contract = RecordStoreContract::definition().unwrap();
+    assert_eq!(app.definition().requires[0].capability, storage_contract.capability);
+    assert!(
+        storage_contract.operations.contains_key("create")
+            && storage_contract.operations.contains_key("update")
+            && storage_contract.operations.contains_key("delete"),
+        "genuine server-side denial is feasible, but this is still a writable published contract"
+    );
+
+    app.provider(server_attenuated_store("research.attenuated.local"))
+        .unwrap()
+        .run()
+        .unwrap();
+}
