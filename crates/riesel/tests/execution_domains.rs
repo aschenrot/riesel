@@ -7,7 +7,8 @@
 #![cfg(feature = "async-tcp")]
 use riesel::{
     AccessMode, App, AsyncOperation, ConnectorRegistry, DeploymentConfig, ExecutionPlanDraft,
-    FixedStepAdmission, FixedStepBacklog, FixedStepPolicy, GraphRunReport, OperationKey,
+    FixedStepAdmission, FixedStepBacklog, FixedStepPolicy, GraphControlError, GraphControlTarget,
+    GraphRunReport, OperationKey,
     OperationNode, OperationOutcome, OperationRegistry, OperationState, RunningApp,
     async_operation, async_operation_with_effects,
 };
@@ -355,6 +356,9 @@ async fn central_policy() -> (Vec<Snapshot>, GraphRunReport) {
         .execution_graph(plan, NonZeroUsize::new(3).unwrap())
         .unwrap();
     let signals = runner.signal_sender();
+    let control = runner.controller();
+    let target = GraphControlTarget::RieselDomainTicks("ecs.world".to_owned());
+    control.pause(target.clone()).unwrap();
     let task = tokio::spawn(runner.execute());
     // This is the *central* outer tick owner, not the ECS actor.
     let mut admission = FixedStepAdmission::new(policy());
@@ -367,6 +371,7 @@ async fn central_policy() -> (Vec<Snapshot>, GraphRunReport) {
 
     assert_eq!(admission.claim(1), 1);
     signals.fire("tick.one").unwrap();
+    control.step(target.clone()).unwrap();
     tokio::time::timeout(Duration::from_secs(3), async {
         while snapshots.lock().unwrap().is_empty() {
             tokio::task::yield_now().await;
@@ -376,10 +381,16 @@ async fn central_policy() -> (Vec<Snapshot>, GraphRunReport) {
     .unwrap();
     assert_eq!(snapshots.lock().unwrap()[0].tick, 1);
     assert!(!task.is_finished());
+    assert_eq!(
+        control.identity().plan_id(),
+        "fixed.central",
+        "control must bind this exact plan/run"
+    );
 
     assert_eq!(admission.claim(1), 1);
     assert_eq!(admission.available(), 0);
     signals.fire("tick.two").unwrap();
+    control.step(target).unwrap();
     let report = tokio::time::timeout(Duration::from_secs(3), task)
         .await
         .unwrap()
@@ -484,6 +495,11 @@ async fn delegated_policy(
     let runner = owner
         .execution_graph(plan, NonZeroUsize::new(3).unwrap())
         .unwrap();
+    let control = runner.controller();
+    assert!(matches!(
+        control.pause(GraphControlTarget::RieselDomainTicks("ecs.world".into())),
+        Err(GraphControlError::UnsupportedDomainAuthority { .. })
+    ));
     let task = tokio::spawn(runner.execute());
     wait_for_count(&joined, 2).await;
     assert!(
