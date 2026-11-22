@@ -6,7 +6,6 @@ use crate::{
     ValidatedExecutionPlan, capability, RieselType,
 };
 use serde::{Deserialize, Serialize};
-use std::collections::BTreeMap;
 use thiserror::Error;
 
 const MAX_GRAPH_READ_NODES: usize = 256;
@@ -177,7 +176,7 @@ fn phase_name(phase: GraphRunPhase) -> String {
 }
 
 fn state_name(state: &OperationState) -> (String, Option<String>) {
-    match state {
+    let (name, failure) = match state {
         OperationState::Pending => ("pending", None),
         OperationState::Running => ("running", None),
         OperationState::Completed => ("completed", None),
@@ -185,17 +184,8 @@ fn state_name(state: &OperationState) -> (String, Option<String>) {
         OperationState::Cancelled => ("cancelled", None),
         OperationState::OutcomeUnknown => ("outcome_unknown", None),
         OperationState::Blocked => ("blocked", None),
-    }
-    .map_state()
-}
-
-trait StatePair {
-    fn map_state(self) -> (String, Option<String>);
-}
-impl StatePair for (&str, Option<String>) {
-    fn map_state(self) -> (String, Option<String>) {
-        (self.0.into(), self.1)
-    }
+    };
+    (name.to_owned(), failure)
 }
 
 impl ExecutionGraphRead for ExecutionGraphReadFacade {
