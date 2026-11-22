@@ -1,6 +1,6 @@
 # Session-owned execution graph runner (incremental delivery)
 
-**Status:** First bounded headless async runner increment merged; shared session-level admission implemented in a follow-up increment for implementation [#112](https://github.com/aschenrot/riesel/issues/112); not complete acceptance of #112 or authoritative live control [#113](https://github.com/aschenrot/riesel/issues/113).
+**Status:** Validated plans, session-owned async graph execution, explicit domain boundaries and bounded fixed-step proposals are integrated under [#112](https://github.com/aschenrot/riesel/issues/112). The first read-only authoritative run observation increment is under [#113](https://github.com/aschenrot/riesel/issues/113). Full committed-effect accounting, cooperative control and externally authorized inspection are not yet delivered.
 
 The runner consumes an immutable `BoundExecutionPlan<AsyncOperation>` from the existing [plan authoring API](execution-plan-authoring.md) through an existing application session. The graph constructor is internal; callers use `RunningApp::execution_graph` or `Context::execution_graph`, and cannot substitute a self-created session token. It does not launch providers, create a Tokio runtime, reinterpret `AppSchema` or own an inner domain scheduler. `RunningApp::execution_graph(plan, limit)` and `Context::execution_graph(plan, limit)` derive the session from the actual application instead of inventing another owner.
 
@@ -13,7 +13,7 @@ One-shot callback registration uses `async_operation(|| async { OperationOutcome
 - Declared read/write conflicts serialize conflicting operations **across all graph runs in the same application session**, with release notifications waking capacity-blocked runs. Admission is nonblocking and releases reservations on completion, panic or cancellation. These declarations **do not** confer Rust borrow safety; the resource namespace is application-session-wide. Panics become failed operations, and unknown/cancelled/failed prerequisites block success-only dependents.
 - No automatic retries; unknown outcomes stay unknown. On session invalidation, in-flight operations are reported conservatively as outcome unknown even if cancellation dropped the future. Confirmed committed effects and safe-point stepping require the #113 contract.
 
-The `GraphRunReport` is a local post-run result with plan identity/revision and terminal node statuses. It is **not** an authoritative live observation store, stable run/session/attempt address, persisted execution log, replay contract or cross-process authorization mechanism.
+The `GraphRunReport` is a local post-run result with an identity that also correlates to its **live, in-process** `GraphRunObserver` snapshot. Neither is a persisted execution log, durable replay contract or cross-process authorization mechanism.
 
 ## Verification and deliberate exclusions
 
@@ -22,6 +22,57 @@ Run `cargo test -p riesel --features async-tcp --test execution_runner`, `cargo 
 Session-wide admission provides a conservative shared resource budget; it does not guarantee fairness between competing runs or claim that unrelated external applications share the same resource namespace. Runner creation fails closed with `SessionRunLimitExceeded` when the 16-instance cap is reached. Application work outside the graph (including separately spawned tasks) is not charged against these graph-only slots.
 
 This increment deliberately does not claim fixed-rate timing guarantees, reusable tick loops, nested ECS-system stepping, callback portability to other processes, typed dataflow, managed-service recovery, process-global authority or a graphical inspector. Full #112 acceptance still requires realistic domain delegation and application-session end-to-end fixtures before closure.
+
+## Authoritative live run observation (read-only; #113 increment)
+
+Call `let observer = runner.observer();` **before** consuming the runner
+with `runner.execute().await`, or before handing it to the existing
+structured `AsyncTasks::spawn_graph`. Cloned observer handles retain the
+one run's in-memory snapshot and bounded transition history even after
+the runner future returns or is abandoned. This observer cannot execute,
+cancel, pause, resume, step or authorize access to other processes.
+
+- Each successfully admitted graph obtains a runtime-issued, random UUID
+  **session generation** and a monotonically allocated per-session **run
+  sequence**, associated with the exact immutable plan ID and revision.
+  Within one application generation, run sequences never alias, including
+  across separate repeat-tick executions. A new session obtains a fresh
+  generation. These are correlation values **not credentials**, stable
+  persistence IDs, signed provenance, or a public remote protocol.
+- `observer.snapshot()` is copied atomically from the coordinator's
+  authoritative in-process state: `Created`, `Running`, `Finished`
+  or `Abandoned` phase; per-node `Pending`, `Running`, `Completed`,
+  `Failed`, `Cancelled`, `OutcomeUnknown` or `Blocked` state; and
+  admission **attempt** (zero until admitted, one for the current one-shot
+  runner). Snapshot state is not reconstructed from lost trace events.
+- `observer.changes_since(sequence)` reads a capped ring of at most
+  **128** run-phase/operation transitions. Every transition carries the
+  run identity and a monotonic per-run sequence; operation events also
+  carry node ID and attempt. A future cursor returns
+  `GraphObservationError::FutureCursor`. If the caller falls behind
+  retention, `truncated: true` explicitly requires a fresh authoritative
+  snapshot and a new cursor. Overflow never blocks or backpressures the
+  scheduler, and a trace **is not a committed-effect ledger**.
+- The runner records each admission, completed/failed/cancelled/unknown
+  outcome, blocked dependency and terminal phase. A dropped graph future
+  without a report is `Abandoned`; operations recorded as running are
+  conservatively `OutcomeUnknown`, success-only dependents become
+  `Blocked`, unrelated never-admitted operations become `Cancelled`.
+  A clean completed run is `Finished` even if its graph operation report
+  contains failure/unknown. No automatic retry or effect rollback follows.
+- Observation remains **local and read-only**. It does not verify the
+  provenance of remote applications, protect against same-UID hostile
+  callers, preserve history after all handles disappear, infer exact
+  effects from missing replies, or provide nested ECS-system safe points.
+  Confirmed effect recording and cooperative, owner-fenced pause/step/
+  resume are remaining #113 work; any external inspector must satisfy
+  #75's independently accepted authorization/export rules first.
+
+The `execution_graph` example now checks a post-run snapshot against
+its authoritative report and reads a correlated transition batch.
+The managed-child crash test verifies this same observation path under
+real session revocation, preserving the confirmed completed prefix and
+classifying the dispatched crash operation as unknown.
 
 ## Explicit domain admission ownership (opt-in)
 
