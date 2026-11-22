@@ -109,17 +109,18 @@ fn native_record_query_only_handler_does_not_request_storage_mutations() {
     assert_eq!(app.definition().record_query_links.len(), 1);
     assert!(app.definition().model_bindings.is_empty());
     assert_eq!(app.definition().requires.len(), 1);
-    assert_eq!(app.definition().requires[0].capability.id, "riesel.query.records");
+    assert_eq!(
+        app.definition().requires[0].capability.id,
+        "riesel.query.records"
+    );
     app.development().unwrap().run().unwrap();
 }
 
 #[cfg(feature = "dev-memory-storage")]
 #[test]
 fn native_record_query_and_storage_v2_share_one_confirmed_writer() {
+    use crate::storage::{RecordCompare, RecordPredicate, RecordQueryContract, RecordQueryRequest};
     use crate::{ModelRead, Records};
-    use crate::storage::{
-        RecordCompare, RecordPredicate, RecordQueryContract, RecordQueryRequest,
-    };
 
     Application::new("NativeReadWrite")
         .handler_with_aliases(
@@ -201,8 +202,8 @@ fn sqlite_native_query_reads_existing_record_without_mutating_storage_contract()
 #[cfg(feature = "sqlite-storage")]
 #[test]
 fn sqlite_combined_query_and_storage_share_one_confirmed_linked_owner() {
-    use crate::{ModelRead, Records};
     use crate::storage::{RecordQueryContract, RecordQueryRequest};
+    use crate::{ModelRead, Records};
     let directory = tempfile::tempdir().unwrap();
     let file = directory.path().join("combined-query.db");
     Application::new("CombinedQuery")
