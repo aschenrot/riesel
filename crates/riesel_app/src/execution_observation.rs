@@ -8,9 +8,9 @@ use crate::execution_plan::{DomainAdmissionMode, DomainBoundary, OperationNode};
 use crate::execution_runner::OperationState;
 use riesel_protocol::SessionToken;
 use std::collections::{BTreeMap, VecDeque};
-use tokio::sync::Notify;
 use std::sync::{Arc, Mutex, PoisonError};
 use thiserror::Error;
+use tokio::sync::Notify;
 use uuid::Uuid;
 
 /// Maximum retained transitions *per observed run*. Overflow never blocks
@@ -371,15 +371,16 @@ impl GraphRunController {
                 .operations
                 .get(name)
                 .is_some_and(|op| matches!(op.state, OperationState::Pending)),
-            GraphControlTarget::RieselDomainTicks(domain) => state
-                .domain_nodes
-                .get(domain)
-                .is_some_and(|nodes| nodes.iter().any(|name| {
-                    matches!(
-                        state.snapshot.operations[name].state,
-                        OperationState::Pending
-                    )
-                })),
+            GraphControlTarget::RieselDomainTicks(domain) => {
+                state.domain_nodes.get(domain).is_some_and(|nodes| {
+                    nodes.iter().any(|name| {
+                        matches!(
+                            state.snapshot.operations[name].state,
+                            OperationState::Pending
+                        )
+                    })
+                })
+            }
         };
         if !pending {
             return Err(GraphControlError::NoPendingSafePoint { target });
@@ -601,11 +602,7 @@ impl GraphRunPublication {
     /// Cheap read avoids momentarily reserving shared resource capacity
     /// while this run is paused. Admission rechecks under the same mutex
     /// after reservation to prevent races with concurrent control commands.
-    pub(crate) fn may_admit(
-        &self,
-        index: usize,
-        domain: Option<&DomainBoundary>,
-    ) -> bool {
+    pub(crate) fn may_admit(&self, index: usize, domain: Option<&DomainBoundary>) -> bool {
         let state = self
             .observer
             .state
@@ -624,11 +621,7 @@ impl GraphRunPublication {
     /// Atomically consume at most one armed step at every matching boundary
     /// and publish the actual running attempt. Caller must already own its
     /// session-level operation reservation, but not yet have spawned work.
-    pub(crate) fn admit(
-        &mut self,
-        index: usize,
-        domain: Option<&DomainBoundary>,
-    ) -> bool {
+    pub(crate) fn admit(&mut self, index: usize, domain: Option<&DomainBoundary>) -> bool {
         let mut state = self
             .observer
             .state
@@ -636,7 +629,10 @@ impl GraphRunPublication {
             .unwrap_or_else(PoisonError::into_inner);
         let name = &self.nodes[index];
         if state.snapshot.phase != GraphRunPhase::Running
-            || !matches!(state.snapshot.operations[name].state, OperationState::Pending)
+            || !matches!(
+                state.snapshot.operations[name].state,
+                OperationState::Pending
+            )
         {
             return false;
         }
