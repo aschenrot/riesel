@@ -1,4 +1,4 @@
-name: Research #59 — real polkit challenge and one-shot consent boundary
+name: Research #59 — real polkit credential, cache and X11 input boundaries
 
 permissions:
   contents: read
@@ -15,7 +15,7 @@ on:
 
 jobs:
   ubuntu-polkit-authentication-differential:
-    name: Ubuntu real polkit AUTH_SELF challenge and no-KEEP behavior
+    name: Ubuntu real polkit fresh, cached and X11 input differentials
     runs-on: ubuntu-24.04
     timeout-minutes: 16
     steps:
