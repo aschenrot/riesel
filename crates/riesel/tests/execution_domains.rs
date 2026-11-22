@@ -8,9 +8,8 @@
 use riesel::{
     AccessMode, App, AsyncOperation, ConnectorRegistry, DeploymentConfig, ExecutionPlanDraft,
     FixedStepAdmission, FixedStepBacklog, FixedStepPolicy, GraphControlError, GraphControlTarget,
-    GraphRunReport, OperationKey,
-    OperationNode, OperationOutcome, OperationRegistry, OperationState, RunningApp,
-    async_operation, async_operation_with_effects,
+    GraphRunReport, OperationKey, OperationNode, OperationOutcome, OperationRegistry,
+    OperationState, RunningApp, async_operation, async_operation_with_effects,
 };
 use std::cell::Cell;
 use std::num::NonZeroUsize;
