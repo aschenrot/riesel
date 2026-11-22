@@ -457,7 +457,10 @@ mod tests {
             assert_eq!(payload.position(), 2);
             assert_eq!(payload.owner_thread_calls(), 1);
             assert_eq!(header.snapshot().latest.sequence, 1);
-            assert_eq!(header.snapshot().description.parent.run, observer.snapshot().identity);
+            assert_eq!(
+                header.snapshot().description.parent.run,
+                observer.snapshot().identity
+            );
             assert_eq!(
                 observer.snapshot().operations["frame"].state,
                 OperationState::Running
