@@ -64,11 +64,9 @@ fn run() -> Result<(), Box<dyn Error + Send + Sync>> {
     };
     Application::new("TodoHttp")
         .async_handler(
-            move |
-                records: Records<TaskData>,
-                reader: ModelRead<TaskData, RecordQueryContract>,
-                tasks: AsyncTasks,
-            | {
+            move |records: Records<TaskData>,
+                  reader: ModelRead<TaskData, RecordQueryContract>,
+                  tasks: AsyncTasks| {
                 let directory = assets.clone();
                 async move {
                     todo::http::serve(records, Some(Arc::new(reader)), tasks, port, directory).await
