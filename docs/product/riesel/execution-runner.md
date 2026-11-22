@@ -109,7 +109,7 @@ its owner generation / parent address / payload version. A **generic** reader
 may instead use `observer.nested_header("frame")`, whose
 `NestedHeaderObserver::snapshot()` exposes owner-attributed
 `NestedViewInfo { description, latest, status }` and whose
-`changes_since(NestedCursor { owner_generation, sequence })` handles
+`changes_since(NestedCursor { owner_generation, attachment_id, sequence })` handles
 the same bounded owner-local event-loss semantics **without knowing `T`**.
 This is the reusable common status/timeline envelope; it does not reveal
 an engine-specific payload or an internal scheduler.
@@ -118,7 +118,7 @@ A known typed view is acquired by
 `observer.nested::<T>("frame", version)`; absence returns
 `None`, unsupported versions and mismatched Rust payload types are explicit
 errors. `NestedObserver<T>` likewise supports `snapshot()` and
-`changes_since(NestedCursor { owner_generation, sequence })`, with no
+`changes_since(NestedCursor { owner_generation, attachment_id, sequence })`, with no
 publisher or control authority. A typed snapshot contains the latest
 `Option<Arc<T>>` and owner-local high-water sequence; its state is
 `Unpublished`, `Current`, `OwnerClosed`, `Superseded`, or
@@ -130,8 +130,12 @@ updates and is visible independently to both generic and typed readers.
 - **Bounded notifications:** each attached source retains at most
   `MAX_NESTED_TRANSITIONS = 64` increasing sequence numbers (no copies of
   effects or payloads in the ring). On overflow `truncated: true` requires
-  a fresh authoritative owner snapshot. Cursor owner generations cannot be
-  reused after a domain restart; future sequence requests fail.
+  a fresh authoritative owner snapshot. The cursor binds both the
+  **domain-owner generation and a unique nested attachment ID**: two frames
+  served by one long-lived domain owner have distinct histories, so a cursor
+  from one outer attempt is rejected by another. Obtain a cursor from the
+  owner-authored `NestedViewInfo.latest` header, not from a fabricated
+  sequence or a previous run. Future sequence requests fail.
   A reader retains only its own `Arc<T>` snapshots. Each graph operation
   has at most one current attachment, bounded by the validated plan's node
   limit, rather than an unbounded per-frame history.
