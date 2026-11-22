@@ -65,8 +65,8 @@ impl PlanSemanticCandidate {
         limits: S2DocumentLimits,
     ) -> Result<Self, PlanRevisionError> {
         let bound = bind_s2_document(document, handlers, limits)?;
-        let bytes = S2SourceDocument::Editable(document.clone())
-            .serialize_checked(handlers, limits)?;
+        let bytes =
+            S2SourceDocument::Editable(document.clone()).serialize_checked(handlers, limits)?;
         Self::new(bound.plan(), Some(bytes))
     }
 
@@ -248,7 +248,9 @@ pub fn check_layout_nodes(
         || draft.semantic_anchor == 0
         || draft.node_positions.len() > 4096
     {
-        return Err(PlanRevisionError::Invalid("invalid layout identity or size".into()));
+        return Err(PlanRevisionError::Invalid(
+            "invalid layout identity or size".into(),
+        ));
     }
     let allowed: BTreeSet<&str> = nodes.iter().map(String::as_str).collect();
     if draft
@@ -260,10 +262,12 @@ pub fn check_layout_nodes(
             "layout references an unknown node in its semantic anchor".into(),
         ));
     }
-    let bytes = serde_json::to_vec(draft)
-        .map_err(|error| PlanRevisionError::Invalid(error.to_string()))?;
+    let bytes =
+        serde_json::to_vec(draft).map_err(|error| PlanRevisionError::Invalid(error.to_string()))?;
     if bytes.len() > MAX_STORED_LAYOUT_BYTES {
-        return Err(PlanRevisionError::Invalid("layout exceeds byte budget".into()));
+        return Err(PlanRevisionError::Invalid(
+            "layout exceeds byte budget".into(),
+        ));
     }
     Ok(())
 }
