@@ -63,6 +63,43 @@ fn graph(
     (runner, validated)
 }
 
+fn graph_with_uncertain_effects(
+    running: &RunningApp,
+) -> (riesel::ExecutionGraphRunner, ValidatedExecutionPlan) {
+    let mut registry = OperationRegistry::<AsyncOperation>::new();
+    registry
+        .register(
+            OperationKey::new("failed", 1).unwrap(),
+            async_operation(|| async { OperationOutcome::Failed("domain rejected".into()) }),
+        )
+        .unwrap();
+    registry
+        .register(
+            OperationKey::new("blocked", 1).unwrap(),
+            async_operation(|| async { OperationOutcome::Completed }),
+        )
+        .unwrap();
+    registry
+        .register(
+            OperationKey::new("unknown", 1).unwrap(),
+            async_operation(|| async { OperationOutcome::OutcomeUnknown }),
+        )
+        .unwrap();
+    let validated = ExecutionPlanDraft::new("example.gui_public_graph", 1)
+        .operation(OperationNode::new("failed", OperationKey::new("failed", 1).unwrap()))
+        .operation(
+            OperationNode::new("blocked", OperationKey::new("blocked", 1).unwrap())
+                .after("failed"),
+        )
+        .operation(OperationNode::new("unknown", OperationKey::new("unknown", 1).unwrap()))
+        .validate()
+        .unwrap();
+    let runner = running
+        .execution_graph(validated.bind(&registry).unwrap(), NonZeroUsize::new(2).unwrap())
+        .unwrap();
+    (runner, validated)
+}
+
 fn published(
     app: &RunningApp,
     validated: &ValidatedExecutionPlan,
@@ -272,6 +309,21 @@ fn actual_graph_read_loss_resnapshot_and_same_pid_session_recovery() {
             .await,
             Err(GraphReadError::StaleRun)
         );
+        // Stale run has priority even when a cursor is ahead of its last
+        // sequence; never confuse a different generation with a future event.
+        assert_eq!(
+            read_changes(
+                &client,
+                &old_descriptor,
+                &riesel::GraphReadIdentity {
+                    session_generation: "other-run".into(),
+                    ..finished.identity.clone()
+                },
+                finished.latest_sequence + 1,
+            )
+            .await,
+            Err(GraphReadError::StaleRun)
+        );
 
         publication.withdraw();
         let denied = client
@@ -286,7 +338,7 @@ fn actual_graph_read_loss_resnapshot_and_same_pid_session_recovery() {
         // Exact same OS PID/socket, a new true Riesel runtime generation.
         let mut successor_app = app();
         assert_eq!(std::process::id(), pid);
-        let (new_runner, new_plan) = graph(&successor_app, 2);
+        let (new_runner, new_plan) = graph_with_uncertain_effects(&successor_app);
         let new_publication = published(&successor_app, &new_plan, &new_runner);
         let next_tasks = successor_app.async_tasks();
         next_tasks.begin_scope().unwrap();
@@ -309,14 +361,20 @@ fn actual_graph_read_loss_resnapshot_and_same_pid_session_recovery() {
         assert_ne!(fresh.generation, old_descriptor.generation);
         let second = read_snapshot(&client, &fresh).await;
         assert_eq!(second.phase, "created");
-        assert_eq!(second.nodes.len(), 2);
+        assert_eq!(second.nodes.len(), 3);
         assert_ne!(
             second.identity.session_generation,
             finished.identity.session_generation
         );
         assert_ne!(second.identity.run_sequence, 0);
         let second_report = new_runner.execute().await;
-        assert!(second_report.succeeded());
+        assert!(!second_report.succeeded(), "known failure/unknown are not completion");
+        let terminal = read_snapshot(&client, &fresh).await;
+        assert_eq!(terminal.phase, "finished");
+        assert_eq!(terminal.nodes[0].state, "failed");
+        assert_eq!(terminal.nodes[0].failure.as_deref(), Some("domain rejected"));
+        assert_eq!(terminal.nodes[1].state, "blocked");
+        assert_eq!(terminal.nodes[2].state, "outcome_unknown");
         next_tasks.finish_scope().await.unwrap();
         successor_app.shutdown().unwrap();
         assert!(!endpoint.exists());
