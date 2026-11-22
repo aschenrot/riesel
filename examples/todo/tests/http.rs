@@ -496,3 +496,123 @@ fn invalid_static_directory_is_rejected_before_http_readiness() {
     assert!(!output.status.success());
     assert!(!String::from_utf8_lossy(&output.stdout).contains("TODO_HTTP_READY"));
 }
+
+#[test]
+fn real_status_query_is_provider_owned_and_live() {
+    let dir = tempfile::tempdir().unwrap();
+    let db = dir.path().join("query.db");
+    let server = Server::start(&db);
+
+    let mut records = Vec::new();
+    for index in 0..100 {
+        let (status, body) = server.json(
+            "POST",
+            "/api/v1/tasks",
+            &json!({"title": format!("task-{index:03}")}).to_string(),
+        );
+        assert_eq!(status, 201, "{body}");
+        records.push(serde_json::from_str::<Value>(&body).unwrap());
+    }
+    records.sort_by_key(|row| row["id"].as_str().unwrap().to_owned());
+    let expected_open = [70, 98, 99].map(|index| records[index]["id"].clone());
+    for (index, row) in records.iter().enumerate() {
+        if [70, 98, 99].contains(&index) {
+            continue;
+        }
+        let path = format!("/api/v1/tasks/{}", row["id"].as_str().unwrap());
+        let (status, body) = server.json(
+            "PATCH",
+            &path,
+            &json!({"revision": row["revision"], "completed": true}).to_string(),
+        );
+        assert_eq!(status, 200, "{body}");
+    }
+
+    // The first 32 legacy UUID rows contain no Open task. The new route
+    // must instead execute the actual registered-model provider predicate.
+    let (status, body) = server.get("/api/v1/tasks");
+    assert_eq!(status, 200, "{body}");
+    let legacy: Value = serde_json::from_str(&body).unwrap();
+    assert!(legacy["records"].as_array().unwrap().iter().all(|row| row["completed"] == true));
+
+    let (status, body) = server.get("/api/v1/tasks/query?completed=false&limit=32");
+    assert_eq!(status, 200, "{body}");
+    let page: Value = serde_json::from_str(&body).unwrap();
+    let found = page["records"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|row| row["id"].clone())
+        .collect::<Vec<_>>();
+    assert_eq!(found, expected_open);
+    assert_eq!(page["exhausted"], true);
+    assert!(page["next_cursor"].is_null());
+    assert!(page["inspected"].as_u64().unwrap() <= 1024);
+
+    // One-use continuations are predicate and resource scoped, not offsets.
+    let (status, body) = server.get("/api/v1/tasks/query?completed=true&limit=1");
+    assert_eq!(status, 200, "{body}");
+    let done: Value = serde_json::from_str(&body).unwrap();
+    assert_eq!(done["records"].as_array().unwrap().len(), 1);
+    assert_eq!(done["exhausted"], false);
+    let token = done["next_cursor"].as_str().unwrap();
+    let wrong = format!("/api/v1/tasks/query?completed=false&limit=1&cursor={token}");
+    let (status, body) = server.get(&wrong);
+    assert_eq!(status, 409, "{body}");
+    assert_eq!(serde_json::from_str::<Value>(&body).unwrap()["error"]["code"], "invalid_query_cursor");
+    let valid = format!("/api/v1/tasks/query?completed=true&limit=1&cursor={token}");
+    let (status, body) = server.get(&valid);
+    assert_eq!(status, 200, "{body}");
+    assert_eq!(serde_json::from_str::<Value>(&body).unwrap()["records"].as_array().unwrap().len(), 1);
+    let (status, body) = server.get(&valid);
+    assert_eq!(status, 409, "{body}");
+
+    for malformed in [
+        "/api/v1/tasks/query",
+        "/api/v1/tasks/query?completed=TRUE",
+        "/api/v1/tasks/query?completed=false&limit=0",
+        "/api/v1/tasks/query?completed=false&limit=33",
+        "/api/v1/tasks/query?completed=false&unknown=1",
+        "/api/v1/tasks/query?completed=true&completed=false",
+    ] {
+        let (status, body) = server.get(malformed);
+        assert_eq!(status, 400, "{malformed}: {body}");
+    }
+    let (status, body) = server.request(
+        "GET",
+        "/api/v1/tasks/query?completed=false",
+        "",
+        Some("evil.example:8080"),
+        None,
+        None,
+        None,
+    );
+    assert_eq!(status, 403, "{body}");
+
+    // A confirmed write is visible through the same linked owner on the
+    // next live Query. A backend restart invalidates old Query tokens.
+    let target = records[70]["id"].as_str().unwrap();
+    let (status, body) = server.json(
+        "PATCH",
+        &format!("/api/v1/tasks/{target}"),
+        &json!({"revision": "1", "completed": true}).to_string(),
+    );
+    assert_eq!(status, 200, "{body}");
+    let (status, body) = server.get("/api/v1/tasks/query?completed=false");
+    assert_eq!(status, 200, "{body}");
+    let now: Value = serde_json::from_str(&body).unwrap();
+    assert_eq!(now["records"].as_array().unwrap().len(), 2);
+    let (status, body) = server.get("/api/v1/tasks/query?completed=true&limit=1");
+    assert_eq!(status, 200, "{body}");
+    let token = serde_json::from_str::<Value>(&body).unwrap()["next_cursor"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    drop(server);
+    let restarted = Server::start(&db);
+    let (status, body) = restarted.get(&format!(
+        "/api/v1/tasks/query?completed=true&limit=1&cursor={token}"
+    ));
+    assert_eq!(status, 409, "{body}");
+    assert_eq!(restarted.get("/api/v1/tasks/query?completed=false").0, 200);
+}
