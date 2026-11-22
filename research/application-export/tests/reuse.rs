@@ -1,6 +1,10 @@
 //! Two distinct Riesel application shapes exercise the *same* provisional
 //! export policy. No test pretends that simulated principals authenticate TCP.
-use riesel::{Application, AsyncCapability, Records};
+use riesel::{
+    Application, AsyncCapability, AsyncOperation, ExecutionPlanDraft, GraphRunObserver,
+    OperationKey, OperationNode, OperationOutcome, OperationRegistry, OperationState, Records,
+    async_operation,
+};
 use riesel_counter::{AsyncCounterContract, CounterError};
 use riesel_counter_component::AsyncMemoryCounter;
 use riesel_application_export_research::{
@@ -13,6 +17,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use std::error::Error;
 use std::sync::Arc;
+use std::num::NonZeroUsize;
 use todo::{TaskData, Todo};
 
 type TestResult = Result<(), Box<dyn Error + Send + Sync>>;
@@ -296,4 +301,138 @@ fn invalid_export_grants_fail_during_construction() {
         grant("gui", &["not_an_operation"]),
     );
     assert!(matches!(bad, Err(ExportError::Invalid(_))));
+}
+
+
+// Third actual SDK owner shape: the graph runner is created inside the real
+// application session. This view never owns execution, a graph-run controller
+// or a provider; it reads GraphRunObserver only.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, RieselType)]
+pub struct GraphReadSummary {
+    plan_id: String,
+    revision: u64,
+    session_generation: String,
+    run_sequence: u64,
+    phase: String,
+    latest_sequence: u64,
+    session_expired: bool,
+    trace_truncated: bool,
+    pending: u64,
+    completed: u64,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, RieselType, thiserror::Error)]
+pub enum GraphReadError {
+    #[error("graph observation failed: {0}")]
+    Unavailable(String),
+}
+
+#[capability(id = "riesel.research.graph.read", version = 1)]
+pub trait GraphRead {
+    /// Read a bounded summary of the authoritative Riesel-owned graph run.
+    #[query]
+    async fn snapshot(&self) -> Result<GraphReadSummary, GraphReadError>;
+}
+
+struct GraphReadFacade(GraphRunObserver);
+
+impl GraphRead for GraphReadFacade {
+    async fn snapshot(&self) -> Result<GraphReadSummary, GraphReadError> {
+        let current = self.0.snapshot();
+        let history = self.0.changes_since(0)
+            .map_err(|err| GraphReadError::Unavailable(err.to_string()))?;
+        Ok(GraphReadSummary {
+            plan_id: current.identity.plan_id().to_owned(),
+            revision: current.identity.revision(),
+            session_generation: current.identity.session_generation().to_string(),
+            run_sequence: current.identity.run_sequence(),
+            phase: format!("{:?}", current.phase),
+            latest_sequence: current.latest_sequence,
+            session_expired: current.session_expired,
+            trace_truncated: history.truncated,
+            pending: current.operations.values()
+                .filter(|n| matches!(n.state, OperationState::Pending))
+                .count() as u64,
+            completed: current.operations.values()
+                .filter(|n| matches!(n.state, OperationState::Completed))
+                .count() as u64,
+        })
+    }
+}
+
+#[test]
+fn graph_uses_same_gateway_with_sdk_run_and_read_only_generated_contract() -> TestResult {
+    Application::new("Graph Export Research").run(|context| {
+        let mut operations = OperationRegistry::<AsyncOperation>::new();
+        for name in ["source", "sink"] {
+            operations.register(
+                OperationKey::new(name, 1)?,
+                async_operation(|| async { OperationOutcome::Completed }),
+            )?;
+        }
+        let plan = ExecutionPlanDraft::new("research.gui-public-graph", 1)
+            .operation(OperationNode::new("source", OperationKey::new("source", 1)?))
+            .operation(OperationNode::new("sink", OperationKey::new("sink", 1)?)
+                .after("source"))
+            .validate()?
+            .bind(&operations)?;
+        let runner = context.execution_graph(plan, NonZeroUsize::new(1).unwrap())?;
+        let observer = runner.observer();
+        let handler: Arc<dyn AsyncRpcHandler> =
+            Arc::new(GraphReadAsyncRpcDispatcher::new(GraphReadFacade(observer.clone())));
+        let gateway = ResearchExport::new(
+            "org.example.graph", "gui.graph", "simulated-graph-epoch",
+            handler, grant("gui", &["snapshot"]),
+        ).expect("test-only publication policy");
+        let descriptor = gateway.descriptor();
+        let attached = gateway.attach(&descriptor, SimulatedPrincipal::for_test("gui"))
+            .expect("simulated approved client");
+        let mut stale = descriptor.clone();
+        stale.generation = "another-epoch".into();
+        assert_eq!(
+            gateway.attach(&stale, SimulatedPrincipal::for_test("gui")).unwrap_err(),
+            ExportError::StaleGeneration
+        );
+        assert_eq!(
+            gateway.attach(&descriptor, SimulatedPrincipal::for_test("other")).unwrap_err(),
+            ExportError::Unauthorized
+        );
+        let executor = tokio::runtime::Builder::new_current_thread()
+            .enable_all().build().expect("research Tokio runtime");
+        executor.block_on(async {
+            let initial: GraphReadSummary = success(
+                gateway.invoke(&attached, "snapshot", json!({})).await.unwrap()
+            );
+            assert_eq!(initial.plan_id, "research.gui-public-graph");
+            assert_eq!(initial.revision, 1);
+            assert_eq!(initial.phase, "Created");
+            assert_eq!(initial.pending, 2);
+            assert_eq!(initial.completed, 0);
+            assert!(!initial.session_expired);
+            assert!(!initial.trace_truncated);
+            let report = runner.execute().await;
+            assert!(report.succeeded());
+            let finished: GraphReadSummary = success(
+                gateway.invoke(&attached, "snapshot", json!({})).await.unwrap()
+            );
+            assert_eq!(finished.phase, "Finished");
+            assert_eq!(finished.completed, 2);
+            assert_eq!(finished.pending, 0);
+            assert_eq!(finished.session_generation, initial.session_generation);
+            assert_eq!(finished.run_sequence, initial.run_sequence);
+            assert!(finished.latest_sequence > initial.latest_sequence);
+            assert_eq!(finished.session_generation, report.identity.session_generation().to_string());
+            assert_eq!(
+                gateway.invoke(&attached, "not-exposed", json!({})).await,
+                Err(ExportError::UnknownOperation)
+            );
+            gateway.revoke();
+            assert_eq!(
+                gateway.invoke(&attached, "snapshot", json!({})).await,
+                Err(ExportError::NotReady)
+            );
+        });
+        Ok(())
+    })?;
+    Ok(())
 }
