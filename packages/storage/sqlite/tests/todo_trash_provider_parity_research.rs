@@ -172,7 +172,7 @@ fn memory_and_sqlite_trash_updates_are_revision_fenced_and_cursor_bound() {
     verify_two_clients_and_in_place_restore(&memory);
     let old_memory_token = verify_one_use_and_signature(&memory);
     drop(memory);
-    let another_memory_owner = memory();
+    let another_memory_owner = self::memory();
     assert!(matches!(
         another_memory_owner.query_page(request("completed", 1, 1, Some(old_memory_token))),
         Err(RecordQueryError::InvalidCursor)
@@ -184,7 +184,7 @@ fn memory_and_sqlite_trash_updates_are_revision_fenced_and_cursor_bound() {
     verify_two_clients_and_in_place_restore(&sqlite);
     let old_sqlite_token = verify_one_use_and_signature(&sqlite);
     drop(sqlite);
-    let reopened = sqlite(&db);
+    let reopened = self::sqlite(&db);
     // Persisted records do not make provider-local cursor tokens persistent.
     assert!(matches!(
         reopened.query_page(request("completed", 1, 1, Some(old_sqlite_token))),
