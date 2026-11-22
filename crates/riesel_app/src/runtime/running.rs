@@ -43,6 +43,21 @@ impl RunningApp {
         Ok(())
     }
 
+    /// Internal-only, source-qualified snapshot of this actual running app.
+    /// No external principal, interface publication or OS attempt is attested.
+    #[cfg(feature = "internal-publication")]
+    #[doc(hidden)]
+    pub fn internal_operational_observations(
+        &self,
+    ) -> Result<crate::operational_observation::ObservationSnapshot, crate::operational_observation::ObservationError> {
+        let verified = self.check_processes().is_ok();
+        crate::operational_observation::ObservationSnapshot::runtime(
+            self.session.clone(),
+            &self.resolved,
+            verified,
+        )
+    }
+
     /// The revocable session identity shared by every capability handle.
     /// Managed-child failure and shutdown invalidate all of its clones.
     pub fn session_token(&self) -> SessionToken {
