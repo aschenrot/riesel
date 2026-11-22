@@ -33,6 +33,14 @@ jobs:
         run: |
           rustup toolchain install 1.100.0 --profile minimal --component rustfmt --component clippy
           rustup default 1.100.0
+      # GPL-3.0-only RunenECS and permissively licensed Bevy ECS stay in an
+      # independently locked, test-only workspace, not production SDK crates.
+      - name: Verify Issue 153 real-domain nested observation acceptance
+        if: ${{ github.event_name == 'pull_request' && github.head_ref == 'feat/153-nested-local-observation' }}
+        run: |
+          cargo fmt --manifest-path research/nested-observation-acceptance/Cargo.toml -- --check
+          cargo clippy --locked --manifest-path research/nested-observation-acceptance/Cargo.toml --all-targets -- -D warnings
+          cargo test --locked --manifest-path research/nested-observation-acceptance/Cargo.toml -- --nocapture
       - name: Validate workspace
         run: cargo validate --check
       - name: Smoke test runtime and managed providers
