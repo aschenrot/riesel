@@ -444,6 +444,64 @@ mod tests {
         ));
     }
     #[test]
+    fn native_query_distinguishes_absent_null_and_present_optional_values() {
+        use riesel_schema::TypeRef;
+        use riesel_storage::{RecordCompare, RecordPredicate, RecordQueryRequest};
+
+        let schema = ModelDefinition {
+            fields: BTreeMap::from([
+                ("flag".into(), TypeRef::Bool),
+                (
+                    "note".into(),
+                    TypeRef::Optional {
+                        item: Box::new(TypeRef::String),
+                    },
+                ),
+            ]),
+        };
+        let store = MemoryStore::with_query_models(
+            BTreeMap::from([("asset".into(), schema)]),
+            BTreeSet::from(["asset".into()]),
+        );
+        let missing = store.create("asset", json!({"flag":true})).unwrap();
+        let null = store
+            .create("asset", json!({"flag":true,"note":null}))
+            .unwrap();
+        let present = store
+            .create("asset", json!({"flag":true,"note":"ready"}))
+            .unwrap();
+
+        let fetch = |operator| {
+            store
+                .query_page(RecordQueryRequest {
+                    model: "asset".into(),
+                    predicate: Some(RecordPredicate {
+                        field: "note".into(),
+                        operator,
+                        value: None,
+                    }),
+                    limit: 8,
+                    scan_budget: 8,
+                    cursor: None,
+                })
+                .unwrap()
+        };
+        let absent = fetch(RecordCompare::IsMissing);
+        assert!(absent.exhausted);
+        assert_eq!(absent.records.len(), 1);
+        assert_eq!(absent.records[0].id, missing.id);
+
+        let explicitly_null = fetch(RecordCompare::IsNull);
+        assert_eq!(explicitly_null.records.len(), 1);
+        assert_eq!(explicitly_null.records[0].id, null.id);
+
+        let all_present = fetch(RecordCompare::IsPresent);
+        assert_eq!(all_present.records.len(), 2);
+        assert!(all_present.records.iter().any(|r| r.id == null.id));
+        assert!(all_present.records.iter().any(|r| r.id == present.id));
+    }
+
+    #[test]
     fn native_bounded_sparse_query_returns_empty_partial_pages_then_match() {
         use riesel_schema::TypeRef;
         use riesel_storage::{RecordCompare, RecordPredicate, RecordQueryRequest};
