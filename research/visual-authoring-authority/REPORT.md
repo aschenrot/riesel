@@ -66,6 +66,32 @@ cargo smoke
 
 **Expected negative path finding, to validate in CI:** current real SDK binding permits an operation plan missing its handler's compulsory write access; that is why a **publisher-authoritative** editability/constraint gate must be specified *before* executable visual editing. No test should change that underlying SDK without an accepted production design.
 
+### Persistent authority / conditional-write comparator — second research fixture
+
+To avoid confusing the in-memory `LocalLedger` with an actual durable writer, a second **test-only** probe uses the repository's existing SQLite research dependency in `packages/storage/sqlite/tests/visual_plan_persistence_research.rs`. It stores the real validated plan's serialized **read-only projection** as a candidate payload, with separate semantic/head, layout and activation receipt records. The fixture uses SQLite immediate transactions, conditional SQL updates, a unique candidate key and independent reopened connections; it is deliberately **not** a public editor publisher or executable document importer.
+
+Reproduce at the exact PR revision:
+
+```sh
+cargo test --locked -p riesel_storage_sqlite --test visual_plan_persistence_research
+cargo validate --check
+cargo smoke
+```
+
+**Verified result (2026-11-22):** [Linux Validate CI 44993997148](https://github.com/aschenrot/riesel/actions/runs/44993997148) **PASSED** `cargo validate --check` and `cargo smoke` on exact synthetic merge `3153b46` (source head `79ede184fb4986e510c2e66dc522a3a498a1069e`, then-current `main` `a0500af86e0f53815ca0432f965a2232f9dcd6f2`). All **5/5** persistent-store tests passed (in addition to the **9/9** original SDK editor-gate tests). The extra runtime-ingress research [CI 44993997169](https://github.com/aschenrot/riesel/actions/runs/44993997169) passed on that source as well. An earlier run [44993935075](https://github.com/aschenrot/riesel/actions/runs/44993935075) failed rustfmt only; its exact formatter diff was applied. No Windows release checks were run. This report may receive a docs-only follow-up revision, so verify the final head's own CI separately.
+
+| Persistent test | Verified on real SQLite and production plan projection | Still not proven |
+| --- | --- | --- |
+| `independent_connections_race_on_the_same_persistent_semantic_revision` | Two independent connections race under transactions; **exactly one** conditional write commits; old active plan stays at revision 1 | Multiple **OS process** hostile writers; network/distributed CAS |
+| `separate_layout_cas_and_source_generation_survive_connection_reopen` | Layout-only updates do not change semantic revision; a source-epoch change fences stale Rust and layout writers after reopening; historic semantic layout anchors can remain valid | Real verified owner identity; all-node layout rebase; durable source migration coverage report |
+| `uncommitted_activation_rolls_back_on_connection_loss` | Dropping an uncommitted SQLite transaction leaves previously committed plan/active state unchanged on reopen | Actual OS-process kill, power loss or external business effect rollback |
+| `published_candidate_and_activation_receipt_survive_reopen_after_lost_reply` | Candidate and active revision separate; unauthorized candidate activation denied in test-local policy; a committed activation receipt is queryable after connection reopen and rejects mismatched replay | Verified client/grant, runtime session fence, durable multi-process app publisher protocol or exactly-once effects |
+| `persistent_candidate_uses_the_actual_read_only_validated_plan_projection` | The stored candidate is derived from the **real SDK plan description** | Stored JSON is still **not an executable import ABI**, signed provenance, compatible schema or executable binding authority |
+
+**Storage alternatives / cost:** A single application-owned local transactional store can enforce *local* revision predicates and receipt co-commit (demonstrated), but would tie the authoring authority to that store's lifecycle and require explicit replication/backup/recovery for remote hosting. A filesystem atomic rename plus lock/generation protocol may be sufficient for a single trusted writer yet has nontrivial multi-writer and fsync failure cases (not tested). An append-only event/command log could improve audit, but adds replay, retention, compaction and order requirements and is not compelled by first-release visual S2 editing (not tested). A mandatory Manager-owned registry would duplicate app execution ownership and block independent headless workspaces. **This experiment selects no storage provider**; it proves a transaction-capable local adapter is plausible and narrows the questions about where verified app/artefact owner and session-grant authority reside.
+
+**Critical semantic caveat:** Co-committing an `active_revision` pointer and a receipt in *one SQLite database* does **not** prove safe retry of an executable operation or remote side effect. A real application activation adapter must link a durable identity and live runtime generation, distinguish an activation request accepted **before** dispatch from a later uncertain outcome, and must not mistake a stored pointer or missing acknowledgement for confirmed running work. Actual restart/recovery and hostile-client tests remain mandatory.
+
 ## 5. Security, durability and scale unresolved
 
 - **Authorization proof:** An artifact name/string or same-UID process cannot be a remote principal; profile-specific non-self-selectable principals/grants under #75/#60 are necessary for hostile-client environments. A2 inert metadata must be bound to the *actual* trusted installed artifact/registry, and differing artifact versions must fail closed.
@@ -81,4 +107,4 @@ cargo smoke
 
 Before declaring #111 complete, the owner should **accept / revise / defer** this consolidated direction and its actual scope, especially: passive independently versioned descriptor versus live-only metadata; strict required-feature policy; app-owned authority rather than mandatory Manager; permissioned proposal/publish/activate separation; durable stale-write and outcome-unknown guarantees. Then update the existing product/execution-plan architecture contract, and create separately verifiable implementation issues that preserve headless Rust-first operation, C, S2, V2 and future S3 compatibility.
 
-**Do not** merge this research test into production SDK as a contract, use this test ledger as a real secure publisher, or claim a graphical editor is already delivered.
+**Do not** merge these research fixtures into production SDK as a contract, use the test ledgers as a real secure publisher, or claim a graphical editor is already delivered. [Future typed dataflow investigation #187](https://github.com/aschenrot/riesel/issues/187) is a separate deferred specification gate, not a prerequisite to implementing accepted S2 once #111 is fully decided.
