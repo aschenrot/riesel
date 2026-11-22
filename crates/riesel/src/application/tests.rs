@@ -276,7 +276,7 @@ fn generated_linked_reader_and_storage_reuse_one_live_provider_instance() {
         .handler_with_aliases(
             |reader: ModelRead<TodoModel, TestRecordReaderContract>,
              writer: Records<TodoModel>|
-             -> std::result::Result<(), StoreError> {
+             -> std::result::Result<(), SdkError> {
                 assert_eq!(reader.model_name(), "todo");
                 assert_eq!(reader.count_records("todo")?, 0);
                 writer.create(TodoModel {
