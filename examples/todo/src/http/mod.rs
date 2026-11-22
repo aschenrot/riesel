@@ -330,6 +330,105 @@ mod tests {
         );
     }
 
+    /// A real linked SQLite write can succeed before a separate later stage
+    /// receives a definitive revision-conflict domain failure. This is a
+    /// deliberately app-owned multi-stage workflow, not a storage transaction
+    /// or Manager receipt. The adapter must reconcile the confirmed partial
+    /// effect rather than retry the entire workflow.
+    #[cfg(feature = "internal-observation")]
+    #[test]
+    fn real_sqlite_domain_failure_and_partial_outcome_require_reconciliation() {
+        use riesel::internal_observation::{
+            AdapterOperationEvidence, AdapterOperationSnapshot, ObservationState,
+            OperationDisposition,
+        };
+
+        let temp = tempfile::tempdir().unwrap();
+        let db = temp.path().join("domain-outcome.sqlite");
+        Application::new("TodoOperationOutcome")
+            .async_handler(|records: Records<TaskData>, tasks: AsyncTasks| async move {
+                let state = HttpState {
+                    records: records.clone(),
+                    tasks: tasks.clone(),
+                    authority: Arc::from("127.0.0.1:0"),
+                    next_request: Arc::new(AtomicU64::new(1)),
+                };
+                let created = state
+                    .invoke(OperationClass::Mutation, |todo| {
+                        todo.create_task("Persisted first stage")
+                    })
+                    .await
+                    .expect("domain-confirmed SQLite create");
+                let success = AdapterOperationSnapshot::report(
+                    tasks.internal_session_token(),
+                    "todo.task.create",
+                    AdapterOperationEvidence::DomainConfirmedSuccess,
+                )?;
+                assert_eq!(
+                    success.disposition(),
+                    OperationDisposition::ConfirmedSuccess
+                );
+                assert_eq!(
+                    success.state_at(std::time::Instant::now()),
+                    ObservationState::Observed
+                );
+
+                let id = created.id;
+                let failed = state
+                    .invoke(OperationClass::Mutation, move |todo| {
+                        todo.set_completed(id, 0, true)
+                    })
+                    .await;
+                assert!(matches!(failed, Err(ApiError::Conflict)));
+                let confirmed_failure = AdapterOperationSnapshot::report(
+                    tasks.internal_session_token(),
+                    "todo.task.complete",
+                    AdapterOperationEvidence::DomainConfirmedFailure,
+                )?;
+                assert_eq!(
+                    confirmed_failure.disposition(),
+                    OperationDisposition::ConfirmedDomainFailure
+                );
+
+                // The application can prove stage 1 persisted and stage 2 did
+                // not complete, so the compound workflow requires an explicit
+                // read to reconcile. Never silently replay stage 1.
+                let partial = AdapterOperationSnapshot::report(
+                    tasks.internal_session_token(),
+                    "todo.workflow.create-complete",
+                    AdapterOperationEvidence::ConfirmedPartialRequiresReconciliation,
+                )?;
+                assert_eq!(
+                    partial.disposition(),
+                    OperationDisposition::PartialNeedsReconciliation
+                );
+                let persisted = Todo::new(records).get_task(id)?.unwrap();
+                assert_eq!(persisted.value.title, "Persisted first stage");
+                assert_eq!(persisted.revision, created.revision);
+                assert!(!persisted.value.completed);
+                Ok::<(), Box<dyn std::error::Error + Send + Sync>>(())
+            })
+            .unwrap()
+            .sqlite_storage(db.clone())
+            .unwrap()
+            .run()
+            .unwrap();
+
+        Application::new("TodoOperationOutcomeReopen")
+            .handler(|records: Records<TaskData>| -> Result<(), TodoError> {
+                let tasks = Todo::new(records).list_tasks()?;
+                assert_eq!(tasks.len(), 1, "no automatic replay after partial outcome");
+                assert_eq!(tasks[0].value.title, "Persisted first stage");
+                assert!(!tasks[0].value.completed);
+                Ok(())
+            })
+            .unwrap()
+            .sqlite_storage(db)
+            .unwrap()
+            .run()
+            .unwrap();
+    }
+
     /// HTTP requests cannot bypass the runtime's eight owned blocking slots.
     /// In particular, denied operations must not execute after returning 503.
     #[test]
@@ -360,6 +459,22 @@ mod tests {
                     .await;
                 assert!(matches!(result, Err(ApiError::Unavailable)));
                 assert!(!executed.load(Ordering::SeqCst));
+                #[cfg(feature = "internal-observation")]
+                {
+                    use riesel::internal_observation::{
+                        AdapterOperationEvidence, AdapterOperationSnapshot, OperationDisposition,
+                    };
+                    let reported = AdapterOperationSnapshot::report(
+                        state.tasks.internal_session_token(),
+                        "todo.task.list",
+                        AdapterOperationEvidence::RejectedBeforeDomainDispatch,
+                    )
+                    .map_err(io::Error::other)?;
+                    assert_eq!(
+                        reported.disposition(),
+                        OperationDisposition::RejectedBeforeDispatch
+                    );
+                }
                 Ok::<(), std::io::Error>(())
             })
             .unwrap()
@@ -397,6 +512,21 @@ mod tests {
                 let json: serde_json::Value = serde_json::from_slice(&body)?;
                 assert_eq!(json["error"]["code"], "unavailable");
                 assert_eq!(Todo::new(records).list_tasks()?.len(), 1);
+                #[cfg(feature = "internal-observation")]
+                {
+                    use riesel::internal_observation::{
+                        AdapterOperationEvidence, AdapterOperationSnapshot, OperationDisposition,
+                    };
+                    let reported = AdapterOperationSnapshot::report(
+                        tasks.internal_session_token(),
+                        "todo.task.list",
+                        AdapterOperationEvidence::AdmittedReadResultLost,
+                    )?;
+                    assert_eq!(
+                        reported.disposition(),
+                        OperationDisposition::ReadUnavailable
+                    );
+                }
                 Ok::<(), Box<dyn std::error::Error + Send + Sync>>(())
             })
             .unwrap()
@@ -429,6 +559,18 @@ mod tests {
                 let tasks_after = Todo::new(records).list_tasks()?;
                 assert_eq!(tasks_after.len(), 1);
                 assert_eq!(tasks_after[0].value.title, "Applied exactly once");
+                #[cfg(feature = "internal-observation")]
+                {
+                    use riesel::internal_observation::{
+                        AdapterOperationEvidence, AdapterOperationSnapshot, OperationDisposition,
+                    };
+                    let reported = AdapterOperationSnapshot::report(
+                        tasks.internal_session_token(),
+                        "todo.task.create",
+                        AdapterOperationEvidence::AdmittedReplyLost,
+                    )?;
+                    assert_eq!(reported.disposition(), OperationDisposition::OutcomeUnknown);
+                }
 
                 let response = ApiError::OutcomeUnknown.into_response();
                 assert_eq!(
