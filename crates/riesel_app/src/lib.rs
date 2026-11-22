@@ -4,9 +4,9 @@ mod async_tasks;
 mod catalog;
 mod component;
 mod deployment;
-mod execution_plan;
 #[cfg(feature = "async-tcp")]
 mod execution_observation;
+mod execution_plan;
 #[cfg(feature = "async-tcp")]
 mod execution_runner;
 mod fixed_step;
