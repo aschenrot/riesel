@@ -672,10 +672,13 @@ impl ExecutionGraphRunner {
             // operation; terminal/abandoned attempts reject late reports.
             self.states[index] = OperationState::Running;
             self.publication.transition(index, OperationState::Running);
-            let effects = self.publication.recorder(index);
+            let (effects, effect_scope) = self.publication.recorder(index);
             let session = self.session.clone();
             let handle = jobs.spawn(async move {
                 let _lease = lease;
+                // Drop before the operation lease; no leaked reporter can
+                // publish after this child future finishes or is aborted.
+                let _effect_scope = effect_scope;
                 if !session.is_active() {
                     (index, OperationOutcome::Cancelled)
                 } else {
