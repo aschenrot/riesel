@@ -476,3 +476,255 @@ fn overlapping_read_handoffs_keep_writer_ungrantable_until_last_release() {
         }
     });
 }
+#[test]
+fn independent_work_must_not_hide_contested_waiting_demand() {
+    runtime().block_on(async {
+        const INDEPENDENT: usize = 8;
+        const ROUNDS: usize = 4;
+        for round in 0..ROUNDS {
+            let app = owner();
+            let release = Arc::new(Semaphore::new(0));
+            let held_started = Arc::new(AtomicUsize::new(0));
+            let writer_started = Arc::new(AtomicUsize::new(0));
+            let independent_started = Arc::new(AtomicUsize::new(0));
+            let mut registry = OperationRegistry::<AsyncOperation>::new();
+            registry
+                .register(
+                    key("held-reader"),
+                    async_operation({
+                        let release = Arc::clone(&release);
+                        let held_started = Arc::clone(&held_started);
+                        move || {
+                            let release = Arc::clone(&release);
+                            let held_started = Arc::clone(&held_started);
+                            async move {
+                                held_started.fetch_add(1, Ordering::SeqCst);
+                                let permit = release.acquire().await.unwrap();
+                                permit.forget();
+                                OperationOutcome::Completed
+                            }
+                        }
+                    }),
+                )
+                .unwrap();
+            registry
+                .register(
+                    key("contested-writer"),
+                    async_operation({
+                        let writer_started = Arc::clone(&writer_started);
+                        move || {
+                            let writer_started = Arc::clone(&writer_started);
+                            async move {
+                                writer_started.fetch_add(1, Ordering::SeqCst);
+                                OperationOutcome::Completed
+                            }
+                        }
+                    }),
+                )
+                .unwrap();
+            registry
+                .register(
+                    key("independent"),
+                    async_operation({
+                        let independent_started = Arc::clone(&independent_started);
+                        move || {
+                            let independent_started = Arc::clone(&independent_started);
+                            async move {
+                                independent_started.fetch_add(1, Ordering::SeqCst);
+                                OperationOutcome::Completed
+                            }
+                        }
+                    }),
+                )
+                .unwrap();
+
+            let held = app
+                .execution_graph(
+                    ExecutionPlanDraft::new(format!("held-alpha-{round}"), 1)
+                        .operation(
+                            OperationNode::new("held-read", key("held-reader"))
+                                .access("alpha", AccessMode::Read),
+                        )
+                        .validate()
+                        .unwrap()
+                        .bind(&registry)
+                        .unwrap(),
+                    NonZeroUsize::new(1).unwrap(),
+                )
+                .unwrap();
+            let held_task = tokio::spawn(held.execute());
+            has_started(&held_started).await;
+
+            let mut cold_draft = ExecutionPlanDraft::new(format!("mixed-cold-{round}"), 1)
+                .operation(
+                    OperationNode::new("blocked-write", key("contested-writer"))
+                        .access("alpha", AccessMode::Write),
+                );
+            for index in 0..INDEPENDENT {
+                cold_draft = cold_draft.operation(
+                    OperationNode::new(format!("gamma-{index}"), key("independent"))
+                        .access("gamma", AccessMode::Write),
+                );
+            }
+            let cold = app
+                .execution_graph(
+                    cold_draft.validate().unwrap().bind(&registry).unwrap(),
+                    NonZeroUsize::new(1).unwrap(),
+                )
+                .unwrap();
+            let observer = cold.observer();
+            let cold_task = tokio::spawn(cold.execute());
+            running(&observer).await;
+            tokio::time::timeout(Duration::from_secs(5), async {
+                while independent_started.load(Ordering::SeqCst) < INDEPENDENT {
+                    tokio::task::yield_now().await;
+                }
+            })
+            .await
+            .unwrap();
+            assert_eq!(writer_started.load(Ordering::SeqCst), 0);
+            assert!(matches!(
+                &observer.snapshot().operations["blocked-write"].state,
+                riesel::OperationState::Pending
+            ));
+
+            release.add_permits(1);
+            assert!(
+                tokio::time::timeout(Duration::from_secs(5), held_task)
+                    .await
+                    .unwrap()
+                    .unwrap()
+                    .succeeded()
+            );
+            let cold_report = tokio::time::timeout(Duration::from_secs(5), cold_task)
+                .await
+                .unwrap()
+                .unwrap();
+            assert!(cold_report.succeeded());
+            assert_eq!(cold_report.started, INDEPENDENT + 1);
+            assert_eq!(writer_started.load(Ordering::SeqCst), 1);
+            eprintln!(
+                "research #226 mixed_demand round={round} independent_completed_before_writer={INDEPENDENT} contested_writer_remained_pending=true"
+            );
+        }
+    });
+}
+
+#[test]
+fn capacity_only_contention_records_waiting_run_admission_rank() {
+    runtime().block_on(async {
+        const HOT_OPERATIONS: usize = 64;
+        const CAPACITY: usize = 32;
+        const ROUNDS: usize = 4;
+        for round in 0..ROUNDS {
+            let app = owner();
+            let release = Arc::new(Semaphore::new(0));
+            let hot_started = Arc::new(AtomicUsize::new(0));
+            let started_order = Arc::new(AtomicUsize::new(0));
+            let cold_rank = Arc::new(AtomicUsize::new(0));
+            let mut registry = OperationRegistry::<AsyncOperation>::new();
+            registry
+                .register(
+                    key("capacity-hot"),
+                    async_operation({
+                        let release = Arc::clone(&release);
+                        let hot_started = Arc::clone(&hot_started);
+                        let started_order = Arc::clone(&started_order);
+                        move || {
+                            let release = Arc::clone(&release);
+                            let hot_started = Arc::clone(&hot_started);
+                            let started_order = Arc::clone(&started_order);
+                            async move {
+                                started_order.fetch_add(1, Ordering::SeqCst);
+                                hot_started.fetch_add(1, Ordering::SeqCst);
+                                let permit = release.acquire().await.unwrap();
+                                permit.forget();
+                                OperationOutcome::Completed
+                            }
+                        }
+                    }),
+                )
+                .unwrap();
+            registry
+                .register(
+                    key("capacity-cold"),
+                    async_operation({
+                        let started_order = Arc::clone(&started_order);
+                        let cold_rank = Arc::clone(&cold_rank);
+                        move || {
+                            let started_order = Arc::clone(&started_order);
+                            let cold_rank = Arc::clone(&cold_rank);
+                            async move {
+                                cold_rank.store(
+                                    started_order.fetch_add(1, Ordering::SeqCst) + 1,
+                                    Ordering::SeqCst,
+                                );
+                                OperationOutcome::Completed
+                            }
+                        }
+                    }),
+                )
+                .unwrap();
+
+            // No resource keys: the session-wide operation budget is the
+            // only admission conflict between these two graph runs.
+            let mut hot_draft = ExecutionPlanDraft::new(format!("capacity-hot-{round}"), 1);
+            for index in 0..HOT_OPERATIONS {
+                hot_draft = hot_draft
+                    .operation(OperationNode::new(format!("hot-{index}"), key("capacity-hot")));
+            }
+            let hot = app
+                .execution_graph(
+                    hot_draft.validate().unwrap().bind(&registry).unwrap(),
+                    NonZeroUsize::new(CAPACITY).unwrap(),
+                )
+                .unwrap();
+            let hot_task = tokio::spawn(hot.execute());
+            tokio::time::timeout(Duration::from_secs(5), async {
+                while hot_started.load(Ordering::SeqCst) < CAPACITY {
+                    tokio::task::yield_now().await;
+                }
+            })
+            .await
+            .unwrap();
+            assert_eq!(started_order.load(Ordering::SeqCst), CAPACITY);
+
+            let cold = app
+                .execution_graph(
+                    ExecutionPlanDraft::new(format!("capacity-cold-{round}"), 1)
+                        .operation(OperationNode::new("cold", key("capacity-cold")))
+                        .validate()
+                        .unwrap()
+                        .bind(&registry)
+                        .unwrap(),
+                    NonZeroUsize::new(1).unwrap(),
+                )
+                .unwrap();
+            let observer = cold.observer();
+            let cold_task = tokio::spawn(cold.execute());
+            running(&observer).await;
+            assert_eq!(cold_rank.load(Ordering::SeqCst), 0);
+
+            release.add_permits(HOT_OPERATIONS);
+            let hot_report = tokio::time::timeout(Duration::from_secs(10), hot_task)
+                .await
+                .unwrap()
+                .unwrap();
+            let cold_report = tokio::time::timeout(Duration::from_secs(10), cold_task)
+                .await
+                .unwrap()
+                .unwrap();
+            assert!(hot_report.succeeded());
+            assert!(cold_report.succeeded());
+            assert_eq!(hot_report.started, HOT_OPERATIONS);
+            assert_eq!(cold_report.started, 1);
+            let rank = cold_rank.load(Ordering::SeqCst);
+            assert!(((CAPACITY + 1)..=(HOT_OPERATIONS + 1)).contains(&rank));
+            assert_eq!(started_order.load(Ordering::SeqCst), HOT_OPERATIONS + 1);
+            eprintln!(
+                "research #226 capacity_only round={round} cold_rank={rank} of {} capacity={CAPACITY}",
+                HOT_OPERATIONS + 1
+            );
+        }
+    });
+}
