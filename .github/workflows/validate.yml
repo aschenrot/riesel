@@ -39,7 +39,14 @@ jobs:
         run: cargo smoke
       - name: Research #226 production scheduler probes (diagnostic; no API changes)
         if: ${{ github.event_name == 'pull_request' && github.head_ref == 'research/226-scheduler-policy-probes' }}
-        run: cargo test -p riesel --features async-tcp --test scheduler_policy_research -- --nocapture
+        run: cargo test -p riesel --features async-tcp --test scheduler_policy_research -- --nocapture --test-threads=1
+      - name: Research #226 release-profile admission scans (unmerged counters)
+        if: ${{ github.event_name == 'pull_request' && github.head_ref == 'research/226-scheduler-policy-probes' }}
+        env:
+          RIESEL_SCHEDULER_RESEARCH_SCAN_COUNTS: "1"
+        run: |
+          cargo test -p riesel --release --features async-tcp --test scheduler_policy_research diagnostic_repeated_wide_and_chain_graph_samples -- --nocapture --test-threads=1
+          cargo test -p riesel --release --features async-tcp --test scheduler_policy_research paused_hot_resource_owner_allows_independent_cold_progress -- --nocapture --test-threads=1
 
   windows:
     if: ${{ github.event_name == 'workflow_dispatch' && inputs.windows }}
