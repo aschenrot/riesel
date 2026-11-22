@@ -33,6 +33,7 @@ pub enum EditorAffinity {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct EditorOperationDescriptor {
     key: OperationKey,
+    descriptor_version: u32,
     required_access: Vec<ResourceAccess>,
     permitted_extra_access: Vec<ResourceAccess>,
     permitted_triggers: Vec<OperationTrigger>,
@@ -44,12 +45,25 @@ impl EditorOperationDescriptor {
     pub fn new(key: OperationKey) -> Self {
         Self {
             key,
+            descriptor_version: 1,
             required_access: Vec::new(),
             permitted_extra_access: Vec::new(),
             permitted_triggers: vec![OperationTrigger::Immediate],
             required_domain: None,
             affinity: EditorAffinity::SessionOwned,
         }
+    }
+
+    /// The authoring-policy version is independent of the Rust handler key.
+    /// A document importer can bind to both versions instead of guessing
+    /// whether a revised policy is compatible with a previous edit.
+    pub fn with_descriptor_version(mut self, version: u32) -> Self {
+        self.descriptor_version = version;
+        self
+    }
+
+    pub fn descriptor_version(&self) -> u32 {
+        self.descriptor_version
     }
 
     /// An operation's compulsory access is never editable or removable.
@@ -121,6 +135,9 @@ impl EditorOperationDescriptor {
     }
 
     fn validate(&self) -> Result<(), EditorCatalogError> {
+        if self.descriptor_version == 0 {
+            return Err(invalid(&self.key, "zero descriptor version"));
+        }
         if self.affinity == EditorAffinity::NativeThread {
             return Err(EditorCatalogError::UnsupportedAffinity {
                 name: self.key.name().to_owned(),
