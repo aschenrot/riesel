@@ -34,6 +34,9 @@ pub struct NestedDescription {
     pub parent: NestedParent,
     pub domain: String,
     pub owner_generation: Uuid,
+    /// Separate per-parent-operation attachment identity; the same domain
+    /// owner can serve multiple frames without reusing a prior event cursor.
+    pub attachment_id: Uuid,
     pub view_version: u32,
 }
 
@@ -54,11 +57,12 @@ pub struct NestedSnapshot<T> {
     pub payload: Option<Arc<T>>,
 }
 
-/// The owner generation is part of every cursor; numbers from other owners
-/// must never silently point into a new owner's unrelated event history.
+/// Each cursor is scoped to one domain owner AND one graph attempt attachment.
+/// Reusing a domain owner across independent frames never aliases histories.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct NestedCursor {
     pub owner_generation: Uuid,
+    pub attachment_id: Uuid,
     pub sequence: u64,
 }
 
@@ -272,7 +276,9 @@ impl<T> NestedStore<T> {
         session: &SessionToken,
         cursor: NestedCursor,
     ) -> Result<NestedTransitions, NestedObservationError> {
-        if cursor.owner_generation != self.description.owner_generation {
+        if cursor.owner_generation != self.description.owner_generation
+            || cursor.attachment_id != self.description.attachment_id
+        {
             return Err(NestedObservationError::StaleCursor);
         }
         if cursor.sequence > self.sequence {
@@ -296,6 +302,7 @@ impl<T> NestedStore<T> {
         Ok(NestedTransitions {
             latest: NestedCursor {
                 owner_generation: self.description.owner_generation,
+                attachment_id: self.description.attachment_id,
                 sequence: self.sequence,
             },
             truncated: cursor.sequence < first.saturating_sub(1),
@@ -348,6 +355,7 @@ impl<T: Send + Sync + 'static> NestedPublisher<T> {
                 description: state.description.clone(),
                 latest: NestedCursor {
                     owner_generation: state.description.owner_generation,
+                    attachment_id: state.description.attachment_id,
                     sequence: state.sequence,
                 },
                 status: state.status(session),
@@ -405,6 +413,7 @@ impl<T: Send + Sync + 'static> NestedPublisher<T> {
         }
         let cursor = NestedCursor {
             owner_generation: state.description.owner_generation,
+            attachment_id: state.description.attachment_id,
             sequence,
         };
         drop(state);
