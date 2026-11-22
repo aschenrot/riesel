@@ -229,10 +229,10 @@ where
                     context.session_token(),
                     Some(context.async_tasks()),
                     lifecycle.execute(context, || async {
-                    #[cfg(feature = "internal-publication")]
-                    let _entrypoint = context.internal_enter_entrypoint()?;
-                    handler.invoke(context, &aliases).await
-                }),
+                        #[cfg(feature = "internal-publication")]
+                        let _entrypoint = context.internal_enter_entrypoint()?;
+                        handler.invoke(context, &aliases).await
+                    }),
                 )
             })?;
         }
