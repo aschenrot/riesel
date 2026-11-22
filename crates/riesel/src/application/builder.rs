@@ -23,6 +23,7 @@ impl Application {
                 app: AppDefinition { name: name.into() },
                 models: BTreeMap::new(),
                 model_bindings: BTreeMap::new(),
+                record_query_links: BTreeMap::new(),
                 requires: vec![],
             },
             providers: ConnectorRegistry::new(),
@@ -161,6 +162,63 @@ impl Application {
         Ok(self)
     }
 
+    /// Declare a typed, read-only record capability for a Rust-derived
+    /// model, without requesting writable Storage. The actual Query facet's
+    /// operations remain provider-owned; registration never reads any data.
+    ///
+    /// A later records_at::<T> for the same model is paired automatically in
+    /// one inspectable v2 relationship. Provider placement is verified by the
+    /// shared runtime preflight, not inferred from alias spelling.
+    #[cfg(feature = "records")]
+    pub fn record_query_at<T, C>(self, read_alias: impl Into<String>) -> Result<Self>
+    where
+        T: RieselModel,
+        C: RpcClientBinding + 'static,
+    {
+        let contract = C::definition()?;
+        if contract.operations.is_empty()
+            || contract
+                .operations
+                .values()
+                .any(|operation| operation.kind != OperationKind::Query)
+        {
+            return Err(SdkError::InvalidRecordQueryContract(contract.capability.id));
+        }
+
+        let read_alias = read_alias.into();
+        let mut app = self.model::<T>()?.rpc::<C>(read_alias.clone())?;
+        let model = T::MODEL_NAME.to_owned();
+        let writers = app
+            .definition
+            .model_bindings
+            .get(&model)
+            .cloned()
+            .unwrap_or_default();
+        let writer = match writers.as_slice() {
+            [] => None,
+            [only] if only != &read_alias => Some(only.clone()),
+            _ => return Err(SdkError::AmbiguousRecordQueryWriter(model)),
+        };
+        let relationship = LinkedRecordQuery {
+            reader: read_alias,
+            writer,
+            consistency: LinkedRecordConsistency::LinkedSessionLive,
+        };
+        if app
+            .definition
+            .record_query_links
+            .get(&model)
+            .is_some_and(|previous| previous != &relationship)
+        {
+            return Err(SdkError::ConflictingRecordQueryLink(model));
+        }
+        app.definition
+            .record_query_links
+            .insert(model, relationship);
+        app.definition.version = 2;
+        Ok(app)
+    }
+
     /// Register a Rust model and explicitly name its storage requirement.
     /// Multiple storage aliases can coexist without implicit selection.
     /// This is deliberately the writable Storage v2 authoring path.
@@ -171,6 +229,17 @@ impl Application {
         let mut app = self
             .model::<T>()?
             .rpc::<RecordStoreContract>(storage_alias.clone())?;
+        if let Some(link) = app.definition.record_query_links.get_mut(&name) {
+            if link.reader == storage_alias
+                || link
+                    .writer
+                    .as_ref()
+                    .is_some_and(|previous| previous != &storage_alias)
+            {
+                return Err(SdkError::ConflictingRecordQueryLink(name));
+            }
+            link.writer = Some(storage_alias.clone());
+        }
         let bindings = app.definition.model_bindings.entry(name).or_default();
         if !bindings.contains(&storage_alias) {
             bindings.push(storage_alias);

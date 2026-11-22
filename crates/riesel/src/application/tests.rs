@@ -123,6 +123,266 @@ fn production_does_not_silently_fall_back_to_memory() {
     ));
 }
 #[cfg(feature = "records")]
+use crate::storage::StoreError;
+
+// The capability macro currently emits an unqualified Result<T, E> in its
+// generated bindings. Keep the fixture in a scope without the SDK's Result<T>
+// alias so this test does not conceal or expand that unrelated hygiene gap.
+#[cfg(feature = "records")]
+mod test_record_reader_contract {
+    use crate::storage::StoreError;
+
+    #[crate::capability(id = "research.test.record.reader", version = 1, client_trait)]
+    pub trait TestRecordReader {
+        /// Research-only fixture: count records in one model.
+        #[query]
+        fn count_records(&self, model: &str) -> Result<u64, StoreError>;
+    }
+}
+
+#[cfg(feature = "records")]
+use test_record_reader_contract::{
+    TestRecordReader, TestRecordReaderContract, TestRecordReaderRpcDispatcher,
+};
+
+#[cfg(feature = "records")]
+#[test]
+fn typed_record_reader_and_storage_build_one_canonical_model_authority_link() {
+    use crate::ModelRead;
+
+    let from_handler = Application::new("RecordAuthority")
+        .handler_with_aliases(
+            |_reader: ModelRead<TodoModel, TestRecordReaderContract>,
+             _writer: crate::Records<TodoModel>|
+             -> std::result::Result<(), StoreError> { Ok(()) },
+            ["read", "writer"],
+        )
+        .unwrap();
+    let direct = Application::new("RecordAuthority")
+        .record_query_at::<TodoModel, TestRecordReaderContract>("read")
+        .unwrap()
+        .records_at::<TodoModel>("writer")
+        .unwrap();
+    let writer_first = Application::new("RecordAuthority")
+        .records_at::<TodoModel>("writer")
+        .unwrap()
+        .record_query_at::<TodoModel, TestRecordReaderContract>("read")
+        .unwrap();
+
+    assert_eq!(
+        from_handler.definition_json().unwrap(),
+        direct.definition_json().unwrap()
+    );
+    // Requirement declaration order is intentionally retained for lifecycle
+    // ordering. Compare the same model/authority/contract semantics instead
+    // of silently reordering unrelated application startup requirements.
+    let first = riesel_schema::parse_schema(&direct.definition_json().unwrap()).unwrap();
+    let second = riesel_schema::parse_schema(&writer_first.definition_json().unwrap()).unwrap();
+    assert_eq!(first.models, second.models);
+    assert_eq!(first.model_bindings, second.model_bindings);
+    assert_eq!(first.record_query_links, second.record_query_links);
+    let by_name = |schema: &riesel_schema::AppSchema| {
+        schema
+            .requires
+            .iter()
+            .map(|requirement| (requirement.name.clone(), requirement.capability.clone()))
+            .collect::<std::collections::BTreeMap<_, _>>()
+    };
+    assert_eq!(by_name(&first), by_name(&second));
+
+    let parsed = first;
+    parsed.validate().unwrap();
+    assert_eq!(parsed.version, 2);
+    let link = &parsed.record_query_links["todo"];
+    assert_eq!(link.reader, "read");
+    assert_eq!(link.writer.as_deref(), Some("writer"));
+    assert_eq!(parsed.model_bindings["todo"], ["writer"]);
+    assert_eq!(parsed.requires.len(), 2);
+}
+
+#[cfg(feature = "records")]
+#[test]
+fn record_query_read_only_model_has_no_writable_storage_requirement() {
+    use crate::ModelRead;
+
+    let from_handler = Application::new("ReadOnly")
+        .handler(|_reader: ModelRead<TodoModel, TestRecordReaderContract>| Ok::<(), StoreError>(()))
+        .unwrap();
+    let read_alias = TestRecordReaderContract::definition()
+        .unwrap()
+        .capability
+        .default_requirement_alias();
+    let direct = Application::new("ReadOnly")
+        .record_query_at::<TodoModel, TestRecordReaderContract>(&read_alias)
+        .unwrap();
+
+    assert_eq!(
+        from_handler.definition_json().unwrap(),
+        direct.definition_json().unwrap()
+    );
+    let schema = riesel_schema::parse_schema(&direct.definition_json().unwrap()).unwrap();
+    assert_eq!(schema.version, 2);
+    assert!(schema.model_bindings.is_empty());
+    assert!(schema.record_query_links["todo"].writer.is_none());
+    assert_eq!(schema.requires.len(), 1);
+    let contract = TestRecordReaderContract::definition().unwrap();
+    assert!(
+        contract
+            .operations
+            .values()
+            .all(|op| op.kind == riesel_schema::OperationKind::Query)
+    );
+}
+
+#[cfg(feature = "dev-memory-storage")]
+impl TestRecordReader for riesel_storage_component::MemoryStore {
+    fn count_records(&self, model: &str) -> std::result::Result<u64, StoreError> {
+        use crate::storage::RecordStore;
+        let mut count = 0;
+        let mut after = None;
+        loop {
+            // Test-only reference read through Storage v2 pages. Native
+            // provider execution and bounded predicates belong to #161.
+            let page = RecordStore::list_page(self, model, after, 32)?;
+            count += page.records.len() as u64;
+            match page.next_cursor {
+                Some(cursor) => after = Some(cursor),
+                None => return Ok(count),
+            }
+        }
+    }
+}
+
+#[cfg(feature = "dev-memory-storage")]
+#[test]
+fn generated_linked_reader_and_storage_reuse_one_live_provider_instance() {
+    use crate::storage::{RecordStore, RecordStoreRpcDispatcher};
+    use crate::{ModelRead, Records};
+    use riesel_app::ComponentDefinition;
+    use riesel_storage_component::MemoryStore;
+    use std::sync::Arc;
+    use std::sync::atomic::{AtomicUsize, Ordering};
+
+    let created = Arc::new(AtomicUsize::new(0));
+    let counter = Arc::clone(&created);
+    let models = std::collections::BTreeMap::from([(
+        TodoModel::MODEL_NAME.to_owned(),
+        TodoModel::model_definition(),
+    )]);
+    let shared = ComponentDefinition::new("research.test.record.owner", move || {
+        counter.fetch_add(1, Ordering::SeqCst);
+        MemoryStore::with_models(models.clone())
+    })
+    .exposes::<RecordStoreContract, _>(
+        |state| state as Arc<dyn RecordStore + Send + Sync>,
+        RecordStoreRpcDispatcher::new,
+    )
+    .unwrap()
+    .exposes::<TestRecordReaderContract, _>(
+        |state| state as Arc<dyn TestRecordReader + Send + Sync>,
+        TestRecordReaderRpcDispatcher::new,
+    )
+    .unwrap();
+
+    let mut retained_reader = None;
+    Application::new("LinkedModelReaderAndWriter")
+        .handler_with_aliases(
+            |reader: ModelRead<TodoModel, TestRecordReaderContract>,
+             writer: Records<TodoModel>|
+             -> std::result::Result<(), SdkError> {
+                assert_eq!(reader.model_name(), "todo");
+                assert_eq!(reader.count_records("todo")?, 0);
+                writer.create(TodoModel {
+                    title: "Confirmed".into(),
+                    completed: false,
+                })?;
+                assert_eq!(reader.count_records("todo")?, 1);
+                retained_reader = Some(reader);
+                Ok(())
+            },
+            ["read", "writer"],
+        )
+        .unwrap()
+        .provider(shared)
+        .unwrap()
+        .run()
+        .unwrap();
+
+    assert_eq!(created.load(Ordering::SeqCst), 1);
+    assert!(matches!(
+        retained_reader.unwrap().count_records("todo"),
+        Err(StoreError::Transport(_))
+    ));
+}
+
+#[cfg(feature = "dev-memory-storage")]
+#[test]
+fn typed_model_read_only_handler_works_with_a_read_only_local_provider() {
+    use crate::ModelRead;
+    use riesel_app::ComponentDefinition;
+    use riesel_storage_component::MemoryStore;
+    use std::sync::Arc;
+
+    let models = std::collections::BTreeMap::from([(
+        TodoModel::MODEL_NAME.to_owned(),
+        TodoModel::model_definition(),
+    )]);
+    let reader = ComponentDefinition::new("research.test.record.readeronly", move || {
+        MemoryStore::with_models(models.clone())
+    })
+    .exposes::<TestRecordReaderContract, _>(
+        |state| state as Arc<dyn TestRecordReader + Send + Sync>,
+        TestRecordReaderRpcDispatcher::new,
+    )
+    .unwrap();
+
+    let prepared = Application::new("LinkedModelReadOnly")
+        .handler(
+            |reader: ModelRead<TodoModel, TestRecordReaderContract>|
+             -> std::result::Result<(), StoreError> {
+                assert_eq!(reader.count_records("todo")?, 0);
+                // This test-only read facet delegates to Storage v2 listing;
+                // it does not implement #161's model-scoped Query admission.
+                Ok(())
+            },
+        )
+        .unwrap();
+    assert!(prepared.definition().model_bindings.is_empty());
+    assert_eq!(prepared.definition().requires.len(), 1);
+    prepared.provider(reader).unwrap().run().unwrap();
+}
+
+#[cfg(feature = "records")]
+#[test]
+fn invalid_record_reader_contract_and_conflicting_writers_fail_during_authoring() {
+    let error = Application::new("InvalidRead")
+        .record_query_at::<TodoModel, RecordStoreContract>("read")
+        .err()
+        .unwrap();
+    assert!(matches!(error, SdkError::InvalidRecordQueryContract(_)));
+
+    let error = Application::new("ConflictingWriter")
+        .record_query_at::<TodoModel, TestRecordReaderContract>("read")
+        .unwrap()
+        .records_at::<TodoModel>("writer")
+        .unwrap()
+        .records_at::<TodoModel>("other_writer")
+        .err()
+        .unwrap();
+    assert!(matches!(error, SdkError::ConflictingRecordQueryLink(_)));
+
+    let error = Application::new("AmbiguousWriter")
+        .records_at::<TodoModel>("writer_a")
+        .unwrap()
+        .records_at::<TodoModel>("writer_b")
+        .unwrap()
+        .record_query_at::<TodoModel, TestRecordReaderContract>("read")
+        .err()
+        .unwrap();
+    assert!(matches!(error, SdkError::AmbiguousRecordQueryWriter(_)));
+}
+
+#[cfg(feature = "records")]
 #[test]
 fn sdk_generated_definition_round_trips_without_handwritten_json() {
     let app = Application::new("Todo").records::<TodoModel>().unwrap();

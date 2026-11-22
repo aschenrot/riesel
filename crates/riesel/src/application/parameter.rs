@@ -86,6 +86,61 @@ where
     }
 }
 
+/// One typed, read-designated capability for a registered Rust model.
+///
+/// Unlike Records<T>, this parameter does not request mutating Storage.
+/// Its generated read-only capability is checked when declared and again
+/// against the selected linked provider before any state is constructed.
+/// This is a generic authoring foundation, not a production Query engine.
+#[cfg(feature = "records")]
+pub struct ModelRead<T: RieselModel, C: RpcClientBinding> {
+    capability: Capability<C>,
+    _model: PhantomData<fn() -> T>,
+}
+
+#[cfg(feature = "records")]
+impl<T: RieselModel, C: RpcClientBinding> ModelRead<T, C> {
+    pub fn model_name(&self) -> &'static str {
+        T::MODEL_NAME
+    }
+
+    pub fn service(&self) -> &C::Service {
+        self.capability.service()
+    }
+}
+
+#[cfg(feature = "records")]
+impl<T: RieselModel, C: RpcClientBinding> Deref for ModelRead<T, C> {
+    type Target = C::Service;
+
+    fn deref(&self) -> &Self::Target {
+        self.capability.service()
+    }
+}
+
+#[cfg(feature = "records")]
+impl<T, C> ApplicationParam for ModelRead<T, C>
+where
+    T: RieselModel,
+    C: RpcClientBinding + 'static,
+    C::Service: Clone,
+{
+    fn default_alias() -> Result<String> {
+        <Capability<C> as ApplicationParam>::default_alias()
+    }
+
+    fn declare(application: Application, alias: &str) -> Result<Application> {
+        application.record_query_at::<T, C>(alias)
+    }
+
+    fn extract(context: &Context<'_>, alias: &str) -> Result<Self> {
+        Ok(Self {
+            capability: <Capability<C> as ApplicationParam>::extract(context, alias)?,
+            _model: PhantomData,
+        })
+    }
+}
+
 #[cfg(feature = "records")]
 impl<T> ApplicationParam for Records<T>
 where
