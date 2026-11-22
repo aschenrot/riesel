@@ -486,6 +486,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "riesel_execution_plan_sqlite"
+version = "0.1.0"
+dependencies = [
+ "riesel_app",
+ "rusqlite",
+ "serde",
+ "serde_json",
+ "tempfile",
+ "thiserror",
+]
+
+[[package]]
 name = "riesel_hello_example"
 version = "0.1.0"
 dependencies = [
