@@ -30,3 +30,7 @@ jobs:
         run: cargo test --locked -p riesel_app --features app-publication
       - name: Compile SDK Context exposure (opt-in feature)
         run: cargo test --locked -p riesel --features app-publication
+      - name: Exercise real independent Unix client, same-PID restart and T1 policy
+        run: cargo test --locked -p riesel_app --features app-publication-unix --test app_publication_unix -- --nocapture
+      - name: Compile optional Unix facade in the SDK
+        run: cargo check --locked -p riesel --features app-publication-unix

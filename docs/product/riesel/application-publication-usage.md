@@ -28,6 +28,44 @@ The SDK's `Context::publish_local_reads` offers the same path inside a running a
 
 This function does **not** open a port, bind to a Unix socket, launch a GUI, create a registration, verify peer credentials, or establish a trusted server endpoint. `query` is callable within the application/adapter process; any independently operated client still needs a separately verified T1 local transport adapter enforcing its declared scope and browser-origin policy. Do not send a `ReadPublicationDescriptor` to an arbitrary remote endpoint and treat the returned strings as authoritative identity. Only the application can attest whether the selected data is non-sensitive; Riesel cannot infer this from a read-only method name.
 
+## Optional Unix-native independent client (T1 local only)
+
+With features `app-publication-unix` and a Unix-like OS, the application can
+bind an **explicit absolute socket path** using `UnixReadServer::bind(path)`,
+and serve an `Arc<AppReadPublication>` using
+`UnixReadServer::serve(publication).await`. Run that future as a named
+`AsyncTasks::spawn` task in the application's active SDK async entrypoint;
+there is **no daemon, hardcoded global port, Manager registration or UI
+renderer**. The server's socket is created mode `0600` and cleaned up
+only when the on-disk inode still matches the server's original endpoint.
+Use a private trusted local directory (for example mode `0700`) and
+disclose its path through an **application-owned trusted launch/discovery
+channel**. The path and returned fields alone are not authenticated server
+identity against other same-UID software.
+
+A separate native program can use `UnixReadClient::new(path)`, then
+`describe().await` for a **non-secret** published descriptor and
+`query(&descriptor, "snapshot", args).await`. This first wire adapter
+uses a versioned, bounded one-request/one-response JSON envelope and
+has no subscriptions or implicit reconnect. An expired descriptor is
+rejected; callers must obtain a fresh descriptor and authoritative
+domain snapshot after session replacement. Successful replies and
+typed error *codes* are exposed as JSON values. A UI must not
+reinterpret missing/expired data as current and must not automatically
+retry mutations (which T1 cannot publish in any case).
+
+The local Unix adapter intentionally **does not** authenticate
+individual same-UID processes, protect against a counterfeit endpoint
+after unlink/rebind or serve browser clients directly; browser same-origin
+security and cross-platform native adapters remain separately verified
+work. The current implementation restricts to explicitly selected
+non-sensitive `OperationKind::Query` methods, 16 concurrent client
+slots, bounded request/response bytes and finite I/O timeouts.
+Those are **initial adapter budgets**, not a benchmark or general
+performance guarantee. The actual OS-process test verifies attach,
+client detach/reopen, forbidden command rejection, app-session restart
+and stale descriptor fencing through this SDK policy.
+
 ## Remaining #258 work
 
-An independently running client must be exercised against an actual app-owned adapter for Counter, Todo and graph read models on **one shared policy**. Verify owned listener/task lifetime and bounded multiple clients, actual runtime restart and withdrawal, authoritative trace-loss resynchronization, documented same-UID/server-impersonation threat limits and exact full-workspace CI. A frontend remains optional and independently selected under [#114](https://github.com/aschenrot/riesel/issues/114). No T1 external mutations, sensitive data, graph controls, S2 plan publication or activation are authorized. Do not call the foundation complete based on policy unit tests alone.
+The optional Unix client is the first external adapter; still verify equivalent Counter, Todo and graph **app-owned** read models on one published policy across supported client hosts. Verify owned listener/task lifetime and bounded multiple clients, actual runtime restart and withdrawal, authoritative trace-loss resynchronization, documented same-UID/server-impersonation threat limits and exact full-workspace CI. A frontend remains optional and independently selected under [#114](https://github.com/aschenrot/riesel/issues/114). No T1 external mutations, sensitive data, graph controls, S2 plan publication or activation are authorized. Do not call the foundation complete based on policy unit tests alone.

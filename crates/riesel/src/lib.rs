@@ -73,6 +73,8 @@ pub use riesel_app::{
 };
 #[cfg(feature = "async-tcp")]
 pub use riesel_app::{AsyncTasks, ProviderBlocking, ProviderBlockingError, ProviderCancellation};
+#[cfg(all(unix, feature = "app-publication-unix"))]
+pub use riesel_app::{UnixReadClient, UnixReadServer};
 #[cfg(feature = "async-tcp")]
 pub use rpc_connector::AsyncRpcConnector;
 pub use rpc_connector::RpcConnector;
