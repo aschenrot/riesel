@@ -330,6 +330,19 @@ def controller(pinned):
             raise AssertionError("actual Counter not owned by separate OS principal")
         print("RESEARCH_M59_UNKNOWN_REAL_RIESEL_OS_OWNER_VERIFIED", flush=True)
 
+        before_id = "op" + uuid.uuid4().hex[:12]
+        cmd = [str(root_script), "--mutate", str(root), unit,
+               before_id, json.dumps(initial), str(installed)]
+        before = run(elevated("/usr/bin/python3", *cmd, "before"),
+                     check=False)
+        if before.returncode != EXIT_BEFORE:
+            raise AssertionError(f"before-effect worker did not crash at gate: {before}")
+        # Security negative control occurs AFTER the SQLite journal exists,
+        # contains the actual submitted command, and is still protected.
+        # Testing only an as-yet-nonexistent path would be insufficient.
+        if run(elevated("test", "-s", str(root / "commands.sqlite")),
+               check=False).returncode:
+            raise AssertionError("root journal missing before hostile access probe")
         attacker_result = run(elevated(
             "setpriv", "--reuid", str(UNTRUSTED), "--regid", str(UNTRUSTED),
             "--clear-groups", "/usr/bin/python3", str(root_script),
@@ -338,15 +351,10 @@ def controller(pinned):
             "RESEARCH_M59_UNKNOWN_OUTCOME_UNTRUSTED_OS_AND_JOURNAL_DENIED"
                 not in attacker_result.stdout):
             raise AssertionError(
-                f"attacker did not demonstrate denied boundaries: {attacker_result}"
+                f"attacker did not demonstrate denied existing-journal/OS boundaries: "
+                f"{attacker_result}"
             )
-        before_id = "op" + uuid.uuid4().hex[:12]
-        cmd = [str(root_script), "--mutate", str(root), unit,
-               before_id, json.dumps(initial), str(installed)]
-        before = run(elevated("/usr/bin/python3", *cmd, "before"),
-                     check=False)
-        if before.returncode != EXIT_BEFORE:
-            raise AssertionError(f"before-effect worker did not crash at gate: {before}")
+        print(attacker_result.stdout.strip(), flush=True)
         state = os_state(unit)
         if (state.get("ActiveState") != "active" or
                 state.get("InvocationID") != initial["invocation"] or
