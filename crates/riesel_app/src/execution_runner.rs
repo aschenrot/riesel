@@ -406,7 +406,7 @@ impl ExecutionGraphRunner {
             description.id().to_owned(),
             description.revision(),
         );
-        let publication = GraphRunPublication::new(identity, operations);
+        let publication = GraphRunPublication::new(identity, operations, session.clone());
         let index = operations
             .iter()
             .enumerate()
