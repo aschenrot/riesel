@@ -84,8 +84,21 @@ Therefore compare:
 
 ## 7. What is / is not completed
 
-**Completed by this report:** repository source inspection, explicit responsibility model, source-grounded SDK type constraint, fair preliminary alternatives and executable acceptance plan.
+**Completed by this report / accompanying fixture:** repository source inspection, responsibility model, source-grounded SDK type constraint, preliminary alternatives, evidence plan, and a real SDK compiler/runtime proof of bounded public DTOs crossing two **linked** generated capability handles. The fixture uses synthetic providers and a normal typed Rust threshold conversion.
 
-**Not completed:** compiled Noise/CA capability fixture, independently tested real Rust 64x64 implementation, CA rule extension, benchmark, native host experiment, GUI interaction, owner architecture acceptance or production code. Existing Riesel tests and grid topology tests do not substitute for these cross-repository integration proofs.
+**Not completed:** negative compile-fail cases, independent real-domain 64x64 noise/CA/dual-grid integration, configurable CA rule extension, throughput/serialization benchmark, native host experiment, GUI interaction, owner architecture acceptance or production code. Existing Riesel tests and grid topology tests do not substitute for these cross-repository integration proofs.
 
 This report is deliberately compatible with one-authoritative-plan-source and S2-to-S3 evolution under #111. New data-artifact and revision semantics must not silently create another executable plan publisher.
+
+## 8. Executed evidence (synthetic capability boundaries only)
+
+The isolated `research/grid-workbench-175` Cargo workspace contains two real `#[capability]` contracts, two linked `#[component]` providers, generated async handles in a Riesel `#[app]` entrypoint, a 64x64 bounded field DTO, an explicit ordinary-Rust threshold conversion and an identity-CA DTO boundary. These **synthetic** providers do not claim actual noise synthesis, neighborhood transition or dual-grid correctness.
+
+To reproduce from a checkout with Rust 1.100:
+
+```sh
+cargo test --manifest-path research/grid-workbench-175/Cargo.toml
+cargo run --manifest-path research/grid-workbench-175/Cargo.toml
+```
+
+**Verified exact fixture commit `55ffcdc44f699831e3fc94d2926f8a0dd002c071`:** [dedicated Linux CI run 44993233367](https://github.com/aschenrot/riesel/actions/runs/44993233367) completed successfully, including **2/2 unit tests** (strict threshold/shape and invalid dimension/non-finite rejection) and the real linked-provider Riesel application printed `Riesel #175 SDK composition proof: 64x64 cells`. This proves current DTO/handle composition, **not** direct `DenseGrid2D<f32>` support, actual CA correctness, managed/remote payload limits or runtime S3 dataflow. The first fixture commit omitted some macro-required direct Cargo dependencies and failed; this was corrected and reverified, not concealed.
