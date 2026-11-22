@@ -6,7 +6,8 @@
 //! and source-generation condition against their authoritative durable state.
 
 use crate::{
-    OperationRegistry, S2DocumentError, S2DocumentLimits, S2PlanDocument, S2SourceDocument,
+    OperationRegistry, PlanSourceCoverageReport, S2DocumentError, S2DocumentLimits,
+    S2PlanDocument, S2SourceDocument,
     ValidatedExecutionPlan, bind_s2_document,
 };
 use serde::{Deserialize, Serialize};
@@ -158,6 +159,16 @@ impl CheckedSourceHandoff {
         handlers: &OperationRegistry<H>,
         limits: S2DocumentLimits,
     ) -> Result<Self, PlanRevisionError> {
+        let coverage = PlanSourceCoverageReport::compare_rust_to_s2(
+            original, document, handlers, limits,
+        );
+        if !coverage.is_complete() {
+            return Err(PlanRevisionError::Invalid(format!(
+                "Rust to document transfer has {} unsupported or changed construct(s): {:?}",
+                coverage.findings.len(),
+                coverage.findings,
+            )));
+        }
         let candidate = PlanSemanticCandidate::from_s2(document, handlers, limits)?;
         let source = PlanSemanticCandidate::from_rust(original)?;
         if candidate.snapshot() != source.snapshot() {
@@ -182,6 +193,16 @@ impl CheckedSourceHandoff {
         handlers: &OperationRegistry<H>,
         limits: S2DocumentLimits,
     ) -> Result<Self, PlanRevisionError> {
+        let coverage = PlanSourceCoverageReport::compare_rust_to_s2(
+            target_rust, current_document, handlers, limits,
+        );
+        if !coverage.is_complete() {
+            return Err(PlanRevisionError::Invalid(format!(
+                "Document to Rust transfer has {} unsupported or changed construct(s): {:?}",
+                coverage.findings.len(),
+                coverage.findings,
+            )));
+        }
         let candidate = PlanSemanticCandidate::from_s2(current_document, handlers, limits)?;
         let source = PlanSemanticCandidate::from_rust(target_rust)?;
         if candidate.snapshot() != source.snapshot() {
