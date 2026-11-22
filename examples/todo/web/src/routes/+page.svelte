@@ -696,11 +696,6 @@
           </div>
           <span class="sr-only" aria-live="polite">{refreshNotice}</span>
         </div>
-        <div class="filters" role="group" aria-label="Filter loaded tasks">
-          <button type="button" class:active={filter === 'all'} aria-pressed={filter === 'all'} disabled={batchRunning} onclick={() => changeFilter('all')}>All</button>
-          <button type="button" class:active={filter === 'open'} aria-pressed={filter === 'open'} disabled={batchRunning} onclick={() => changeFilter('open')}>Open</button>
-          <button type="button" class:active={filter === 'done'} aria-pressed={filter === 'done'} disabled={batchRunning} onclick={() => changeFilter('done')}>Done</button>
-        </div>
         <p class="count" aria-label={tasks.length + ' tasks loaded, ' + openCount + ' open in loaded tasks'}>
           {tasks.length} loaded <span aria-hidden="true">·</span> {openCount} open
         </p>
@@ -775,16 +770,9 @@
         </div>
       {/if}
 
-      {#if loading}
-        <p class="placeholder" role="status">Loading tasks…</p>
-      {:else if visible.length === 0}
-        <div class="placeholder">
-          <p class="empty-title">{tasks.length === 0 ? 'No tasks yet' : 'Nothing in this view'}</p>
-          <p>{tasks.length === 0 ? 'Add your first task above.' : 'Switch filters to see other loaded tasks.'}</p>
-        </div>
-      {:else}
-        <ul class="task-list" aria-label="Tasks">
-          {#each visible as task (task.id)}
+      {#snippet taskList(rows: Task[], label: string)}
+        <ul class="task-list" aria-label={label}>
+          {#each rows as task (task.id)}
             <li class="task" class:done={task.completed} class:selected={selectMode && selectedIds.includes(task.id)}>
               <label class="task-check-control">
                 {#if selectMode}
@@ -800,6 +788,7 @@
                   <input
                     type="checkbox"
                     class="task-checkbox"
+                    id={'task-check-' + task.id}
                     checked={task.completed}
                     disabled={actingId !== null || refreshing || loadingMore || batchRunning}
                     aria-label={'Mark ' + task.title + (task.completed ? ' incomplete' : ' complete')}
@@ -879,17 +868,85 @@
             </li>
           {/each}
         </ul>
-      {/if}
+      {/snippet}
 
-      <div class="panel-footer">
-        {#if nextCursor}
-          <button type="button" class="secondary" disabled={loadingMore || refreshing || actingId !== null || creating || batchRunning} onclick={() => void loadMore()}>
-            {loadingMore ? 'Loading…' : 'Load more tasks'}
-          </button>
-        {:else if tasks.length > 0}
-          <span>All tasks loaded</span>
+      <section class="task-section" aria-labelledby="open-tasks-heading">
+        <div class="section-heading">
+          <h2 id="open-tasks-heading">Open tasks</h2>
+          <span class="count">{openTasks.length} shown</span>
+        </div>
+        {#if openScan.scanning}
+          <div class="section-progress" role="status">
+            Checking open tasks · {openScan.inspected} records inspected
+            <button type="button" class="text-action" onclick={() => stopScan('open')}>Stop checking</button>
+          </div>
+        {:else if openScan.error}
+          <div class="section-message" role="alert">
+            {openScan.error}
+            <button type="button" class="text-action" onclick={() => void scanStatus('open', true)}>Check from start</button>
+          </div>
+        {:else if openTasks.length === 0 && openScan.exhausted}
+          <div class="placeholder">
+            <p class="empty-title">No open tasks found</p>
+            <p>The completed live scan found no open tasks. Changes from other clients appear after refresh.</p>
+          </div>
+        {:else if openTasks.length === 0 && openScan.requested && !openScan.exhausted}
+          <p class="section-message" role="status">No open tasks in the records checked yet. More records remain.</p>
+        {:else if loading && openTasks.length === 0}
+          <p class="placeholder" role="status">Loading tasks…</p>
         {/if}
-      </div>
+        {@render taskList(openTasks, 'Open tasks')}
+        <div class="panel-footer">
+          {#if openScan.cursor && !openScan.exhausted && !openScan.scanning}
+            <button type="button" class="secondary" disabled={loadingMore || refreshing || creating || actingId !== null || batchRunning} onclick={() => void loadMore('open')}>Continue checking open tasks</button>
+          {:else if openScan.exhausted}
+            <span>Open scan complete for now · {openScan.inspected} records inspected</span>
+          {/if}
+        </div>
+      </section>
+
+      <section class="task-section completed-section" aria-labelledby="completed-tasks-heading">
+        <div class="section-heading">
+          <h2 id="completed-tasks-heading">
+            <button id="completed-toggle" type="button" class="section-toggle"
+              aria-expanded={completedExpanded} aria-controls="completed-tasks-content"
+              disabled={refreshing || loadingMore || batchRunning || actingId !== null || editingId !== null}
+              onclick={() => void toggleCompleted()}>
+              <span aria-hidden="true">{completedExpanded ? '▾' : '▸'}</span>
+              Completed
+            </button>
+          </h2>
+          {#if completedExpanded}<span class="count">{completedTasks.length} shown</span>{/if}
+        </div>
+        <div id="completed-tasks-content" hidden={!completedExpanded}>
+          {#if completedExpanded}
+            {#if completedScan.scanning}
+              <div class="section-progress" role="status">
+                Checking completed tasks · {completedScan.inspected} records inspected
+                <button type="button" class="text-action" onclick={() => stopScan('completed')}>Stop checking</button>
+              </div>
+            {:else if completedScan.error}
+              <div class="section-message" role="alert">
+                {completedScan.error}
+                <button type="button" class="text-action" onclick={() => void scanStatus('completed', true)}>Check from start</button>
+              </div>
+            {:else if completedTasks.length === 0 && completedScan.exhausted}
+              <p class="section-message">No completed tasks found in the completed scan.</p>
+            {:else if completedTasks.length === 0 && completedScan.requested}
+              <p class="section-message" role="status">No completed tasks in the records checked yet. More records remain.</p>
+            {/if}
+            {@render taskList(completedTasks, 'Completed tasks')}
+            <div class="panel-footer">
+              {#if completedScan.cursor && !completedScan.exhausted && !completedScan.scanning}
+                <button type="button" class="secondary" disabled={loadingMore || refreshing || creating || actingId !== null || batchRunning} onclick={() => void loadMore('completed')}>Continue checking completed tasks</button>
+              {:else if completedScan.exhausted}
+                <span>Completed scan complete for now · {completedScan.inspected} records inspected</span>
+              {/if}
+            </div>
+          {/if}
+        </div>
+      </section>
+
     </section>
     <p class="footnote">Tasks are stored locally. Changes from other clients appear after refresh.</p>
   </main>
