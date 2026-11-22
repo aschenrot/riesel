@@ -22,14 +22,11 @@ jobs:
           rustup toolchain install 1.100.0 --profile minimal
           rustup default 1.100.0
       - name: Test actual runner / typed-domain handoff
-        run: cargo test --manifest-path research/typed-handoff-187/Cargo.toml -- --nocapture
-      - name: Record exact standalone research dependency lock
-        run: |
-          echo 'RIESEL187_CARGO_LOCK_BEGIN'
-          cat research/typed-handoff-187/Cargo.lock
-          echo 'RIESEL187_CARGO_LOCK_END'
+        run: cargo test --locked --manifest-path research/typed-handoff-187/Cargo.toml -- --nocapture
+      - name: Verify pinned standalone dependency resolution
+        run: git diff --exit-code -- research/typed-handoff-187/Cargo.lock
       - name: Run headless example
-        run: cargo run --manifest-path research/typed-handoff-187/Cargo.toml --bin riesel-typed-handoff-187-research
+        run: cargo run --locked --manifest-path research/typed-handoff-187/Cargo.toml --bin riesel-typed-handoff-187-research
       - name: Record controlled runner context
         run: |
           uname -a
@@ -37,10 +34,10 @@ jobs:
           free -h || true
           rustc --version
       - name: Measure local value sharing, copies and JSON boundaries (release)
-        run: cargo run --release --manifest-path research/typed-handoff-187/Cargo.toml --bin value_costs
+        run: cargo run --release --locked --manifest-path research/typed-handoff-187/Cargo.toml --bin value_costs
       - name: Verify exact-float JSON codec alternative
-        run: cargo test --manifest-path research/typed-handoff-187/Cargo.toml --features json-float-roundtrip --bin value_costs
+        run: cargo test --locked --manifest-path research/typed-handoff-187/Cargo.toml --features json-float-roundtrip --bin value_costs
       - name: Measure exact-float JSON codec alternative (release)
-        run: cargo run --release --manifest-path research/typed-handoff-187/Cargo.toml --features json-float-roundtrip --bin value_costs
+        run: cargo run --release --locked --manifest-path research/typed-handoff-187/Cargo.toml --features json-float-roundtrip --bin value_costs
       - name: Measure production S2 no-data graph execution baseline (release)
-        run: cargo run --release --manifest-path research/typed-handoff-187/Cargo.toml --bin graph_costs
+        run: cargo run --release --locked --manifest-path research/typed-handoff-187/Cargo.toml --bin graph_costs
