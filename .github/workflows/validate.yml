@@ -40,16 +40,8 @@ jobs:
         if: ${{ github.event_name == 'pull_request' && github.head_ref == 'research/146-nested-domain-contract' }}
         run: |
           cargo fmt --manifest-path research/nested-execution/Cargo.toml -- --check
-          cargo clippy --manifest-path research/nested-execution/Cargo.toml --all-targets -- -D warnings
-          cargo test --manifest-path research/nested-execution/Cargo.toml -- --nocapture
-      # The isolated workspace does not inherit root Cargo.lock. Capture the
-      # resolved exact dependencies so the accepted research can be replayed.
-      - name: Capture research lockfile for reproducibility review
-        if: ${{ github.event_name == 'pull_request' && github.head_ref == 'research/146-nested-domain-contract' }}
-        run: |
-          echo 'RESEARCH_LOCKFILE_BEGIN'
-          cat research/nested-execution/Cargo.lock
-          echo 'RESEARCH_LOCKFILE_END'
+          cargo clippy --locked --manifest-path research/nested-execution/Cargo.toml --all-targets -- -D warnings
+          cargo test --locked --manifest-path research/nested-execution/Cargo.toml -- --nocapture
       - name: Validate workspace
         run: cargo validate --check
       - name: Smoke test runtime and managed providers
