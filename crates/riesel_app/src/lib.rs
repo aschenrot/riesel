@@ -19,6 +19,7 @@ mod internal_publication_tests;
 #[doc(hidden)]
 pub mod operational_observation;
 mod plan;
+mod s2_document;
 mod recovery;
 mod resolver;
 mod runtime;
@@ -75,6 +76,12 @@ pub use supervisor::CancellationToken;
 
 pub use plan::{DeploymentPlan, PlannedService, PlannedTarget};
 
+pub use s2_document::{
+    S2_DOCUMENT_VERSION, S2DocumentAccess, S2DocumentAccessMode, S2DocumentDomain,
+    S2DocumentDomainMode, S2DocumentError, S2DocumentLimits, S2DocumentTrigger,
+    S2OperationBinding, S2OperationDocument, S2PlanDocument, S2SourceDocument,
+    bind_s2_document, inspect_s2_source,
+};
 pub use recovery::RecoveryPolicy;
 
 pub use riesel_protocol::SessionToken;
