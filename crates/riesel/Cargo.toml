@@ -33,6 +33,10 @@ name = "execution_graph"
 required-features = ["async-tcp"]
 
 [[example]]
+name = "execution_graph_inspection_export"
+required-features = ["async-tcp"]
+
+[[example]]
 name = "execution_fixed_step"
 required-features = ["async-tcp"]
 
