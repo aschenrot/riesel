@@ -355,6 +355,14 @@ fn actual_domain_owner_publication_cancellation_and_read_only_discovery() {
             }
         );
         assert_eq!(view.snapshot().status, NestedStatus::OwnerClosed);
+        let attached_again = setup
+            .observer
+            .nested::<StageSnapshot>("frame", 1)
+            .unwrap()
+            .unwrap();
+        assert_eq!(attached_again.snapshot().sequence, 1);
+        assert_eq!(attached_again.snapshot().status, NestedStatus::OwnerClosed);
+        drop(attached_again);
         assert_eq!(
             *view.snapshot().payload.unwrap(),
             StageSnapshot {
@@ -615,8 +623,18 @@ fn replacing_owner_generation_retires_old_readers_and_publishers() {
         ));
         drop(second);
         assert_eq!(new.snapshot().status, NestedStatus::OwnerClosed);
+        let still_live_registration = first.registration();
         drop(app);
         assert_eq!(new.snapshot().status, NestedStatus::SessionExpired);
+        assert!(matches!(
+            reporter
+                .lock()
+                .unwrap()
+                .as_ref()
+                .unwrap()
+                .attach_nested::<i32>(&still_live_registration, 1),
+            Err(NestedObservationError::SessionExpired)
+        ));
     });
 }
 
