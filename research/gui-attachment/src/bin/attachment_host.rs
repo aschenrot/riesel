@@ -12,7 +12,7 @@ use riesel_protocol::session::InternalPublicationSession;
 use serde_json::{Value, json};
 use std::error::Error;
 use std::fs::{self, Permissions};
-use std::io::{self, Read, Write};
+use std::io::{self, BufRead, Read, Write};
 use std::net::Shutdown;
 use std::num::NonZeroUsize;
 use std::os::unix::fs::PermissionsExt;
