@@ -36,7 +36,8 @@ jobs:
       - name: App-owned async ingress, cancellation, teardown and successor fencing
         run: cargo test --locked -p riesel_app --features internal-publication
       - name: Verify actual Todo adapter outcomes, linked SQLite and handler lifecycle
-        run: cargo test --locked -p todo --features http,internal-observation --lib http::tests:: -- --nocapture
+        run: |
+          cargo test --locked -p todo --features http,internal-observation --lib http::tests:: -- --nocapture
       - name: Compile the genuine recovering Riesel Counter
         run: |
           cargo build --locked -p riesel_counter_example --bin counter_crash_fixture
