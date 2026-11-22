@@ -9,6 +9,7 @@ let checkpoint = "final";
 const liveMode = location.protocol === "http:" && location.hostname === "127.0.0.1";
 let liveRequestInFlight = false;
 let connectionText = "";
+let selectedNodeId = null;
 function connectionStatus(message) {
   if (message === connectionText) return;
   connectionText = message;
@@ -72,6 +73,10 @@ function validate(doc) {
 }
 function stateOf(n) { return n[checkpoint]; }
 function showNode(n) {
+  selectedNodeId = n.id;
+  for (const button of $("node-list").querySelectorAll("button")) {
+    button.setAttribute("aria-pressed", String(button.dataset.operationId === n.id));
+  }
   const target = $("detail");
   target.replaceChildren();
   const rows = [
@@ -157,16 +162,24 @@ function render() {
   }
   graph(doc, depth);
   const listing = $("node-list");
+  const focusedId = listing.contains(document.activeElement)
+    ? document.activeElement?.dataset?.operationId : null;
   listing.replaceChildren();
   for (const n of doc.nodes) {
     const button = element("button");
     const state = element("span", stateOf(n), "status");
+    button.dataset.operationId = n.id;
     button.append(element("span", n.id), state);
     button.setAttribute("aria-label", n.id + ", " + stateOf(n) + "; show details");
     button.addEventListener("click", () => showNode(n));
     listing.append(button);
   }
-  showNode(doc.nodes[0]);
+  showNode(doc.nodes.find((node) => node.id === selectedNodeId) || doc.nodes[0]);
+  if (focusedId) {
+    const focused = [...listing.querySelectorAll("button")]
+      .find((button) => button.dataset.operationId === focusedId);
+    focused?.focus({ preventScroll: true });
+  }
   $("trace-warning").textContent = doc.trace_truncated
     ? "Transition history is incomplete: authoritative resnapshot is required. This file contains only the snapshot at export."
     : doc.session_expired
@@ -180,6 +193,7 @@ function render() {
 }
 function fail(message) {
   current = null;
+  selectedNodeId = null;
   $("graph").replaceChildren();
   $("meta").replaceChildren();
   $("timeline").replaceChildren();
