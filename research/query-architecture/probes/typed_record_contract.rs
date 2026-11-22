@@ -21,7 +21,8 @@ struct ResearchMetadata {
     completed: bool,
     big: u64,
     delta: i64,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
+    // Missing and explicit null are separately exercised via raw valid
+    // record data; serde field modifiers are not supported by RieselModel.
     note: Option<String>,
 }
 
