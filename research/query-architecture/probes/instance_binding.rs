@@ -295,3 +295,119 @@ fn requirement_startup_dependency_does_not_establish_shared_data_authority() {
         .run()
         .unwrap();
 }
+
+/// The existing serialized AppSchema supports a registered model and a
+/// query-only capability requirement without declaring a Storage writer.
+/// The high-level ApplicationParam path does not yet generate this schema.
+#[test]
+fn schema_allows_registered_read_only_model_without_storage_binding() {
+    use riesel::schema::{AppDefinition, AppSchema, CapabilityRequirement};
+
+    let query = ResearchReadOnlyContract::definition().unwrap().capability;
+    let schema = AppSchema {
+        version: 1,
+        app: AppDefinition {
+            name: "ResearchModelOnlySchema".into(),
+        },
+        models: models(),
+        model_bindings: BTreeMap::new(),
+        requires: vec![CapabilityRequirement {
+            name: "read".into(),
+            capability: query.clone(),
+            depends_on: Vec::new(),
+        }],
+    };
+    schema.validate().unwrap();
+    assert_eq!(schema.requires.len(), 1);
+    assert_eq!(schema.requires[0].capability, query);
+    assert!(schema.models.contains_key(TaskData::MODEL_NAME));
+    assert!(schema.model_bindings.is_empty());
+    // This proves schema expressiveness only. It does not demonstrate that
+    // an arbitrary reader is authorized to access the declared model.
+}
+
+/// Research-only composite injection: one Rust handler argument, but two
+/// independent capability requirements. It is NOT a validated owner relation.
+struct ResearchComposite<T>
+where
+    T: RieselModel + serde::Serialize + serde::de::DeserializeOwned,
+{
+    writer: riesel::Records<T>,
+    reader: Capability<ResearchReadOnlyContract>,
+}
+
+impl<T> riesel::ApplicationParam for ResearchComposite<T>
+where
+    T: RieselModel + serde::Serialize + serde::de::DeserializeOwned,
+{
+    fn default_alias() -> riesel::Result<String> {
+        Ok("storage".into())
+    }
+
+    fn declare(application: Application, alias: &str) -> riesel::Result<Application> {
+        application
+            .records_at::<T>(alias)?
+            .rpc::<ResearchReadOnlyContract>(format!("{alias}_read"))
+    }
+
+    fn extract(context: &riesel::Context<'_>, alias: &str) -> riesel::Result<Self> {
+        Ok(Self {
+            writer: context.records_at::<T>(alias)?,
+            reader: <Capability<ResearchReadOnlyContract> as riesel::ApplicationParam>::extract(
+                context,
+                &format!("{alias}_read"),
+            )?,
+        })
+    }
+}
+
+#[test]
+fn composite_authoring_reduces_handler_arguments_but_not_ownership_risk() {
+    let paired = Application::new("ResearchCompositePaired")
+        .handler(
+            |combined: ResearchComposite<TaskData>| -> Result<(), StoreError> {
+                combined
+                    .writer
+                    .create(TaskData {
+                        title: "paired".into(),
+                        completed: false,
+                    })
+                    .unwrap();
+                assert_eq!(combined.reader.count_records(TaskData::MODEL_NAME)?, 1);
+                Ok(())
+            },
+        )
+        .unwrap();
+    assert_eq!(paired.definition().requires.len(), 2);
+    assert!(paired.definition().models.contains_key(TaskData::MODEL_NAME));
+    assert_eq!(paired.definition().model_bindings[TaskData::MODEL_NAME], ["storage"]);
+    assert!(paired.definition().requires.iter().any(|r| r.name == "storage_read"));
+    paired.provider(coexposed("research.composite.shared")).unwrap().run().unwrap();
+
+    let split = Application::new("ResearchCompositeSplit")
+        .handler(
+            |combined: ResearchComposite<TaskData>| -> Result<(), StoreError> {
+                combined
+                    .writer
+                    .create(TaskData {
+                        title: "split".into(),
+                        completed: false,
+                    })
+                    .unwrap();
+                assert_eq!(
+                    combined.reader.count_records(TaskData::MODEL_NAME)?,
+                    0,
+                    "one injected Rust parameter cannot prove shared data authority"
+                );
+                Ok(())
+            },
+        )
+        .unwrap();
+    split
+        .provider(writer_only("research.composite.writer"))
+        .unwrap()
+        .provider(reader_only("research.composite.reader"))
+        .unwrap()
+        .run()
+        .unwrap();
+}
