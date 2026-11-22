@@ -741,6 +741,78 @@ mod tests {
     }
 
     #[test]
+    fn adapter_outcome_event_mapping_is_finite_source_qualified_and_session_fenced() {
+        let session = SessionToken::new();
+        let expected = [
+            (
+                AdapterOperationEvidence::RejectedBeforeDomainDispatch,
+                OperationDisposition::RejectedBeforeDispatch,
+            ),
+            (
+                AdapterOperationEvidence::DomainConfirmedSuccess,
+                OperationDisposition::ConfirmedSuccess,
+            ),
+            (
+                AdapterOperationEvidence::DomainConfirmedFailure,
+                OperationDisposition::ConfirmedDomainFailure,
+            ),
+            (
+                AdapterOperationEvidence::AdmittedReplyLost,
+                OperationDisposition::OutcomeUnknown,
+            ),
+            (
+                AdapterOperationEvidence::ConfirmedPartialRequiresReconciliation,
+                OperationDisposition::PartialNeedsReconciliation,
+            ),
+        ];
+        for (event, disposition) in expected {
+            let sample =
+                AdapterOperationSnapshot::report(session.clone(), "todo.task.create", event)
+                    .unwrap();
+            assert_eq!(sample.source(), ObservationSource::ApplicationAdapter);
+            assert_eq!(sample.generation_evidence(), GenerationEvidence::AdapterReferenceOnly);
+            assert_eq!(
+                sample.generation(),
+                session.internal_publication_session().generation()
+            );
+            assert_eq!(sample.operation(), "todo.task.create");
+            assert_eq!(sample.event(), event);
+            assert_eq!(sample.disposition(), disposition);
+            assert_eq!(sample.state_at(Instant::now()), ObservationState::Observed);
+            assert_eq!(
+                sample.state_at(sample.observed_at() + MAX_OBSERVATION_AGE + Duration::from_nanos(1)),
+                ObservationState::Stale
+            );
+        }
+        for invalid in ["", "task / secret", "task\nsecret", &"x".repeat(129)] {
+            assert!(matches!(
+                AdapterOperationSnapshot::report(
+                    session.clone(),
+                    invalid,
+                    AdapterOperationEvidence::DomainConfirmedSuccess
+                ),
+                Err(ObservationError::InvalidOperationIdentifier)
+            ));
+        }
+        let old = AdapterOperationSnapshot::report(
+            session.clone(),
+            "counter.add",
+            AdapterOperationEvidence::AdmittedReplyLost,
+        )
+        .unwrap();
+        session.invalidate();
+        assert_eq!(old.state_at(Instant::now()), ObservationState::Stale);
+        assert!(matches!(
+            AdapterOperationSnapshot::report(
+                session,
+                "counter.add",
+                AdapterOperationEvidence::DomainConfirmedSuccess
+            ),
+            Err(ObservationError::ExpiredOperationSession)
+        ));
+    }
+
+    #[test]
     fn verified_binding_does_not_authorize_an_interface_or_os_attempt() {
         let session = SessionToken::new();
         let resolved = vec![ResolvedCapability {
