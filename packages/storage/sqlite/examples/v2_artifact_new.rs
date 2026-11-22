@@ -30,7 +30,10 @@ fn main() {
         .unwrap();
     assert_eq!(adopted.len(), 2);
     for head in adopted {
-        let predecessor = previous.iter().find(|old| old.plan_id == head.plan_id).unwrap();
+        let predecessor = previous
+            .iter()
+            .find(|old| old.plan_id == head.plan_id)
+            .unwrap();
         assert_eq!(head.registration_stamp, NEW);
         assert_eq!(head.source_generation, predecessor.source_generation + 1);
         assert_eq!(head.semantic_revision, predecessor.semantic_revision);
@@ -44,7 +47,13 @@ fn main() {
     let current = new.current_authoring(DOCUMENT_ID).unwrap();
     assert_eq!(current.head.source, PlanAuthoringSource::Document);
     assert!(current.document_bytes.is_some());
-    assert_eq!(new.layout(DOCUMENT_ID, "desktop", 1).unwrap().layout.semantic_anchor, 2);
+    assert_eq!(
+        new.layout(DOCUMENT_ID, "desktop", 1)
+            .unwrap()
+            .layout
+            .semantic_anchor,
+        2
+    );
 
     // Old compiled artifact's original generation must remain unable to write.
     assert!(matches!(
