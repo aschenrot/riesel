@@ -274,6 +274,43 @@ share a process with the writer would be speculative. The first
 linked Memory/SQLite implementation can use literal co-exposure
 as its conservative consistency baseline.
 
+### Application SDK ergonomics and authority are decision-critical
+
+The [research-only instance-binding fixture](probes/instance_binding.rs)
+now exercises **six** linked SDK cases, including two typed parameter
+authoring variants and a lifecycle-order counterexample. [Research CI
+#44976893605](https://github.com/aschenrot/riesel/actions/runs/44976893605)
+passed all **6/6** at revision `b74f5276d02fa10c8f39043d87215baa7a554033`.
+
+- Plain `Records<T>` registers the model and a single Storage
+  requirement, but its surface contains mutation methods.
+- A custom typed **read-only** `ApplicationParam` can inject a
+  generated query contract with a single read requirement and no
+  Storage writer. It **does not register** the typed model in the
+  generated `AppSchema`. This is an existing SDK *authoring gap*,
+  not an inability of the schema format to represent models.
+- Combining the existing `Records<T>` and research read-only
+  parameter creates **two** independently selected requirements;
+  only the Storage alias receives `model_bindings`. No explicit
+  consistency/owner relation is generated.
+- An actual `depends_on("read", ["writer"])` startup edge
+  succeeds while the handlers still read/write **different MemoryStore
+  instances**. Lifecycle ordering is **not** data authority.
+- Co-exposure from one component instance remains a valid first
+  linked strategy; it does not answer cross-process authentication
+  or independent read-only permissions.
+
+This evidence changes the **relative maturity of packaging options**:
+a separate read-only facet remains plausible, but calling it
+architecturally ready without a model-only declaration path and a
+fail-closed owner relation would overstate what the SDK supports.
+A unified Storage contract avoids inter-interface pairing at the cost
+of version/permission coupling. A composite typed handle could improve
+syntax but would not **by itself** prove pairing. The next interface
+specification must compare those options against identical authored
+applications, rather than picking a crate or AST from the prior
+discovery list. See [DECISION_REVIEW.md](DECISION_REVIEW.md).
+
 ## Comparative candidate synthesis — derived *after* discovery
 
 These are **design families, not mandated alternatives**. Each remains
@@ -377,8 +414,10 @@ The decision *could* change with:
    native Memory/SQLite parity and real authenticated cursor/session
    fencing. The SQL and Rust interpreter fixtures do not publish a
    Query contract or prove managed-provider access;
-3. A measured/practical comparison of **same-instance binding and
-   read-only authorization** versus co-exposed unified storage;
+3. Complete the now-tested SDK authoring comparison with explicit
+   model-only registration, same-data-authority preflight/session checks,
+   and read-only permission enforcement versus co-exposed/unified
+   Storage; 6/6 research binding/authoring tests are not an accepted API;
 4. Establish real provider-native bounded index and cancellation behavior under Riesel ownership, not just scratch SQLite; then test managed placement and authorization before claiming remote support;
 5. If broad analytics, search, federation or ECS adapter becomes an
    accepted requirement, its distinct owner/consistency/performance
@@ -403,6 +442,7 @@ federation engine or analytics runtime is a prerequisite for Todo.
 - Provider-authored SQLite native SQL experiment: `cargo test -p riesel_storage_sqlite --test query_architecture_research -- --nocapture`. [Research CI #44971511998](https://github.com/aschenrot/riesel/actions/runs/44971511998) passed **4/4 native SQL Rust tests** at head `2404ec84b62f2d47fb23ea644a8930e14b4ce411`, covering precise integer tokens, missing/null, incorrect lexical numeric sort, UUID spelling mismatch, forced scratch index and connection-local interrupted read. Bundled SQLite is **3.54.1**. SQL is executed **directly on a released disposable provider file**, not through a published Query operation.
 - Sparse-query cost: `python3 research/query-architecture/probes/sqlite_cost_budget.py`. [Research CI #44972111565](https://github.com/aschenrot/riesel/actions/runs/44972111565) passed 3/3 work-budget, parity and scratch index-maintenance tests at earlier commit `dc8a4a4`, Python SQLite 3.46.1; not a provider-native/query-transport SLA.
 - Decision-review document: [DECISION_REVIEW.md](DECISION_REVIEW.md), authored for owner acceptance/revision, **not** an approved product contract.
+- SDK authoring and linked owner semantics: `cargo test -p todo --test query_instance_binding_research -- --nocapture`. [Research CI #44976893605](https://github.com/aschenrot/riesel/actions/runs/44976893605) passed **6/6 tests** at revision `b74f5276`. The fixture demonstrates a read-only model declaration gap, extra aliases, and the fact that `depends_on` never implies shared data authority.
 - Comparative claims: upstream documentation links in
   `DISCOVERY.md`. **Not verified** here: legal licensing audit,
   upstream package MSRV at pinned Rust 1.100, actual integration

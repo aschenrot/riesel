@@ -137,6 +137,57 @@ valid with its declared freshness/consistency profile; it must never
 silently claim immediate read-your-writes. Physical co-location is the
 first linked realization, not a universal Query axiom.
 
+### New authoring evidence: typed read-only versus dual bindings (2026-11-22)
+
+[Six test-only SDK experiments](probes/instance_binding.rs) passed in
+[research CI #44976893605](https://github.com/aschenrot/riesel/actions/runs/44976893605)
+at prior revision `b74f5276d02fa10c8f39043d87215baa7a554033`.
+These use Riesel's actual `Application`, `ApplicationParam`, model
+derive, handler inference, resolver and linked `MemoryStore`; their
+`ResearchReadView<T>` is **not** a public API.
+
+| Tested authoring shape | Declared requirements | Derived model metadata | Demonstrated trade-off |
+| --- | --- | --- | --- |
+| `Records<TaskData>` alone | One Storage requirement | Model and `model_bindings` registered | Ergonomic, but the handle exposes create/update/delete as well as reads |
+| Research-only typed `ResearchReadView<TaskData>` alone | One read-designated requirement | **No model registration** in `AppSchema.models` or `model_bindings` through that adapter | Can run against the linked provider but has no automatic high-level model/schema declaration or model-scoped authorization |
+| `Records<TaskData>` plus `ResearchReadView<TaskData>` | Two requirements, two aliases | Model bound to writer's Storage alias, not reader's query alias | Does not itself declare the query's authoritative data relationship |
+| Writer/read pair with `depends_on("read", ["writer"])` | Two requirements plus startup edge | No special owner relation | **Still reads from separate providers** despite successful preflight and correct lifecycle order |
+
+**This is a concrete SDK constraint, not a failure of a deployed Query product.**
+The current `Application::records_at<T>` registers the model **and**
+the mutating `RecordStoreContract` requirement together; generic
+`Application::rpc<C>` registers a capability but **does not** infer a
+Rust model declaration. The underlying `AppSchema` separates
+`models`, `model_bindings` and `requires`; choosing how a
+query-only application's typed model is registered is an interface
+design problem, **not** evidence that typed read-only queries are
+inherently impossible.
+
+**Packaging criteria for the next interface design:**
+
+1. A read-only application must declare and validate its typed model
+   **without** being forced to request mutation authority.
+2. An application combining read and write must declare and validate
+   **same logical data authority and its actual consistency profile**
+   without manually maintaining two potentially divergent aliases.
+3. A lifecycle dependency or a provider-ID/name match must **not**
+   be mistaken for an authenticated runtime data-owner relationship.
+4. Separate read/write facets, a first-party composite model handle,
+   an attenuated Storage facade and an evolved unified interface must
+   be compared using **one common authoring task**, actual schema
+   output, least-privilege exposure, deployment preflight and restart
+   behavior. No concrete public method/trait/macro is accepted here.
+
+**Revised architectural recommendation:** Accept the *optional shared
+typed Query semantic direction* **separately** from its concrete
+record-interface packaging. A co-exposed read facet remains an
+attractive first linked option, **not a fully established winner**:
+it needs a model-only registration path and enforceable owner
+relationship, or an alternative combined/attenuated authoring design
+with equivalent guarantees. A unified Storage version remains a
+valid comparator. Do not authorize a public API based merely on the
+current research-only `ResearchReadView<T>` wrapper.
+
 ## 3. Recommended *semantic invariants*, not a public AST
 
 1. **Logical owner and schema first.** A query identifies the
@@ -276,8 +327,9 @@ interface accidentally.
 
 ### Requested recorded owner decision (in #138)
 
-**Recommended: ACCEPT DIRECTION, with a bounded subsequent interface
-specification**. Confirm or revise two linked statements:
+**Recommended: ACCEPT SHARED SEMANTIC DIRECTION; REVISE OR DEFER THE
+RECORD-INTERFACE PACKAGING UNTIL ITS MODEL/OWNER AUTHORING CONTRACT
+IS VERIFIED.** Confirm or revise two independent statements:
 
 1. **Product:** Riesel should provide *optional reusable typed Query
    semantics* for capability-owned application data across plausible
@@ -294,10 +346,11 @@ specification**. Confirm or revise two linked statements:
    Remote authorization and index lifecycle are distinct supported
    gates and must fail closed until approved.
 
-**Reasonable revision:** Accept only the semantic foundation,
-and investigate unified/faceted Storage packaging independently
-if read-only binding, SDK authoring or migration evidence changes
-the comparative cost. **Reasonable deferral:** if the intended
+**Reasonable revision (now favored by authoring evidence):** Accept
+only the optional semantic foundation, and require a targeted interface
+specification to prove read-only typed model registration and fail-closed
+query/writer authority binding before selecting a separate read facet,
+unified Storage or a composite/attenuated variant. **Reasonable deferral:** if the intended
 product scope truly ends at Todo, record that constraint and
 deliver a domain-owned read contract rather than an unjustified
 platform-wide Query requirement.
