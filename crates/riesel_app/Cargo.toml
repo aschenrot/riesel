@@ -12,7 +12,7 @@ async-tcp = ["riesel_protocol/async-tcp", "dep:tokio"]
 # Test-only crash child; normal application builds never include this executable.
 test-fixtures = ["async-tcp"]
 # Internal-only Riesel session ingress integration tests; no exporter API.
-internal-publication = ["async-tcp", "riesel_protocol/internal-publication"]
+internal-publication = ["async-tcp", "riesel_protocol/internal-publication", "riesel_manager/internal-observation"]
 
 [dependencies]
 tokio = { workspace = true, optional = true }
