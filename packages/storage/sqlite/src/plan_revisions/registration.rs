@@ -10,7 +10,7 @@ use riesel_app::{
     PlanRevisionRepository, PlanSemanticCandidate, S2DocumentLimits, S2SourceDocument,
     ValidatedExecutionPlan, inspect_s2_source,
 };
-use rusqlite::{Connection, OpenFlags, TransactionBehavior, params};
+use rusqlite::{Connection, OpenFlags, OptionalExtension, TransactionBehavior, params};
 use std::{collections::BTreeMap, path::Path};
 
 impl SqlitePlanRevisionRepository {
