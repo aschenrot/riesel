@@ -41,14 +41,17 @@ fn snapshot(socket: &Path, generation: &str, extra: Option<&str>) -> Value {
 }
 
 fn cursor_status(socket: &Path, generation: &str, cursor: u64) -> Value {
-    request(socket, json!({
-        "app": "research.riesel.gui-owner",
-        "interface": "research.graph.read",
-        "version": 1,
-        "operation": "cursor_status",
-        "generation": generation,
-        "cursor": cursor
-    }))
+    request(
+        socket,
+        json!({
+            "app": "research.riesel.gui-owner",
+            "interface": "research.graph.read",
+            "version": 1,
+            "operation": "cursor_status",
+            "generation": generation,
+            "cursor": cursor
+        }),
+    )
 }
 
 fn status(value: &Value) -> &str {
@@ -266,13 +269,19 @@ fn actual_os_client_session_fencing_and_revocation() {
     );
     let lost = cursor_status(&socket, overflow_generation, 0);
     assert_eq!(status(&lost), "ok");
-    assert_eq!(lost["truncated"], true, "old cursor must report real ring loss");
+    assert_eq!(
+        lost["truncated"], true,
+        "old cursor must report real ring loss"
+    );
     assert_eq!(lost["event_payload_not_exported"], true);
     assert_eq!(lost["latest_sequence"], overflow["latest_sequence"]);
     assert_eq!(lost["graph_generation"], overflow["graph_generation"]);
     assert!(lost["retained_count"].as_u64().unwrap() <= 128);
     let tip = overflow["latest_sequence"].as_u64().unwrap();
-    assert!(tip > 128, "real graph must have overflowed the transition ring");
+    assert!(
+        tip > 128,
+        "real graph must have overflowed the transition ring"
+    );
     let after_resnapshot = cursor_status(&socket, overflow_generation, tip);
     assert_eq!(after_resnapshot["truncated"], false);
     assert_eq!(after_resnapshot["retained_count"], 0);
