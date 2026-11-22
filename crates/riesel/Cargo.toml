@@ -33,6 +33,10 @@ name = "execution_graph"
 required-features = ["async-tcp"]
 
 [[example]]
+name = "execution_graph_inspection_export"
+required-features = ["async-tcp"]
+
+[[example]]
 name = "execution_fixed_step"
 required-features = ["async-tcp"]
 
@@ -42,3 +46,5 @@ required-features = ["async-tcp"]
 
 [dev-dependencies]
 tempfile = "3.23"
+# Existing workspace-pinned Todo HTTP stack; research-only browser adapter.
+axum = { version = "=0.8.9", default-features = false, features = ["http1", "json", "tokio"] }
