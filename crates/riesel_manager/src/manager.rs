@@ -327,6 +327,70 @@ mod tests {
         command
     }
 
+    /// An exact owned Child is a credible local process observation.
+    /// Re-using a *display/key* after an actual stop is not the same attempt.
+    #[cfg(feature = "internal-observation")]
+    #[test]
+    fn attempt_evidence_stales_on_owner_stop_and_same_key_reuse() {
+        let key = ProcessKey::new(101, Some("counter".into()));
+        let mut registry = ProcessRegistry::new();
+        registry.spawn(key.clone(), &mut test_child()).unwrap();
+        let old = registry.observe_owned_attempt(&key).unwrap();
+        assert_eq!(old.phase(), OwnedAttemptPhase::Running);
+        assert!(old.is_current_at(Instant::now(), Duration::from_secs(5)));
+
+        registry.stop(&key).unwrap();
+        assert!(!old.is_current_at(Instant::now(), Duration::from_secs(5)));
+        assert_eq!(
+            registry.observe_owned_attempt(&key).unwrap_err().kind(),
+            io::ErrorKind::NotFound
+        );
+
+        // Same key, even same program/PID space, cannot revalidate A.
+        registry.spawn(key.clone(), &mut test_child()).unwrap();
+        let current = registry.observe_owned_attempt(&key).unwrap();
+        assert!(!old.same_owned_attempt_as(&current));
+        assert_eq!(current.key(), &key);
+        assert_eq!(current.phase(), OwnedAttemptPhase::Running);
+        assert!(current.is_current_at(Instant::now(), Duration::from_secs(5)));
+        assert!(!old.is_current_at(Instant::now(), Duration::from_secs(5)));
+        assert!(!current.is_current_at(
+            current.observed_at() + Duration::from_secs(5) + Duration::from_nanos(1),
+            Duration::from_secs(5)
+        ));
+        registry.stop_all().unwrap();
+    }
+
+    /// An OS child truly exits; status probing observes that exact event,
+    /// invalidating prior running evidence without guessing from a missing PID.
+    #[cfg(feature = "internal-observation")]
+    #[test]
+    fn real_child_exit_invalidates_prior_running_evidence() {
+        let key = ProcessKey::new(102, Some("oneshot".into()));
+        let mut command = test_child();
+        command.env_remove("RIESEL_PROCESS_MANAGER_TEST_CHILD");
+        let mut registry = ProcessRegistry::new();
+        registry.spawn(key.clone(), &mut command).unwrap();
+        let first = registry.observe_owned_attempt(&key).unwrap();
+        let deadline = Instant::now() + Duration::from_secs(4);
+        let exited = loop {
+            let observed = registry.observe_owned_attempt(&key).unwrap();
+            if observed.phase() == OwnedAttemptPhase::ExitedSuccess {
+                break observed;
+            }
+            assert!(
+                Instant::now() < deadline,
+                "actual child test executable did not exit within four seconds"
+            );
+            thread::sleep(Duration::from_millis(10));
+        };
+        assert!(!first.is_current_at(Instant::now(), Duration::from_secs(5)));
+        assert!(exited.is_current_at(Instant::now(), Duration::from_secs(5)));
+        assert!(first.same_owned_attempt_as(&exited));
+        registry.stop(&key).unwrap();
+        assert!(!exited.is_current_at(Instant::now(), Duration::from_secs(5)));
+    }
+
     #[test]
     fn starts_and_stops_explicit_child_process() {
         let key = ProcessKey::new(7, Some("test-child".into()));
