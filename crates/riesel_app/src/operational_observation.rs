@@ -5,7 +5,7 @@
 //! cannot turn a verified provider contract or bound listener into an
 //! authenticated/callable application operation. It neither polls nor retains
 //! history, includes no free-form error payload, and does not run user code.
-use crate::{InstanceIdentity, ResolvedCapability};
+use crate::{InstanceIdentity, InternalEntrypointActivity, InternalEntrypointPhase, ResolvedCapability};
 use riesel_manager::{OwnedAttemptEvidence, OwnedAttemptPhase, ProcessKey, ProcessRegistry};
 use riesel_protocol::SessionToken;
 use std::net::SocketAddr;
@@ -42,6 +42,8 @@ pub enum GenerationEvidence {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum ObservationSubject {
     RuntimeSession,
+    /// SDK Rust callback execution, not application interface readiness.
+    ApplicationEntrypoint,
     ProviderBinding {
         requirement: String,
         capability: String,
@@ -61,6 +63,9 @@ pub enum ObservationSubject {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum ObservationEvidence {
     RuntimeSessionValidated,
+    SdkEntrypointNotEntered,
+    SdkEntrypointExecuting,
+    SdkEntrypointLeft,
     VersionedProviderContractAttached,
     LocalListenerBound,
     OwnedChildHandlePolled,
@@ -97,6 +102,8 @@ pub enum ObservationError {
     InvalidLabel,
     #[error("local listener evidence requires a bound numeric loopback socket")]
     InvalidLoopbackListener,
+    #[error("entrypoint witness does not belong to this runtime session")]
+    ForeignEntrypointSession,
 }
 
 /// Immutable, on-demand evidence from one actual runtime generation.
@@ -109,6 +116,7 @@ pub struct ObservationSnapshot {
     observed_at: Instant,
     session: SessionToken,
     facts: Vec<ObservationFact>,
+    entrypoint_witness: Option<(usize, InternalEntrypointActivity, InternalEntrypointPhase)>,
 }
 
 impl ObservationSnapshot {
@@ -120,6 +128,7 @@ impl ObservationSnapshot {
             observed_at: Instant::now(),
             session,
             facts: Vec::new(),
+            entrypoint_witness: None,
         }
     }
 
@@ -162,8 +171,23 @@ impl ObservationSnapshot {
         resolved: &[ResolvedCapability],
         checks_passed: bool,
     ) -> Result<Self, ObservationError> {
-        if resolved.len() > MAX_OPERATIONAL_FACTS - 3 {
+        Self::runtime_with_entrypoint(session, resolved, checks_passed, None)
+    }
+
+    pub(crate) fn runtime_with_entrypoint(
+        session: SessionToken,
+        resolved: &[ResolvedCapability],
+        checks_passed: bool,
+        entrypoint: Option<InternalEntrypointActivity>,
+    ) -> Result<Self, ObservationError> {
+        if resolved.len() > MAX_OPERATIONAL_FACTS - if entrypoint.is_some() { 4 } else { 3 } {
             return Err(ObservationError::TooManyFacts);
+        }
+        if entrypoint
+            .as_ref()
+            .is_some_and(|witness| !witness.same_session(&session))
+        {
+            return Err(ObservationError::ForeignEntrypointSession);
         }
         let mut snapshot = Self::new(session, GenerationEvidence::RuntimeIssued);
         let current = checks_passed && snapshot.session.is_active();
@@ -201,6 +225,25 @@ impl ObservationSnapshot {
                 },
                 evidence: ObservationEvidence::VersionedProviderContractAttached,
                 state: if current && binding.instance.is_some() {
+                    ObservationState::Observed
+                } else {
+                    ObservationState::Unknown
+                },
+            })?;
+        }
+        if let Some(entrypoint) = entrypoint {
+            let phase = entrypoint.phase();
+            let evidence = match phase {
+                InternalEntrypointPhase::NotEntered => ObservationEvidence::SdkEntrypointNotEntered,
+                InternalEntrypointPhase::Executing => ObservationEvidence::SdkEntrypointExecuting,
+                InternalEntrypointPhase::Left => ObservationEvidence::SdkEntrypointLeft,
+            };
+            snapshot.entrypoint_witness = Some((snapshot.facts.len(), entrypoint, phase));
+            snapshot.push(ObservationFact {
+                source: ObservationSource::Runtime,
+                subject: ObservationSubject::ApplicationEntrypoint,
+                evidence,
+                state: if current {
                     ObservationState::Observed
                 } else {
                     ObservationState::Unknown
@@ -269,6 +312,12 @@ impl ObservationSnapshot {
             return Some(state);
         }
         if !self.session.is_active()
+            || self
+                .entrypoint_witness
+                .as_ref()
+                .is_some_and(|(fact_index, owner, phase)| {
+                    *fact_index == index && owner.phase() != *phase
+                })
             || at.saturating_duration_since(self.observed_at) > MAX_OBSERVATION_AGE
         {
             Some(ObservationState::Stale)
