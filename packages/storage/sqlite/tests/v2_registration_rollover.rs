@@ -71,12 +71,24 @@ fn setup(path: &Path) -> (PlanAuthoringHead, PlanAuthoringHead) {
             OLD,
         )
         .unwrap();
+    // Current source is revision 2, not the original handoff/initial document.
+    let doc_head = old
+        .append(
+            &doc_head,
+            &PlanSemanticCandidate::from_s2(
+                &document(2),
+                &handlers(1),
+                S2DocumentLimits::default(),
+            )
+            .unwrap(),
+        )
+        .unwrap();
     old.save_layout(
         &doc_head,
         None,
         &PlanLayoutDraft {
             layout_id: "desktop".into(),
-            semantic_anchor: 1,
+            semantic_anchor: 2,
             node_positions: BTreeMap::from([("work".into(), PlanLayoutPoint { x: 50, y: -10 })]),
         },
     )
@@ -154,7 +166,7 @@ fn two_plan_build_rollover_preserves_history_and_fences_all_previous_writers() {
             .unwrap()
             .layout
             .semantic_anchor,
-        1
+        2
     );
     let old_candidate = PlanSemanticCandidate::from_rust(&rust_plan(2, AccessMode::Write)).unwrap();
     assert!(matches!(
