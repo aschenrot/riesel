@@ -150,7 +150,10 @@ fn page(
     session: u64,
     limits: QueryLimits,
 ) -> Result<ProbePage, ProbeError> {
-    let QueryLimits { result_limit, scan_budget } = limits;
+    let QueryLimits {
+        result_limit,
+        scan_budget,
+    } = limits;
     filter.validate(definition)?;
     if !(1..=32).contains(&result_limit) || !(1..=64).contains(&scan_budget) {
         return Err(ProbeError::InvalidBudget);
@@ -305,7 +308,10 @@ fn typed_predicates_preserve_full_width_numbers_and_optional_presence() {
                 &filter,
                 None,
                 77,
-                QueryLimits { result_limit: 32, scan_budget: 64 },
+                QueryLimits {
+                    result_limit: 32,
+                    scan_budget: 64,
+                },
             )
             .unwrap()
         };
@@ -329,7 +335,10 @@ fn typed_predicates_preserve_full_width_numbers_and_optional_presence() {
             },
             highest.next,
             77,
-            QueryLimits { result_limit: 32, scan_budget: 64 },
+            QueryLimits {
+                result_limit: 32,
+                scan_budget: 64,
+            },
         )
         .unwrap();
         assert_eq!(last_highest.records.len(), 0);
@@ -352,7 +361,10 @@ fn typed_predicates_preserve_full_width_numbers_and_optional_presence() {
             },
             nulls.next,
             77,
-            QueryLimits { result_limit: 32, scan_budget: 64 },
+            QueryLimits {
+                result_limit: 32,
+                scan_budget: 64,
+            },
         )
         .unwrap();
         assert_eq!(final_nulls.records.len(), 0);
@@ -388,7 +400,10 @@ fn typed_predicates_preserve_full_width_numbers_and_optional_presence() {
                 },
                 None,
                 77,
-                QueryLimits { result_limit: 10, scan_budget: 32 }
+                QueryLimits {
+                    result_limit: 10,
+                    scan_budget: 32
+                }
             )
             .unwrap_err(),
             ProbeError::InvalidFilter,
@@ -403,7 +418,10 @@ fn typed_predicates_preserve_full_width_numbers_and_optional_presence() {
                 },
                 None,
                 77,
-                QueryLimits { result_limit: 10, scan_budget: 32 }
+                QueryLimits {
+                    result_limit: 10,
+                    scan_budget: 32
+                }
             )
             .unwrap_err(),
             ProbeError::InvalidFilter,
@@ -418,7 +436,10 @@ fn typed_predicates_preserve_full_width_numbers_and_optional_presence() {
                 },
                 None,
                 77,
-                QueryLimits { result_limit: 10, scan_budget: 32 }
+                QueryLimits {
+                    result_limit: 10,
+                    scan_budget: 32
+                }
             )
             .unwrap_err(),
             ProbeError::InvalidFilter,
@@ -442,7 +463,10 @@ fn bounded_sparse_scan_and_cursor_binding_are_explicit_on_both_providers() {
             &filter,
             None,
             77,
-            QueryLimits { result_limit: 1, scan_budget: 32 },
+            QueryLimits {
+                result_limit: 1,
+                scan_budget: 32,
+            },
         )
         .unwrap();
         assert_eq!(first.scanned, 32);
@@ -458,7 +482,10 @@ fn bounded_sparse_scan_and_cursor_binding_are_explicit_on_both_providers() {
                 &filter,
                 Some(c1.clone()),
                 78,
-                QueryLimits { result_limit: 1, scan_budget: 32 }
+                QueryLimits {
+                    result_limit: 1,
+                    scan_budget: 32
+                }
             )
             .unwrap_err(),
             ProbeError::CursorMismatch
@@ -474,7 +501,10 @@ fn bounded_sparse_scan_and_cursor_binding_are_explicit_on_both_providers() {
                 },
                 Some(c1.clone()),
                 77,
-                QueryLimits { result_limit: 1, scan_budget: 32 }
+                QueryLimits {
+                    result_limit: 1,
+                    scan_budget: 32
+                }
             )
             .unwrap_err(),
             ProbeError::CursorMismatch
@@ -487,7 +517,10 @@ fn bounded_sparse_scan_and_cursor_binding_are_explicit_on_both_providers() {
                 &filter,
                 Some(c1.clone()),
                 77,
-                QueryLimits { result_limit: 1, scan_budget: 32 }
+                QueryLimits {
+                    result_limit: 1,
+                    scan_budget: 32
+                }
             )
             .unwrap_err(),
             ProbeError::CursorMismatch
@@ -500,7 +533,10 @@ fn bounded_sparse_scan_and_cursor_binding_are_explicit_on_both_providers() {
             &filter,
             Some(c1),
             77,
-            QueryLimits { result_limit: 1, scan_budget: 32 },
+            QueryLimits {
+                result_limit: 1,
+                scan_budget: 32,
+            },
         )
         .unwrap();
         assert_eq!(second.scanned, 32);
@@ -513,7 +549,10 @@ fn bounded_sparse_scan_and_cursor_binding_are_explicit_on_both_providers() {
             &filter,
             second.next,
             77,
-            QueryLimits { result_limit: 1, scan_budget: 32 },
+            QueryLimits {
+                result_limit: 1,
+                scan_budget: 32,
+            },
         )
         .unwrap();
         assert_eq!(third.scanned, 1);
