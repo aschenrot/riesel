@@ -63,7 +63,7 @@ use std::sync::Arc;
 let key = OperationKey::new("example.update", 1)?;
 let authoring = EditorOperationDescriptor::new(key.clone())
     .require_access("state", AccessMode::Write)
-    .permit_signal("ready");
+    .require_signal("ready");
 
 let mut handlers = OperationRegistry::<dyn Fn() + Send + Sync>::new();
 handlers.register_editor_operation(authoring, Arc::new(|| {}))?;
