@@ -242,7 +242,10 @@ pub(super) async fn query_completed(
     };
     let limit = query.limit.unwrap_or(32);
     if !(1..=32).contains(&limit)
-        || query.cursor.as_ref().is_some_and(|cursor| cursor.is_empty() || cursor.len() > 64)
+        || query
+            .cursor
+            .as_ref()
+            .is_some_and(|cursor| cursor.is_empty() || cursor.len() > 64)
     {
         return Err(ApiError::BadInput);
     }
