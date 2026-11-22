@@ -21,8 +21,6 @@ tokio = { workspace = true, features = ["signal", "macros"], optional = true }
 tower-http = { version = "=0.6.11", default-features = false, features = ["fs"], optional = true }
 
 [dev-dependencies]
-# #158 trusted-local source-qualified observation tests; not a Todo HTTP API.
-riesel_app = { workspace = true, features = ["internal-publication"] }
 riesel_storage_component = { path = "../../packages/storage/memory" }
 serde_json.workspace = true
 tempfile = "3.23"
