@@ -331,7 +331,9 @@ fn many_signal_gated_ready_nodes_leave_unrelated_work_eligible() {
         assert!(report.succeeded());
         assert_eq!(report.started, GATED + INDEPENDENT);
         assert_eq!(gated_count.load(Ordering::SeqCst), GATED);
-        eprintln!("research #226 signal_ready_stress gated={GATED} independent={INDEPENDENT} finished");
+        eprintln!(
+            "research #226 signal_ready_stress gated={GATED} independent={INDEPENDENT} finished"
+        );
     });
 }
 
@@ -400,7 +402,9 @@ fn resource_contended_ready_nodes_preserve_independent_progress() {
         assert_eq!(report.started, WRITERS + INDEPENDENT);
         assert_eq!(writers.load(Ordering::SeqCst), WRITERS);
         assert_eq!(independent.load(Ordering::SeqCst), INDEPENDENT);
-        eprintln!("research #226 resource_ready_stress writers={WRITERS} independent={INDEPENDENT} finished");
+        eprintln!(
+            "research #226 resource_ready_stress writers={WRITERS} independent={INDEPENDENT} finished"
+        );
     });
 }
 
