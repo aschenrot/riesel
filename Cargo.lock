@@ -566,7 +566,6 @@ version = "0.1.0"
 dependencies = [
  "libc",
  "riesel_app",
- "riesel_protocol",
  "riesel_schema",
  "riesel_storage",
  "rusqlite",
@@ -808,6 +807,7 @@ dependencies = [
  "axum",
  "riesel",
  "riesel_app",
+ "riesel_protocol",
  "riesel_schema",
  "riesel_storage_component",
  "riesel_storage_sqlite",
