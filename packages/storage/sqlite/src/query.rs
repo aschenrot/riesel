@@ -9,6 +9,14 @@ use riesel_storage::{
     validate_record_query,
 };
 use rusqlite::params;
+// A nullable-cursor OR expression can prevent SQLite from seeking directly
+// to a later (model,id) key, silently scanning an unbounded prefix. Use two
+// explicit primary-key range queries instead, both with a native LIMIT.
+const QUERY_SCAN_FIRST: &str =
+    "SELECT id,revision,data FROM records WHERE model=?1 ORDER BY id LIMIT ?2";
+const QUERY_SCAN_AFTER: &str =
+    "SELECT id,revision,data FROM records WHERE model=?1 AND id>?2 ORDER BY id LIMIT ?3";
+
 fn failed(source: impl std::fmt::Display) -> RecordQueryError {
     RecordQueryError::Failed(source.to_string())
 }
@@ -36,21 +44,20 @@ impl RecordQuery for SqliteStore {
             // A budget bounds the number of actual record candidates read,
             // not merely the number returned after applying a predicate.
             // Never create a secondary index or silently scan the entire DB.
-            let mut stmt = connection
-                .prepare(
-                    "SELECT id,revision,data FROM records
-                     WHERE model=?1 AND (?2 IS NULL OR id>?2)
-                     ORDER BY id LIMIT ?3",
-                )
-                .map_err(failed)?;
             let cursor = after.map(|id| id.as_bytes().to_vec());
-            let mut rows = stmt
-                .query(params![
-                    &request.model,
-                    cursor.as_deref(),
-                    request.scan_budget as i64,
-                ])
-                .map_err(failed)?;
+            let sql = if cursor.is_some() {
+                QUERY_SCAN_AFTER
+            } else {
+                QUERY_SCAN_FIRST
+            };
+            let mut stmt = connection.prepare(sql).map_err(failed)?;
+            let mut rows = match cursor.as_deref() {
+                Some(after) => {
+                    stmt.query(params![&request.model, after, request.scan_budget as i64])
+                }
+                None => stmt.query(params![&request.model, request.scan_budget as i64]),
+            }
+            .map_err(failed)?;
             while let Some(row) = rows.next().map_err(failed)? {
                 let id: Vec<u8> = row.get(0).map_err(failed)?;
                 let revision: Vec<u8> = row.get(1).map_err(failed)?;
