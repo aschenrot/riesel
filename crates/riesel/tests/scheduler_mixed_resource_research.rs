@@ -111,8 +111,7 @@ fn pending_multi_key_writer_does_not_hold_unavailable_or_unrelated_resources() {
             .execution_graph(
                 ExecutionPlanDraft::new("held-alpha", 1)
                     .operation(
-                        OperationNode::new("held", key("held"))
-                            .access("alpha", AccessMode::Write),
+                        OperationNode::new("held", key("held")).access("alpha", AccessMode::Write),
                     )
                     .validate()
                     .unwrap()
@@ -155,8 +154,7 @@ fn pending_multi_key_writer_does_not_hold_unavailable_or_unrelated_resources() {
             .execution_graph(
                 ExecutionPlanDraft::new("independent-beta", 1)
                     .operation(
-                        OperationNode::new("beta", key("beta"))
-                            .access("beta", AccessMode::Write),
+                        OperationNode::new("beta", key("beta")).access("beta", AccessMode::Write),
                     )
                     .validate()
                     .unwrap()
@@ -371,8 +369,7 @@ fn paused_cross_run_waiter_does_not_claim_released_resource_until_step() {
             .execution_graph(
                 ExecutionPlanDraft::new("held", 1)
                     .operation(
-                        OperationNode::new("held", key("held"))
-                            .access("shared", AccessMode::Write),
+                        OperationNode::new("held", key("held")).access("shared", AccessMode::Write),
                     )
                     .validate()
                     .unwrap()
