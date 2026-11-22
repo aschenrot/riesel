@@ -9,6 +9,10 @@ use riesel::{
     OperationRegistry, OperationState, async_operation,
 };
 use std::num::NonZeroUsize;
+use std::time::Duration;
+
+#[path = "../../../research/gui-boundary/live_server.rs"]
+mod live_server;
 use std::sync::{
     Arc,
     atomic::{AtomicUsize, Ordering},
@@ -26,11 +30,29 @@ fn state_name(state: &OperationState) -> &'static str {
     }
 }
 
+enum Mode {
+    File(std::path::PathBuf),
+    Live(u64),
+}
+
 fn main() -> riesel::Result<()> {
-    let Some(output) = std::env::args_os().nth(1).map(std::path::PathBuf::from) else {
-        eprintln!("usage: execution_graph_inspection_export OUTPUT.json");
-        std::process::exit(2);
+    let args: Vec<String> = std::env::args().skip(1).collect();
+    let mode = match args.as_slice() {
+        [flag] if flag == "--live" => Mode::Live(45),
+        [flag, seconds] if flag == "--live" => match seconds.parse::<u64>() {
+            Ok(value) if (1..=600).contains(&value) => Mode::Live(value),
+            _ => {
+                eprintln!("live duration must be 1..=600 seconds");
+                std::process::exit(2);
+            }
+        },
+        [path] if !path.starts_with("--") => Mode::File(path.into()),
+        _ => {
+            eprintln!("usage: execution_graph_inspection_export OUTPUT.json | --live [HOLD_SECONDS]");
+            std::process::exit(2);
+        }
     };
+    let live = matches!(mode, Mode::Live(_));
     Application::new("Headless Execution Graph").run(move |context| {
         let joined = Arc::new(AtomicUsize::new(0));
         let barrier = Arc::new(tokio::sync::Barrier::new(2));
@@ -48,6 +70,9 @@ fn main() -> riesel::Result<()> {
                         // Both branches must be executing to pass this gate.
                         barrier.wait().await;
                         joined.fetch_add(1, Ordering::SeqCst);
+                        if live {
+                            tokio::time::sleep(Duration::from_secs(3)).await;
+                        }
                         OperationOutcome::Completed
                     }
                 }),
@@ -91,11 +116,24 @@ fn main() -> riesel::Result<()> {
         let signal = runner.signal_sender();
         let observer = runner.observer();
         let initial = observer.snapshot();
-        signal.fire("start")?;
         let executor = tokio::runtime::Builder::new_current_thread()
             .enable_all()
             .build()?;
-        let report = executor.block_on(runner.execute());
+        let report = match mode {
+            Mode::File(_) => {
+                signal.fire("start")?;
+                executor.block_on(runner.execute())
+            }
+            Mode::Live(seconds) => {
+                let live_observer = observer.clone();
+                let live_plan = inspected_plan.clone();
+                let live_initial = initial.clone();
+                let source: live_server::SnapshotSource = Arc::new(move || {
+                    inspection_document(&live_plan, &live_initial, &live_observer)
+                });
+                executor.block_on(live_server::run(runner, signal, source, seconds))?
+            }
+        };
 
         if !report.succeeded() {
             return Err(std::io::Error::other(format!(
@@ -118,52 +156,10 @@ fn main() -> riesel::Result<()> {
         if joined.load(Ordering::SeqCst) != 2 {
             return Err(std::io::Error::other("expected both branches to complete").into());
         }
-        // Research-only projection built from the real validated plan and
-        // authoritative run snapshots. No exporter, remote principal,
-        // network listener, executable document or public wire ABI exists.
-        let nodes: Vec<_> = inspected_plan
-            .description()
-            .operations()
-            .iter()
-            .map(|node| {
-                let before = initial.operations.get(node.id());
-                let after = final_state.operations.get(node.id());
-                serde_json::json!({
-                    "id": node.id(),
-                    "depends_on": node.dependencies(),
-                    "operation": node.binding().name(),
-                    "operation_version": node.binding().version(),
-                    "initial": before.map(|state| state_name(&state.state)),
-                    "final": after.map(|state| state_name(&state.state)),
-                    "attempt": after.map(|state| state.attempt).unwrap_or(0),
-                    "error": after.and_then(|state| match &state.state {
-                        OperationState::Failed(message) => Some(message.as_str()),
-                        _ => None,
-                    }),
-                    "confirmed_prefixes": after.map(|state| &state.confirmed_prefixes),
-                })
-            })
-            .collect();
-        let document = serde_json::json!({
-            "schema": "riesel.research.graph-inspection.v1",
-            "plan_id": report.plan_id,
-            "revision": report.revision,
-            "session_generation": report.identity.session_generation().to_string(),
-            "run_sequence": report.identity.run_sequence(),
-            "phase": format!("{:?}", final_state.phase),
-            "session_expired": final_state.session_expired,
-            "initial_sequence": initial.latest_sequence,
-            "latest_sequence": final_state.latest_sequence,
-            "trace_truncated": transitions.truncated,
-            "nodes": nodes,
-            "transitions": transitions.events.iter().map(|event| {
-                serde_json::json!({
-                    "sequence": event.sequence,
-                    "change": format!("{:?}", event.change),
-                })
-            }).collect::<Vec<_>>(),
-        });
-        std::fs::write(&output, serde_json::to_vec_pretty(&document)?)?;
+        if let Mode::File(output) = mode {
+            let document = inspection_document(&inspected_plan, &initial, &observer)?;
+            std::fs::write(&output, serde_json::to_vec_pretty(&document)?)?;
+        }
         println!(
             "execution graph {} revision {}: {} operations completed",
             report.plan_id,
@@ -180,4 +176,53 @@ fn main() -> riesel::Result<()> {
         );
         Ok(())
     })
+}
+
+fn inspection_document(
+    plan: &riesel::ValidatedExecutionPlan,
+    initial: &riesel::GraphRunSnapshot,
+    observer: &riesel::GraphRunObserver,
+) -> std::io::Result<serde_json::Value> {
+    // This is a research-only, read-only projection; neither a supported wire
+    // protocol nor a credential. Snapshot wins over the bounded event history.
+    let snapshot = observer.snapshot();
+    let changes = observer.changes_since(0).map_err(std::io::Error::other)?;
+    let nodes: Vec<_> = plan.description().operations().iter().map(|node| {
+        let before = initial.operations.get(node.id());
+        let now = snapshot.operations.get(node.id());
+        serde_json::json!({
+            "id": node.id(),
+            "depends_on": node.dependencies(),
+            "operation": node.binding().name(),
+            "operation_version": node.binding().version(),
+            "initial": before.map(|state| state_name(&state.state)),
+            "final": now.map(|state| state_name(&state.state)),
+            "attempt": now.map(|state| state.attempt).unwrap_or(0),
+            "error": now.and_then(|state| match &state.state {
+                OperationState::Failed(message) => Some(message.as_str()),
+                _ => None,
+            }),
+            "confirmed_prefixes": now.map(|state| &state.confirmed_prefixes),
+        })
+    }).collect();
+    Ok(serde_json::json!({
+        "schema": "riesel.research.graph-inspection.v1",
+        "plan_id": snapshot.identity.plan_id(),
+        "revision": snapshot.identity.revision(),
+        "session_generation": snapshot.identity.session_generation().to_string(),
+        "run_sequence": snapshot.identity.run_sequence(),
+        "phase": format!("{:?}", snapshot.phase),
+        "session_expired": snapshot.session_expired,
+        "initial_sequence": initial.latest_sequence,
+        "latest_sequence": snapshot.latest_sequence,
+        "trace_truncated": changes.truncated,
+        "nodes": nodes,
+        "transitions": changes.events.iter()
+            .filter(|event| event.sequence <= snapshot.latest_sequence)
+            .map(|event| serde_json::json!({
+                "sequence": event.sequence,
+                "change": format!("{:?}", event.change),
+            }))
+            .collect::<Vec<_>>(),
+    }))
 }
