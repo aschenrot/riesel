@@ -128,7 +128,6 @@ fn offline_lifecycle_model_evolution_and_trash_restore_keep_identity_and_revisio
         )
         .unwrap();
     assert_eq!(receipt.affected_records, 2);
-    drop(maintenance);
 
     // Model v1 cannot be opened against migrated state. The retained source
     // backup is independently reopenable as the exact old schema.
@@ -233,7 +232,6 @@ fn offline_lifecycle_model_evolution_and_trash_restore_keep_identity_and_revisio
             RestoreAuthorization::DiscardPostSnapshotWrites,
         )
         .unwrap();
-    drop(maintenance);
     let restored_old = SqliteStore::open(&database, models::<HistoricalTask>()).unwrap();
     assert_eq!(
         restored_old.get("task", open.id).unwrap().unwrap().revision,
@@ -278,7 +276,6 @@ fn failed_todo_lifecycle_transform_keeps_original_database_readable() {
         EvolutionAuthorization::ExecuteWithVerifiedBackup,
     );
     assert!(error.is_err());
-    drop(maintenance);
     let still_old = SqliteStore::open(&database, models::<HistoricalTask>()).unwrap();
     let preserved = still_old.get("task", done.id).unwrap().unwrap();
     assert_eq!(preserved.revision, done.revision);
