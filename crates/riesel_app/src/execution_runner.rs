@@ -7,8 +7,8 @@
 //!
 //! This coordinator admits one-shot operations, explicit signals, declared
 //! domain boundaries and resource conflicts. Its session-local observer
-//! publishes authoritative run state; effect ledgers and cooperative control
-//! remain distinct follow-up work under Issue #113.
+//! publishes authoritative run state. An attempt-scoped confirmed-prefix
+//! reporter is an incremental #113 facility; cooperative control remains open.
 use crate::execution_observation::{
     GraphEffectRecorder, GraphRunIdentity, GraphRunObserver, GraphRunPublication,
 };
