@@ -1,6 +1,6 @@
 # #59 — Real polkit authentication research (M-S2)
 
-**Status:** bounded research, **not yet executed** at this revision. Not a Manager implementation, product authorization mechanism, trusted human-intent proof or Linux release acceptance. Parent [#59](https://github.com/aschenrot/riesel/issues/59), coordination [#75](https://github.com/aschenrot/riesel/issues/75), prior real protected-app proof [PR #139](https://github.com/aschenrot/riesel/pull/139), independent same-user polkit counterexample [PR #123](https://github.com/aschenrot/riesel/pull/123).
+**Status:** bounded Linux polkit/PAM research **EXECUTED and PASSED** at source commit `8ceb5216b74fff127a5ebfa2709ef83a6976524b` in [Ubuntu research CI 44967871027](https://github.com/aschenrot/riesel/actions/runs/44967871027). Final report-head CI must also be checked. The result is limited to credentials, challenge semantics and the tested noncached policy; it is not a trusted operator approval surface. Not a Manager implementation, product authorization mechanism, trusted human-intent proof or Linux release acceptance. Parent [#59](https://github.com/aschenrot/riesel/issues/59), coordination [#75](https://github.com/aschenrot/riesel/issues/75), prior real protected-app proof [PR #139](https://github.com/aschenrot/riesel/pull/139), independent same-user polkit counterexample [PR #123](https://github.com/aschenrot/riesel/pull/123).
 
 ## Question
 
@@ -28,7 +28,7 @@ The upstream [polkit reference](https://polkit.pages.freedesktop.org/polkit/polk
 | Follow-up checks still challenge | Non-KEEP grants are not reused in this fixture | Safe caching across all OS versions, epochs and sessions |
 | Cleanup complete | Disposable action/account deleted | Any installed Manager authority or production release |
 
-The actual research logs, exact commit and completed CI run must be recorded here after verification. The dedicated [Ubuntu workflow](../../.github/workflows/manager-polkit-interactive-research.yml) runs [the probe](manager_polkit_interactive_challenge_probe.py). Run from root of a **disposable** checkout with authorized fixture sudo:
+The dedicated job passed with all expected markers: two same-UID clients independently challenged; correct target/verb challenged while wrong details denied; a generated password completed **real polkit/PAM AUTH_SELF** in a textual agent; both clients required fresh challenges afterward without KEEP; and disposable policy/account cleanup succeeded. Source revision and job link above are direct observed CI evidence. These results **do not** mean a malicious same-user app could not trigger or spoof a session prompt. The dedicated [Ubuntu workflow](../../.github/workflows/manager-polkit-interactive-research.yml) runs [the probe](manager_polkit_interactive_challenge_probe.py). Run from root of a **disposable** checkout with authorized fixture sudo:
 
     python3 -m py_compile research/process-ownership/manager_polkit_interactive_challenge_probe.py
     timeout 100 python3 research/process-ownership/manager_polkit_interactive_challenge_probe.py
@@ -47,4 +47,4 @@ The actual research logs, exact commit and completed CI run must be recorded her
 
 The next real proof must include a legitimate positive and independent hostile same-UID negative **against a real OS-owned Riesel app**, through the actual accepted CLI/browser-to-OS-trusted approval path, with exact registration/attempt/verb/options, no transferable token, no unsafe cache, no direct-signal/elevation bypass and an outcome journal that survives ambiguous dispatch. Repeat on Windows/macOS and both user-session/machine-service scopes for first release. This experiment is deliberately not authorization to freeze a broker, prompt, SDK API or public transport.
 
-Expected source markers, **not yet observed**: RESEARCH_M59_TWO_SAME_UID_CLIENTS_REQUIRE_REAL_AUTH_CHALLENGE, RESEARCH_M59_POLKIT_WRONG_TRUSTED_DETAILS_DENIED, RESEARCH_M59_POLKIT_REAL_PAM_CREDENTIAL_AUTHENTICATED, RESEARCH_M59_POLKIT_NO_KEEP_SECOND_SAME_UID_REQUIRES_AUTH, RESEARCH_M59_REAL_POLKIT_AUTH_CHALLENGE_DIFFERENTIAL_PASS, RESEARCH_M59_DISPOSABLE_POLKIT_USER_AND_POLICY_REMOVED.
+Verified research markers from the linked exact-source CI: RESEARCH_M59_TWO_SAME_UID_CLIENTS_REQUIRE_REAL_AUTH_CHALLENGE, RESEARCH_M59_POLKIT_WRONG_TRUSTED_DETAILS_DENIED, RESEARCH_M59_POLKIT_REAL_PAM_CREDENTIAL_AUTHENTICATED, RESEARCH_M59_POLKIT_NO_KEEP_SECOND_SAME_UID_REQUIRES_AUTH, RESEARCH_M59_REAL_POLKIT_AUTH_CHALLENGE_DIFFERENTIAL_PASS, RESEARCH_M59_DISPOSABLE_POLKIT_USER_AND_POLICY_REMOVED.
