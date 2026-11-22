@@ -68,7 +68,8 @@ impl EditorOperationDescriptor {
 
     /// An operation's compulsory access is never editable or removable.
     pub fn require_access(mut self, resource: impl Into<String>, mode: AccessMode) -> Self {
-        self.required_access.push(ResourceAccess::new(resource, mode));
+        self.required_access
+            .push(ResourceAccess::new(resource, mode));
         self
     }
 
@@ -94,11 +95,7 @@ impl EditorOperationDescriptor {
 
     /// Fixed, owner-authoritative domain admission for this operation.
     /// It cannot be changed to a different domain or admission owner.
-    pub fn require_domain(
-        mut self,
-        domain: impl Into<String>,
-        mode: DomainAdmissionMode,
-    ) -> Self {
+    pub fn require_domain(mut self, domain: impl Into<String>, mode: DomainAdmissionMode) -> Self {
         self.required_domain = Some((domain.into(), mode));
         self
     }
@@ -155,7 +152,10 @@ impl EditorOperationDescriptor {
             .chain(self.permitted_extra_access.iter())
         {
             if !valid_name(access.resource()) || !named.insert(access.resource()) {
-                return Err(invalid(&self.key, "invalid or repeated resource permission"));
+                return Err(invalid(
+                    &self.key,
+                    "invalid or repeated resource permission",
+                ));
             }
         }
         let mut triggers = BTreeSet::new();
@@ -183,7 +183,11 @@ impl EditorOperationDescriptor {
                 name: self.key.name().to_owned(),
             });
         }
-        if !self.permitted_triggers.iter().any(|item| item == node.trigger()) {
+        if !self
+            .permitted_triggers
+            .iter()
+            .any(|item| item == node.trigger())
+        {
             return Err(violation(node, "unapproved trigger"));
         }
         match (self.required_domain(), node.domain_boundary()) {
@@ -194,7 +198,10 @@ impl EditorOperationDescriptor {
         }
         for access in &self.required_access {
             if !node.resources().iter().any(|actual| actual == access) {
-                return Err(violation(node, "compulsory resource access omitted or weakened"));
+                return Err(violation(
+                    node,
+                    "compulsory resource access omitted or weakened",
+                ));
             }
         }
         for access in node.resources() {
