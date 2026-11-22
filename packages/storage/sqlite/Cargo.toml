@@ -5,6 +5,11 @@ edition.workspace = true
 license.workspace = true
 repository.workspace = true
 
+[features]
+# Disabled by default. Opt-in test-only callback at real V2 transaction boundaries.
+# Never enable in a production application build.
+v2-fault-injection = []
+
 [dependencies]
 riesel_storage.workspace = true
 riesel_schema.workspace = true
