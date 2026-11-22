@@ -549,7 +549,8 @@ impl GraphEffectRecorder {
             owner_generation: generation,
             view_version,
         };
-        let (attachment, publisher) = NestedPublisher::attach(description, owner, self.session.clone());
+        let (attachment, publisher) =
+            NestedPublisher::attach(description, owner, self.session.clone());
         state.nested.insert(self.operation_id.clone(), attachment);
         Ok(publisher)
     }
