@@ -69,3 +69,58 @@ and stale descriptor fencing through this SDK policy.
 ## Remaining #258 work
 
 The optional Unix client is the first external adapter; still verify equivalent Counter, Todo and graph **app-owned** read models on one published policy across supported client hosts. Verify owned listener/task lifetime and bounded multiple clients, actual runtime restart and withdrawal, authoritative trace-loss resynchronization, documented same-UID/server-impersonation threat limits and exact full-workspace CI. A frontend remains optional and independently selected under [#114](https://github.com/aschenrot/riesel/issues/114). No T1 external mutations, sensitive data, graph controls, S2 plan publication or activation are authorized. Do not call the foundation complete based on policy unit tests alone.
+
+
+## Read-only execution-graph facade (P3/T1 increment)
+
+With the SDK feature `app-publication`, an app may opt in to the generated
+`ExecutionGraphRead` version 1 contract
+(`riesel.execution.graph_read@1`). An
+`ExecutionGraphReadFacade::new(&validated_plan, runner.observer())`
+requires the validated immutable plan's id/revision to match the real
+authoritative graph run. Apps explicitly publish only `snapshot` and
+`changes` through `RunningApp::publish_local_reads`; the GUI cannot
+obtain the runner, controller or scheduler through this facade.
+
+`snapshot` exposes plan/run/session identity, current phase, the
+validated node dependency/binding/trigger declarations and authoritative
+per-operation state/attempt, error and confirmed-effect prefixes. This
+application-declared graph data must still be classified **non-sensitive**
+before publishing it under T1. There is **no layout revision** in this
+graph-only projection; a GUI must maintain separate presentation state
+rather than synthesizing a semantic revision.
+
+`changes(session_generation, run_sequence, cursor)` requires the exact
+run address and returns a bounded retained transition list tagged with
+that same identity. If `truncated=true`, the returned events are
+deliberately empty: the client **must** call `snapshot` again and use
+its `latest_sequence` as the new cursor. A future cursor returns a
+typed `FutureCursor` error; an incompatible run returns
+`StaleRun`. A snapshot and a separately read event slice are not one
+atomic transaction, so clients need to handle loss/resync when reading
+changes concurrently. Any unavailable or expired adapter/session is
+**not** a completed or failed operation.
+
+The graph facade imposes a 256-node maximum per published read surface
+to bound this initial view; the underlying Riesel execution runtime is
+not limited to that number by the facade. The shared publication
+transport independently bounds serialized request/response sizes, so
+an exceptionally large error string/prefix collection can still
+return `over_budget` rather than expose a partial payload. This is
+not a generic typed edge, nested-domain, GPU or editor document
+format. App-specific domain views remain independent and separately
+versioned.
+
+On Unix, the separately selected `app-publication-unix` feature
+allows the **same** generated graph read dispatcher to be served to
+independent native client processes by `UnixReadServer` and
+`UnixReadClient`, owned by the headless application's
+`AsyncTasks`. The end-to-end process fixture verifies an actual
+80-operation validated dependency graph, a child-process read-only
+client, disallowed graph-control operation, real retained-trace
+overflow/resnapshot, stale run/cursor and same-PID runtime restart.
+This is a **native read client**, not a finished graphical inspector,
+browser bridge, portable OS attachment or protected application-server
+authentication. The first GUI is tracked in [#114](https://github.com/aschenrot/riesel/issues/114);
+the remaining shared Counter/Todo read-model and lifecycle acceptance
+work is [#258](https://github.com/aschenrot/riesel/issues/258).
