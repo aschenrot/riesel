@@ -81,10 +81,9 @@ pub struct NestedViewInfo {
 
 /// Internal erased callbacks expose only the common observation envelope.
 type NestedSample = dyn Fn(&SessionToken) -> NestedViewInfo + Send + Sync;
-type NestedHistory =
-    dyn Fn(&SessionToken, NestedCursor) -> Result<NestedTransitions, NestedObservationError>
-        + Send
-        + Sync;
+type NestedHistory = dyn Fn(&SessionToken, NestedCursor) -> Result<NestedTransitions, NestedObservationError>
+    + Send
+    + Sync;
 
 /// The common read-only projection and bounded loss recovery do not depend
 /// on any ECS, pipeline, or version-specific nested payload type.
@@ -334,18 +333,17 @@ impl<T: Send + Sync + 'static> NestedPublisher<T> {
         let erased: Arc<dyn Any + Send + Sync> = source.clone();
 
         let sampled = Arc::clone(&source);
-        let sample: Arc<NestedSample> =
-            Arc::new(move |session| {
-                let state = sampled.lock().unwrap_or_else(PoisonError::into_inner);
-                NestedViewInfo {
-                    description: state.description.clone(),
-                    latest: NestedCursor {
-                        owner_generation: state.description.owner_generation,
-                        sequence: state.sequence,
-                    },
-                    status: state.status(session),
-                }
-            });
+        let sample: Arc<NestedSample> = Arc::new(move |session| {
+            let state = sampled.lock().unwrap_or_else(PoisonError::into_inner);
+            NestedViewInfo {
+                description: state.description.clone(),
+                latest: NestedCursor {
+                    owner_generation: state.description.owner_generation,
+                    sequence: state.sequence,
+                },
+                status: state.status(session),
+            }
+        });
         let retained = Arc::clone(&source);
         let history: Arc<NestedHistory> = Arc::new(move |session, cursor| {
             let state = retained.lock().unwrap_or_else(PoisonError::into_inner);
