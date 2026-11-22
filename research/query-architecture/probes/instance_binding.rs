@@ -251,3 +251,47 @@ fn compared_authoring_shapes_show_distinct_model_and_alias_tradeoffs() {
             .all(|r| r.name == "writer" || r.name == "read")
     );
 }
+
+#[test]
+fn requirement_startup_dependency_does_not_establish_shared_data_authority() {
+    let prepared = Application::new("ResearchLifecycleNotAuthority")
+        .rpc::<RecordStoreContract>("writer")
+        .unwrap()
+        .rpc::<ResearchReadOnlyContract>("read")
+        .unwrap()
+        .depends_on("read", ["writer"])
+        .unwrap()
+        .handler_with_aliases(
+            |writer: Capability<RecordStoreContract>,
+             reader: Capability<ResearchReadOnlyContract>|
+             -> Result<(), StoreError> {
+                assert_eq!(reader.count_records(TaskData::MODEL_NAME)?, 0);
+                writer.create(
+                    TaskData::MODEL_NAME,
+                    json!({"title": "lifecycle-only", "completed": false}),
+                )?;
+                assert_eq!(
+                    reader.count_records(TaskData::MODEL_NAME)?,
+                    0,
+                    "startup ordering does not imply shared storage state"
+                );
+                Ok(())
+            },
+            ["writer", "read"],
+        )
+        .unwrap();
+    let read = prepared
+        .definition()
+        .requires
+        .iter()
+        .find(|r| r.name == "read")
+        .unwrap();
+    assert_eq!(read.depends_on, ["writer"]);
+    prepared
+        .provider(writer_only("research.lifecycle.writer"))
+        .unwrap()
+        .provider(reader_only("research.lifecycle.reader"))
+        .unwrap()
+        .run()
+        .unwrap();
+}
