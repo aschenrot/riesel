@@ -125,7 +125,10 @@ contract, Memory/SQLite filtering and bounded cursors remain [#161](https://gith
 No existing Storage v2 method becomes a read-only Query API simply by
 registering a model. Remote/managed readers remain unsupported under this
 linked-only consistency profile. See the
-[accepted technical contract](record-query-architecture.md).
+[accepted technical contract](record-query-architecture.md). The
+[proposed typed Query usage and bounded-paging profile](record-query-usage.md)
+describes the separate `RecordQueryContract` implementation under review,
+including typed `QueryPage<T>`, provider permissions and non-snapshot cursors.
 
 ## Explicit linked SQLite Storage (Stage 6)
 
