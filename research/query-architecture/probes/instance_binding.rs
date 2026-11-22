@@ -379,10 +379,28 @@ fn composite_authoring_reduces_handler_arguments_but_not_ownership_risk() {
         )
         .unwrap();
     assert_eq!(paired.definition().requires.len(), 2);
-    assert!(paired.definition().models.contains_key(TaskData::MODEL_NAME));
-    assert_eq!(paired.definition().model_bindings[TaskData::MODEL_NAME], ["storage"]);
-    assert!(paired.definition().requires.iter().any(|r| r.name == "storage_read"));
-    paired.provider(coexposed("research.composite.shared")).unwrap().run().unwrap();
+    assert!(
+        paired
+            .definition()
+            .models
+            .contains_key(TaskData::MODEL_NAME)
+    );
+    assert_eq!(
+        paired.definition().model_bindings[TaskData::MODEL_NAME],
+        ["storage"]
+    );
+    assert!(
+        paired
+            .definition()
+            .requires
+            .iter()
+            .any(|r| r.name == "storage_read")
+    );
+    paired
+        .provider(coexposed("research.composite.shared"))
+        .unwrap()
+        .run()
+        .unwrap();
 
     let split = Application::new("ResearchCompositeSplit")
         .handler(
