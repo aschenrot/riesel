@@ -86,6 +86,43 @@ where
     }
 }
 
+/// Typed native Record Query result decoding, without adding a Storage
+/// mutation requirement or doing consumer-side filtering.
+#[cfg(feature = "records")]
+impl<T> ModelRead<T, riesel_storage::RecordQueryContract>
+where
+    T: RieselModel + DeserializeOwned,
+{
+    pub fn page(
+        &self,
+        predicate: Option<riesel_storage::RecordPredicate>,
+        limit: u64,
+        scan_budget: u64,
+        cursor: Option<String>,
+    ) -> Result<crate::QueryPage<T>> {
+        use riesel_storage::RecordQuery;
+
+        let result = self.capability.service().query_page(riesel_storage::RecordQueryRequest {
+            model: T::MODEL_NAME.into(),
+            predicate,
+            limit,
+            scan_budget,
+            cursor,
+        })?;
+        let records = result
+            .records
+            .into_iter()
+            .map(crate::records::decode_record::<T>)
+            .collect::<Result<Vec<_>>>()?;
+        Ok(crate::QueryPage {
+            records,
+            next_cursor: result.next_cursor,
+            exhausted: result.exhausted,
+            inspected: result.inspected,
+        })
+    }
+}
+
 #[cfg(feature = "records")]
 impl<T> ApplicationParam for Records<T>
 where
