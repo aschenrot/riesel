@@ -98,7 +98,6 @@ fn real_todo_derived_old_to_bool_trash_migration_and_legacy_cli_boundary() {
         )
         .unwrap();
     assert_eq!(receipt.affected_records, 2);
-    drop(maintenance);
 
     let original_backup = SqliteStore::open(&backup, historical()).unwrap();
     assert_eq!(
@@ -192,7 +191,6 @@ fn real_todo_derived_old_to_bool_trash_migration_and_legacy_cli_boundary() {
             RestoreAuthorization::DiscardPostSnapshotWrites,
         )
         .unwrap();
-    drop(maintenance);
 
     let back_to_old = SqliteStore::open(&database, historical()).unwrap();
     assert_eq!(
