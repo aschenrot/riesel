@@ -1,7 +1,7 @@
 # General Query architecture — evidence and cross-domain assessment (#138)
 
 **Research date:** 2026-11-22 (Europe/Berlin). **State:** **interim comparative research**, not an owner-accepted architecture, completed platform-wide screening or implementation.
-**Code/contract baseline:** `aschenrot/riesel` `main` `93b5188d122f5fa35a3bf047d6d068995c1d74b5`; [spec #138](https://github.com/aschenrot/riesel/issues/138); [plan](PLAN.md); [discovery log](DISCOVERY.md). Other research cited below is **not merged into this baseline**.
+**Code/contract baseline:** PR #140 originally branched from `aschenrot/riesel` `main` `93b5188d122f5fa35a3bf047d6d068995c1d74b5`. Rechecked newer `main` `906d159f92d84a7a294def38a9f99df887d8a7d2` on 2026-11-22: its changes affect execution-plan/runner files, tests, documents and roadmap, **not** the Storage/model/provider implementations exercised by these fixtures. PR #140 remains based on the older revision and must be reverified against the intended merge result. [spec #138](https://github.com/aschenrot/riesel/issues/138); [plan](PLAN.md); [discovery log](DISCOVERY.md). Other research cited below is **not merged into this baseline**.
 **Audience/outcome:** Rust application authors requiring honest selective reads over capability-owned data, starting with Todo. Whether other users need one shared cross-domain Query interface is **not yet an accepted requirement**.
 
 ## Method and evidence classification
@@ -159,13 +159,15 @@ or transaction test.
 
 **Scope:** [`sqlite_native_predicates.rs`](probes/sqlite_native_predicates.rs) is imported by a **test-only** integration wrapper in `packages/storage/sqlite/tests/`. The fixture calls the real, unchanged `SqliteStore::open`, writes 65 schema-registered records through `RecordStore v2`, revision-checks targeted updates, **drops the provider to relinquish the exclusive cooperative owner**, and only then opens the disposable database using raw `rusqlite`. It **does not** add query methods to Riesel or execute SQL through a live authenticated provider handle.
 
-**Reproduction:** `cargo test -p riesel_storage_sqlite --test query_architecture_research -- --nocapture` on Rust 1.100.0, with the repository's pinned `rusqlite 0.43.0` bundled SQLite. The separate [research CI #44971176543](https://github.com/aschenrot/riesel/actions/runs/44971176543) passed **3/3 native SQL Rust tests** on the source revision `1e8bab4`, along with the existing two-provider reference and Python continuity tests. Later changes must receive an independent exact-head check.
+**Reproduction:** `cargo test -p riesel_storage_sqlite --test query_architecture_research -- --nocapture` on Rust 1.100.0, with the repository's pinned `rusqlite 0.43.0` bundled SQLite. [Research CI #44971511998](https://github.com/aschenrot/riesel/actions/runs/44971511998) passed **4/4 native SQL Rust tests** on revision `2404ec84b62f2d47fb23ea644a8930e14b4ce411`, plus **2/2** Memory/SQLite typed-reference tests and **3/3** Python SQLite continuity tests. The Rust fixture prints bundled SQLite **3.54.1**; the separate Python runner's SQLite version is **3.46.1**. These are exact tested versions, not cross-version portability certification. Later changes must receive their own exact-head check.
 
 | Scenario | Verified behavior | What is **not** proved |
 | --- | --- | --- |
 | Exact unsigned equality | `(CAST(data AS TEXT) -> '$.big') = ?` with a bound **decimal string** returns `u64::MAX` and `u64::MAX - 1` individually from actual provider-serialized JSON | Universal correctness for every numeric model/operator, range order or other database providers |
 | Unsafe extraction falsifier | `json_extract(...,'$.big') = ?` with a bound `f64` matches **both** distinct large values | A defect in the published Storage v2 interface (which does not expose these predicates) |
 | Signed extremes | JSON numeric **text tokens** match persisted `i64::MIN` and `i64::MAX` individually | Full numeric sorting/collation, mixed signed/unsigned or conversion/normalization guarantees |
+| Numeric ordering counterexample | The JSON text tokens for valid `u64` values `2` and `10` sort lexically as `10, 2` | An equality-compatible index is **not** automatically a valid numeric sort/range index; require a typed, order-preserving representation or a different plan |
+| UUID equivalence counterexample | Two registered valid UUID fields containing uppercase and lowercase spelling parse to the **same Rust `Uuid`**, but SQLite default text equality for lowercase returns only the lowercase row | Raw JSON string comparison does **not** implement typed UUID equality; plan canonicalization or typed comparison explicitly |
 | Missing versus explicit null | `json_type(...,'$.note') IS NULL` finds omitted fields; `= 'null'` finds explicitly null properties | An automatically chosen public semantic mapping for `Option<T>`; typed Rust decoding may erase presence |
 | Boolean sparse lookup | `json_type(...,'$.completed')='false'` identifies the 65th record | A resource/latency budget for unindexed scans or a stable snapshot |
 | Scratch index | A disposable expression index on `(model, (CAST(data AS TEXT)->'$.big'), id)` returns the same exact records; **forced** `INDEXED BY` plan reports `USING COVERING INDEX` | Automatic planner choice, production index migration, transparent provider integration, or an end-to-end performance/SLA claim |
@@ -173,7 +175,7 @@ or transaction test.
 
 The expression-index proof is deliberately **not a benchmark**: 65 records, query plan forced, SQL executed after releasing the authoritative provider, no concurrent writer or network transport. Physical index installation is expressly **outside** the accepted model-only offline migration contract and would need its own authorization, backup/rollback, compatibility and lifecycle decision. See the upstream [SQLite JSON operators](https://www.sqlite.org/json1.html) and [rusqlite progress-handler API](https://docs.rs/rusqlite/0.43.0/rusqlite/struct.Connection.html).
 
-**Security and correctness consequence:** Any logical query layer would need a model-aware typed comparator and a controlled provider-owned translation. The exact SQL approach depends on validated, canonical integer JSON encoding and a *bound string* value, not arbitrary raw SQL or unchecked runtime JSON paths. Equality on these scalar types does **not** establish correct numeric ordering, UUID normalization, Unicode collation, float special cases or arbitrary nested JSON search. A Riesel Query API cannot authorize an external connection merely because it can read the same SQLite file.
+**Security and correctness consequence:** Any logical query layer would need a model-aware typed comparator and a controlled provider-owned translation. The numeric-sort and UUID-equivalence counterexamples show why copying a familiar SQL/JSON expression library into an unrestricted generic query representation would silently change accepted Rust model semantics. The exact SQL approach depends on validated, canonical integer JSON encoding and a *bound string* value, not arbitrary raw SQL or unchecked runtime JSON paths. Equality on these scalar types does **not** establish correct numeric ordering, UUID normalization, Unicode collation, float special cases or arbitrary nested JSON search. A Riesel Query API cannot authorize an external connection merely because it can read the same SQLite file.
 
 ### Query/read versus mutation authority — implementation-grounded comparison
 
@@ -328,7 +330,7 @@ federation engine or analytics runtime is a prerequisite for Todo.
   no user filesystem side effects. Initial SQLite **3.46.1** run
   asserted all **3/3** outcomes; [research CI #44967915491](https://github.com/aschenrot/riesel/actions/runs/44967915491) passed **3/3** tests at earlier commit `403ecaed`. A later doc update requires an independent **new exact-head** CI check; do not transfer the old run's pass status automatically.
 - Typed provider research: run **cargo test -p todo --test query_architecture_research -- --nocapture**. [Research CI #44968670157](https://github.com/aschenrot/riesel/actions/runs/44968670157) passed two Rust tests against Memory and SQLite at earlier commit **a3aa116c**. The interpreter filters retrieved v2 data in Rust, not inside either provider.
-- Provider-authored SQLite native SQL experiment: `cargo test -p riesel_storage_sqlite --test query_architecture_research -- --nocapture`. [CI #44971176543](https://github.com/aschenrot/riesel/actions/runs/44971176543) passed 3 native SQL Rust tests at earlier source `1e8bab4`, covering exact decimal token, missing/null, forced scratch index and interrupted read. Its SQL is **direct on a released, disposable provider file**, not a published provider operation.
+- Provider-authored SQLite native SQL experiment: `cargo test -p riesel_storage_sqlite --test query_architecture_research -- --nocapture`. [Research CI #44971511998](https://github.com/aschenrot/riesel/actions/runs/44971511998) passed **4/4 native SQL Rust tests** at head `2404ec84b62f2d47fb23ea644a8930e14b4ce411`, covering precise integer tokens, missing/null, incorrect lexical numeric sort, UUID spelling mismatch, forced scratch index and connection-local interrupted read. Bundled SQLite is **3.54.1**. SQL is executed **directly on a released disposable provider file**, not through a published Query operation.
 - Comparative claims: upstream documentation links in
   `DISCOVERY.md`. **Not verified** here: legal licensing audit,
   upstream package MSRV at pinned Rust 1.100, actual integration
@@ -338,6 +340,8 @@ federation engine or analytics runtime is a prerequisite for Todo.
   ownership/semantics tests distinguish the viable options. If
   the missing evidence remains material, document a precise deferral,
   not an invented winner.
+
+**Research-stage inference:** A precise shared *typed* query vocabulary could plausibly support durable model operations across Memory and SQLite **without** imposing a universal execution engine. It cannot delegate type safety to SQL's ordinary numeric conversions, JSON text ordering or string UUID equality. This supports specifying a coherent logical semantics/evaluation boundary first, but **does not select an independently published Query capability, Storage v3, a read-only facet or any production API**. The external trust and session gap remains material.
 
 **No owner accept/revise/defer/reject decision has been recorded by
 this research report; #138 remains open and this PR remains draft.**
