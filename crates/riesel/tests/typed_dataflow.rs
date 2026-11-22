@@ -205,9 +205,13 @@ fn completed_with_wrong_runtime_type_cannot_publish_and_blocks_consumer() {
         .prepare(&registry, 2048)
         .unwrap();
 
+    let mut prepared = Some(prepared);
     Application::new("typed mismatched output")
         .run(|context| {
-            let runner = context.typed_execution_graph(prepared, NonZeroUsize::new(2).unwrap())?;
+            let runner = context.typed_execution_graph(
+                prepared.take().expect("one application entrypoint run"),
+                NonZeroUsize::new(2).unwrap(),
+            )?;
             let tokio = tokio::runtime::Builder::new_current_thread()
                 .enable_all()
                 .build()?;
