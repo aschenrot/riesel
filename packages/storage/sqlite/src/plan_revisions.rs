@@ -29,6 +29,9 @@ pub enum V2FaultStage {
     LayoutAfterCommitBeforeReply,
 }
 
+mod backup;
+pub use backup::{V2SnapshotBudget, VerifiedV2Snapshot};
+
 const FORMAT: i64 = 1;
 
 const SCHEMA: &str = "
