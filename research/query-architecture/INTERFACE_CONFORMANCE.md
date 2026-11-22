@@ -29,6 +29,7 @@
 | Composite SDK parameter | Test-local `ResearchComposite<TaskData>` gives a **single Rust handler argument** and registers the model, but internally creates **two requirements**; its separate-provider variant still diverges | Syntax improvements alone do not enforce binding or read-only permissions |
 | Native filtering and work budget | Provider-authored scratch SQLite exact text equality, forced expression index, interruption, sparse 100/10,000-row query cost probes | Not a live provider-native Query operation, automatic index choice or production latency SLA |
 | Rust-only read projection | A research-only `ApplicationParam` wrapper exposing only read methods **still selects the writable RecordStoreContract** with create/update/delete RPC commands | Rust method hiding is not backend operation attenuation or least-privilege authorization |
+| **Server-enforced unified Storage attenuation (research-only)** | A policy wrapper **inside the provider** implements Storage v2, delegates read paging and denies a real generated-client create call; the writable contract still advertises create/update/delete | This is stronger than hiding Rust methods and proves provider-side policy *possible*, but it does **not** create a read-only capability, per-client grant/issuer, typed permission error or a combined read/write permission scheme |
 | Permission/revocation | Query-only method contract advertises no commands; current SessionToken checks local application session | No authenticated external client, model permission system or verified managed instance relation |
 
 Reproduce the SDK examples with `cargo test -p todo --test query_instance_binding_research -- --nocapture`. The nine tests use real generated capability bindings and the linked MemoryStore; model-only-schema and composite helpers are **research-only**. Additional research probes remain under `research/query-architecture/probes/`.
@@ -67,6 +68,14 @@ These are **architectural packaging families**, not a forced shortlist or names 
 6. **Developer-facing coherence.** First-party SDK handlers and explicit builders generate the **same** validated schema and provider plan. Read-only model usage should be as straightforward as `Records<T>` without granting writer capability; read/write apps should not manually duplicate alias configuration or invent identity names.
 
 No Rust trait/API name, on-wire expression grammar, state-token format, permission credential, physical index schema or mandatory provider process topology is approved by these invariants.
+
+### Counterexample: actual provider-side policy, not a client facade
+
+The **eleventh research-only linked SDK test** exercises the competing unified/attenuated Storage mechanism fairly: a provider-owned adapter exposes the unchanged mutating **RecordStoreContract** but **rejects a generated local client's create command at the provider**, while allowing a real list_page read. This is a concrete server-enforced policy alternative, not merely method hiding. Its [test-only code](probes/instance_binding.rs) delegates to the actual MemoryStore. It currently returns the existing generic StoreError::Failed; no first-class access-denied error or authenticated per-client operation scope exists.
+
+**Interpretation:** A unified interface **can** enforce operation denial at the server; it is incorrect to dismiss the entire option based on the earlier Rust-facade counterexample. However, the *advertised contract still includes write operations* and the test sets **one policy for the whole provider**, not independently permissioned read/write clients sharing a provider. To satisfy the same T1/T2/T3 tasks, unified Storage would need actual model/client/principal-scoped authorization and inspectable least-privilege semantics, or a separate attenuated read-facing contract—which narrows the architectural distinction. No option gains cross-process trust for free.
+
+This probe uses the existing generated linked adapter, not a production authorization mechanism. The previous unformatted source revision passed Query Architecture Research but failed normal Validate on rustfmt; the formatting fix and final CI revision must be checked independently. No new application-schema, Storage or RPC API is introduced.
 
 ## Decision gate — first supported linked data-authority profile (2026-11-22)
 
