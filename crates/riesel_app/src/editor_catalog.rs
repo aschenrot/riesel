@@ -65,6 +65,13 @@ impl EditorOperationDescriptor {
         self
     }
 
+    /// Require a matching signal rather than allowing immediate admission.
+    /// This prevents a visual editor from removing an author-required trigger.
+    pub fn require_signal(mut self, signal: impl Into<String>) -> Self {
+        self.permitted_triggers = vec![OperationTrigger::Signal(signal.into())];
+        self
+    }
+
     pub fn permit_signal(mut self, signal: impl Into<String>) -> Self {
         self.permitted_triggers
             .push(OperationTrigger::Signal(signal.into()));
