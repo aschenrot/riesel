@@ -395,6 +395,175 @@ fn ctrl_c_shuts_down_independent_backend_without_killing_browser_state() {
     );
 }
 
+/// Independent Linux client negative control for #158/#75. The test binary
+/// and the unchanged Riesel Todo backend are distinct OS processes under the
+/// same user. The backend's browser-origin checks are *not* a peer credential
+/// or a grant: a non-browser client can supply all accepted header values.
+/// An exited process is owner-observed; a refused TCP connect alone does not
+/// independently establish which application (if any) owned that endpoint.
+#[cfg(target_os = "linux")]
+#[test]
+fn independent_client_proves_route_reachability_not_protected_identity_or_stale_session() {
+    use std::os::unix::fs::MetadataExt;
+
+    let dir = tempfile::tempdir().unwrap();
+    let db = dir.path().join("independent-client.db");
+    let mut original = Server::start(&db);
+    let old_authority = original.authority.clone();
+    let expected_origin = format!("http://{old_authority}");
+
+    assert_ne!(
+        original.child.id(),
+        std::process::id(),
+        "the real Rust SDK application must run in a separate OS process"
+    );
+    assert_eq!(
+        std::fs::metadata(format!("/proc/{}", original.child.id()))
+            .unwrap()
+            .uid(),
+        std::fs::metadata("/proc/self").unwrap().uid(),
+        "a separate same-UID client is not automatically an authorized application principal"
+    );
+
+    // This independently observed HTTP response proves only that *this
+    // request* was handled by the selected numeric-loopback route.
+    let (status, body) = original.get("/api/v1/tasks");
+    assert_eq!(status, 200, "{body}");
+    assert_eq!(
+        serde_json::from_str::<Value>(&body).unwrap()["records"],
+        json!([])
+    );
+
+    // The browser-origin gate correctly rejects requests that do not present
+    // the expected authority and Origin. None reaches a domain mutation.
+    let unauthorized_body = r#"{"title":"Must not commit"}"#;
+    assert_eq!(
+        original
+            .request(
+                "POST",
+                "/api/v1/tasks",
+                unauthorized_body,
+                Some("foreign.invalid"),
+                Some(&expected_origin),
+                Some("same-origin"),
+                Some("application/json")
+            )
+            .0,
+        403
+    );
+    assert_eq!(
+        original
+            .request(
+                "POST",
+                "/api/v1/tasks",
+                unauthorized_body,
+                Some(&old_authority),
+                None,
+                None,
+                Some("application/json")
+            )
+            .0,
+        403
+    );
+    let (status, body) = original.get("/api/v1/tasks");
+    assert_eq!(status, 200, "{body}");
+    assert_eq!(
+        serde_json::from_str::<Value>(&body).unwrap()["records"],
+        json!([])
+    );
+
+    // Negative security control: this *non-browser, independent OS process*
+    // forges Host, Origin and Fetch Metadata. The actual Todo domain commits
+    // a mutation. Do not interpret this as verified peer identity, caller
+    // permission or a protected application interface.
+    let (status, body) = original.request(
+        "POST",
+        "/api/v1/tasks",
+        r#"{"title":"Same UID is not a client grant"}"#,
+        Some(&old_authority),
+        Some(&expected_origin),
+        Some("same-origin"),
+        Some("application/json"),
+    );
+    assert_eq!(status, 201, "{body}");
+    let created: Value = serde_json::from_str(&body).unwrap();
+    let task_id = created["id"].as_str().unwrap().to_owned();
+    assert_eq!(created["revision"], "1");
+    let (status, body) = original.get(&format!("/api/v1/tasks/{task_id}"));
+    assert_eq!(status, 200, "{body}");
+    assert_eq!(
+        serde_json::from_str::<Value>(&body).unwrap()["title"],
+        "Same UID is not a client grant"
+    );
+
+    // A transient client connection can disappear without owning the app's
+    // process lifecycle. A handled GET afterward still proves only this route.
+    drop(TcpStream::connect(&old_authority).unwrap());
+    assert_eq!(original.get("/api/v1/tasks").0, 200);
+
+    // The independent process owner observes termination, *separately* from
+    // the client seeing a refused connection. No operation outcome or
+    // globally trusted session generation can be inferred from the old URL.
+    assert!(
+        Command::new("kill")
+            .arg("-INT")
+            .arg(original.child.id().to_string())
+            .status()
+            .unwrap()
+            .success()
+    );
+    let deadline = Instant::now() + Duration::from_secs(10);
+    let exit = loop {
+        if let Some(status) = original.child.try_wait().unwrap() {
+            break status;
+        }
+        assert!(Instant::now() < deadline, "old Todo backend failed to stop");
+        thread::sleep(Duration::from_millis(20));
+    };
+    assert!(exit.success(), "old Todo backend exit failed: {exit}");
+    let disconnect = TcpStream::connect(&old_authority).unwrap_err();
+    assert_eq!(
+        disconnect.kind(),
+        std::io::ErrorKind::ConnectionRefused,
+        "the old endpoint is no longer accepting connections at this instant"
+    );
+
+    // Hold the previous port so the newly created SDK process cannot silently
+    // reuse it. This is a test-only endpoint distinction, not a runtime-issued
+    // application identity or authorization protocol.
+    let reserved_old = TcpListener::bind(&old_authority).unwrap();
+    let successor = Server::start(&db);
+    assert_ne!(successor.authority, old_authority);
+    assert_eq!(
+        successor
+            .request(
+                "GET",
+                "/api/v1/tasks",
+                "",
+                Some(&old_authority),
+                None,
+                None,
+                None
+            )
+            .0,
+        403,
+        "stale Host authority cannot be mistaken for the new listener"
+    );
+    let (status, body) = successor.get(&format!("/api/v1/tasks/{task_id}"));
+    assert_eq!(status, 200, "{body}");
+    assert_eq!(
+        serde_json::from_str::<Value>(&body).unwrap()["title"],
+        "Same UID is not a client grant",
+        "SQLite persists across independent whole-app processes"
+    );
+    drop(reserved_old);
+    println!(
+        "RESEARCH_158_INDEPENDENT_CLIENT_PASS route_handled=true browser_gate=true \
+         forged_same_uid_write=true old_process_exited=true old_endpoint_refused=true \
+         persistent_reopen=true protected_identity_unsupported=true"
+    );
+}
+
 #[test]
 fn failed_listener_bind_reports_error_without_ready_announcement() {
     let occupied = TcpListener::bind("127.0.0.1:0").unwrap();
