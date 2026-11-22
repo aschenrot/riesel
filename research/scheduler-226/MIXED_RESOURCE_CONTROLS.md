@@ -35,3 +35,11 @@ The branch-limited Linux CI step runs both profiles and ordinary validate/smoke.
 - **Lifecycle:** a later production design needs cancellation, stale-session fencing, run-limit, multi-domain and memory-bound waiter tests under one session authority.
 
 Any future ready-index or resource-aware wake mechanism must preserve the same authoritative reservation semantics and uncertainty behavior. Do not infer scheduler-owned clocks, durable retries or nested ECS/world preemption.
+
+## Bounded rolling-run comparison (separate from a single hot plan)
+
+The research fixture also repeats six controlled sessions in which a first hot one-operation graph owns the exclusive `shared` resource, one cold graph is already waiting, and an application-side producer creates **32 additional one-operation hot graph runs sequentially** from the same immutable validated and bound plan. Release the initial held operation only after the first rolling hot run is submitted. Every hot run completes before the producer creates the next, so no extra scheduling authority or unbounded live-run set is introduced.
+
+Record the cold callback's global dispatch position among **34 total callbacks** (initial hot + 32 rolling hot + one cold). Require all runs to succeed, exactly 33 hot callbacks and one cold callback, and no premature cold dispatch while the initial hot reservation is held. The test imposes **no service-rank threshold**; it is diagnostic only.
+
+This case tests a distinction missed by equal-size/64-node research: one long hot plan reacquiring a resource repeatedly versus multiple short, independently created graph-run instances. Even if the cold run receives earlier service in this short-run workload, that does not establish a general fairness guarantee under continuous new producers or different runtime scheduling, and does not invalidate the batch-shaped single-plan evidence. No priority, FIFO queue or implicit recurring scheduler is selected.
