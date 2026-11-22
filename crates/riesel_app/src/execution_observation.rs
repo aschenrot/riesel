@@ -492,9 +492,10 @@ impl GraphEffectRecorder {
         view_version: u32,
         initial: T,
     ) -> Result<NestedPublisher<T>, NestedObservationError> {
-        let expected = self.delegated_domain.as_ref().ok_or(
-            NestedObservationError::UnsupportedBoundary,
-        )?;
+        let expected = self
+            .delegated_domain
+            .as_ref()
+            .ok_or(NestedObservationError::UnsupportedBoundary)?;
         if view_version == 0 {
             return Err(NestedObservationError::InvalidVersion);
         }
@@ -510,7 +511,10 @@ impl GraphEffectRecorder {
             || state.recording_attempts.get(&self.operation_id) != Some(&self.attempt)
             || !matches!(
                 state.snapshot.operations.get(&self.operation_id),
-                Some(GraphObservedOperation { state: OperationState::Running, .. })
+                Some(GraphObservedOperation {
+                    state: OperationState::Running,
+                    ..
+                })
             )
         {
             return Err(NestedObservationError::InactiveAttempt);
