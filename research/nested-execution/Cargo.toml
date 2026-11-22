@@ -10,3 +10,6 @@ publish = false
 [dev-dependencies]
 riesel = { path = "../../crates/riesel", features = ["async-tcp"] }
 tokio = { version = "=1.54.1", features = ["rt", "sync", "time"] }
+# Research-only GPL-3.0 RunenECS; pinned to the same exact commit used in #84.
+# No Riesel production dependency or redistribution is approved here.
+runen_ecs = { package = "runen-ecs", git = "https://github.com/dornglut/runen-ecs", rev = "5d6af86bfa7c58f1ad26ec73635590a72e89ef37" }
