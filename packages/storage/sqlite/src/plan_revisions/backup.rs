@@ -3,7 +3,7 @@
 //! external author, active-session transfer or automatically applied upgrade.
 //! Reuses Storage's existing no-clobber/safe-directory destination policy.
 
-use super::{FORMAT, SqlitePlanRevisionRepository, storage};
+use super::{FORMAT, LEGACY_FORMAT, SqlitePlanRevisionRepository, storage};
 use crate::maintenance::output_path;
 use riesel_app::PlanRevisionError;
 use rusqlite::{Connection, OpenFlags, params, types::Value};
@@ -42,6 +42,7 @@ pub struct VerifiedV2Snapshot {
     pub semantic_count: u64,
     pub layout_count: u64,
     pub registration_stamp: String,
+    pub format_version: i64,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -50,6 +51,7 @@ struct SnapshotAudit {
     semantic_count: u64,
     layout_count: u64,
     registration_stamp: String,
+    format_version: i64,
 }
 
 /// An unfinished snapshot cannot accidentally become a successful output.
@@ -90,7 +92,7 @@ fn audit(
     let version: i64 = connection
         .pragma_query_value(None, "user_version", |row| row.get(0))
         .map_err(storage)?;
-    if version != FORMAT {
+    if version != FORMAT && version != LEGACY_FORMAT {
         return Err(PlanRevisionError::UnsupportedFormat(version));
     }
     let integrity: String = connection
@@ -110,7 +112,7 @@ fn audit(
         connection,
         "SELECT count(*) FROM sqlite_schema WHERE type='table' AND name NOT LIKE 'sqlite_%'",
     )?;
-    if tables != 5 {
+    if tables != if version == FORMAT { 6 } else { 5 } {
         return Err(PlanRevisionError::Storage(
             "unknown or incomplete V2 store schema".into(),
         ));
@@ -141,11 +143,17 @@ fn audit(
     let layout_count = rows(connection, "SELECT count(*) FROM layout_revisions")?;
     let layout_heads = rows(connection, "SELECT count(*) FROM layout_heads")?;
     let handoffs = rows(connection, "SELECT count(*) FROM source_handoffs")?;
+    let migration_rows = if version == FORMAT {
+        rows(connection, "SELECT count(*) FROM plan_migrations")?
+    } else {
+        0
+    };
     let total = plan_count
         .checked_add(semantic_count)
         .and_then(|value| value.checked_add(layout_count))
         .and_then(|value| value.checked_add(layout_heads))
         .and_then(|value| value.checked_add(handoffs))
+        .and_then(|value| value.checked_add(migration_rows))
         .ok_or_else(|| PlanRevisionError::Invalid("snapshot row count overflow".into()))?;
     if total > budget.max_rows {
         return Err(PlanRevisionError::Invalid(
@@ -157,6 +165,7 @@ fn audit(
         semantic_count,
         layout_count,
         registration_stamp: expected_stamp.to_owned(),
+        format_version: version,
     })
 }
 
@@ -190,6 +199,7 @@ fn verify(
         semantic_count: audited.semantic_count,
         layout_count: audited.layout_count,
         registration_stamp: audited.registration_stamp,
+        format_version: audited.format_version,
     })
 }
 
@@ -226,10 +236,19 @@ fn compare_table_rows(
     }
 }
 
-fn compare_exact_content(
+pub(super) fn compare_exact_content(
     source: &Connection,
     snapshot: &Connection,
 ) -> Result<(), PlanRevisionError> {
+    let src_version: i64 = source
+        .pragma_query_value(None, "user_version", |row| row.get(0))
+        .map_err(storage)?;
+    let copied_version: i64 = snapshot
+        .pragma_query_value(None, "user_version", |row| row.get(0))
+        .map_err(storage)?;
+    if src_version != copied_version || (src_version != FORMAT && src_version != LEGACY_FORMAT) {
+        return Err(PlanRevisionError::Conflict);
+    }
     for (table, columns) in [
         (
             "plan_heads",
@@ -250,6 +269,14 @@ fn compare_exact_content(
         ),
     ] {
         compare_table_rows(source, snapshot, table, columns)?;
+    }
+    if src_version == FORMAT {
+        compare_table_rows(
+            source,
+            snapshot,
+            "plan_migrations",
+            "plan_id, generation, kind, previous_registration, next_registration, semantic_anchor, source_kind",
+        )?;
     }
     Ok(())
 }
