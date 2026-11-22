@@ -5,7 +5,9 @@
 //! cannot turn a verified provider contract or bound listener into an
 //! authenticated/callable application operation. It neither polls nor retains
 //! history, includes no free-form error payload, and does not run user code.
-use crate::{InstanceIdentity, InternalEntrypointActivity, InternalEntrypointPhase, ResolvedCapability};
+use crate::{
+    InstanceIdentity, InternalEntrypointActivity, InternalEntrypointPhase, ResolvedCapability,
+};
 use riesel_manager::{OwnedAttemptEvidence, OwnedAttemptPhase, ProcessKey, ProcessRegistry};
 use riesel_protocol::SessionToken;
 use std::net::SocketAddr;
@@ -585,8 +587,14 @@ mod tests {
             Some(activity.clone()),
         )
         .unwrap();
-        assert_eq!(left.facts()[1].evidence, ObservationEvidence::SdkEntrypointLeft);
-        assert_eq!(left.state_of(&subject, Instant::now()), ObservationState::Observed);
+        assert_eq!(
+            left.facts()[1].evidence,
+            ObservationEvidence::SdkEntrypointLeft
+        );
+        assert_eq!(
+            left.state_of(&subject, Instant::now()),
+            ObservationState::Observed
+        );
 
         let unrelated = SessionToken::new();
         assert!(matches!(
@@ -594,7 +602,10 @@ mod tests {
             Err(ObservationError::ForeignEntrypointSession)
         ));
         session.invalidate();
-        assert_eq!(left.state_of(&subject, Instant::now()), ObservationState::Stale);
+        assert_eq!(
+            left.state_of(&subject, Instant::now()),
+            ObservationState::Stale
+        );
         assert!(tasks.internal_enter_entrypoint().is_err());
     }
 
