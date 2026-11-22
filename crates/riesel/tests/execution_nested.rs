@@ -591,7 +591,14 @@ fn replacing_owner_generation_retires_old_readers_and_publishers() {
             sequence: 1,
         };
         continue_tx.send(()).unwrap();
-        until(|| observer.nested_description("frame").unwrap().owner_generation == second.generation()).await;
+        until(|| {
+            observer
+                .nested::<i32>("frame", 2)
+                .ok()
+                .flatten()
+                .is_some_and(|view| view.snapshot().status == NestedStatus::Current)
+        })
+        .await;
         assert_eq!(old.snapshot().status, NestedStatus::Superseded);
         assert!(matches!(
             old.changes_since(old_cursor),
