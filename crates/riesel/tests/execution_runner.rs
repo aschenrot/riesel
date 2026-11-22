@@ -421,6 +421,93 @@ fn reverse_declared_failure_chain_blocks_without_dispatching_dependents() {
 }
 
 #[test]
+fn unknown_or_cancelled_root_blocks_reverse_declared_descendants_without_retries() {
+    runtime().block_on(async {
+        let owner = application_session();
+        for (case, outcome, expected) in [
+            (
+                "unknown",
+                OperationOutcome::OutcomeUnknown,
+                OperationState::OutcomeUnknown,
+            ),
+            (
+                "cancelled",
+                OperationOutcome::Cancelled,
+                OperationState::Cancelled,
+            ),
+        ] {
+            let mut registry = OperationRegistry::<AsyncOperation>::new();
+            registry
+                .register(
+                    key("root-outcome"),
+                    async_operation(move || {
+                        let outcome = outcome.clone();
+                        async move { outcome }
+                    }),
+                )
+                .unwrap();
+            registry
+                .register(
+                    key("must-not-run"),
+                    async_operation(|| async { panic!("blocked descendant cannot execute") }),
+                )
+                .unwrap();
+            registry
+                .register(
+                    key("independent"),
+                    async_operation(|| async { OperationOutcome::Completed }),
+                )
+                .unwrap();
+
+            const DESCENDANTS: usize = 128;
+            let mut draft = ExecutionPlanDraft::new(format!("blocked-{case}"), 1);
+            for index in (0..DESCENDANTS).rev() {
+                let predecessor = if index == 0 {
+                    "root".to_owned()
+                } else {
+                    format!("node-{}", index - 1)
+                };
+                draft = draft.operation(
+                    OperationNode::new(format!("node-{index}"), key("must-not-run"))
+                        .after(predecessor),
+                );
+            }
+            let plan = draft
+                .operation(OperationNode::new("root", key("root-outcome")))
+                .operation(OperationNode::new("independent", key("independent")))
+                .validate()
+                .unwrap()
+                .bind(&registry)
+                .unwrap();
+            let runner = owner
+                .execution_graph(plan, NonZeroUsize::new(2).unwrap())
+                .unwrap();
+            let observer = runner.observer();
+            let report = tokio::time::timeout(Duration::from_secs(3), runner.execute())
+                .await
+                .unwrap();
+
+            assert_eq!(report.started, 2, "{case}");
+            assert_eq!(report.operations["root"], expected, "{case}");
+            assert_eq!(report.operations["independent"], OperationState::Completed);
+            let snapshot = observer.snapshot();
+            assert_eq!(snapshot.operations["root"].attempt, 1, "{case}");
+            for index in 0..DESCENDANTS {
+                let id = format!("node-{index}");
+                assert_eq!(report.operations[&id], OperationState::Blocked, "{case}: {id}");
+                assert_eq!(
+                    snapshot.operations[&id].state,
+                    OperationState::Blocked,
+                    "{case}: {id}"
+                );
+                assert_eq!(snapshot.operations[&id].attempt, 0, "{case}: {id}");
+            }
+            assert!(!report.succeeded());
+        }
+    });
+}
+
+#[test]
 fn admission_above_explicit_parallel_limit_is_rejected_before_work() {
     let mut registry = OperationRegistry::<AsyncOperation>::new();
     registry
