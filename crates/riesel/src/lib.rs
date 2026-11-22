@@ -106,6 +106,8 @@ pub use riesel_app::{
     check_layout_nodes,
 };
 
+pub use riesel_app::{PlanSourceCoverageReport, SourceCoverageFinding, SourceCoverageProblem};
+
 pub use riesel_macros::{RieselModel, RieselType, app, capability, component};
 
 /// An application entrypoint result that retains typed source errors behind
