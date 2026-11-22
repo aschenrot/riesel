@@ -19,7 +19,7 @@ Open `research/gui-boundary/inspector.html` in a desktop browser
 and inspect dependencies, before/after node states, run/session correlation and
 the retained transition timeline. The viewer requires no network service,
 package install, Riesel Manager, special renderer or application mutation
-authority; browser file access is user-selected. No data is uploaded.
+authority; browser file access is user-selected. No data is uploaded. Imported JSON cannot authenticate its own provenance; only the actual headless exporter and the caller’s trusted file-handling process can establish its source.
 
 A reproducible real-browser smoke and screenshot using the repository's
 existing locked Playwright dependency run in the separate research CI:
