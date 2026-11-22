@@ -442,6 +442,19 @@ def main(*, keep: bool = False, x11: bool = False):
                         f"no-KEEP auth improperly reused by {role}: "
                         f"rc={response.returncode}, err={response.stderr[-400:]!r}"
                     )
+            # A fresh-prompt policy must also continue rejecting changed
+            # trusted action details AFTER the single successful challenge;
+            # do not infer this solely from the original exact target.
+            for target, verb in ((unit + "-wrong", "stop"),
+                                 (unit, "restart")):
+                denied = check(action, identity_a, target, verb)
+                if denied.returncode != 1:
+                    raise AssertionError(
+                        "noncached policy admitted changed action details: "
+                        f"unit={target!r}, verb={verb!r}, rc={denied.returncode}"
+                    )
+            print("RESEARCH_M59_POLKIT_NO_KEEP_CHANGED_DETAILS_STILL_DENIED",
+                  flush=True)
             print("RESEARCH_M59_POLKIT_NO_KEEP_SECOND_SAME_UID_REQUIRES_AUTH",
                   flush=True)
             print("RESEARCH_M59_REAL_POLKIT_AUTH_CHALLENGE_DIFFERENTIAL_PASS",
