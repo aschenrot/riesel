@@ -40,6 +40,13 @@ path = "tests/fixtures/counter_crash_fixture.rs"
 name = "counter_recovery_client"
 path = "tests/fixtures/counter_recovery_client.rs"
 
+# Feature-gated real async Counter crash/recovery verification.
+# No client auth, public exporter, listener or production publication API.
+[[bin]]
+name = "counter_async_publication_recovery"
+path = "tests/fixtures/counter_async_publication_recovery.rs"
+required-features = ["internal-publication"]
+
 [[bin]]
 name = "counter_dual_client"
 path = "tests/fixtures/counter_dual_client.rs"
