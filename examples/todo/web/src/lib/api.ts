@@ -11,6 +11,12 @@ export interface TaskPage {
   next_cursor: string | null;
 }
 
+/** A bounded, live native Query result. Empty may be partial, not exhausted. */
+export interface StatusTaskPage extends TaskPage {
+  exhausted: boolean;
+  inspected: number;
+}
+
 interface Problem {
   error?: { code?: string; message?: string };
 }
@@ -90,6 +96,17 @@ export function listPage(
   const query = new URLSearchParams({ limit: '32' });
   if (after) query.set('after', after);
   return request<TaskPage>('/tasks?' + query.toString(), { method: 'GET' }, fetcher);
+}
+
+/** Todo-only status selector: no arbitrary model, SQL, query budget or sort. */
+export function statusPage(
+  completed: boolean,
+  cursor: string | null = null,
+  fetcher: typeof fetch = fetch
+): Promise<StatusTaskPage> {
+  const query = new URLSearchParams({ completed: String(completed), limit: '32' });
+  if (cursor !== null) query.set('cursor', cursor);
+  return request<StatusTaskPage>('/tasks/query?' + query.toString(), { method: 'GET' }, fetcher);
 }
 
 export function createTask(
