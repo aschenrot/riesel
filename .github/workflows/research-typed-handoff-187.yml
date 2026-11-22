@@ -25,9 +25,9 @@ jobs:
         run: cargo test --manifest-path research/typed-handoff-187/Cargo.toml -- --nocapture
       - name: Record exact standalone research dependency lock
         run: |
-          printf '%s\\n' 'RIESEL187_CARGO_LOCK_BEGIN'
+          echo 'RIESEL187_CARGO_LOCK_BEGIN'
           cat research/typed-handoff-187/Cargo.lock
-          printf '%s\\n' 'RIESEL187_CARGO_LOCK_END'
+          echo 'RIESEL187_CARGO_LOCK_END'
       - name: Run headless example
         run: cargo run --manifest-path research/typed-handoff-187/Cargo.toml --bin riesel-typed-handoff-187-research
       - name: Record controlled runner context
