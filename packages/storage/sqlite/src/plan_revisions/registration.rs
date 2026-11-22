@@ -20,9 +20,9 @@ impl SqlitePlanRevisionRepository {
     /// trusted application build, after the old application has stopped.
     ///
     /// Call on a repository opened with the NEW build's local registration
-    /// stamp. The caller supplies the OLD stamp, a verified exact backup
-    /// captured after quiescing the old owner, all expected heads, and the
-    /// replacement build's actual registered Rust handlers.
+    /// stamp. The caller supplies all previous heads (carrying the old
+    /// registration), a matching verified backup captured after quiescing
+    /// the former owner, and the replacement build's real Rust handlers.
     ///
     /// Rust-owned plans additionally require their new validated Rust source;
     /// document-owned plans are rebound against the new build's exact editor
