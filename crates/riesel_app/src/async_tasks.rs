@@ -69,7 +69,8 @@ pub struct InternalEntrypointGuard {
 #[cfg(feature = "internal-publication")]
 impl Drop for InternalEntrypointGuard {
     fn drop(&mut self) {
-        self.phase.store(InternalEntrypointPhase::Left as u8, Ordering::Release);
+        self.phase
+            .store(InternalEntrypointPhase::Left as u8, Ordering::Release);
     }
 }
 
