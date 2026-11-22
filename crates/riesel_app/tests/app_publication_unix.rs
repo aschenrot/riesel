@@ -23,7 +23,8 @@ use std::sync::{
 };
 use std::time::Duration;
 
-const SCHEMA: &str = r#"{"version":1,"app":{"name":"IndependentReadOwner"},"models":{},"requires":[]}"#;
+const SCHEMA: &str =
+    r#"{"version":1,"app":{"name":"IndependentReadOwner"},"models":{},"requires":[]}"#;
 const APPLICATION: &str = "research.t1_read_owner";
 const INTERFACE: &str = "read.public_counter";
 
@@ -211,7 +212,10 @@ fn real_owned_unix_client_attach_detach_and_recover() {
         // Neither client closing nor being re-created owns app shutdown.
         assert!(first.session_token().is_active());
         assert_eq!(
-            client.query(&old_descriptor, "count", json!({})).await.unwrap()["status"],
+            client
+                .query(&old_descriptor, "count", json!({}))
+                .await
+                .unwrap()["status"],
             "ok"
         );
         tasks.finish_scope().await.unwrap();
