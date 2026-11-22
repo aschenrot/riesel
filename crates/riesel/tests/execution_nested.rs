@@ -386,7 +386,7 @@ fn lost_outer_reply_does_not_rewrite_inner_owner_snapshots_or_outer_unknown() {
         let report = tokio::time::timeout(WAIT, task).await.unwrap().unwrap();
         assert_eq!(report.operations["frame"], OperationState::OutcomeUnknown);
         assert_eq!(report.operations["dependent"], OperationState::Blocked);
-        assert!(report.confirmed_prefixes.get("frame").is_none());
+        assert!(!report.confirmed_prefixes.contains_key("frame"));
         assert_eq!(view.snapshot().sequence, 2);
         assert_eq!(
             *view.snapshot().payload.unwrap(),
