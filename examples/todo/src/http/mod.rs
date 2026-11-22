@@ -139,8 +139,8 @@ mod tests {
     #[test]
     fn real_todo_sqlite_listener_has_only_adapter_evidence() {
         use riesel::internal_observation::{
-            MAX_OBSERVATION_AGE, ObservationSnapshot, ObservationSource, ObservationState,
-            ObservationSubject,
+            GenerationEvidence, MAX_OBSERVATION_AGE, ObservationSnapshot, ObservationSource,
+            ObservationState, ObservationSubject,
         };
         use std::sync::Mutex;
 
