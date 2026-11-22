@@ -533,7 +533,13 @@ fn real_status_query_is_provider_owned_and_live() {
     let (status, body) = server.get("/api/v1/tasks");
     assert_eq!(status, 200, "{body}");
     let legacy: Value = serde_json::from_str(&body).unwrap();
-    assert!(legacy["records"].as_array().unwrap().iter().all(|row| row["completed"] == true));
+    assert!(
+        legacy["records"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .all(|row| row["completed"] == true)
+    );
 
     let (status, body) = server.get("/api/v1/tasks/query?completed=false&limit=32");
     assert_eq!(status, 200, "{body}");
@@ -559,11 +565,20 @@ fn real_status_query_is_provider_owned_and_live() {
     let wrong = format!("/api/v1/tasks/query?completed=false&limit=1&cursor={token}");
     let (status, body) = server.get(&wrong);
     assert_eq!(status, 409, "{body}");
-    assert_eq!(serde_json::from_str::<Value>(&body).unwrap()["error"]["code"], "invalid_query_cursor");
+    assert_eq!(
+        serde_json::from_str::<Value>(&body).unwrap()["error"]["code"],
+        "invalid_query_cursor"
+    );
     let valid = format!("/api/v1/tasks/query?completed=true&limit=1&cursor={token}");
     let (status, body) = server.get(&valid);
     assert_eq!(status, 200, "{body}");
-    assert_eq!(serde_json::from_str::<Value>(&body).unwrap()["records"].as_array().unwrap().len(), 1);
+    assert_eq!(
+        serde_json::from_str::<Value>(&body).unwrap()["records"]
+            .as_array()
+            .unwrap()
+            .len(),
+        1
+    );
     let (status, body) = server.get(&valid);
     assert_eq!(status, 409, "{body}");
 
