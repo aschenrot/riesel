@@ -10,7 +10,10 @@ use riesel_storage_sqlite::{
 };
 use serde::{Deserialize, Serialize};
 use serde_json::json;
-use std::{collections::{BTreeMap, BTreeSet}, time::Duration};
+use std::{
+    collections::{BTreeMap, BTreeSet},
+    time::Duration,
+};
 
 #[derive(Debug, Serialize, Deserialize)]
 struct HistoricalTask {
@@ -109,13 +112,12 @@ fn offline_lifecycle_model_evolution_and_trash_restore_keep_identity_and_revisio
         .unwrap();
     drop(old);
 
-    let maintenance = SqliteMaintenance::open_existing(
-        &database,
-        models::<HistoricalTask>(),
-        limits().snapshot,
-    )
-    .unwrap();
-    let preview = maintenance.preview_evolution(&candidate_plan(), limits()).unwrap();
+    let maintenance =
+        SqliteMaintenance::open_existing(&database, models::<HistoricalTask>(), limits().snapshot)
+            .unwrap();
+    let preview = maintenance
+        .preview_evolution(&candidate_plan(), limits())
+        .unwrap();
     assert_eq!(preview.affected_records, 2);
     let receipt = maintenance
         .execute_evolution(
@@ -132,8 +134,14 @@ fn offline_lifecycle_model_evolution_and_trash_restore_keep_identity_and_revisio
     // backup is independently reopenable as the exact old schema.
     assert!(SqliteStore::open(&database, models::<HistoricalTask>()).is_err());
     let old_backup = SqliteStore::open(&backup, models::<HistoricalTask>()).unwrap();
-    assert_eq!(old_backup.get("task", open.id).unwrap().unwrap().revision, open.revision);
-    assert_eq!(old_backup.get("task", done.id).unwrap().unwrap().revision, done.revision);
+    assert_eq!(
+        old_backup.get("task", open.id).unwrap().unwrap().revision,
+        open.revision
+    );
+    assert_eq!(
+        old_backup.get("task", done.id).unwrap().unwrap().revision,
+        done.revision
+    );
     drop(old_backup);
 
     let current = SqliteStore::open(&database, models::<CandidateTask>())
@@ -144,14 +152,22 @@ fn offline_lifecycle_model_evolution_and_trash_restore_keep_identity_and_revisio
     let after_done = current.get("task", done.id).unwrap().unwrap();
     assert_eq!(after_open.revision, open.revision + 1);
     assert_eq!(after_done.revision, done.revision + 1);
-    assert_eq!(after_open.data, json!({"title":"Open source","completed":false,"location":"active"}));
-    assert_eq!(after_done.data, json!({"title":"Done source","completed":true,"location":"active"}));
+    assert_eq!(
+        after_open.data,
+        json!({"title":"Open source","completed":false,"location":"active"})
+    );
+    assert_eq!(
+        after_done.data,
+        json!({"title":"Done source","completed":true,"location":"active"})
+    );
 
     // Moving/restoring one *existing* record uses Storage's observed-revision
     // update: no recreated UUID and no cross-model move transaction needed.
     let trashed = current
         .update(
-            "task", open.id, after_open.revision,
+            "task",
+            open.id,
+            after_open.revision,
             json!({"title":"Open source","completed":false,"location":"trash"}),
         )
         .unwrap();
@@ -159,7 +175,9 @@ fn offline_lifecycle_model_evolution_and_trash_restore_keep_identity_and_revisio
     assert_eq!(trashed.revision, after_open.revision + 1);
     assert!(matches!(
         current.update(
-            "task", open.id, after_open.revision,
+            "task",
+            open.id,
+            after_open.revision,
             json!({"title":"Stale overwrite","completed":true,"location":"active"}),
         ),
         Err(StoreError::RevisionConflict)
@@ -169,7 +187,12 @@ fn offline_lifecycle_model_evolution_and_trash_restore_keep_identity_and_revisio
     // tasks. Query v1 cannot correctly power an Active-and-Open view alone.
     let open_status = current.query_page(eq("completed", json!(false))).unwrap();
     assert!(open_status.exhausted);
-    assert!(open_status.records.iter().any(|record| record.id == open.id));
+    assert!(
+        open_status
+            .records
+            .iter()
+            .any(|record| record.id == open.id)
+    );
 
     let trash_location = current.query_page(eq("location", json!("trash"))).unwrap();
     assert!(trash_location.exhausted);
@@ -178,24 +201,29 @@ fn offline_lifecycle_model_evolution_and_trash_restore_keep_identity_and_revisio
 
     let restored = current
         .update(
-            "task", open.id, trashed.revision,
+            "task",
+            open.id,
+            trashed.revision,
             json!({"title":"Open source","completed":false,"location":"active"}),
         )
         .unwrap();
     assert_eq!(restored.id, open.id);
     assert_eq!(restored.revision, trashed.revision + 1);
     assert_eq!(restored.data["completed"], false);
-    assert!(current.query_page(eq("location", json!("trash"))).unwrap().records.is_empty());
+    assert!(
+        current
+            .query_page(eq("location", json!("trash")))
+            .unwrap()
+            .records
+            .is_empty()
+    );
     drop(current);
 
     // Distinct, explicitly authorized *offline* restore discards all writes
     // since the source snapshot; it is not Undo and cannot be automatic.
-    let maintenance = SqliteMaintenance::open_existing(
-        &database,
-        models::<CandidateTask>(),
-        limits().snapshot,
-    )
-    .unwrap();
+    let maintenance =
+        SqliteMaintenance::open_existing(&database, models::<CandidateTask>(), limits().snapshot)
+            .unwrap();
     maintenance
         .restore_from_backup(
             &backup,
@@ -207,8 +235,14 @@ fn offline_lifecycle_model_evolution_and_trash_restore_keep_identity_and_revisio
         .unwrap();
     drop(maintenance);
     let restored_old = SqliteStore::open(&database, models::<HistoricalTask>()).unwrap();
-    assert_eq!(restored_old.get("task", open.id).unwrap().unwrap().revision, open.revision);
-    assert_eq!(restored_old.get("task", done.id).unwrap().unwrap().data["completed"], true);
+    assert_eq!(
+        restored_old.get("task", open.id).unwrap().unwrap().revision,
+        open.revision
+    );
+    assert_eq!(
+        restored_old.get("task", done.id).unwrap().unwrap().data["completed"],
+        true
+    );
 }
 
 #[test]
@@ -234,12 +268,9 @@ fn failed_todo_lifecycle_transform_keeps_original_database_readable() {
             })
         })
         .unwrap();
-    let maintenance = SqliteMaintenance::open_existing(
-        &database,
-        models::<HistoricalTask>(),
-        limits().snapshot,
-    )
-    .unwrap();
+    let maintenance =
+        SqliteMaintenance::open_existing(&database, models::<HistoricalTask>(), limits().snapshot)
+            .unwrap();
     let error = maintenance.execute_evolution(
         &rejected,
         dir.path().join("recovery.db"),
