@@ -308,7 +308,10 @@ mod tests {
             frame.generation(),
             session.internal_publication_session().generation()
         );
-        assert_eq!(frame.generation_evidence(), GenerationEvidence::RuntimeIssued);
+        assert_eq!(
+            frame.generation_evidence(),
+            GenerationEvidence::RuntimeIssued
+        );
         assert_eq!(frame.facts().len(), 4);
         assert_eq!(
             frame.state_at(1, frame.observed_at()),
