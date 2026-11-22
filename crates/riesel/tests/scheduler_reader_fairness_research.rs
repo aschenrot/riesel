@@ -26,6 +26,14 @@ fn runtime() -> tokio::runtime::Runtime {
         .unwrap()
 }
 
+fn multithread_runtime() -> tokio::runtime::Runtime {
+    tokio::runtime::Builder::new_multi_thread()
+        .worker_threads(4)
+        .enable_all()
+        .build()
+        .unwrap()
+}
+
 fn owner() -> RunningApp {
     App::from_schema(
         r#"{"version":1,"app":{"name":"ReaderWriterFairnessResearch"},"models":{},"requires":[]}"#,
@@ -58,9 +66,8 @@ async fn running(observer: &riesel::GraphRunObserver) {
     .unwrap();
 }
 
-#[test]
-fn long_reader_run_vs_waiting_writer_records_actual_callback_rank() {
-    runtime().block_on(async {
+fn long_reader_service_probe(rt: tokio::runtime::Runtime, mode: &str) {
+    rt.block_on(async {
         const READERS: usize = 64;
         const ROUNDS: usize = 8;
         for round in 0..ROUNDS {
@@ -193,11 +200,21 @@ fn long_reader_run_vs_waiting_writer_records_actual_callback_rank() {
             let rank = writer_rank.load(Ordering::SeqCst);
             assert!((2..=READERS + 1).contains(&rank));
             eprintln!(
-                "research #226 reader_plan round={round} readers={READERS} writer_rank={rank} of {}",
+                "research #226 reader_plan mode={mode} round={round} readers={READERS} writer_rank={rank} of {}",
                 READERS + 1
             );
         }
     });
+}
+
+#[test]
+fn long_reader_run_vs_waiting_writer_records_actual_callback_rank() {
+    long_reader_service_probe(runtime(), "current_thread");
+}
+
+#[test]
+fn long_reader_run_multithread_records_actual_callback_rank() {
+    long_reader_service_probe(multithread_runtime(), "four_workers");
 }
 
 #[test]
@@ -610,9 +627,8 @@ fn independent_work_must_not_hide_contested_waiting_demand() {
     });
 }
 
-#[test]
-fn capacity_only_contention_records_waiting_run_admission_rank() {
-    runtime().block_on(async {
+fn capacity_only_service_probe(rt: tokio::runtime::Runtime, mode: &str) {
+    rt.block_on(async {
         const HOT_OPERATIONS: usize = 64;
         const CAPACITY: usize = 32;
         const ROUNDS: usize = 4;
@@ -722,9 +738,19 @@ fn capacity_only_contention_records_waiting_run_admission_rank() {
             assert!(((CAPACITY + 1)..=(HOT_OPERATIONS + 1)).contains(&rank));
             assert_eq!(started_order.load(Ordering::SeqCst), HOT_OPERATIONS + 1);
             eprintln!(
-                "research #226 capacity_only round={round} cold_rank={rank} of {} capacity={CAPACITY}",
+                "research #226 capacity_only mode={mode} round={round} cold_rank={rank} of {} capacity={CAPACITY}",
                 HOT_OPERATIONS + 1
             );
         }
     });
+}
+
+#[test]
+fn capacity_only_contention_records_waiting_run_admission_rank() {
+    capacity_only_service_probe(runtime(), "current_thread");
+}
+
+#[test]
+fn capacity_only_contention_multithread_records_waiting_run_admission_rank() {
+    capacity_only_service_probe(multithread_runtime(), "four_workers");
 }
