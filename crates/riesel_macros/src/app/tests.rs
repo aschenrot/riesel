@@ -145,6 +145,23 @@ fn registered_parameter_type_alias_can_explicitly_skip_handle_adaptation() {
 }
 
 #[test]
+fn typed_model_read_parameter_is_not_reinterpreted_as_a_remote_handle() {
+    let args: AppArgs = parse_quote! { name = "TypedRead" };
+    let source: ItemFn = parse_quote! {
+        async fn main(
+            #[riesel(parameter)] reader: riesel::ModelRead<TaskData, RecordReadContract>
+        ) -> AppResult<()> {
+            Ok(())
+        }
+    };
+    let expanded = expand_app(args, source).unwrap().to_string();
+    assert!(expanded.contains("ModelRead"));
+    assert!(expanded.contains("async_handler"));
+    assert!(!expanded.contains("NativeHandleParam"));
+    assert!(!expanded.contains("riesel (parameter"));
+}
+
+#[test]
 fn app_options_reject_duplicate_development_and_empty_names() {
     assert!(syn::parse_str::<AppArgs>("development, development").is_err());
     assert!(syn::parse_str::<AppArgs>("name = \"\"").is_err());
