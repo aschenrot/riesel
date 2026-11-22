@@ -1,7 +1,8 @@
 //! Session-local authoritative read-only observation of the existing graph runner.
 //!
-//! The runner is the only publisher. Snapshots are copied under one short
-//! mutex, while the bounded transition ring is an optional, lossy projection.
+//! The runner owns publication; a dispatched callback may submit explicit
+//! owner-confirmed prefixes through its attempt-fenced reporter. Snapshots
+//! and the bounded, lossy transition ring share one authoritative mutex.
 //! Neither the trace nor its cursor authorizes operations or executes a graph.
 use crate::execution_plan::OperationNode;
 use crate::execution_runner::OperationState;
@@ -14,6 +15,11 @@ use uuid::Uuid;
 /// Maximum retained transitions *per observed run*. Overflow never blocks
 /// the runner; readers must resynchronize from the authoritative snapshot.
 pub const MAX_GRAPH_TRANSITIONS: usize = 128;
+
+/// Maximum distinct confirmed-effect streams in one operation attempt.
+/// The full per-stream high-water marks remain in the authoritative snapshot;
+/// the separate transition ring may overflow.
+pub const MAX_GRAPH_EFFECT_STREAMS: usize = 32;
 
 /// A runtime-allocated session generation and per-session run sequence, bound
 /// to one validated immutable logical plan version. These values are not an
@@ -74,6 +80,10 @@ pub struct GraphObservedOperation {
     /// Zero means never admitted. First admission is attempt one; there are
     /// no automatic retries. A future retry policy must change this explicitly.
     pub attempt: u64,
+    /// Owner-confirmed cumulative effect prefixes by application-defined
+    /// stream. These are assertions from the executing callback, not
+    /// independently verified remote commits or a durable history.
+    pub confirmed_prefixes: BTreeMap<String, u64>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -92,6 +102,14 @@ pub enum GraphRunChange {
         operation_id: String,
         attempt: u64,
         state: OperationState,
+    },
+    /// A cumulative prefix confirmed by the operation's authoritative owner.
+    /// This event may be lost; the snapshot retains the current high-water mark.
+    ConfirmedPrefix {
+        operation_id: String,
+        attempt: u64,
+        stream: String,
+        cumulative: u64,
     },
 }
 
@@ -118,9 +136,29 @@ pub enum GraphObservationError {
     FutureCursor { requested: u64, latest: u64 },
 }
 
+/// Invalid owner-confirmed effect reports fail without changing the ledger.
+/// An acknowledged external mutation is never inferred from operation success.
+#[derive(Debug, Clone, PartialEq, Eq, Error)]
+pub enum GraphEffectError {
+    #[error("effect stream must be 1–128 ASCII letters, digits, dots, underscores or hyphens")]
+    InvalidStream,
+    #[error("confirmed cumulative progress must be positive")]
+    ZeroProgress,
+    #[error("the operation attempt is no longer running")]
+    InactiveAttempt,
+    #[error("effect stream progress cannot decrease from {previous} to {requested}")]
+    RegressingPrefix { previous: u64, requested: u64 },
+    #[error("an operation cannot record more than {limit} distinct effect streams")]
+    StreamLimitExceeded { limit: usize },
+}
+
 struct ObservationState {
     snapshot: GraphRunSnapshot,
     transitions: VecDeque<GraphRunTransition>,
+    // Private authority to report from a live graph-owned callback attempt.
+    // Closed by the child future's drop guard, even before the parent runner
+    // processes the JoinSet completion. Not part of a public snapshot.
+    recording_attempts: BTreeMap<String, u64>,
 }
 
 impl ObservationState {
@@ -188,6 +226,95 @@ impl GraphRunObserver {
     }
 }
 
+/// A scoped reporting handle passed only to a dispatched operation attempt.
+///
+/// Call `confirm_prefix` after the *actual domain or provider owner* has
+/// confirmed the cumulative committed prefix. Duplicate equal reports are
+/// idempotent. This does not authenticate a remote service, roll back effects
+/// or permit retries after a lost acknowledgement.
+#[derive(Clone)]
+pub struct GraphEffectRecorder {
+    state: Arc<Mutex<ObservationState>>,
+    operation_id: String,
+    attempt: u64,
+}
+
+/// Held by the actual graph-owned child future and dropped on completion,
+/// panic or cancellation. Its closure and every confirmation use the same
+/// observation mutex, so a cloned reporter cannot publish after closure.
+pub(crate) struct GraphEffectAttemptGuard {
+    state: Arc<Mutex<ObservationState>>,
+    operation_id: String,
+    attempt: u64,
+}
+
+impl Drop for GraphEffectAttemptGuard {
+    fn drop(&mut self) {
+        let mut state = self.state.lock().unwrap_or_else(PoisonError::into_inner);
+        if state.recording_attempts.get(&self.operation_id) == Some(&self.attempt) {
+            state.recording_attempts.remove(&self.operation_id);
+        }
+    }
+}
+
+impl GraphEffectRecorder {
+    pub fn confirm_prefix(&self, stream: &str, cumulative: u64) -> Result<(), GraphEffectError> {
+        if stream.is_empty()
+            || stream.len() > 128
+            || !stream
+                .bytes()
+                .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'.' | b'_' | b'-'))
+        {
+            return Err(GraphEffectError::InvalidStream);
+        }
+        if cumulative == 0 {
+            return Err(GraphEffectError::ZeroProgress);
+        }
+        // Callback completion and confirmations serialize through the same
+        // authoritative lock, even if the parent coordinator has not yet
+        // consumed the operation's JoinSet result.
+        let mut state = self.state.lock().unwrap_or_else(PoisonError::into_inner);
+        if state.snapshot.phase != GraphRunPhase::Running
+            || state.recording_attempts.get(&self.operation_id) != Some(&self.attempt)
+        {
+            return Err(GraphEffectError::InactiveAttempt);
+        }
+        let operation = state
+            .snapshot
+            .operations
+            .get_mut(&self.operation_id)
+            .expect("validated operation identity");
+        if operation.state != OperationState::Running || operation.attempt != self.attempt {
+            return Err(GraphEffectError::InactiveAttempt);
+        }
+        if let Some(&previous) = operation.confirmed_prefixes.get(stream) {
+            if cumulative < previous {
+                return Err(GraphEffectError::RegressingPrefix {
+                    previous,
+                    requested: cumulative,
+                });
+            }
+            if cumulative == previous {
+                return Ok(());
+            }
+        } else if operation.confirmed_prefixes.len() >= MAX_GRAPH_EFFECT_STREAMS {
+            return Err(GraphEffectError::StreamLimitExceeded {
+                limit: MAX_GRAPH_EFFECT_STREAMS,
+            });
+        }
+        operation
+            .confirmed_prefixes
+            .insert(stream.to_owned(), cumulative);
+        state.push(GraphRunChange::ConfirmedPrefix {
+            operation_id: self.operation_id.clone(),
+            attempt: self.attempt,
+            stream: stream.to_owned(),
+            cumulative,
+        });
+        Ok(())
+    }
+}
+
 /// Single-writer publication boundary owned by the graph runner. Its Drop
 /// guard makes abrupt future cancellation observable without inventing an
 /// external rollback, completed callback or successful downstream operation.
@@ -228,6 +355,7 @@ impl GraphRunPublication {
                     GraphObservedOperation {
                         state: OperationState::Pending,
                         attempt: 0,
+                        confirmed_prefixes: BTreeMap::new(),
                     },
                 )
             })
@@ -243,6 +371,7 @@ impl GraphRunPublication {
                         session_expired: false,
                     },
                     transitions: VecDeque::new(),
+                    recording_attempts: BTreeMap::new(),
                 })),
             },
             nodes: names,
@@ -254,6 +383,29 @@ impl GraphRunPublication {
 
     pub(crate) fn observer(&self) -> GraphRunObserver {
         self.observer.clone()
+    }
+
+    pub(crate) fn recorder(&self, index: usize) -> (GraphEffectRecorder, GraphEffectAttemptGuard) {
+        let state = self
+            .observer
+            .state
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner);
+        let operation_id = self.nodes[index].clone();
+        let attempt = state.snapshot.operations[&operation_id].attempt;
+        debug_assert!(attempt > 0, "only dispatched attempts may confirm effects");
+        (
+            GraphEffectRecorder {
+                state: Arc::clone(&self.observer.state),
+                operation_id: operation_id.clone(),
+                attempt,
+            },
+            GraphEffectAttemptGuard {
+                state: Arc::clone(&self.observer.state),
+                operation_id,
+                attempt,
+            },
+        )
     }
 
     pub(crate) fn identity(&self) -> GraphRunIdentity {
@@ -306,6 +458,11 @@ impl GraphRunPublication {
         }
         operation.state = next.clone();
         let attempt = operation.attempt;
+        if matches!(next, OperationState::Running) {
+            state.recording_attempts.insert(name.clone(), attempt);
+        } else {
+            state.recording_attempts.remove(name);
+        }
         state.push(GraphRunChange::Operation {
             operation_id: name.clone(),
             attempt,
@@ -388,5 +545,44 @@ impl Drop for GraphRunPublication {
             state.snapshot.session_expired = !self.session.is_active();
         }
         self.phase(GraphRunPhase::Abandoned);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::execution_plan::OperationKey;
+
+    #[test]
+    fn callback_guard_closes_recording_before_coordinator_observes_completion() {
+        let nodes = vec![OperationNode::new(
+            "tick",
+            OperationKey::new("test.tick", 1).unwrap(),
+        )];
+        let identity = GraphRunIdentity::new(Uuid::new_v4(), 1, "guard-test".into(), 1);
+        let mut publication = GraphRunPublication::new(identity, &nodes, SessionToken::new());
+        publication.start();
+        publication.transition(0, OperationState::Running);
+        let (recorder, guard) = publication.recorder(0);
+        recorder.confirm_prefix("ticks", 1).unwrap();
+
+        // Simulate the callback future returning before the outer runner has
+        // polled the JoinSet. A retained clone must no longer mutate state.
+        let stale = recorder.clone();
+        drop(guard);
+        assert_eq!(
+            publication.observer().snapshot().operations["tick"].state,
+            OperationState::Running
+        );
+        assert!(matches!(
+            stale.confirm_prefix("ticks", 2),
+            Err(GraphEffectError::InactiveAttempt)
+        ));
+        assert_eq!(
+            publication.observer().snapshot().operations["tick"].confirmed_prefixes["ticks"],
+            1
+        );
+        publication.transition(0, OperationState::Completed);
+        publication.finish(false);
     }
 }

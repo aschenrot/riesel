@@ -4,10 +4,10 @@
 #![cfg(feature = "async-tcp")]
 use riesel::{
     AccessMode, App, AsyncOperation, ConnectorRegistry, DeploymentConfig, DomainAdmissionMode,
-    ExecutionPlanDraft, FixedStepAdmission, FixedStepBacklog, FixedStepPolicy,
-    GraphObservationError, GraphRunChange, GraphRunError, GraphRunPhase, MAX_GRAPH_TRANSITIONS,
-    OperationKey, OperationNode, OperationOutcome, OperationRegistry, OperationState, RunningApp,
-    async_operation,
+    ExecutionPlanDraft, FixedStepAdmission, FixedStepBacklog, FixedStepPolicy, GraphEffectError,
+    GraphEffectRecorder, GraphObservationError, GraphRunChange, GraphRunError, GraphRunPhase,
+    MAX_GRAPH_EFFECT_STREAMS, MAX_GRAPH_TRANSITIONS, OperationKey, OperationNode, OperationOutcome,
+    OperationRegistry, OperationState, RunningApp, async_operation, async_operation_with_effects,
 };
 use std::num::NonZeroUsize;
 use std::sync::{
@@ -1198,5 +1198,278 @@ fn abrupt_graph_future_abort_reports_in_flight_unknown_and_blocks_success_depend
                     GraphRunChange::Phase(GraphRunPhase::Abandoned)
                 ))
         );
+    });
+}
+
+#[test]
+fn confirmed_effect_prefixes_survive_failed_operation_without_unblocking_dependents() {
+    runtime().block_on(async {
+        let retained = Arc::new(std::sync::Mutex::new(None::<GraphEffectRecorder>));
+        let held = Arc::clone(&retained);
+        let mut registry = OperationRegistry::<AsyncOperation>::new();
+        registry
+            .register(
+                key("partially-applied"),
+                async_operation_with_effects(move |effects| {
+                    let held = Arc::clone(&held);
+                    async move {
+                        *held.lock().unwrap() = Some(effects.clone());
+                        effects.confirm_prefix("world.ticks", 1).unwrap();
+                        effects.confirm_prefix("world.ticks", 1).unwrap();
+                        assert!(matches!(
+                            effects.confirm_prefix("world.ticks", 0),
+                            Err(GraphEffectError::ZeroProgress)
+                        ));
+                        assert!(matches!(effects.confirm_prefix("world.ticks", 2), Ok(())));
+                        assert!(matches!(
+                            effects.confirm_prefix("world.ticks", 1),
+                            Err(GraphEffectError::RegressingPrefix {
+                                previous: 2,
+                                requested: 1
+                            })
+                        ));
+                        OperationOutcome::Failed("failed after two committed ticks".into())
+                    }
+                }),
+            )
+            .unwrap();
+        registry
+            .register(
+                key("dependent"),
+                async_operation(|| async { panic!("must not run after failed prerequisite") }),
+            )
+            .unwrap();
+        let plan = ExecutionPlanDraft::new("effects.failed-prefix", 1)
+            .operation(OperationNode::new("partial", key("partially-applied")))
+            .operation(OperationNode::new("dependent", key("dependent")).after("partial"))
+            .validate()
+            .unwrap()
+            .bind(&registry)
+            .unwrap();
+        let owner = application_session();
+        let runner = owner
+            .execution_graph(plan, NonZeroUsize::new(2).unwrap())
+            .unwrap();
+        let observer = runner.observer();
+        let report = runner.execute().await;
+        assert!(!report.succeeded());
+        assert!(matches!(
+            report.operations["partial"],
+            OperationState::Failed(_)
+        ));
+        assert_eq!(report.operations["dependent"], OperationState::Blocked);
+        assert_eq!(report.confirmed_prefixes["partial"]["world.ticks"], 2);
+        let snapshot = observer.snapshot();
+        assert_eq!(
+            snapshot.operations["partial"].confirmed_prefixes["world.ticks"],
+            2
+        );
+        assert!(
+            snapshot.operations["dependent"]
+                .confirmed_prefixes
+                .is_empty()
+        );
+        let updates = observer.changes_since(0).unwrap();
+        assert!(!updates.truncated);
+        assert_eq!(
+            updates
+                .events
+                .iter()
+                .filter(|event| matches!(
+                    &event.change,
+                    GraphRunChange::ConfirmedPrefix {
+                        operation_id,
+                        attempt: 1,
+                        stream,
+                        ..
+                    } if operation_id == "partial" && stream == "world.ticks"
+                ))
+                .count(),
+            2,
+            "equal duplicate reports must not advance a confirmed prefix"
+        );
+        let old = retained.lock().unwrap().take().unwrap();
+        assert!(matches!(
+            old.confirm_prefix("world.ticks", 3),
+            Err(GraphEffectError::InactiveAttempt)
+        ));
+    });
+}
+
+#[test]
+fn abandoned_attempt_preserves_confirmed_prefix_but_not_unacknowledged_effects() {
+    runtime().block_on(async {
+        let retained = Arc::new(std::sync::Mutex::new(None::<GraphEffectRecorder>));
+        let held = Arc::clone(&retained);
+        let mut registry = OperationRegistry::<AsyncOperation>::new();
+        registry
+            .register(
+                key("pending-effect"),
+                async_operation_with_effects(move |effects| {
+                    let held = Arc::clone(&held);
+                    async move {
+                        *held.lock().unwrap() = Some(effects.clone());
+                        effects.confirm_prefix("world.ticks", 1).unwrap();
+                        // The second remote tick might commit after dispatch,
+                        // but no acknowledgement arrives before cancellation.
+                        std::future::pending::<()>().await;
+                        OperationOutcome::Completed
+                    }
+                }),
+            )
+            .unwrap();
+        registry
+            .register(
+                key("dependent"),
+                async_operation(|| async { panic!("unknown prerequisite cannot succeed") }),
+            )
+            .unwrap();
+        let plan = ExecutionPlanDraft::new("effects.abandoned", 1)
+            .operation(OperationNode::new("pending", key("pending-effect")))
+            .operation(OperationNode::new("dependent", key("dependent")).after("pending"))
+            .validate()
+            .unwrap()
+            .bind(&registry)
+            .unwrap();
+        let owner = application_session();
+        let runner = owner
+            .execution_graph(plan, NonZeroUsize::new(1).unwrap())
+            .unwrap();
+        let observer = runner.observer();
+        let handle = tokio::spawn(runner.execute());
+        tokio::time::timeout(Duration::from_secs(3), async {
+            loop {
+                if observer.snapshot().operations["pending"]
+                    .confirmed_prefixes
+                    .get("world.ticks")
+                    == Some(&1)
+                {
+                    break;
+                }
+                tokio::task::yield_now().await;
+            }
+        })
+        .await
+        .unwrap();
+        handle.abort();
+        let _ = handle.await;
+        let state = observer.snapshot();
+        assert_eq!(state.phase, GraphRunPhase::Abandoned);
+        assert_eq!(
+            state.operations["pending"].state,
+            OperationState::OutcomeUnknown
+        );
+        assert_eq!(
+            state.operations["pending"].confirmed_prefixes["world.ticks"],
+            1
+        );
+        assert_eq!(state.operations["dependent"].state, OperationState::Blocked);
+        let old = retained.lock().unwrap().take().unwrap();
+        assert!(matches!(
+            old.confirm_prefix("world.ticks", 2),
+            Err(GraphEffectError::InactiveAttempt)
+        ));
+    });
+}
+
+#[test]
+fn effect_stream_limits_and_invalid_names_fail_without_ledger_mutation() {
+    runtime().block_on(async {
+        let mut registry = OperationRegistry::<AsyncOperation>::new();
+        registry
+            .register(
+                key("bounded-effects"),
+                async_operation_with_effects(|effects| async move {
+                    assert!(matches!(
+                        effects.confirm_prefix("", 1),
+                        Err(GraphEffectError::InvalidStream)
+                    ));
+                    assert!(matches!(
+                        effects.confirm_prefix("invalid name", 1),
+                        Err(GraphEffectError::InvalidStream)
+                    ));
+                    for stream in 0..MAX_GRAPH_EFFECT_STREAMS {
+                        effects
+                            .confirm_prefix(&format!("stream.{stream}"), 1)
+                            .unwrap();
+                    }
+                    assert!(matches!(
+                        effects.confirm_prefix("stream.extra", 1),
+                        Err(GraphEffectError::StreamLimitExceeded {
+                            limit: MAX_GRAPH_EFFECT_STREAMS
+                        })
+                    ));
+                    // Reusing an existing stream does not consume new capacity.
+                    effects.confirm_prefix("stream.0", 2).unwrap();
+                    OperationOutcome::OutcomeUnknown
+                }),
+            )
+            .unwrap();
+        let plan = ExecutionPlanDraft::new("effects.bound", 1)
+            .operation(OperationNode::new("bounded", key("bounded-effects")))
+            .validate()
+            .unwrap()
+            .bind(&registry)
+            .unwrap();
+        let owner = application_session();
+        let runner = owner
+            .execution_graph(plan, NonZeroUsize::new(1).unwrap())
+            .unwrap();
+        let observer = runner.observer();
+        let report = runner.execute().await;
+        assert_eq!(report.operations["bounded"], OperationState::OutcomeUnknown);
+        assert_eq!(
+            report.confirmed_prefixes["bounded"].len(),
+            MAX_GRAPH_EFFECT_STREAMS
+        );
+        assert_eq!(report.confirmed_prefixes["bounded"]["stream.0"], 2);
+        assert_eq!(
+            observer.snapshot().operations["bounded"].confirmed_prefixes,
+            report.confirmed_prefixes["bounded"]
+        );
+    });
+}
+
+#[test]
+fn overflowed_effect_transitions_reconcile_from_authoritative_snapshot() {
+    runtime().block_on(async {
+        let mut registry = OperationRegistry::<AsyncOperation>::new();
+        registry
+            .register(
+                key("confirmed"),
+                async_operation_with_effects(|effects| async move {
+                    effects.confirm_prefix("tick", 1).unwrap();
+                    effects.confirm_prefix("tick", 2).unwrap();
+                    OperationOutcome::Completed
+                }),
+            )
+            .unwrap();
+        let mut draft = ExecutionPlanDraft::new("effects.overflow", 1);
+        for index in 0..50 {
+            draft = draft.operation(OperationNode::new(format!("op-{index}"), key("confirmed")));
+        }
+        let owner = application_session();
+        let runner = owner
+            .execution_graph(
+                draft.validate().unwrap().bind(&registry).unwrap(),
+                NonZeroUsize::new(8).unwrap(),
+            )
+            .unwrap();
+        let observer = runner.observer();
+        let report = runner.execute().await;
+        assert!(report.succeeded());
+        let events = observer.changes_since(0).unwrap();
+        assert!(events.truncated);
+        assert_eq!(events.events.len(), MAX_GRAPH_TRANSITIONS);
+        let snapshot = observer.snapshot();
+        assert_eq!(snapshot.operations.len(), 50);
+        for index in 0..50 {
+            let name = format!("op-{index}");
+            assert_eq!(snapshot.operations[&name].confirmed_prefixes["tick"], 2);
+            assert_eq!(report.confirmed_prefixes[&name]["tick"], 2);
+        }
+        let recent = observer.changes_since(snapshot.latest_sequence).unwrap();
+        assert!(!recent.truncated);
+        assert!(recent.events.is_empty());
     });
 }

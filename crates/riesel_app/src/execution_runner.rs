@@ -7,9 +7,11 @@
 //!
 //! This coordinator admits one-shot operations, explicit signals, declared
 //! domain boundaries and resource conflicts. Its session-local observer
-//! publishes authoritative run state; effect ledgers and cooperative control
-//! remain distinct follow-up work under Issue #113.
-use crate::execution_observation::{GraphRunIdentity, GraphRunObserver, GraphRunPublication};
+//! publishes authoritative run state. An attempt-scoped confirmed-prefix
+//! reporter is an incremental #113 facility; cooperative control remains open.
+use crate::execution_observation::{
+    GraphEffectRecorder, GraphRunIdentity, GraphRunObserver, GraphRunPublication,
+};
 use crate::execution_plan::{
     AccessMode, BoundExecutionPlan, DomainAdmissionMode, DomainBoundary, OperationTrigger,
     ResourceAccess,
@@ -239,7 +241,7 @@ impl SessionGraphAdmission {
 /// A registered operation does not own a Tokio runtime or an ECS world.
 /// Delegated thread-affine work must remain in its domain-owned executor.
 pub type OperationFuture = Pin<Box<dyn Future<Output = OperationOutcome> + Send + 'static>>;
-pub type AsyncOperation = dyn Fn() -> OperationFuture + Send + Sync + 'static;
+pub type AsyncOperation = dyn Fn(GraphEffectRecorder) -> OperationFuture + Send + Sync + 'static;
 
 /// Adapt a Rust async closure to the exact-version operation registry.
 /// The closure is not invoked by validation or binding.
@@ -248,7 +250,19 @@ where
     F: Fn() -> Fut + Send + Sync + 'static,
     Fut: Future<Output = OperationOutcome> + Send + 'static,
 {
-    Arc::new(move || Box::pin(operation()) as OperationFuture)
+    Arc::new(move |_effects| Box::pin(operation()) as OperationFuture)
+}
+
+/// Adapt an async operation that explicitly reports an owner-confirmed
+/// cumulative effect prefix during its own dispatched attempt. Legacy
+/// `async_operation` callbacks remain valid and record no confirmed effects.
+/// A completed outcome alone is *not* proof of any external effect.
+pub fn async_operation_with_effects<F, Fut>(operation: F) -> Arc<AsyncOperation>
+where
+    F: Fn(GraphEffectRecorder) -> Fut + Send + Sync + 'static,
+    Fut: Future<Output = OperationOutcome> + Send + 'static,
+{
+    Arc::new(move |effects| Box::pin(operation(effects)) as OperationFuture)
 }
 
 /// An operation's terminal classification. Cancellation does not roll back
@@ -334,6 +348,10 @@ pub struct GraphRunReport {
     pub plan_id: String,
     pub revision: u64,
     pub operations: BTreeMap<String, OperationState>,
+    /// Owner-confirmed cumulative prefixes by operation and named stream.
+    /// A failed, cancelled or outcome-unknown attempt may still have effects.
+    /// These values are not a durable record or proof of unconfirmed effects.
+    pub confirmed_prefixes: BTreeMap<String, BTreeMap<String, u64>>,
     pub started: usize,
     pub peak_in_flight: usize,
     pub session_expired: bool,
@@ -577,6 +595,17 @@ impl ExecutionGraphRunner {
 
         let identity = self.publication.identity();
         self.publication.finish(session_expired);
+        let confirmed_prefixes = self
+            .publication
+            .observer()
+            .snapshot()
+            .operations
+            .into_iter()
+            .filter_map(|(name, operation)| {
+                (!operation.confirmed_prefixes.is_empty())
+                    .then_some((name, operation.confirmed_prefixes))
+            })
+            .collect();
         let description = self.plan.plan().description();
         let operations = description
             .operations()
@@ -590,6 +619,7 @@ impl ExecutionGraphRunner {
                 plan_id: description.id().to_owned(),
                 revision: description.revision(),
                 operations,
+                confirmed_prefixes,
                 started: self.started,
                 peak_in_flight: self.peak_in_flight,
                 session_expired,
@@ -637,18 +667,25 @@ impl ExecutionGraphRunner {
                     .handler(node.id())
                     .expect("validated exact-version operation binding"),
             );
+            // Publish the attempt before the handler can execute on another
+            // Tokio worker. Its recorder is then fenced to this running
+            // operation; terminal/abandoned attempts reject late reports.
+            self.states[index] = OperationState::Running;
+            self.publication.transition(index, OperationState::Running);
+            let (effects, effect_scope) = self.publication.recorder(index);
             let session = self.session.clone();
             let handle = jobs.spawn(async move {
                 let _lease = lease;
+                // Drop before the operation lease; no leaked reporter can
+                // publish after this child future finishes or is aborted.
+                let _effect_scope = effect_scope;
                 if !session.is_active() {
                     (index, OperationOutcome::Cancelled)
                 } else {
-                    (index, handler().await)
+                    (index, handler(effects).await)
                 }
             });
             active.insert(handle.id(), index);
-            self.states[index] = OperationState::Running;
-            self.publication.transition(index, OperationState::Running);
             self.started += 1;
             self.peak_in_flight = self.peak_in_flight.max(active.len());
         }
