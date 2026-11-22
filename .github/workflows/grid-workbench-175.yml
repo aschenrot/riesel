@@ -22,6 +22,6 @@ jobs:
           rustup toolchain install 1.100.0 --profile minimal
           rustup default 1.100.0
       - name: Compile and test research contracts
-        run: cargo test --manifest-path research/grid-workbench-175/Cargo.toml
+        run: cargo test --manifest-path research/grid-workbench-175/Cargo.toml -- --nocapture
       - name: Run real Riesel linked-provider composition
         run: cargo run --manifest-path research/grid-workbench-175/Cargo.toml
