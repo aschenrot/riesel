@@ -45,8 +45,8 @@ pub use handler::{ApplicationHandler, HandlerParams, PreparedApplication};
 #[cfg(feature = "async-tcp")]
 use lifecycle::LifecycleHooks;
 pub use module::ApplicationModule;
-pub use parameter::{ApplicationParam, Capability};
 #[cfg(feature = "records")]
 pub use parameter::ModelRead;
+pub use parameter::{ApplicationParam, Capability};
 #[cfg(feature = "async-tcp")]
 pub use parameter::{AsyncCapability, NativeHandleParam};
