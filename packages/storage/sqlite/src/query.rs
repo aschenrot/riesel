@@ -146,7 +146,9 @@ mod tests {
             .map(|item| item.unwrap())
             .collect();
         assert!(
-            details.iter().any(|d| d.contains("PRIMARY KEY") && d.contains("model=?")),
+            details
+                .iter()
+                .any(|d| d.contains("PRIMARY KEY") && d.contains("model=?")),
             "initial bounded scan must use the existing model/id key: {details:?}"
         );
 
