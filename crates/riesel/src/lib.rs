@@ -54,14 +54,14 @@ pub use application::{
 pub use application::{
     AsyncApplicationHandler, AsyncCapability, NativeHandleParam, PreparedAsyncApplication,
 };
-#[cfg(feature = "records")]
-pub use records::{QueryPage, Record, RecordPage, Records};
 #[cfg(feature = "app-publication")]
 pub use graph_read::{
     ExecutionGraphRead, ExecutionGraphReadAsyncRpcDispatcher, ExecutionGraphReadFacade,
     GraphReadChanges, GraphReadError, GraphReadEvent, GraphReadIdentity, GraphReadNode,
     GraphReadPrefix, GraphReadSnapshot,
 };
+#[cfg(feature = "records")]
+pub use records::{QueryPage, Record, RecordPage, Records};
 #[cfg(feature = "app-publication")]
 pub use riesel_app::{
     AppReadPublication, ReadExposure, ReadPublicationDescriptor, ReadPublicationError,
