@@ -394,16 +394,22 @@ impl<T: Send + Sync + 'static> NestedPublisher<T> {
             .sequence
             .checked_add(1)
             .ok_or(NestedObservationError::SequenceExhausted)?;
-        state.payload = Some(payload);
+        // A payload's destructor may be expensive or invoke arbitrary
+        // application code. Never drop the replaced snapshot under this
+        // observer lock or while a concurrent replacement needs the lock.
+        let old_payload = state.payload.replace(payload);
         let sequence = state.sequence;
         state.transitions.push_back(sequence);
         if state.transitions.len() > MAX_NESTED_TRANSITIONS {
             state.transitions.pop_front();
         }
-        Ok(NestedCursor {
+        let cursor = NestedCursor {
             owner_generation: state.description.owner_generation,
             sequence,
-        })
+        };
+        drop(state);
+        drop(old_payload);
+        Ok(cursor)
     }
 }
 
