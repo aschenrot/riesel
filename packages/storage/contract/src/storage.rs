@@ -165,7 +165,6 @@ mod tests {
     }
 }
 
-
 #[cfg(test)]
 mod generated_result_hygiene {
     use super::StoreError;
