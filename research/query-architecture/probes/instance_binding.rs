@@ -136,7 +136,7 @@ fn one_coexposed_linked_component_can_give_read_your_writes() {
 
 #[test]
 fn reader_contract_has_no_mutation_operations_but_is_not_authorization() {
-    use riesel_schema::{CapabilityDescriptor, OperationKind};
+    use riesel_schema::OperationKind;
     let read = ResearchReadOnlyContract::definition().unwrap();
     let store = RecordStoreContract::definition().unwrap();
     assert_eq!(read.operations.len(), 1);

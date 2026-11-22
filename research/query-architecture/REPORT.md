@@ -235,6 +235,45 @@ index creation, backup/rebuild, model/schema drift and recovery are
 a **separate accepted physical migration contract**, not incidental
 normal startup behavior.
 
+### Additional linked binding counterexample — query/read authority is not automatic
+
+[The standalone instance-binding research test](probes/instance_binding.rs)
+examines the existing SDK's generated read-only capability and **actual
+`MemoryStore`**. At [research CI #44974111817](https://github.com/aschenrot/riesel/actions/runs/44974111817)
+all **three** research tests passed:
+
+- A writer and a read-only query contract resolved from two
+  **independent linked providers** run normally but observe different
+  state. A successful writer `create` is invisible to the reader.
+- Co-exposing both contracts from one linked `MemoryStore` instance
+  makes read-after-write visible.
+- A query-only generated contract advertises no mutation methods;
+  this **does not** authenticate readers or enforce client permissions.
+
+The existing [CounterObserver contract](https://github.com/aschenrot/riesel/blob/main/examples/counter/contract/src/lib.rs)
+provides a real precedent for optional read-only facets, while #130's
+research checks planned linked/managed affinity. This new negative
+test reveals that **co-exposure ability is not an automatic resolver
+invariant**; an application can legitimately select unrelated
+providers when no owner relation is declared.
+
+**Consequences:** the recommended first *linked* record read facet
+must either declare and fail-closed verify the owner relation when
+read-your-writes is required, provide a composite SDK authoring
+projection with equivalent safeguards, or choose a different interface
+shape. An extra query alias should not silently pick a different
+provider with the same model definition. A query-only consumer
+can be useful without mutation access, but its caller's authority
+must still be enforced at the application/export boundary.
+
+**Do not overgeneralize physical co-location:** long-term read-only
+proxies, authorized read replicas and materialized views can be valid
+*if* the logical data source, consistency/freshness and session
+trust profile are explicit. Requiring every future query executor to
+share a process with the writer would be speculative. The first
+linked Memory/SQLite implementation can use literal co-exposure
+as its conservative consistency baseline.
+
 ## Comparative candidate synthesis — derived *after* discovery
 
 These are **design families, not mandated alternatives**. Each remains
@@ -291,8 +330,8 @@ comparison must account for the *cumulative* cost of duplicate predicates,
 index changes, invalid cursors, and SDK versioning across credible consumers,
 even if new shared infrastructure costs more initially.
 
-**Speculative abstraction bias:** 22 upstream mechanisms do not imply
-16 required Riesel features; neither does a shared name `query` justify
+**Speculative abstraction bias:** 22 discovered mechanisms do not imply
+22 required Riesel features; neither does a shared name `query` justify
 an AST/engine. A generic contract must improve a real multi-consumer
 outcome without misrepresenting each domain's authority/consistency.
 
@@ -317,7 +356,7 @@ shared authoritative state.
 
 ### Current outcome: recommendation ready for owner review, not architecture acceptance
 
-**Research supports recommending an optional typed, transport-neutral semantic foundation with provider-owned execution**, particularly for registered
+**Research supports recommending an optional typed, transport-neutral semantic foundation with data-owner-controlled execution**, particularly for registered
 persistent-record selection. It does **not** justify one mandatory
 universal planner/engine, a public Query grammar, unrestricted
 cross-process Query access, or immediate Storage v3 migration.

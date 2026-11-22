@@ -27,7 +27,7 @@ with optional domain/provider-specific realization; do not adopt a
 universal planner or require all capabilities to implement it.** First
 expose selective query semantics for schema-registered durable records
 through **an optional, separately versioned, read-designated capability
-co-exposed from the same authoritative provider instance as Storage v2**.
+co-exposed from **one real linked provider instance** with Storage v2 as the initial implementation, **only when declared same-authority/read-your-writes bindings can be enforced at preflight and runtime**. This is not a universal physical co-location requirement.
 Keep an independently evolvable logical query description and explicitly
 negotiated provider features; do **not** copy SQL syntax or SQLite's
 implicit coercions into a Riesel public contract.
@@ -55,7 +55,7 @@ ordering are a closed shortlist.
 | --- | --- | --- | --- |
 | Domain-owned queries on v2 | Can return honest partial pages; avoids platform API changes; Riesel's storage authority remains | Existing UUID pages can find any record by scanning, but sparse status matches require all pages; repeated app-owned implementations | If the *only* accepted outcome is Todo, this is valid; as a platform answer, it duplicates type/cursor/index semantics and creates costly future migration |
 | Shared optional typed query vocabulary / validation SDK only | Source-level reuse, no new provider selection or RPC, safe domain autonomy | Provider-local SQL, Memory or other index implementation remains possible | No **common** query capability to consume: two providers may vary in supported selectors, errors, budget, cursor and revision semantics |
-| Optional read-designated typed capability co-exposed by provider | Authoritative owner runs validated descriptors; query consumers need not get mutation methods; preserves v2 | Independent interface versions, common record selection and optional domain adapters, and native indexed execution possible | Additional interface/alias requires **same-instance binding**, authorization, cursor/session fencing and feature negotiation. Local co-location proven research-only, managed/external trust **not** solved |
+| Optional read-designated typed capability co-exposed by provider | Authoritative owner runs validated descriptors; query consumers need not get mutation methods; preserves v2 | Independent interface versions, common record selection and optional domain adapters, and native indexed execution possible | Independent **linked aliases can already resolve to different actual MemoryStore instances**, even when they use the same model. Co-exposure can produce shared state but is not automatic. Declare and enforce an authority/consistency relation for read-your-writes; managed/external trust and authorization remain unresolved |
 | Unified new version of record Storage with rich query operations | One handle intrinsically chooses one provider; may simplify query/writer co-location | Strong in-Storage consistency boundary; broad version can include all operations | Extends/version-couples read and mutation API, costs migration/co-exposure, and does **not** provide read-only permission without a separate attenuated facet |
 | Hybrid contract facets / owner-defined query adapter over shared semantics | Could expose read-only projection independently while using shared core contract validation | Preserves specialized domains and one owner; allows pluggable memory, SQL, search and editor realizations | Additional authoring/host facilities are worth the cost **only** if multiple consuming applications need the same observable behavior |
 | General planner / relational engine / federation, e.g. DataFusion/Substrait | Powerful analytical planning when accepted requirements demand it; owner/security still needs Riesel-specific enforcement | Excels for heterogeneous analytical datasets, columnar operators and optimization | No accepted initial need for federation, giant query engine or ECS borrowed-data translation; more resource, schema, runtime and migration responsibilities |
@@ -91,11 +91,56 @@ adds substantial executor/runtime and data-owner complexity that the
 known record-selection requirements do not justify. No cost is expressed
 as a fabricated engineering-hour estimate.
 
+### New counterexample: co-exposure is possible, not guaranteed (2026-11-22)
+
+The source of truth for this finding is a **research-only compiled test** in
+[`probes/instance_binding.rs`](probes/instance_binding.rs), imported by a
+Todo test wrapper. At [research CI #44974111817](https://github.com/aschenrot/riesel/actions/runs/44974111817),
+**3/3 tests passed** with the existing SDK and actual `MemoryStore`:
+
+1. Two **separately registered linked components** can satisfy the
+   `RecordStore` and read-query capability requirements independently.
+   A record created through the writer remains **absent from the reader**;
+   the application runs without an authority-pairing error.
+2. A component **co-exposing both contracts** on one `MemoryStore`
+   instance sees the newly written record immediately.
+3. A read-designated contract contains **no mutating commands**, but
+   that absence is a contract *surface*, **not** external caller
+   authorization or a promise about side effects.
+
+This is an intentional compositional capability of Riesel's resolver,
+**not a Storage defect**. It falsifies the stronger assumption that
+declaring two aliases or merely supporting `ComponentDefinition::exposes`
+automatically gives same-instance semantics. Independent Counter/
+CounterObserver contracts are an existing example of Riesel's optional
+read-facet pattern; a record read facet must additionally connect the
+correct model/Storage owner or declare weaker, honest consistency.
+
+**Implementation consequence:** A separately versioned read facet
+requires an **explicit and verified relationship** when the application
+needs read-your-writes. Candidate realizations include a fail-closed
+application schema/provider relation, a composite SDK authoring handle,
+or another proved implementation. Do not force every caller to handwire
+two unverified aliases. A generic `same authority` invariant may be
+useful for other capability pairs, but **no new platform schema API is
+accepted here**. A unified Storage contract avoids this particular
+inter-interface pairing but not read-only privilege exposure or
+contract-version coupling.
+
+**Future-proof distinction:** same **logical authoritative data**
+and read consistency do **not** imply that every future query executor
+is the same *physical* process. A secured proxy or read replica may be
+valid with its declared freshness/consistency profile; it must never
+silently claim immediate read-your-writes. Physical co-location is the
+first linked realization, not a universal Query axiom.
+
 ## 3. Recommended *semantic invariants*, not a public AST
 
-1. **Owner and schema first.** A query is addressed to a specific
-   authoritative provider instance and its registered model/schema
-   identity. The owner validates model, field, operator, value type,
+1. **Logical owner and schema first.** A query identifies the
+   authoritative data owner, registered model/schema, and declared
+   read-consistency profile. The first linked implementation binds to
+   one real provider instance; a future externally authorized proxy
+   or explicitly stale replica needs separate trust/freshness guarantees. The owner validates model, field, operator, value type,
    feature support and budgets **before executing**. Unknown or
    unsupported semantics fail explicitly; never silently scan without
    honoring an advertised work limit.
@@ -157,10 +202,15 @@ any names, AST nodes or error enum from this research document.**
 ## 4. Concrete first increment and extensions (if direction accepted)
 
 **First delivery candidate — optional linked registered-record queries:**
-Keep v2, publish a separately versioned **read-only operational
+Keep v2; tentatively publish a separately versioned **read-designated
 capability** (named by a later interface specification) co-exposed
-from exactly the same Memory/SQLite owning component as the v2
-writer. Demonstrate model-scoped typed equality / presence, stable
+from one Memory/SQLite owner instance **with fail-closed authority
+binding**, rather than assuming any two resolved aliases share state.
+A read-only application may bind that facet without a writer; an
+application requiring read-your-writes must explicitly declare the
+relation and have the SDK/resolver validate it before side effects.
+The authoring model must avoid duplicative, error-prone manual alias
+selection. Demonstrate model-scoped typed equality / presence, stable
 UUID order, honest bounded pages and work/cancellation budgets.
 Only expose a predicate/operator when native execution meets its
 declared guarantees on both supported providers or explicitly
@@ -229,10 +279,14 @@ specification**. Confirm or revise two linked statements:
    semantics* for capability-owned application data across plausible
    consumers, while preserving specialized/domain-owned execution.
    It is not required that all capabilities use one Query protocol.
-2. **Architecture:** the first supported durable-record realization
-   should be a separately versioned read-designated facet co-exposed
-   with Storage v2 from one authoritative provider instance, not a
-   mandatory universal planner or an immediate Storage v3 migration.
+2. **Architecture (conditional):** prefer a separately versioned
+   read-designated facet co-exposed with Storage v2 for the initial
+   *linked* record profile, **provided its authority pairing and
+   authoring ergonomics are explicitly specified and tested**. The
+   interface specification must compare this against a unified or
+   attenuated Storage facet on those criteria. No mandatory universal
+   planner, immediate Storage v3 migration, or physical co-location
+   requirement for future trusted proxies/replicas is implied.
    Remote authorization and index lifecycle are distinct supported
    gates and must fail closed until approved.
 
