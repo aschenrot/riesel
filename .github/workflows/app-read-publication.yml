@@ -42,5 +42,7 @@ jobs:
         run: cargo test --locked -p riesel --features app-publication-unix --test graph_publication_unix -- --nocapture
       - name: Verify actual Todo provider and independent read-only summary process
         run: cargo test --locked -p todo --features t1-public-read --test t1_publication_unix -- --nocapture
+      - name: Compile optional standalone Todo T1 read host without changing normal Todo
+        run: cargo check --locked -p todo --features t1-public-read --bin todo_t1_read_host
       - name: Verify actual SDK-resolved Counter provider and independent read-only process
         run: cargo test --locked -p riesel_counter_example --features t1-public-read --test t1_publication_unix -- --nocapture
