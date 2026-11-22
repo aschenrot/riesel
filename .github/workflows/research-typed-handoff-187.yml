@@ -33,3 +33,5 @@ jobs:
           rustc --version
       - name: Measure local value sharing, copies and JSON boundaries (release)
         run: cargo run --release --manifest-path research/typed-handoff-187/Cargo.toml --bin value_costs
+      - name: Measure production S2 no-data graph execution baseline (release)
+        run: cargo run --release --manifest-path research/typed-handoff-187/Cargo.toml --bin graph_costs
