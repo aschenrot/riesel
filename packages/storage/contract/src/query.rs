@@ -16,6 +16,10 @@ pub const MAX_QUERY_PAGE_SIZE: u64 = 32;
 /// Maximum candidate records a provider may inspect for one linked call.
 /// A sparse predicate can return an empty *partial* page.
 pub const MAX_QUERY_SCAN_BUDGET: u64 = 256;
+/// Long names or unbounded string operands would also make stored cursor
+/// signatures unbounded. These caps apply even to local in-process callers.
+pub const MAX_QUERY_IDENTIFIER_BYTES: usize = 256;
+pub const MAX_QUERY_STRING_OPERAND_BYTES: usize = 64 * 1024;
 
 /// The first portable record Query predicate profile. Operators not listed
 /// here are unsupported rather than silently emulated by unbounded scanning.
@@ -78,6 +82,8 @@ pub enum RecordQueryError {
     InvalidLimit,
     #[error("scan budget must be between 1 and 256 records")]
     InvalidScanBudget,
+    #[error("query identifier or string operand exceeds the bounded request profile")]
+    RequestTooLarge,
     #[error("continuation token is invalid, expired, or belongs to another query or owner")]
     InvalidCursor,
     #[error("the provider has reached its bounded continuation-token capacity")]
@@ -106,22 +112,41 @@ pub trait RecordQuery {
 /// Validate the first profile before a provider begins inspecting records.
 /// Provider-specific data visibility and cursor ownership must be checked
 /// separately *inside* the provider's data boundary.
+pub fn validate_record_query_envelope(
+    request: &RecordQueryRequest,
+) -> Result<(), RecordQueryError> {
+    let oversized = request.model.len() > MAX_QUERY_IDENTIFIER_BYTES
+        || request.predicate.as_ref().is_some_and(|predicate| {
+            predicate.field.len() > MAX_QUERY_IDENTIFIER_BYTES
+                || predicate
+                    .value
+                    .as_ref()
+                    .and_then(Value::as_str)
+                    .is_some_and(|value| value.len() > MAX_QUERY_STRING_OPERAND_BYTES)
+        });
+    if oversized {
+        return Err(RecordQueryError::RequestTooLarge);
+    }
+    if request
+        .cursor
+        .as_ref()
+        .is_some_and(|cursor| cursor.is_empty() || cursor.len() > 64)
+    {
+        return Err(RecordQueryError::InvalidCursor);
+    }
+    Ok(())
+}
+
 pub fn validate_record_query(
     definition: &ModelDefinition,
     request: &RecordQueryRequest,
 ) -> Result<(), RecordQueryError> {
+    validate_record_query_envelope(request)?;
     if !(1..=MAX_QUERY_PAGE_SIZE).contains(&request.limit) {
         return Err(RecordQueryError::InvalidLimit);
     }
     if !(1..=MAX_QUERY_SCAN_BUDGET).contains(&request.scan_budget) {
         return Err(RecordQueryError::InvalidScanBudget);
-    }
-    if request
-        .cursor
-        .as_ref()
-        .is_some_and(|c| c.len() > 64 || c.is_empty())
-    {
-        return Err(RecordQueryError::InvalidCursor);
     }
     if let Some(predicate) = &request.predicate {
         let ty = definition
@@ -508,6 +533,35 @@ mod tests {
             Err(RecordQueryError::InvalidScanBudget)
         ));
     }
+    #[test]
+    fn cursor_input_signatures_have_explicit_finite_memory_bounds() {
+        let definition = definition();
+        let mut query = request(Some(pred(
+            "name",
+            RecordCompare::Eq,
+            Some(json!("x".repeat(MAX_QUERY_STRING_OPERAND_BYTES + 1))),
+        )));
+        assert!(matches!(
+            validate_record_query(&definition, &query),
+            Err(RecordQueryError::RequestTooLarge)
+        ));
+        query.predicate.as_mut().unwrap().value = Some(json!(
+            "x".repeat(MAX_QUERY_STRING_OPERAND_BYTES)
+        ));
+        validate_record_query(&definition, &query).unwrap();
+        query.predicate.as_mut().unwrap().field = "x".repeat(MAX_QUERY_IDENTIFIER_BYTES + 1);
+        assert!(matches!(
+            validate_record_query(&definition, &query),
+            Err(RecordQueryError::RequestTooLarge)
+        ));
+        query.predicate = None;
+        query.model = "m".repeat(MAX_QUERY_IDENTIFIER_BYTES + 1);
+        assert!(matches!(
+            validate_record_query_envelope(&query),
+            Err(RecordQueryError::RequestTooLarge)
+        ));
+    }
+
     #[test]
     fn continuations_bind_exact_query_and_owner_instance() {
         let mut cursors = RecordQueryCursors::default();
