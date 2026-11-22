@@ -226,6 +226,57 @@ mod tests {
     }
 
     #[test]
+    fn query_only_reads_its_model_without_enumerating_other_persisted_models() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("multi-model.db");
+        let task_model = models().remove("task").unwrap();
+        let all_models = BTreeMap::from([
+            ("task".into(), task_model.clone()),
+            (
+                "secret".into(),
+                ModelDefinition {
+                    fields: BTreeMap::from([("token".into(), TypeRef::String)]),
+                },
+            ),
+        ]);
+        let writer = SqliteStore::open(&path, all_models).unwrap();
+        writer
+            .create(
+                "task",
+                json!({"completed":true,"big":u64::MAX,
+                       "external_id":Uuid::new_v4().to_string()}),
+            )
+            .unwrap();
+        writer
+            .create("secret", json!({"token":"not-exposed"}))
+            .unwrap();
+        drop(writer);
+
+        // The query client registers only its own model; it cannot enumerate
+        // or read the other persisted schema/records.
+        let reader = SqliteStore::open_query_only(
+            &path,
+            BTreeMap::from([("task".into(), task_model)]),
+            BTreeSet::from(["task".into()]),
+        )
+        .unwrap();
+        let read = RecordQueryRequest {
+            model: "task".into(),
+            predicate: None,
+            limit: 16,
+            scan_budget: 16,
+            cursor: None,
+        };
+        assert_eq!(reader.query_page(read.clone()).unwrap().records.len(), 1);
+        let mut denied = read;
+        denied.model = "secret".into();
+        assert!(matches!(
+            reader.query_page(denied),
+            Err(RecordQueryError::ModelDenied)
+        ));
+    }
+
+    #[test]
     fn query_only_does_not_create_database_or_grant_unknown_model() {
         let dir = tempfile::tempdir().unwrap();
         let db = dir.path().join("missing.db");
