@@ -194,14 +194,108 @@ def authenticate_with_text_agent(action, identity, unit, password):
         os.close(fd)
 
 
-def main(*, keep: bool = False):
+
+def authenticate_with_x11_submit(action, identity, unit, password, nonce):
+    """Research-only: X11 outsider completes a real polkit textual challenge.
+
+    The test driver enters the disposable secret but withholds Return. A
+    separate unprivileged X11 client receives only the xterm window and PID,
+    then submits Return. This proves an input-origin boundary, NOT malicious
+    authorization of a different operation or successful secret theft.
+    """
+    if not os.environ.get("DISPLAY"):
+        raise AssertionError("X11 DISPLAY missing")
+    title = f"riesel-polkit-research-{nonce}"
+    cmd = [
+        "xterm", "-T", title, "-geometry", "100x26+0+0",
+        "-e", "sudo", "-n", "pkcheck",
+        "--action-id", action, "--process", identity,
+        "--detail", "unit", unit, "--detail", "verb", "stop",
+        "--allow-user-interaction", "--enable-internal-agent",
+    ]
+    terminal = subprocess.Popen(
+        cmd, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE, text=True, cwd="/tmp",
+    )
+    try:
+        window = None
+        for _ in range(100):
+            if terminal.poll() is not None:
+                raise AssertionError(
+                    "X11 polkit terminal exited before test input: "
+                    + terminal.stderr.read()[-650:]
+                )
+            found = invoke(["xdotool", "search", "--onlyvisible", "--name",
+                            title], timeout=5)
+            ids = [line.strip() for line in found.stdout.splitlines()
+                   if line.strip().isdecimal()]
+            if found.returncode == 0 and len(ids) == 1:
+                window = ids[0]
+                break
+            time.sleep(0.1)
+        if window is None:
+            raise AssertionError("bounded X11 polkit window search failed")
+        actual_title = invoke(["xdotool", "getwindowname", window])
+        if actual_title.returncode or actual_title.stdout.strip() != title:
+            raise AssertionError("X11 target not exact disposable auth terminal")
+        require_ok(invoke(["xdotool", "windowfocus", "--sync", window]),
+                   "focus disposable auth terminal")
+        time.sleep(1.0)
+        if terminal.poll() is not None:
+            raise AssertionError("real polkit prompt not active before input")
+        # xdotool --file - reads input from stdin. The password is never an
+        # argument to the independent attacker or to xdotool.
+        typed = invoke(["xdotool", "type", "--clearmodifiers", "--delay",
+                        "30", "--file", "-"], input=password, timeout=10)
+        require_ok(typed, "type generated test password without Return")
+        time.sleep(0.2)
+        if terminal.poll() is not None:
+            raise AssertionError("authentication completed without submit")
+        print("RESEARCH_M59_X11_TEST_CREDENTIAL_TYPED_NO_CONFIRM", flush=True)
+        attacker = Path(__file__).with_name(
+            "manager_polkit_x11_submit_attacker.py")
+        if not attacker.exists():
+            raise AssertionError("independent X11 test client missing")
+        result = invoke([sys.executable, str(attacker), window,
+                         str(terminal.pid)], timeout=12)
+        require_ok(result, "attacker-generated X11 Return")
+        if "RESEARCH_M59_X11_INDEPENDENT_SAME_UID_INJECTED_AUTH_SUBMIT" not in result.stdout:
+            raise AssertionError("independent X11 attacker marker absent")
+        result_code = terminal.wait(timeout=18)
+        if result_code:
+            raise AssertionError(
+                f"real X11 polkit challenge failed rc={result_code}: "
+                f"{terminal.stderr.read()[-800:]}"
+            )
+        print("RESEARCH_M59_REAL_POLKIT_AUTH_COMPLETED_BY_OTHER_X11_CLIENT",
+              flush=True)
+    finally:
+        if terminal.poll() is None:
+            terminal.terminate()
+        try:
+            terminal.wait(timeout=4)
+        except subprocess.TimeoutExpired:
+            terminal.kill()
+            terminal.wait(timeout=4)
+        if terminal.stdout is not None:
+            terminal.stdout.close()
+        if terminal.stderr is not None:
+            terminal.stderr.close()
+
+
+def main(*, keep: bool = False, x11: bool = False):
     if sys.platform != "linux" or os.geteuid() == 0:
         raise AssertionError("Linux unprivileged disposable test host required")
     if Path("/proc/1/comm").read_text().strip() != "systemd":
         raise AssertionError("actual systemd and polkit required")
+    if keep and x11:
+        raise AssertionError("KEEP and X11 modes must be separate")
     for command in ("pkcheck", "pkaction", "setpriv", "sudo"):
         if shutil.which(command) is None:
             raise AssertionError(f"missing necessary OS tool {command}")
+    if x11 and (not os.environ.get("DISPLAY") or
+                not shutil.which("xdotool") or not shutil.which("xterm")):
+        raise AssertionError("real X11 fixture tools missing")
     require_ok(root("true"), "test root fixture prerequisite")
     nonce = uuid.uuid4().hex[:12]
     action = ACTION_PREFIX + nonce
@@ -219,7 +313,7 @@ def main(*, keep: bool = False):
         pass
     else:
         raise AssertionError("generated test user already exists")
-    password = secrets.token_urlsafe(22)
+    password = secrets.token_hex(12) if x11 else secrets.token_urlsafe(22)
     fixture = Path(tempfile.mkdtemp(prefix="riesel-polkit-interactive-"))
     fixture.chmod(0o755)
     script_copy = fixture / "subject.py"
@@ -306,7 +400,11 @@ def main(*, keep: bool = False):
 
         # Satisfy one real AUTH_SELF challenge with a randomly generated
         # disposable PAM password. The PTY feeder is *not human consent*.
-        authenticate_with_text_agent(action, identity_a, unit, password)
+        if x11:
+            authenticate_with_x11_submit(action, identity_a, unit, password,
+                                         nonce)
+        else:
+            authenticate_with_text_agent(action, identity_a, unit, password)
         if keep:
             # This is an intentional NEGATIVE SECURITY CONTROL. polkit's
             # documented _KEEP result permits another check for the same
@@ -394,6 +492,8 @@ if __name__ == "__main__":
         main()
     elif len(sys.argv) == 2 and sys.argv[1] == "--keep":
         main(keep=True)
+    elif len(sys.argv) == 2 and sys.argv[1] == "--x11":
+        main(x11=True)
     elif len(sys.argv) == 2 and sys.argv[1] == "--subject":
         subject_mode()
     else:
