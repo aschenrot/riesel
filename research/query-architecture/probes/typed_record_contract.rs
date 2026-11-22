@@ -1,10 +1,13 @@
 //! #138 isolated research: test a *candidate semantic contract* over unchanged
 //! authoritative Memory/SQLite RecordStore v2 providers. This is not a native
 //! query engine, public API or proof of managed-provider authorization.
-use riesel::{RieselModel, storage::{RecordStore, StoreError, StoredRecord}};
+use riesel::{
+    RieselModel,
+    storage::{RecordStore, StoreError, StoredRecord},
+};
+use riesel_schema::{ModelDefinition, TypeRef};
 use riesel_storage_component::MemoryStore;
 use riesel_storage_sqlite::SqliteStore;
-use riesel_schema::{ModelDefinition, TypeRef};
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use std::collections::BTreeMap;
@@ -24,13 +27,28 @@ struct ResearchMetadata {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 enum Filter {
-    EqU64 { field: String, value: u64 },
-    EqBool { field: String, value: bool },
-    EqString { field: String, value: String },
-    Missing { field: String },
-    Null { field: String },
+    EqU64 {
+        field: String,
+        value: u64,
+    },
+    EqBool {
+        field: String,
+        value: bool,
+    },
+    EqString {
+        field: String,
+        value: String,
+    },
+    Missing {
+        field: String,
+    },
+    Null {
+        field: String,
+    },
     /// Negative case: this prototype does not claim arbitrary operators.
-    UnsupportedRange { field: String },
+    UnsupportedRange {
+        field: String,
+    },
 }
 
 impl Filter {
@@ -58,18 +76,25 @@ impl Filter {
             }
             Self::UnsupportedRange { .. } => false,
         };
-        if valid { Ok(()) } else { Err(ProbeError::InvalidFilter) }
+        if valid {
+            Ok(())
+        } else {
+            Err(ProbeError::InvalidFilter)
+        }
     }
 
     fn matches(&self, value: &Value) -> bool {
         let field = self.field();
         match self {
-            Self::EqU64 { value: target, .. } =>
-                value.get(field).and_then(Value::as_u64) == Some(*target),
-            Self::EqBool { value: target, .. } =>
-                value.get(field).and_then(Value::as_bool) == Some(*target),
-            Self::EqString { value: target, .. } =>
-                value.get(field).and_then(Value::as_str) == Some(target.as_str()),
+            Self::EqU64 { value: target, .. } => {
+                value.get(field).and_then(Value::as_u64) == Some(*target)
+            }
+            Self::EqBool { value: target, .. } => {
+                value.get(field).and_then(Value::as_bool) == Some(*target)
+            }
+            Self::EqString { value: target, .. } => {
+                value.get(field).and_then(Value::as_str) == Some(target.as_str())
+            }
             Self::Missing { .. } => value.get(field).is_none(),
             Self::Null { .. } => value.get(field).is_some_and(Value::is_null),
             Self::UnsupportedRange { .. } => false,
@@ -85,7 +110,9 @@ enum ProbeError {
     Store,
 }
 impl From<StoreError> for ProbeError {
-    fn from(_: StoreError) -> Self { Self::Store }
+    fn from(_: StoreError) -> Self {
+        Self::Store
+    }
 }
 
 /// A descriptive research cursor: NOT tamper-resistant or authenticated.
@@ -159,7 +186,9 @@ fn page(
             break;
         }
     }
-    let next = if exhausted { None } else {
+    let next = if exhausted {
+        None
+    } else {
         after.map(|after| ProbeCursor {
             model: model.to_string(),
             filter: filter.clone(),
@@ -167,7 +196,12 @@ fn page(
             after,
         })
     };
-    Ok(ProbePage { records: matches, scanned, exhausted, next })
+    Ok(ProbePage {
+        records: matches,
+        scanned,
+        exhausted,
+        next,
+    })
 }
 
 fn build_models() -> BTreeMap<String, ModelDefinition> {
@@ -194,24 +228,51 @@ fn data(index: usize) -> Value {
 }
 
 fn lookup(store: &dyn RecordStore, id: Uuid) -> StoredRecord {
-    store.get(ResearchMetadata::MODEL_NAME, id).unwrap().unwrap()
+    store
+        .get(ResearchMetadata::MODEL_NAME, id)
+        .unwrap()
+        .unwrap()
 }
 
 fn seed(store: &dyn RecordStore) -> Vec<Uuid> {
     let mut ids: Vec<_> = (0..65)
-        .map(|i| store.create(ResearchMetadata::MODEL_NAME, data(i)).unwrap().id)
+        .map(|i| {
+            store
+                .create(ResearchMetadata::MODEL_NAME, data(i))
+                .unwrap()
+                .id
+        })
         .collect();
     ids.sort_unstable();
     // Place sparse match at last UUID; force numeric/null edge cases at
     // the start so the same predicates are tested against both providers.
     for (pos, replacement) in [
-        (0, json!({"title":"highest","completed":true,"big":u64::MAX,"delta":i64::MIN,"note":null})),
-        (1, json!({"title":"present","completed":true,"big":u64::MAX-1,"delta":i64::MAX,"note":"x"})),
-        (2, json!({"title":"null","completed":true,"big":u64::MAX-1,"delta":-1,"note":null})),
-        (64, json!({"title":"sparse","completed":false,"big":u64::MAX-1,"delta":-1})),
+        (
+            0,
+            json!({"title":"highest","completed":true,"big":u64::MAX,"delta":i64::MIN,"note":null}),
+        ),
+        (
+            1,
+            json!({"title":"present","completed":true,"big":u64::MAX-1,"delta":i64::MAX,"note":"x"}),
+        ),
+        (
+            2,
+            json!({"title":"null","completed":true,"big":u64::MAX-1,"delta":-1,"note":null}),
+        ),
+        (
+            64,
+            json!({"title":"sparse","completed":false,"big":u64::MAX-1,"delta":-1}),
+        ),
     ] {
         let previous = lookup(store, ids[pos]);
-        store.update(ResearchMetadata::MODEL_NAME, ids[pos], previous.revision, replacement).unwrap();
+        store
+            .update(
+                ResearchMetadata::MODEL_NAME,
+                ids[pos],
+                previous.revision,
+                replacement,
+            )
+            .unwrap();
     }
     ids
 }
@@ -222,53 +283,143 @@ fn typed_predicates_preserve_full_width_numbers_and_optional_presence() {
         let ids = seed(store);
         let model = ResearchMetadata::model_definition();
         assert_eq!(lookup(store, ids[0]).data["big"].as_u64(), Some(u64::MAX));
-        assert_eq!(lookup(store, ids[1]).data["big"].as_u64(), Some(u64::MAX - 1));
+        assert_eq!(
+            lookup(store, ids[1]).data["big"].as_u64(),
+            Some(u64::MAX - 1)
+        );
         assert_eq!(lookup(store, ids[0]).data["delta"].as_i64(), Some(i64::MIN));
         assert_eq!(lookup(store, ids[1]).data["delta"].as_i64(), Some(i64::MAX));
 
         let query = |filter: Filter| {
-            page(store, ResearchMetadata::MODEL_NAME, &model, &filter, None, 77, 32, 64).unwrap()
+            page(
+                store,
+                ResearchMetadata::MODEL_NAME,
+                &model,
+                &filter,
+                None,
+                77,
+                32,
+                64,
+            )
+            .unwrap()
         };
-        let highest = query(Filter::EqU64 { field:"big".into(), value:u64::MAX });
+        let highest = query(Filter::EqU64 {
+            field: "big".into(),
+            value: u64::MAX,
+        });
         assert_eq!(highest.records.len(), 1);
         assert_eq!(highest.records[0].id, ids[0]);
-        assert!(!highest.exhausted, "the first bounded scan cannot claim complete results");
-        let last_highest = page(store, ResearchMetadata::MODEL_NAME, &model,
-            &Filter::EqU64 {field:"big".into(), value:u64::MAX},
-            highest.next,77,32,64).unwrap();
+        assert!(
+            !highest.exhausted,
+            "the first bounded scan cannot claim complete results"
+        );
+        let last_highest = page(
+            store,
+            ResearchMetadata::MODEL_NAME,
+            &model,
+            &Filter::EqU64 {
+                field: "big".into(),
+                value: u64::MAX,
+            },
+            highest.next,
+            77,
+            32,
+            64,
+        )
+        .unwrap();
         assert_eq!(last_highest.records.len(), 0);
         assert!(last_highest.exhausted);
 
-        let nulls = query(Filter::Null { field:"note".into() });
-        assert_eq!(nulls.records.iter().map(|v| v.id).collect::<Vec<_>>(), vec![ids[0],ids[2]]);
+        let nulls = query(Filter::Null {
+            field: "note".into(),
+        });
+        assert_eq!(
+            nulls.records.iter().map(|v| v.id).collect::<Vec<_>>(),
+            vec![ids[0], ids[2]]
+        );
         assert!(!nulls.exhausted);
-        let final_nulls = page(store, ResearchMetadata::MODEL_NAME, &model,
-            &Filter::Null {field:"note".into()}, nulls.next,77,32,64).unwrap();
-        assert_eq!(final_nulls.records.len(),0);
+        let final_nulls = page(
+            store,
+            ResearchMetadata::MODEL_NAME,
+            &model,
+            &Filter::Null {
+                field: "note".into(),
+            },
+            nulls.next,
+            77,
+            32,
+            64,
+        )
+        .unwrap();
+        assert_eq!(final_nulls.records.len(), 0);
         assert!(final_nulls.exhausted);
 
-        let missing = query(Filter::Missing { field:"note".into() });
+        let missing = query(Filter::Missing {
+            field: "note".into(),
+        });
         assert_eq!(missing.records.len(), 32);
         assert!(!missing.exhausted);
-        assert!(missing.records.iter().all(|item| item.data.get("note").is_none()));
+        assert!(
+            missing
+                .records
+                .iter()
+                .all(|item| item.data.get("note").is_none())
+        );
 
-        let title = query(Filter::EqString {field:"title".into(), value:"highest".into()});
+        let title = query(Filter::EqString {
+            field: "title".into(),
+            value: "highest".into(),
+        });
         assert_eq!(title.records.len(), 1);
         assert_eq!(title.records[0].id, ids[0]);
 
         assert_eq!(
-            page(store, ResearchMetadata::MODEL_NAME, &model,
-                 &Filter::EqU64 {field:"completed".into(),value:1},None,77,10,32).unwrap_err(),
+            page(
+                store,
+                ResearchMetadata::MODEL_NAME,
+                &model,
+                &Filter::EqU64 {
+                    field: "completed".into(),
+                    value: 1
+                },
+                None,
+                77,
+                10,
+                32
+            )
+            .unwrap_err(),
             ProbeError::InvalidFilter,
         );
         assert_eq!(
-            page(store, ResearchMetadata::MODEL_NAME, &model,
-                 &Filter::UnsupportedRange {field:"big".into()},None,77,10,32).unwrap_err(),
+            page(
+                store,
+                ResearchMetadata::MODEL_NAME,
+                &model,
+                &Filter::UnsupportedRange {
+                    field: "big".into()
+                },
+                None,
+                77,
+                10,
+                32
+            )
+            .unwrap_err(),
             ProbeError::InvalidFilter,
         );
         assert_eq!(
-            page(store, ResearchMetadata::MODEL_NAME, &model,
-                 &Filter::Missing {field:"title".into()},None,77,10,32).unwrap_err(),
+            page(
+                store,
+                ResearchMetadata::MODEL_NAME,
+                &model,
+                &Filter::Missing {
+                    field: "title".into()
+                },
+                None,
+                77,
+                10,
+                32
+            )
+            .unwrap_err(),
             ProbeError::InvalidFilter,
         );
     });
@@ -279,35 +430,102 @@ fn bounded_sparse_scan_and_cursor_binding_are_explicit_on_both_providers() {
     with_each_real_provider(|store| {
         let ids = seed(store);
         let model = ResearchMetadata::model_definition();
-        let filter = Filter::EqBool {field:"completed".into(),value:false};
-        let first = page(store,ResearchMetadata::MODEL_NAME,&model,&filter,None,77,1,32).unwrap();
-        assert_eq!(first.scanned,32);
+        let filter = Filter::EqBool {
+            field: "completed".into(),
+            value: false,
+        };
+        let first = page(
+            store,
+            ResearchMetadata::MODEL_NAME,
+            &model,
+            &filter,
+            None,
+            77,
+            1,
+            32,
+        )
+        .unwrap();
+        assert_eq!(first.scanned, 32);
         assert!(first.records.is_empty());
         assert!(!first.exhausted);
-        let c1=first.next.clone().unwrap();
+        let c1 = first.next.clone().unwrap();
 
         assert_eq!(
-            page(store,ResearchMetadata::MODEL_NAME,&model,&filter,Some(c1.clone()),78,1,32).unwrap_err(),
+            page(
+                store,
+                ResearchMetadata::MODEL_NAME,
+                &model,
+                &filter,
+                Some(c1.clone()),
+                78,
+                1,
+                32
+            )
+            .unwrap_err(),
             ProbeError::CursorMismatch
         );
         assert_eq!(
-            page(store,ResearchMetadata::MODEL_NAME,&model,
-                 &Filter::EqBool {field:"completed".into(),value:true},
-                 Some(c1.clone()),77,1,32).unwrap_err(),
+            page(
+                store,
+                ResearchMetadata::MODEL_NAME,
+                &model,
+                &Filter::EqBool {
+                    field: "completed".into(),
+                    value: true
+                },
+                Some(c1.clone()),
+                77,
+                1,
+                32
+            )
+            .unwrap_err(),
             ProbeError::CursorMismatch
         );
         assert_eq!(
-            page(store,"research_wrong_model",&model,&filter,Some(c1.clone()),77,1,32).unwrap_err(),
+            page(
+                store,
+                "research_wrong_model",
+                &model,
+                &filter,
+                Some(c1.clone()),
+                77,
+                1,
+                32
+            )
+            .unwrap_err(),
             ProbeError::CursorMismatch
         );
 
-        let second=page(store,ResearchMetadata::MODEL_NAME,&model,&filter,Some(c1),77,1,32).unwrap();
-        assert_eq!(second.scanned,32);
+        let second = page(
+            store,
+            ResearchMetadata::MODEL_NAME,
+            &model,
+            &filter,
+            Some(c1),
+            77,
+            1,
+            32,
+        )
+        .unwrap();
+        assert_eq!(second.scanned, 32);
         assert!(second.records.is_empty());
         assert!(!second.exhausted);
-        let third=page(store,ResearchMetadata::MODEL_NAME,&model,&filter,second.next,77,1,32).unwrap();
-        assert_eq!(third.scanned,1);
-        assert_eq!(third.records.iter().map(|r|r.id).collect::<Vec<_>>(),vec![ids[64]]);
+        let third = page(
+            store,
+            ResearchMetadata::MODEL_NAME,
+            &model,
+            &filter,
+            second.next,
+            77,
+            1,
+            32,
+        )
+        .unwrap();
+        assert_eq!(third.scanned, 1);
+        assert_eq!(
+            third.records.iter().map(|r| r.id).collect::<Vec<_>>(),
+            vec![ids[64]]
+        );
         assert!(third.exhausted);
         assert!(third.next.is_none());
     });
