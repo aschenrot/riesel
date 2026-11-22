@@ -480,6 +480,76 @@ mod tests {
     }
 
     #[test]
+    fn admitted_read_may_finish_after_withdrawal_but_new_reads_cannot_dispatch() {
+        use tokio::sync::oneshot;
+
+        struct PendingRead {
+            started: Mutex<Option<oneshot::Sender<()>>>,
+            release: Mutex<Option<oneshot::Receiver<()>>>,
+            invocations: AtomicUsize,
+        }
+        impl AsyncRpcHandler for PendingRead {
+            fn contract(&self) -> Result<CapabilityContract, RpcError> {
+                let contract = Domain::new().contract()?;
+                Ok(contract)
+            }
+            fn dispatch<'a>(&'a self, operation: &'a str, _arguments: Value) -> AsyncRpcFuture<'a> {
+                Box::pin(async move {
+                    assert_eq!(operation, "count");
+                    self.invocations.fetch_add(1, Ordering::SeqCst);
+                    let started = self.started.lock().unwrap().take().unwrap();
+                    let release = self.release.lock().unwrap().take().unwrap();
+                    started.send(()).unwrap();
+                    release.await.unwrap();
+                    Ok(json!(7))
+                })
+            }
+        }
+
+        let (started_tx, started_rx) = oneshot::channel();
+        let (release_tx, release_rx) = oneshot::channel();
+        let domain = Arc::new(PendingRead {
+            started: Mutex::new(Some(started_tx)),
+            release: Mutex::new(Some(release_rx)),
+            invocations: AtomicUsize::new(0),
+        });
+        let mut running = app();
+        let publication = Arc::new(
+            running
+                .publish_local_reads(
+                    "research.app",
+                    "graph.visible",
+                    ReadExposure::NonSensitiveSharedUser,
+                    domain.clone(),
+                    ["count".into()],
+                )
+                .unwrap(),
+        );
+        runtime().block_on(async {
+            let descriptor = publication.descriptor();
+            let active = Arc::clone(&publication);
+            let request = descriptor.clone();
+            let prior = tokio::spawn(async move {
+                active.query(&request, "count", json!({})).await
+            });
+            started_rx.await.unwrap();
+            assert_eq!(publication.runtime_ingress.in_flight(), 1);
+            publication.withdraw();
+            assert!(matches!(
+                publication.query(&descriptor, "count", json!({})).await,
+                Err(ReadPublicationError::Withdrawn)
+            ));
+            assert_eq!(domain.invocations.load(Ordering::SeqCst), 1);
+            // Withdrawal does not roll back a read that acquired its
+            // runtime admission permit before the withdrawal transition.
+            release_tx.send(()).unwrap();
+            assert_eq!(prior.await.unwrap(), Ok(json!(7)));
+            assert_eq!(publication.runtime_ingress.in_flight(), 0);
+        });
+        running.shutdown().unwrap();
+    }
+
+    #[test]
     fn validation_rejects_empty_unsafe_or_unbounded_publication() {
         let mut running = app();
         let domain = Arc::new(Domain::new());
