@@ -1,6 +1,6 @@
 # #59 — Real polkit authentication research (M-S2)
 
-**Status:** bounded Linux polkit/PAM research **EXECUTED**: the noncached fresh-authentication positive and cached changed-operation negative controls both reproduced. Initial positive at source commit `8ceb5216b74fff127a5ebfa2709ef83a6976524b` in [Ubuntu research CI 44967871027](https://github.com/aschenrot/riesel/actions/runs/44967871027). Final report-head CI must also be checked. The result is limited to credentials, challenge semantics and the tested noncached policy; it is not a trusted operator approval surface. Not a Manager implementation, product authorization mechanism, trusted human-intent proof or Linux release acceptance. Parent [#59](https://github.com/aschenrot/riesel/issues/59), coordination [#75](https://github.com/aschenrot/riesel/issues/75), prior real protected-app proof [PR #139](https://github.com/aschenrot/riesel/pull/139), independent same-user polkit counterexample [PR #123](https://github.com/aschenrot/riesel/pull/123).
+**Status:** bounded Linux polkit/PAM **research executed**: fresh AUTH_SELF, dangerous AUTH_SELF_KEEP detail-substitution, and same-UID X11 input-origin boundaries all reproduced. Final tested source revision aa619d9d2895ca34fc941602c26052a1003c82e4 [dedicated Ubuntu research CI 44968894280](https://github.com/aschenrot/riesel/actions/runs/44968894280) **PASSED**; standard Linux validation is a separate required check. Initial positive at source commit `8ceb5216b74fff127a5ebfa2709ef83a6976524b` in [Ubuntu research CI 44967871027](https://github.com/aschenrot/riesel/actions/runs/44967871027). Final report-head CI must also be checked. The result is limited to credentials, challenge semantics and the tested noncached policy; it is not a trusted operator approval surface. Not a Manager implementation, product authorization mechanism, trusted human-intent proof or Linux release acceptance. Parent [#59](https://github.com/aschenrot/riesel/issues/59), coordination [#75](https://github.com/aschenrot/riesel/issues/75), prior real protected-app proof [PR #139](https://github.com/aschenrot/riesel/pull/139), independent same-user polkit counterexample [PR #123](https://github.com/aschenrot/riesel/pull/123).
 
 ## Question
 
@@ -77,6 +77,8 @@ The research uses an actual Xvfb X11 server, xterm terminal with **real sudo/pkc
 Reproduce in disposable Ubuntu CI with actual X11 packages and this PR's research workflow:
 
     xvfb-run -a -s "-screen 0 1280x900x24" timeout 100 python3 research/process-ownership/manager_polkit_interactive_challenge_probe.py --x11
+
+**Strengthened final-source control:** The latest CI also emitted RESEARCH_M59_POLKIT_NO_KEEP_CHANGED_DETAILS_STILL_DENIED on both ordinary and X11 AUTH_SELF paths. The test now verifies the previously authenticated subject **still receives actual polkit denial** when a new unit or verb is substituted, not merely a missing cached grant on the original action. In the KEEP path, both changed details returned **authorized** at the real polkit authority, so the contrast is directly exercised rather than assumed.
 
 ## Critical review and wider architecture comparison
 
