@@ -17,7 +17,7 @@ fn decode_revision(bytes: &[u8]) -> Result<u64, StoreError> {
     Ok(u64::from_be_bytes(bytes))
 }
 
-fn decode_id(bytes: &[u8]) -> Result<Uuid, StoreError> {
+pub(crate) fn decode_id(bytes: &[u8]) -> Result<Uuid, StoreError> {
     Uuid::from_slice(bytes)
         .map_err(|_| StoreError::Failed("corrupt stored record identifier".into()))
 }
@@ -44,7 +44,7 @@ impl SqliteStore {
         Ok(bytes)
     }
 
-    fn decode(
+    pub(crate) fn decode(
         &self,
         model: &str,
         id: Uuid,
@@ -60,7 +60,7 @@ impl SqliteStore {
         })
     }
 
-    fn lock(&self) -> Result<std::sync::MutexGuard<'_, Connection>, StoreError> {
+    pub(crate) fn lock(&self) -> Result<std::sync::MutexGuard<'_, Connection>, StoreError> {
         let conn = self
             .connection
             .lock()

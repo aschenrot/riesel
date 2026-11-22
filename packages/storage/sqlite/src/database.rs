@@ -1,8 +1,12 @@
 use crate::owner::OwnerGuard;
 use riesel_schema::ModelDefinition;
-use riesel_storage::StoreError;
-use rusqlite::{Connection, OpenFlags, TransactionBehavior, params};
-use std::{collections::BTreeMap, path::Path, sync::Mutex};
+use riesel_storage::{RecordQueryCursors, StoreError};
+use rusqlite::{Connection, OpenFlags, OptionalExtension, TransactionBehavior, params};
+use std::{
+    collections::{BTreeMap, BTreeSet},
+    path::Path,
+    sync::Mutex,
+};
 
 pub(crate) const FORMAT_VERSION: i64 = 1;
 
@@ -26,6 +30,8 @@ pub struct SqliteStore {
     pub(super) models: BTreeMap<String, ModelDefinition>,
     /// Exact serialized definitions cached at provider startup for write fencing.
     expected_models: BTreeMap<String, Vec<u8>>,
+    pub(super) readable_models: BTreeSet<String>,
+    pub(super) query_cursors: Mutex<RecordQueryCursors>,
     // Dropped after the SQLite connection because fields drop in declaration order.
     owner: OwnerGuard,
 }
@@ -61,6 +67,37 @@ pub(crate) fn verify_models(
         return Err(StoreError::Failed(
             "stored model registration changed; reopen required".into(),
         ));
+    }
+    Ok(())
+}
+
+/// Read-only attached applications need only declare the models they are
+/// authorized to inspect. Requiring their schema to enumerate all other
+/// persisted models would leak catalog structure and prevent independent
+/// limited consumers, even when they cannot read other record data.
+fn verify_readable_models(
+    conn: &Connection,
+    models: &BTreeMap<String, ModelDefinition>,
+    readable: &BTreeSet<String>,
+) -> Result<(), StoreError> {
+    for model in readable {
+        let definition = models
+            .get(model)
+            .ok_or_else(|| StoreError::Failed("readable model is not declared".into()))?;
+        let expected = serde_json::to_vec(definition).map_err(failed)?;
+        let persisted: Option<Vec<u8>> = conn
+            .query_row(
+                "SELECT definition FROM models WHERE name=?1",
+                params![model],
+                |row| row.get(0),
+            )
+            .optional()
+            .map_err(failed)?;
+        if persisted.as_deref() != Some(expected.as_slice()) {
+            return Err(StoreError::Failed(
+                "readable model registration differs from persistent schema".into(),
+            ));
+        }
     }
     Ok(())
 }
@@ -176,7 +213,68 @@ impl SqliteStore {
             connection: Mutex::new(conn),
             models,
             expected_models,
+            readable_models: BTreeSet::new(),
+            query_cursors: Mutex::new(RecordQueryCursors::default()),
             owner,
         })
+    }
+
+    /// Open the first trusted linked reader against an existing SQLite owner
+    /// without initializing a database or installing any index/DDL.
+    /// The cooperative lifetime lease is shared with writable Storage owners.
+    pub fn open_query_only(
+        path: impl AsRef<Path>,
+        models: BTreeMap<String, ModelDefinition>,
+        readable: BTreeSet<String>,
+    ) -> Result<Self, StoreError> {
+        let path = path.as_ref();
+        if path.as_os_str().is_empty() || path == Path::new(":memory:") {
+            return Err(StoreError::Failed(
+                "Query-only SQLite requires an existing named database".into(),
+            ));
+        }
+        if readable.is_empty() || !readable.is_subset(&models.keys().cloned().collect()) {
+            return Err(StoreError::Failed("invalid readable model set".into()));
+        }
+        // Acquiring the cooperative owner sidecar is not a data mutation.
+        // Read-only SQLite flags reject database creation and record writes.
+        let mut owner = OwnerGuard::acquire(path)?;
+        let conn =
+            Connection::open_with_flags(owner.database_path(), OpenFlags::SQLITE_OPEN_READ_ONLY)
+                .map_err(failed)?;
+        let version: i64 = conn
+            .pragma_query_value(None, "user_version", |row| row.get(0))
+            .map_err(failed)?;
+        if version != FORMAT_VERSION {
+            return Err(StoreError::Failed("unsupported SQLite Query format".into()));
+        }
+        let expected_models: BTreeMap<String, Vec<u8>> = models
+            .iter()
+            .map(|(name, definition)| {
+                serde_json::to_vec(definition)
+                    .map(|bytes| (name.clone(), bytes))
+                    .map_err(failed)
+            })
+            .collect::<Result<_, _>>()?;
+        verify_readable_models(&conn, &models, &readable)?;
+        owner.opened()?;
+        Ok(Self {
+            connection: Mutex::new(conn),
+            models,
+            expected_models,
+            readable_models: readable,
+            query_cursors: Mutex::new(RecordQueryCursors::default()),
+            owner,
+        })
+    }
+
+    /// Add read-designated roles to the already-opened *same* linked writer.
+    /// The provider factory, not a user-controlled request, chooses visibility.
+    pub fn with_query_grants(mut self, readable: BTreeSet<String>) -> Result<Self, StoreError> {
+        if readable.is_empty() || !readable.is_subset(&self.models.keys().cloned().collect()) {
+            return Err(StoreError::Failed("invalid readable model set".into()));
+        }
+        self.readable_models = readable;
+        Ok(self)
     }
 }
