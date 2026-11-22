@@ -7,6 +7,7 @@ members = [
   "examples/counter/app",
   "packages/storage/memory",
   "packages/storage/sqlite",
+  "packages/execution-plan/sqlite",
   "examples/counter/component",
   "crates/riesel",
   "examples/counter/contract",
@@ -29,6 +30,7 @@ riesel = { path = "crates/riesel" }
 riesel_counter = { path = "examples/counter/contract" }
 riesel_counter_component = { path = "examples/counter/component" }
 riesel_app = { path = "crates/riesel_app" }
+riesel_execution_plan_sqlite = { path = "packages/execution-plan/sqlite" }
 riesel_macros = { path = "crates/riesel_macros" }
 riesel_manager = { path = "crates/riesel_manager" }
 riesel_protocol = { path = "crates/riesel_protocol" }
