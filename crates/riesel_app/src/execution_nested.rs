@@ -100,7 +100,7 @@ pub enum NestedObservationError {
     SessionExpired,
 }
 
-struct DomainLifetime {
+pub(crate) struct DomainLifetime {
     domain: String,
     generation: Uuid,
     live: AtomicBool,
