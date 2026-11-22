@@ -22,6 +22,12 @@ fn models() -> BTreeMap<String, ModelDefinition> {
                 ("big".into(), TypeRef::U64),
                 ("delta".into(), TypeRef::I64),
                 (
+                    "entity".into(),
+                    TypeRef::Optional {
+                        item: Box::new(TypeRef::Uuid),
+                    },
+                ),
+                (
                     "note".into(),
                     TypeRef::Optional {
                         item: Box::new(TypeRef::String),
@@ -72,7 +78,23 @@ fn fixture() -> (tempfile::TempDir, PathBuf, Vec<Uuid>) {
             2,
             json!({
                 "title":"explicit-null","completed":true,"big":1_u64,
-                "delta":0_i64,"note":null
+                "delta":0_i64,"note":null,
+                "entity":"550E8400-E29B-41D4-A716-446655440000"
+            }),
+        ),
+        (
+            3,
+            json!({
+                "title":"numeric-two","completed":true,"big":2_u64,
+                "delta":0_i64,
+                "entity":"550e8400-e29b-41d4-a716-446655440000"
+            }),
+        ),
+        (
+            4,
+            json!({
+                "title":"numeric-ten","completed":true,"big":10_u64,
+                "delta":0_i64
             }),
         ),
         (
@@ -175,6 +197,40 @@ fn provider_seeded_sqlite_json_token_equality_is_exact_where_extraction_is_not()
         params![MODEL],
     );
     assert_eq!(open, vec![ids[64]]);
+}
+
+#[test]
+fn textual_json_keys_do_not_imply_typed_numeric_order_or_uuid_normalization() {
+    let (_scratch, path, ids) = fixture();
+    let conn = Connection::open_with_flags(path, OpenFlags::SQLITE_OPEN_READ_ONLY).unwrap();
+
+    // Textual integer tokens make equality exact, but their string order
+    // is not the same as Rust's full-width integer ordering.
+    let lexical = select_ids(
+        &conn,
+        "SELECT id FROM records
+         WHERE model=?1 AND (CAST(data AS TEXT) -> '$.big') IN ('2','10')
+         ORDER BY (CAST(data AS TEXT) -> '$.big'), id",
+        params![MODEL],
+    );
+    assert_eq!(lexical, vec![ids[4], ids[3]]);
+    // The typed numeric order is instead 2, then 10.
+    assert_ne!(lexical, vec![ids[3], ids[4]]);
+
+    // Riesel's UUID model validator accepts either case and Rust treats
+    // these as equal IDs. Plain SQL TEXT equality (BINARY collation) does not.
+    let upper = Uuid::parse_str("550E8400-E29B-41D4-A716-446655440000").unwrap();
+    let lower = Uuid::parse_str("550e8400-e29b-41d4-a716-446655440000").unwrap();
+    assert_eq!(upper, lower);
+    let raw_lowercase = select_ids(
+        &conn,
+        "SELECT id FROM records WHERE model=?1 AND
+         json_extract(CAST(data AS TEXT),'$.entity')=?2 ORDER BY id",
+        params![MODEL, lower.to_string()],
+    );
+    assert_eq!(raw_lowercase, vec![ids[3]]);
+    // Correct typed UUID equality would also include the uppercase record.
+    assert!(!raw_lowercase.contains(&ids[2]));
 }
 
 #[test]
