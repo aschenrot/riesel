@@ -741,7 +741,6 @@ fn ordinary_operations_cannot_create_domain_owned_nested_views() {
     });
 }
 
-
 #[test]
 fn same_domain_owner_does_not_alias_two_graph_attempts_event_cursors() {
     executor().block_on(async {
