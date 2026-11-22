@@ -38,6 +38,15 @@ pub enum SdkError {
     #[error("multiple record-storage requirements are declared")]
     #[cfg(feature = "records")]
     AmbiguousStorage,
+    #[error("record Query contract {0} must expose read-only query operations")]
+    #[cfg(feature = "records")]
+    InvalidRecordQueryContract(String),
+    #[error("record Query model {0} has conflicting reader/writer declarations")]
+    #[cfg(feature = "records")]
+    ConflictingRecordQueryLink(String),
+    #[error("record Query model {0} requires an unambiguous writable Storage binding")]
+    #[cfg(feature = "records")]
+    AmbiguousRecordQueryWriter(String),
     #[error("capability requirement not found: {0}")]
     MissingCapability(String),
     #[error("capability requirement {0} does not match the requested contract")]
