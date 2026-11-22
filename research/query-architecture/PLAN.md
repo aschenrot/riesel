@@ -75,6 +75,14 @@ which words (`filter`, `query`, `graph`) appear in domain APIs.
 Evidence of consistent behavior across multiple consuming applications
 matters more than superficial similar syntax.
 
+Explicitly compare **Rust-local expressive predicates** (including
+closures or borrowed state that cannot be transported) with
+**serializable, versioned query descriptions** consumed by managed or
+external providers. Neither model is a transparent substitute for the
+other. Distinguish compile-time Rust typing and generated schema
+metadata from runtime schema/version negotiation; state which
+unsupported combinations fail at binding, preflight or call time.
+
 ## Candidate dimensions — avoid comparing orthogonal decisions as one list
 
 **Axis A: reusable semantic surface**
