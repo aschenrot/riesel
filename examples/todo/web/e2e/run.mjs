@@ -5,6 +5,11 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { createInterface } from 'node:readline';
 import { fileURLToPath } from 'node:url';
+import {
+  verifyTrustedLocalBeforeBrowser,
+  verifyHeadersDoNotAuthenticateClient,
+  verifyWithdrawnListener,
+} from './trusted-local-probe.mjs';
 
 const webDir = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const root = path.resolve(webDir, '../../..');
@@ -46,6 +51,7 @@ async function stop(child) {
 
 const working = await mkdtemp(path.join(tmpdir(), 'riesel-todo-web-e2e-'));
 let backend;
+let baseURL;
 let result = 1;
 let errors = [];
 
@@ -59,7 +65,10 @@ try {
     errors.push(chunk.toString());
     if (errors.length > 40) errors.shift();
   });
-  const baseURL = await awaitReady(backend, errors);
+  baseURL = await awaitReady(backend, errors);
+  // The app-specific readiness line proves only a historical socket bind.
+  // A separately running client must observe actual bounded route behavior.
+  await verifyTrustedLocalBeforeBrowser(baseURL);
   console.log('Browser E2E using ' + baseURL);
 
   const command = process.platform === 'win32' ? 'npx.cmd' : 'npx';
@@ -72,11 +81,25 @@ try {
     tests.once('error', reject);
     tests.once('close', (code) => resolve(code ?? 1));
   });
+  if (result === 0) {
+    // Crucial negative identity control AFTER browser assertions, so this
+    // independent HTTP mutation cannot affect the UI test's isolated data.
+    await verifyHeadersDoNotAuthenticateClient(baseURL);
+  }
 } catch (error) {
+  result = 1;
   console.error('Todo browser E2E could not run:', error);
   if (errors.length) console.error(errors.join(''));
 } finally {
   await stop(backend);
+  if (result === 0 && baseURL) {
+    try {
+      await verifyWithdrawnListener(baseURL);
+    } catch (error) {
+      console.error('Todo client-side dead-backend probe failed:', error);
+      result = 1;
+    }
+  }
   await rm(working, { recursive: true, force: true });
 }
 process.exitCode = result;
