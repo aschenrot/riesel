@@ -106,6 +106,10 @@ pub enum ObservationError {
     InvalidLoopbackListener,
     #[error("entrypoint witness does not belong to this runtime session")]
     ForeignEntrypointSession,
+    #[error("operation identifier must be a bounded static-style name")]
+    InvalidOperationIdentifier,
+    #[error("cannot issue new operation evidence after the runtime session expired")]
+    ExpiredOperationSession,
 }
 
 /// Immutable, on-demand evidence from one actual runtime generation.
@@ -335,6 +339,133 @@ impl ObservationSnapshot {
             .position(|fact| &fact.subject == subject)
             .and_then(|index| self.state_at(index, at))
             .unwrap_or(ObservationState::Unknown)
+    }
+}
+
+/// An application adapter's **reported** dispatch/effect boundary. These
+/// names have source-specific meanings: an adapter can report an event in
+/// its own handler, but cannot attest a remote client's identity/permission
+/// or make a durable Manager/application effect receipt out of this value.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum AdapterOperationEvidence {
+    /// Admission/validation definitively refused before domain dispatch by
+    /// *this adapter*. Never use for a transport timeout or uncertain peer.
+    RejectedBeforeDomainDispatch,
+    /// The owning domain returned success. The response to an external peer
+    /// may nevertheless be lost later on its independent transport.
+    DomainConfirmedSuccess,
+    /// The owning domain returned a typed failure. A failure does not imply
+    /// no effects unless the domain separately guarantees atomicity.
+    DomainConfirmedFailure,
+    /// A reply was lost after work was admitted. Dispatch may have occurred,
+    /// including a persisted mutation; retrying is not justified.
+    AdmittedReplyLost,
+    /// An app-owned multi-stage operation can prove at least one effect but
+    /// cannot claim the entire intended operation succeeded. Reconcile first.
+    ConfirmedPartialRequiresReconciliation,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum OperationDisposition {
+    RejectedBeforeDispatch,
+    ConfirmedSuccess,
+    ConfirmedDomainFailure,
+    OutcomeUnknown,
+    PartialNeedsReconciliation,
+}
+
+impl AdapterOperationEvidence {
+    pub fn disposition(self) -> OperationDisposition {
+        match self {
+            Self::RejectedBeforeDomainDispatch => OperationDisposition::RejectedBeforeDispatch,
+            Self::DomainConfirmedSuccess => OperationDisposition::ConfirmedSuccess,
+            Self::DomainConfirmedFailure => OperationDisposition::ConfirmedDomainFailure,
+            Self::AdmittedReplyLost => OperationDisposition::OutcomeUnknown,
+            Self::ConfirmedPartialRequiresReconciliation => {
+                OperationDisposition::PartialNeedsReconciliation
+            }
+        }
+    }
+}
+
+/// Exactly one on-demand, in-process *adapter-reported* event. This is not a
+/// queryable global operation log; no receipt IDs, arguments, errors, client
+/// identifiers or mutable ring buffers are retained. The observer must supply
+/// an actual session reference, which is not independent runtime attestation.
+#[derive(Clone, Debug)]
+pub struct AdapterOperationSnapshot {
+    operation: String,
+    event: AdapterOperationEvidence,
+    observed_at: Instant,
+    session: SessionToken,
+    generation: String,
+}
+
+impl AdapterOperationSnapshot {
+    pub fn report(
+        session: SessionToken,
+        operation: &str,
+        event: AdapterOperationEvidence,
+    ) -> Result<Self, ObservationError> {
+        if operation.is_empty()
+            || operation.len() > MAX_OBSERVATION_LABEL_BYTES
+            || !operation
+                .bytes()
+                .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'.' | b'_' | b'-'))
+        {
+            return Err(ObservationError::InvalidOperationIdentifier);
+        }
+        if !session.is_active() {
+            return Err(ObservationError::ExpiredOperationSession);
+        }
+        Ok(Self {
+            operation: operation.to_owned(),
+            event,
+            observed_at: Instant::now(),
+            generation: session.internal_publication_session().generation(),
+            session,
+        })
+    }
+
+    pub fn source(&self) -> ObservationSource {
+        ObservationSource::ApplicationAdapter
+    }
+
+    pub fn generation_evidence(&self) -> GenerationEvidence {
+        GenerationEvidence::AdapterReferenceOnly
+    }
+
+    pub fn generation(&self) -> &str {
+        &self.generation
+    }
+
+    pub fn operation(&self) -> &str {
+        &self.operation
+    }
+
+    pub fn event(&self) -> AdapterOperationEvidence {
+        self.event
+    }
+
+    pub fn disposition(&self) -> OperationDisposition {
+        self.event.disposition()
+    }
+
+    pub fn observed_at(&self) -> Instant {
+        self.observed_at
+    }
+
+    /// A retained event may be shown as historical evidence, but must not
+    /// be promoted to the current application's outcome after session death.
+    pub fn state_at(&self, at: Instant) -> ObservationState {
+        if !self.session.is_active()
+            || at < self.observed_at
+            || at.duration_since(self.observed_at) > MAX_OBSERVATION_AGE
+        {
+            ObservationState::Stale
+        } else {
+            ObservationState::Observed
+        }
     }
 }
 
