@@ -1,6 +1,8 @@
 pub mod app;
 #[cfg(feature = "app-publication")]
 mod app_publication;
+#[cfg(all(unix, feature = "app-publication-unix"))]
+mod app_publication_unix;
 #[cfg(feature = "async-tcp")]
 mod async_tasks;
 mod catalog;
