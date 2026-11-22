@@ -16,13 +16,13 @@ riesel = { workspace = true, features = ["dev-memory-storage", "sqlite-storage",
 thiserror.workspace = true
 uuid.workspace = true
 serde.workspace = true
+serde_json.workspace = true
 axum = { version = "=0.8.9", default-features = false, features = ["http1", "json", "query", "tokio"], optional = true }
 tokio = { workspace = true, features = ["signal", "macros"], optional = true }
 tower-http = { version = "=0.6.11", default-features = false, features = ["fs"], optional = true }
 
 [dev-dependencies]
 riesel_storage_component = { path = "../../packages/storage/memory" }
-serde_json.workspace = true
 tempfile = "3.23"
 [[bin]]
 name = "todo_macro"
