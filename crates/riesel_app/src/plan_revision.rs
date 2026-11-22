@@ -6,9 +6,8 @@
 //! and source-generation condition against their authoritative durable state.
 
 use crate::{
-    OperationRegistry, PlanSourceCoverageReport, S2DocumentError, S2DocumentLimits,
-    S2PlanDocument, S2SourceDocument,
-    ValidatedExecutionPlan, bind_s2_document,
+    OperationRegistry, PlanSourceCoverageReport, S2DocumentError, S2DocumentLimits, S2PlanDocument,
+    S2SourceDocument, ValidatedExecutionPlan, bind_s2_document,
 };
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, BTreeSet};
@@ -159,9 +158,8 @@ impl CheckedSourceHandoff {
         handlers: &OperationRegistry<H>,
         limits: S2DocumentLimits,
     ) -> Result<Self, PlanRevisionError> {
-        let coverage = PlanSourceCoverageReport::compare_rust_to_s2(
-            original, document, handlers, limits,
-        );
+        let coverage =
+            PlanSourceCoverageReport::compare_rust_to_s2(original, document, handlers, limits);
         if !coverage.is_complete() {
             return Err(PlanRevisionError::Invalid(format!(
                 "Rust to document transfer has {} unsupported or changed construct(s): {:?}",
@@ -194,7 +192,10 @@ impl CheckedSourceHandoff {
         limits: S2DocumentLimits,
     ) -> Result<Self, PlanRevisionError> {
         let coverage = PlanSourceCoverageReport::compare_rust_to_s2(
-            target_rust, current_document, handlers, limits,
+            target_rust,
+            current_document,
+            handlers,
+            limits,
         );
         if !coverage.is_complete() {
             return Err(PlanRevisionError::Invalid(format!(
