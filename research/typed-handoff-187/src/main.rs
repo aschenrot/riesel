@@ -10,6 +10,9 @@
 //! cross-process borrowing, automatic cache or visual editor is implemented.
 #![forbid(unsafe_code)]
 
+#[cfg(test)]
+mod typed_ports;
+
 use riesel::{
     Application, AsyncOperation, ExecutionPlanDraft, OperationKey, OperationNode, OperationOutcome,
     OperationRegistry, async_operation,
