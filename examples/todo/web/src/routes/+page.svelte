@@ -4,13 +4,27 @@
   import {
     ApiError,
     createTask,
-    listPage,
+    statusPage,
     removeTask,
     updateTask,
     type Task
   } from '$lib/api';
+  import { collectUntilMatch, ScanCancelled } from '$lib/status-scan';
 
-  type Filter = 'all' | 'open' | 'done';
+  type Status = 'open' | 'completed';
+  type ScanState = {
+    cursor: string | null;
+    exhausted: boolean;
+    inspected: number;
+    requested: boolean;
+    scanning: boolean;
+    error: string;
+    generation: number;
+  };
+  const newScan = (): ScanState => ({
+    cursor: null, exhausted: false, inspected: 0, requested: false,
+    scanning: false, error: '', generation: 0
+  });
   type UndoChange = {
     current: Task; // confirmed post-mutation revision; never silently retry
     inverse: { title: string } | { completed: boolean };
@@ -18,7 +32,9 @@
   type UndoOperation = { changes: UndoChange[]; partialFailures: number };
 
   let tasks = $state<Task[]>([]);
-  let nextCursor = $state<string | null>(null);
+  let openScan = $state<ScanState>(newScan());
+  let completedScan = $state<ScanState>(newScan());
+  let completedExpanded = $state(false);
   let loading = $state(true);
   let refreshing = $state(false);
   let refreshNotice = $state('');
@@ -26,7 +42,6 @@
   let loadingMore = $state(false);
   let creating = $state(false);
   let actingId = $state<string | null>(null);
-  let filter = $state<Filter>('all');
   let newTitle = $state('');
   let fieldError = $state('');
   let editingId = $state<string | null>(null);
@@ -47,13 +62,11 @@
   let batchSummary = $state('');
   let batchFailures = $state<{ title: string; reason: string }[]>([]);
 
-  // Counts and filters intentionally describe only fetched pages.
-  const visible = $derived(
-    tasks.filter((task) =>
-      filter === 'all' || (filter === 'done' ? task.completed : !task.completed)
-    )
-  );
-  const openCount = $derived(tasks.filter((task) => !task.completed).length);
+  // Each count is explicitly of loaded task rows, never global matches.
+  const openTasks = $derived(tasks.filter((task) => !task.completed));
+  const completedTasks = $derived(tasks.filter((task) => task.completed));
+  const visible = $derived(tasks.filter((task) => !task.completed || completedExpanded));
+  const openCount = $derived(openTasks.length);
   const selectedVisible = $derived(visible.filter((task) => selectedIds.includes(task.id)));
   const lastCheckedLabel = $derived(
     lastCheckedAt === null
@@ -107,46 +120,138 @@
       .sort((a, b) => a.id.localeCompare(b.id));
   }
 
+  function invalidateStatusCursors() {
+    // A live UUID seek is not a snapshot: confirmed writes may reclassify a
+    // record behind either cursor. Keep visible confirmed rows and Undo, but
+    // never suggest the old continuation is still a complete status view.
+    for (const state of [openScan, completedScan]) {
+      state.generation += 1;
+      state.cursor = null;
+      state.exhausted = false;
+      state.scanning = false;
+      state.requested = false;
+    }
+  }
+
+  function stopScan(status: Status) {
+    const state = status === 'open' ? openScan : completedScan;
+    if (!state.scanning) return;
+    state.generation += 1;
+    state.scanning = false;
+    state.cursor = null;
+    state.exhausted = false;
+    state.error = 'Scan stopped. Check again from the beginning to avoid reusing an uncertain cursor.';
+  }
+
+  async function scanStatus(status: Status, fresh: boolean): Promise<boolean> {
+    const state = status === 'open' ? openScan : completedScan;
+    if (state.scanning || (!fresh && (state.exhausted || !state.cursor))) return false;
+    const generation = ++state.generation;
+    const completed = status === 'completed';
+    const initialCursor = fresh ? null : state.cursor;
+    const previousInspected = fresh ? 0 : state.inspected;
+    let replaced = false;
+    state.requested = true;
+    state.scanning = true;
+    state.error = '';
+    if (fresh) {
+      state.cursor = null;
+      state.exhausted = false;
+      state.inspected = 0;
+    }
+    try {
+      const result = await collectUntilMatch(
+        completed,
+        initialCursor,
+        (wanted, cursor) => statusPage(wanted, cursor),
+        (progress) => {
+          if (state.generation !== generation) return;
+          if (fresh && !replaced) {
+            tasks = tasks.filter((task) => task.completed !== completed);
+            replaced = true;
+          }
+          state.inspected = previousInspected + progress.inspected;
+          state.cursor = progress.nextCursor;
+          state.exhausted = progress.exhausted;
+          if (progress.records.length > 0) {
+            tasks = sortedUnique([...tasks, ...progress.records]);
+          }
+        },
+        () => state.generation === generation
+      );
+      if (state.generation !== generation) return false;
+      state.cursor = result.nextCursor;
+      state.exhausted = result.exhausted;
+      lastCheckedAt = new Date();
+      return true;
+    } catch (error) {
+      if (state.generation !== generation || error instanceof ScanCancelled) return false;
+      // The last GET may have consumed its one-use cursor before its reply
+      // disappeared. A retry with that token is unsafe; offer a fresh scan.
+      state.cursor = null;
+      state.exhausted = false;
+      state.error = error instanceof ApiError
+        ? error.message + ' Start a fresh scan to check current tasks.'
+        : 'Could not check this task section. Start a fresh scan.';
+      return false;
+    } finally {
+      if (state.generation === generation) state.scanning = false;
+    }
+  }
+
   async function refresh() {
-    // Do not replace a list while a mutation/page request is in flight or
-    // silently discard an unsaved edit. Error recovery may discard a stale edit.
+    // Do not discard an unsaved edit, uncertain write or in-flight command.
     if (refreshing || loadingMore || creating || batchRunning || actingId !== null ||
       (editingId !== null && !conflicted)) return;
     refreshing = true;
     refreshNotice = 'Checking tasks';
     clearFeedback();
-    try {
-      const page = await listPage();
-      tasks = page.records;
-      nextCursor = page.next_cursor;
-      lastCheckedAt = new Date();
+    const openSucceeded = await scanStatus('open', true);
+    const completedSucceeded = completedExpanded
+      ? await scanStatus('completed', true)
+      : true;
+    if (openSucceeded && completedSucceeded) {
       editingId = null;
       editError = '';
       confirmingDeleteId = null;
       clearSelection();
       selectMode = false;
       refreshNotice = 'Tasks checked';
-    } catch (error) {
-      refreshNotice = '';
-      report(error);
+    } else {
+      refreshNotice = 'Task check incomplete';
+    }
+    loading = false;
+    refreshing = false;
+  }
+
+  async function loadMore(status: Status) {
+    if (loadingMore || refreshing || batchRunning || actingId !== null || creating ||
+        editingId !== null) return;
+    loadingMore = true;
+    try {
+      await scanStatus(status, status === 'open'
+        ? !openScan.requested || !openScan.cursor
+        : !completedScan.requested || !completedScan.cursor);
     } finally {
-      // Keep existing rows visible while manually checking for changes.
-      loading = false;
-      refreshing = false;
+      loadingMore = false;
     }
   }
 
-  async function loadMore() {
-    if (!nextCursor || loadingMore || refreshing || batchRunning || actingId !== null || creating) return;
+  async function toggleCompleted() {
+    if (refreshing || loadingMore || creating || batchRunning || actingId !== null ||
+        editingId !== null) return;
+    completedExpanded = !completedExpanded;
+    if (!completedExpanded) {
+      stopScan('completed');
+      completedScan.requested = false;
+      completedScan.cursor = null;
+      completedScan.exhausted = false;
+      clearSelection();
+      return;
+    }
     loadingMore = true;
-    clearFeedback();
     try {
-      const page = await listPage(nextCursor);
-      tasks = sortedUnique([...tasks, ...page.records]);
-      nextCursor = page.next_cursor;
-      lastCheckedAt = new Date();
-    } catch (error) {
-      report(error);
+      await scanStatus('completed', true);
     } finally {
       loadingMore = false;
     }
@@ -283,12 +388,6 @@
     clearSelection();
     batchSummary = '';
     batchFailures = [];
-  }
-
-  function changeFilter(next: Filter) {
-    if (batchRunning) return;
-    filter = next;
-    exitSelection();
   }
 
   function selectTask(id: string, range = false) {
