@@ -1,6 +1,6 @@
 # #59 — Real polkit authentication research (M-S2)
 
-**Status:** bounded Linux polkit/PAM research **EXECUTED and PASSED** at source commit `8ceb5216b74fff127a5ebfa2709ef83a6976524b` in [Ubuntu research CI 44967871027](https://github.com/aschenrot/riesel/actions/runs/44967871027). Final report-head CI must also be checked. The result is limited to credentials, challenge semantics and the tested noncached policy; it is not a trusted operator approval surface. Not a Manager implementation, product authorization mechanism, trusted human-intent proof or Linux release acceptance. Parent [#59](https://github.com/aschenrot/riesel/issues/59), coordination [#75](https://github.com/aschenrot/riesel/issues/75), prior real protected-app proof [PR #139](https://github.com/aschenrot/riesel/pull/139), independent same-user polkit counterexample [PR #123](https://github.com/aschenrot/riesel/pull/123).
+**Status:** bounded Linux polkit/PAM research **EXECUTED**: the noncached fresh-authentication positive and cached changed-operation negative controls both reproduced. Initial positive at source commit `8ceb5216b74fff127a5ebfa2709ef83a6976524b` in [Ubuntu research CI 44967871027](https://github.com/aschenrot/riesel/actions/runs/44967871027). Final report-head CI must also be checked. The result is limited to credentials, challenge semantics and the tested noncached policy; it is not a trusted operator approval surface. Not a Manager implementation, product authorization mechanism, trusted human-intent proof or Linux release acceptance. Parent [#59](https://github.com/aschenrot/riesel/issues/59), coordination [#75](https://github.com/aschenrot/riesel/issues/75), prior real protected-app proof [PR #139](https://github.com/aschenrot/riesel/pull/139), independent same-user polkit counterexample [PR #123](https://github.com/aschenrot/riesel/pull/123).
 
 ## Question
 
@@ -32,6 +32,33 @@ The dedicated job passed with all expected markers: two same-UID clients indepen
 
     python3 -m py_compile research/process-ownership/manager_polkit_interactive_challenge_probe.py
     timeout 100 python3 research/process-ownership/manager_polkit_interactive_challenge_probe.py
+
+## Executed high-risk KEEP differential — actual polkit negative control (2026-11-22)
+
+**Verified source revision:** dc188a32225eb280ad83e428ab2ad87bfbad0c65, [Ubuntu real-polkit CI 44968457733](https://github.com/aschenrot/riesel/actions/runs/44968457733) **PASSED**. Standard workspace validation is a separate gate. Research result, not architecture acceptance.
+
+The real-polkit fixture now runs **two isolated account/action instances** on one disposable Ubuntu host. Each creates a random test user with two independent unprivileged subjects, a uniquely named dummy unit/stop action and a real PAM-backed textual-agent challenge. The only material policy change is **AUTH_SELF** versus **AUTH_SELF_KEEP**.
+
+| Observation | AUTH_SELF (no KEEP) | AUTH_SELF_KEEP |
+| --- | --- | --- |
+| Correct action before authentication | Requires a challenge | Requires a challenge |
+| Wrong unit / verb before authentication | Denied | Denied |
+| Test password on textual PAM agent | Authenticated | Authenticated |
+| Same authenticated subject, **changed unit** | No reusable grant | **Authorized without another challenge** |
+| Same authenticated subject, **changed verb** | No reusable grant | **Authorized without another challenge** |
+| Independent same-UID second subject | Still challenged | Still challenged (observed return code 2) |
+| Temporary policy/NSS account cleanup | Completed | Completed |
+
+**Direct log markers:** RESEARCH_M59_POLKIT_KEEP_CACHED_AUTH_BYPASSES_CHANGED_DETAILS, RESEARCH_M59_POLKIT_KEEP_SECOND_SAME_UID_RC=2 and RESEARCH_M59_POLKIT_KEEP_DETAIL_SUBSTITUTION_NEGATIVE_PASS; earlier positive controls also passed. Both changed-detail requests were checked by the **real polkit daemon**. The cached grant in this experiment applies to the **same previously authenticated subject and action identifier**; it was **not observed to transfer to another process**. This does not prove all OS sessions/credential configurations share that scoping.
+
+**Security consequence:** A protected Riesel Manager must not use cached polkit KEEP grants as exact authorization for a registered application, immutable OS invocation, action or parameters. A newly issued exact-action authorization or a separately approved, bounded server-owned unattended policy remains necessary, with final protected revalidation and durable command-outcome reconciliation. Even AUTH_SELF **does not prove who initiated the human/UI interaction**: same-user desktop input trust is a separate, open gate.
+
+Reproduction on an ephemeral Ubuntu research runner:
+
+    python3 research/process-ownership/manager_polkit_interactive_challenge_probe.py
+    python3 research/process-ownership/manager_polkit_interactive_challenge_probe.py --keep
+
+This negative control operates on **fictional polkit action details**, not real systemd units or a privileged Riesel process. No destructive action or production permission is granted.
 
 ## Critical review and wider architecture comparison
 
