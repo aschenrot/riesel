@@ -494,7 +494,11 @@ fn unknown_or_cancelled_root_blocks_reverse_declared_descendants_without_retries
             assert_eq!(snapshot.operations["root"].attempt, 1, "{case}");
             for index in 0..DESCENDANTS {
                 let id = format!("node-{index}");
-                assert_eq!(report.operations[&id], OperationState::Blocked, "{case}: {id}");
+                assert_eq!(
+                    report.operations[&id],
+                    OperationState::Blocked,
+                    "{case}: {id}"
+                );
                 assert_eq!(
                     snapshot.operations[&id].state,
                     OperationState::Blocked,
