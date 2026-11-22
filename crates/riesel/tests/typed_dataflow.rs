@@ -1,10 +1,9 @@
 #![cfg(feature = "experimental-typed-dataflow")]
 
 use riesel::{
-    Application, ExecutionPlanDraft, LocalPort, OperationKey,
-    OperationNode, OperationState, TypedEdge, TypedExecutionPlan, TypedGraphError,
-    TypedOperationOutcome, TypedOperationRegistry, TypedOperationSpec, TypedOutputs,
-    typed_operation,
+    Application, ExecutionPlanDraft, LocalPort, OperationKey, OperationNode, OperationState,
+    TypedEdge, TypedExecutionPlan, TypedGraphError, TypedOperationOutcome, TypedOperationRegistry,
+    TypedOperationSpec, TypedOutputs, typed_operation,
 };
 use std::num::NonZeroUsize;
 
@@ -38,7 +37,9 @@ fn ports() -> TypedOperationRegistry {
             typed_operation(|inputs| async move {
                 let values = inputs.get::<Vec<u32>>("values").unwrap();
                 let mut result = TypedOutputs::new();
-                result.insert("total", values.iter().sum::<u32>(), 4).unwrap();
+                result
+                    .insert("total", values.iter().sum::<u32>(), 4)
+                    .unwrap();
                 TypedOperationOutcome::Completed(result)
             }),
         )
@@ -87,10 +88,7 @@ fn typed_fanout_and_fanin_run_on_the_real_riesel_session_scheduler() {
             let registry = ports();
             let plan = graph(7);
             let prepared = plan.prepare(&registry, 4096)?;
-            let runner = context.typed_execution_graph(
-                prepared,
-                NonZeroUsize::new(2).unwrap(),
-            )?;
+            let runner = context.typed_execution_graph(prepared, NonZeroUsize::new(2).unwrap())?;
             let before = runner.observer().snapshot();
             let tokio = tokio::runtime::Builder::new_current_thread()
                 .enable_all()
@@ -100,7 +98,10 @@ fn typed_fanout_and_fanin_run_on_the_real_riesel_session_scheduler() {
             assert_eq!(before.identity, output.report.identity);
             assert_eq!(output.report.revision, 7);
             assert_eq!(&*output.get::<u32>("join", "result").unwrap(), &20);
-            assert_eq!(&*output.get::<Vec<u32>>("source", "values").unwrap(), &[1, 2, 3, 4]);
+            assert_eq!(
+                &*output.get::<Vec<u32>>("source", "values").unwrap(),
+                &[1, 2, 3, 4]
+            );
             assert_eq!(output.used_bytes(), 28); // one shared 16-byte source + three u32 outputs
             assert_eq!(output.report.started, 4);
             Ok(())
@@ -154,15 +155,16 @@ fn type_mismatch_missing_producer_combined_cycle_and_budget_fail_before_dispatch
         .connect(TypedEdge::new("source", "values", "left", "values"));
     assert!(matches!(
         typed.prepare(&registry, 4096),
-        Err(TypedGraphError::Plan(riesel::ExecutionPlanError::Cycle { .. }))
+        Err(TypedGraphError::Plan(
+            riesel::ExecutionPlanError::Cycle { .. }
+        ))
     ));
 }
 
 #[test]
 fn completed_with_wrong_runtime_type_cannot_publish_and_blocks_consumer() {
-    let mut registry = ports();
     // An entirely separate registry has a dishonest source implementation.
-    registry = {
+    let registry = {
         let mut mismatched = TypedOperationRegistry::new();
         mismatched
             .register(
@@ -205,10 +207,7 @@ fn completed_with_wrong_runtime_type_cannot_publish_and_blocks_consumer() {
 
     Application::new("typed mismatched output")
         .run(|context| {
-            let runner = context.typed_execution_graph(
-                prepared,
-                NonZeroUsize::new(2).unwrap(),
-            )?;
+            let runner = context.typed_execution_graph(prepared, NonZeroUsize::new(2).unwrap())?;
             let tokio = tokio::runtime::Builder::new_current_thread()
                 .enable_all()
                 .build()?;
