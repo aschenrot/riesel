@@ -59,7 +59,7 @@ All errors use `{error:{code,message}}` with stable short codes. Proposed mappin
 
 ## Accepted additive status Query API and browser contract (#107, 2026-11-22)
 
-**Status: accepted, implementation pending.** Owner decision [#107](https://github.com/aschenrot/riesel/issues/107#issuecomment-7075937597) adds *only* a restricted Todo read projection onto the already shipped, linked [Record Query profile](../riesel/record-query-usage.md). The original `GET /api/v1/tasks?after&limit` and all mutations above remain unchanged and supported.
+**Status: accepted and delivered in the stated local-only scope (22 November 2026).** Owner decision [#107](https://github.com/aschenrot/riesel/issues/107#issuecomment-7075937597) adds *only* a restricted Todo read projection onto the already shipped, linked [Record Query profile](../riesel/record-query-usage.md). The native Rust/SQLite HTTP endpoint shipped through [#207 / PR #209](https://github.com/aschenrot/riesel/pull/209), and the Open-first browser with lazy Completed and progressive reads through [#208 / PR #210](https://github.com/aschenrot/riesel/pull/210). The original `GET /api/v1/tasks?after&limit` and all mutations above remain unchanged and supported. CI evidence covers real same-owner SQLite, 33/100/10,000 sparse status browser tests, failure/restart cases, exact-revision Linux smoke and Chromium. No public/remote authorization or production power-loss guarantee follows from this acceptance.
 
 | Method/path | Request | Success |
 | --- | --- | --- |
