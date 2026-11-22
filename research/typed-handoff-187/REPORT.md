@@ -56,3 +56,39 @@ The next owner decision must compare genuine end-to-end developer authoring of A
 - The user reported running Grid's local `grid_generation::workbench_175` and `tile_topology` tests successfully. Those results are **user-reported local pass**, not a GitHub Linux CI pass because the private repository's job ended before launching a runner. Exact local toolchain/commit evidence beyond the supplied command/output is not independently recorded.
 - The first Workbench visual node graph is a **product UX preference**. The choice of application-owned bounded node authoring versus future generic S3 executable ports has not yet been accepted. Do not conflate a read-only S2 graph inspector, a control-only S2 editor and an executable typed-dataflow editor.
 - The `Render2D` entry should be modeled as an **optional effectful output/presentation boundary** unless an actual reusable render-result contract is justified. Rendering cannot silently become canonical editable data or hide the distinction between grid data revisions and displayed frames.
+
+
+## 7. Candidate S3 port-preflight experiment (second isolated proof)
+
+`src/typed_ports.rs` is a **research-only, app-side metadata adapter**, which:
+- Declares exact node/port IDs, direction via input/output lists, versioned semantic type names and bounded output/consumer capacities.
+- Rejects mismatched semantic types, mismatched versions, unknown/missing nodes or ports, missing required inputs, competing input producers, duplicate identifiers and over-budget declarations *before* constructing a Riesel plan.
+- Performs cycle detection over the **union** of S2 control prerequisites and proposed typed edges (not independently per edge kind).
+- Allows one producer output to fan out to two consumers without counting a source's declared static output budget twice when referencing the same output.
+- Projects **only ordering** into the existing production `ExecutionPlanDraft::validate()`. Riesel remains the authoritative S2 plan validator; these metadata tests do **not** certify actual Rust handler signatures, per-run artifact publication, real memory residency, native affinity or downstream readiness.
+
+**Critical negative finding:** A naive translation of an S3 value graph to an S2 control-only plan discards required value-transfer meaning. It must **never** be publishable/executable through an S2-only authoring or runtime path. The second candidate therefore wraps the translated `ValidatedExecutionPlan` as a *read-only projection* whose `for_s2_execution()` rejects when any typed value edge is required; a legacy graph with zero data edges still permits S2 execution. This wrapper is only a test-local design probe and is **not** a security barrier against someone separately reconstructing a plan; actual B2 required-feature negotiation, trusted descriptor-to-handler binding, immutable V2 publication and runtime admission must enforce fail-closed semantics in production.
+
+**Validation boundaries:** Static `max_bytes` metadata is not a runtime byte budget or proof of zero copies; `TypeId { name, version }` is not authoritative schema provenance or proof of `Send`/`Sync`/`!Send` safety; translating port requirements to `.after` control edges is not value transfer. This is a **falsification of unsafe S2-as-S3 fallback**, not acceptance of this implementation.
+
+Reproducible fixture checks: `cargo test --manifest-path research/typed-handoff-187/Cargo.toml`. [Research CI run #44997446383](https://github.com/aschenrot/riesel/actions/runs/44997446383) **PASS 11/11** at source `4fd8c56c3adbdefdb55ce14524582e209611d8a4` before the fail-closed wrapper extension. The final wrapper revision needs its own exact-head verification.
+
+## 8. Grid/renderer source audit and non-dungeon growth
+
+On the private Grid `main` source revision `dd05a2c857c9d0410cb375dbebc108bdaa11dc5c`, `grid_generation::fill_with_noise` uses `FastNoiseLite` OpenSimplex2 + FBm, 4 octaves, domain warp, a `f32` frequency/threshold and a seeded noise sampling/transformation, then directly writes `DenseGrid2D<CellType>`. It **does not** currently return `DenseGrid2D<f32>` or `DenseGrid2D<f64>`. The research Riesel DTO `Vec<f64>` and synthesized scalar values are not semantically equivalent to this real noise implementation; algorithm version, sampling-space, interpolation/normalization, precision and seed conversions require explicit contracts before asserting replay equivalence. The current production CA helper is fixed rule and treats outside cells as occupied; the configurable protected-border implementation exists only in the private research test, not yet as an accepted API.
+
+`tile_topology` owns the 16-mask classification and rotation tests; the Grid Workbench research test additionally exercises each actual formed central mask but does not separately assert all kind/rotation expected mappings. This is appropriate source-of-truth reuse, but do not overclaim what the research test independently checked.
+
+**Documentation drift requiring review:** Grid's `docs/generation-boundary.md` says its Godot World Lab generator and chunk lifecycle do not belong in `grid_generation`, while that crate's current source also contains `LabGenerationSettings`, `LabGeneratedChunk`, `build_owned_halo_formation_layers` and other lab/chunk functions. This does not prove those APIs are actually imported from a particular app, nor does it authorize moving them, but the contradiction must be resolved before presenting `grid_generation` as a settled neutral abstraction or designing a general `Noise2D` provider around the entire crate. The relevant public reusable **small neutral functions** and app-specific/lab functions need a truthful boundary audit.
+
+RunenRender `composition_2d` can express immutable source-neutral painting and its renderer executes through a caller-owned GPU host; neither it nor Riesel owns the native Present loop by default. For the initial node graph, `Render2D` should be an explicit *effectful optional sink* with a separate presentation/host adapter, not a required pure stage that converts tile descriptors to canonical grid data.
+
+**Second consumer:** the same scalar output can feed both `Threshold` occupancy and a **scalar heat/mean-statistic pipeline**. The existing real-runner test demonstrates shared source fan-out with a synthetic scalar field but is not real thermal simulation, GPU workload, chunked world or interactive editor validation.
+
+## 9. Next research decisions, without conflating acceptance
+
+1. Real local/private Grid algorithm API proof: sample scalar values with declared coordinate/seed/precision guarantees and explicit threshold, plus configurable synchronous border-preserving CA; ensure upstream tests and acceptable CI evidence.
+2. #187: evaluate actual optional typed handler adapter against accepted S2 and B2 features *without allowing an S3 plan to be executed as stripped S2*. Define per-run artifact ownership, consumer readiness and missing/failed/unknown upstream states, byte budgeting, stale-write fencing and affinity; measure dynamic memory/copies, not just declared fields.
+3. #175: owner decides final product UX, data ownership/capability granularity and implementation increment sequence based on the multi-domain comparison. #187 separately owns platform-level S3 acceptance. Both require recorded owner accept/revise/defer decisions before freezing public contracts or creating S3 production issues.
+
+No architecture decisions above are silently approved by passing research CI.
