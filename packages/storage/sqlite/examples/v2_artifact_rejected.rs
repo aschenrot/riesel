@@ -1,7 +1,7 @@
 //! Separate compiled replacement artifact with an incompatible descriptor.
 mod v2_artifact_shared;
 
-use riesel_app::{PlanRevisionRepository, S2DocumentLimits};
+use riesel_app::S2DocumentLimits;
 use riesel_storage_sqlite::V2SnapshotBudget;
 use std::{env, path::PathBuf};
 use v2_artifact_shared::{NEW, OLD, handlers, old_heads, rust_plan, store};
