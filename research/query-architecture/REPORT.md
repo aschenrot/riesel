@@ -206,6 +206,35 @@ guarantees require actual operational controls, not only a DSL.
 The lowest-cost Todo fix and the platform's longest-lived abstraction
 remain separate architectural questions. No architecture is accepted.
 
+## Query cost, budget enforcement and index maintenance (2026-11-22)
+
+**Reproduce:** `python3 research/query-architecture/probes/sqlite_cost_budget.py` (Python standard library, SQLite; **synthetic in-memory scratch records**, not a running Riesel provider or RPC service). The same predicate selects exactly **one** `completed=false` record at the end of the UUID-ordered model, at size 100 or 10,000. `EXPLAIN QUERY PLAN` confirms a primary-key scan without a secondary index and use of a scratch SQLite **expression index** after installation. Python SQLite's `set_progress_handler` is invoked every **50 SQLite VM instructions**; callback counts are a deterministic *work proxy*, **not** wall-clock CPU time, elapsed latency, RPC cost or a generalized cross-version benchmark.
+
+[Research CI #44972111565](https://github.com/aschenrot/riesel/actions/runs/44972111565), commit `dc8a4a4cc29742376cdb6f17170382af44e51728`, passed **all 3 new Python tests**, in addition to prior Python and Rust research probes. Exact runner's Python SQLite version: **3.46.1**.
+
+| Rows | Without extra index: callback counts | With index: callback counts | Retrieval and query plan |
+| ---: | ---: | ---: | --- |
+| 100 | 12 | 0 (fewer than 50 VM instructions) | Both return the same lone row; unindexed uses `SEARCH ... USING PRIMARY KEY`; index uses `research_status_idx` |
+| 10,000 | **1,200** | 0 (fewer than 50 VM instructions) | Same match and confirmed index use; sparse scan work grows with dataset |
+
+A **30-callback** interruption threshold rejects the unindexed
+10,000-row query but accepts the indexed query with the same result.
+The scratch expression index also responds to predicate-field
+updates: a changed `false`→`true` record leaves the index result;
+a different `true`→`false` record enters it. This verifies
+**SQLite's scratch physical index maintenance**, not the Riesel
+provider's authorized indexed-query path.
+
+**Architectural consequence:** A generic Query facade should not
+equate result-count limits with work limits; it needs explicit provider
+budgets, interruption semantics, supported feature negotiation and
+optional native indexes when efficient selective reads are required.
+A portable logical query layer must not promise indexed execution
+simply because one SQLite experiment is fast. Source/provider-owned
+index creation, backup/rebuild, model/schema drift and recovery are
+a **separate accepted physical migration contract**, not incidental
+normal startup behavior.
+
 ## Comparative candidate synthesis — derived *after* discovery
 
 These are **design families, not mandated alternatives**. Each remains
@@ -286,15 +315,18 @@ placements, loopback endpoints or Rust type signatures are not
 authentication/authorization of independent readers or proof of
 shared authoritative state.
 
-### Current outcome: do not accept a platform-wide API yet
+### Current outcome: recommendation ready for owner review, not architecture acceptance
 
-**Evidence supports researching** a shared contract for registered
-persistent-record selection, and preserving domain-owned execution
-boundaries. It does **not yet justify selecting one universal Query
-representation/engine or freezing the Record Query-vs-Storage v3
-interface**. That is an evidence-limited **defer architecture
-selection** result, not a conclusion that a shared foundation is
-undesirable.
+**Research supports recommending an optional typed, transport-neutral semantic foundation with provider-owned execution**, particularly for registered
+persistent-record selection. It does **not** justify one mandatory
+universal planner/engine, a public Query grammar, unrestricted
+cross-process Query access, or immediate Storage v3 migration.
+[DECISION_REVIEW.md](DECISION_REVIEW.md) now gives a **conditional
+recommendation** for a reusable semantic boundary plus an optional
+separately versioned, provider-co-exposed **read-only record-query
+facet**, with explicit linked-first trust and feature bounds.
+The owner may accept/revise/defer this direction. Green CI is not
+acceptance of the public interface.
 
 The decision *could* change with:
 
@@ -308,8 +340,7 @@ The decision *could* change with:
    Query contract or prove managed-provider access;
 3. A measured/practical comparison of **same-instance binding and
    read-only authorization** versus co-exposed unified storage;
-4. Real bounded-selectivity/cancellation behavior on linked Memory/
-   SQLite, with managed placement tested before claiming support;
+4. Establish real provider-native bounded index and cancellation behavior under Riesel ownership, not just scratch SQLite; then test managed placement and authorization before claiming remote support;
 5. If broad analytics, search, federation or ECS adapter becomes an
    accepted requirement, its distinct owner/consistency/performance
    scenario and decision-changing evidence.
@@ -331,6 +362,8 @@ federation engine or analytics runtime is a prerequisite for Todo.
   asserted all **3/3** outcomes; [research CI #44967915491](https://github.com/aschenrot/riesel/actions/runs/44967915491) passed **3/3** tests at earlier commit `403ecaed`. A later doc update requires an independent **new exact-head** CI check; do not transfer the old run's pass status automatically.
 - Typed provider research: run **cargo test -p todo --test query_architecture_research -- --nocapture**. [Research CI #44968670157](https://github.com/aschenrot/riesel/actions/runs/44968670157) passed two Rust tests against Memory and SQLite at earlier commit **a3aa116c**. The interpreter filters retrieved v2 data in Rust, not inside either provider.
 - Provider-authored SQLite native SQL experiment: `cargo test -p riesel_storage_sqlite --test query_architecture_research -- --nocapture`. [Research CI #44971511998](https://github.com/aschenrot/riesel/actions/runs/44971511998) passed **4/4 native SQL Rust tests** at head `2404ec84b62f2d47fb23ea644a8930e14b4ce411`, covering precise integer tokens, missing/null, incorrect lexical numeric sort, UUID spelling mismatch, forced scratch index and connection-local interrupted read. Bundled SQLite is **3.54.1**. SQL is executed **directly on a released disposable provider file**, not through a published Query operation.
+- Sparse-query cost: `python3 research/query-architecture/probes/sqlite_cost_budget.py`. [Research CI #44972111565](https://github.com/aschenrot/riesel/actions/runs/44972111565) passed 3/3 work-budget, parity and scratch index-maintenance tests at earlier commit `dc8a4a4`, Python SQLite 3.46.1; not a provider-native/query-transport SLA.
+- Decision-review document: [DECISION_REVIEW.md](DECISION_REVIEW.md), authored for owner acceptance/revision, **not** an approved product contract.
 - Comparative claims: upstream documentation links in
   `DISCOVERY.md`. **Not verified** here: legal licensing audit,
   upstream package MSRV at pinned Rust 1.100, actual integration
