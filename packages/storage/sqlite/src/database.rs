@@ -1,7 +1,7 @@
 use crate::owner::OwnerGuard;
 use riesel_schema::ModelDefinition;
 use riesel_storage::{RecordQueryCursors, StoreError};
-use rusqlite::{Connection, OpenFlags, TransactionBehavior, params};
+use rusqlite::{Connection, OpenFlags, OptionalExtension, TransactionBehavior, params};
 use std::{
     collections::{BTreeMap, BTreeSet},
     path::Path,
@@ -67,6 +67,37 @@ pub(crate) fn verify_models(
         return Err(StoreError::Failed(
             "stored model registration changed; reopen required".into(),
         ));
+    }
+    Ok(())
+}
+
+/// Read-only attached applications need only declare the models they are
+/// authorized to inspect. Requiring their schema to enumerate all other
+/// persisted models would leak catalog structure and prevent independent
+/// limited consumers, even when they cannot read other record data.
+fn verify_readable_models(
+    conn: &Connection,
+    models: &BTreeMap<String, ModelDefinition>,
+    readable: &BTreeSet<String>,
+) -> Result<(), StoreError> {
+    for model in readable {
+        let definition = models
+            .get(model)
+            .ok_or_else(|| StoreError::Failed("readable model is not declared".into()))?;
+        let expected = serde_json::to_vec(definition).map_err(failed)?;
+        let persisted: Option<Vec<u8>> = conn
+            .query_row(
+                "SELECT definition FROM models WHERE name=?1",
+                params![model],
+                |row| row.get(0),
+            )
+            .optional()
+            .map_err(failed)?;
+        if persisted.as_deref() != Some(expected.as_slice()) {
+            return Err(StoreError::Failed(
+                "readable model registration differs from persistent schema".into(),
+            ));
+        }
     }
     Ok(())
 }
@@ -225,7 +256,7 @@ impl SqliteStore {
                     .map_err(failed)
             })
             .collect::<Result<_, _>>()?;
-        verify_models(&conn, &expected_models)?;
+        verify_readable_models(&conn, &models, &readable)?;
         owner.opened()?;
         Ok(Self {
             connection: Mutex::new(conn),
