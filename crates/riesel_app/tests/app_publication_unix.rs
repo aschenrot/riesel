@@ -429,14 +429,10 @@ fn same_uid_endpoint_rebinding_is_not_protected_server_authentication() {
         assert_eq!(forged.application, "forged.app");
         assert_eq!(forged.generation, "fabricated-session-generation");
         assert_eq!(
-            forged.contract.id,
-            "riesel.counter.public_value",
+            forged.contract.id, "riesel.counter.public_value",
             "matching an advertised contract is not server authentication"
         );
-        let fake_read = client
-            .query(&forged, "snapshot", json!({}))
-            .await
-            .unwrap();
+        let fake_read = client.query(&forged, "snapshot", json!({})).await.unwrap();
         assert_eq!(fake_read["status"], "ok");
         assert_eq!(fake_read["value"]["Ok"], 999);
         // This accepted *counterfeit* demonstrates why sensitive data and
