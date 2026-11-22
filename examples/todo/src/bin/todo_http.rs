@@ -1,6 +1,7 @@
 //! Local-only Todo HTTP backend; the process outlives browser connections.
-use riesel::{Application, AsyncTasks, Records};
-use std::{env, error::Error, io, path::PathBuf, process::ExitCode};
+use riesel::storage::RecordQueryContract;
+use riesel::{Application, AsyncTasks, ModelRead, Records};
+use std::{env, error::Error, io, path::PathBuf, process::ExitCode, sync::Arc};
 use todo::TaskData;
 
 fn usage() -> &'static str {
@@ -62,10 +63,16 @@ fn run() -> Result<(), Box<dyn Error + Send + Sync>> {
         return Ok(());
     };
     Application::new("TodoHttp")
-        .async_handler(move |records: Records<TaskData>, tasks: AsyncTasks| {
-            let directory = assets.clone();
-            async move { todo::http::serve(records, tasks, port, directory).await }
-        })?
+        .async_handler(
+            move |records: Records<TaskData>,
+                  reader: ModelRead<TaskData, RecordQueryContract>,
+                  tasks: AsyncTasks| {
+                let directory = assets.clone();
+                async move {
+                    todo::http::serve(records, Some(Arc::new(reader)), tasks, port, directory).await
+                }
+            },
+        )?
         .sqlite_storage(path)?
         .run()?;
     Ok(())

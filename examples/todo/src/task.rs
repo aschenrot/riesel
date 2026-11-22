@@ -1,6 +1,9 @@
-use riesel::storage::StoreError;
-use riesel::{Record, Records, RieselModel, SdkError};
+use riesel::storage::{
+    RecordCompare, RecordPredicate, RecordQueryContract, RecordQueryError, StoreError,
+};
+use riesel::{ModelRead, QueryPage, Record, Records, RieselModel, SdkError};
 use serde::{Deserialize, Serialize};
+use std::sync::Arc;
 use thiserror::Error;
 use uuid::Uuid;
 
@@ -22,17 +25,35 @@ pub enum TodoError {
     EmptyTitle,
     #[error("task not found")]
     NotFound,
+    #[error("Todo record Query reader is unavailable")]
+    QueryUnavailable,
     #[error(transparent)]
     Storage(#[from] SdkError),
 }
 
 pub struct Todo {
     records: Records<TaskData>,
+    query: Option<Arc<ModelRead<TaskData, RecordQueryContract>>>,
 }
 
 impl Todo {
     pub fn new(records: Records<TaskData>) -> Self {
-        Self { records }
+        Self {
+            records,
+            query: None,
+        }
+    }
+
+    /// R2 adds a read-only view on the *same* linked record owner.
+    /// R0 and R1 keep using `new` without a Query dependency.
+    pub fn with_query(
+        records: Records<TaskData>,
+        query: Arc<ModelRead<TaskData, RecordQueryContract>>,
+    ) -> Self {
+        Self {
+            records,
+            query: Some(query),
+        }
     }
 
     pub fn create_task(&self, title: impl Into<String>) -> Result<Task, TodoError> {
@@ -62,6 +83,39 @@ impl Todo {
         limit: u64,
     ) -> Result<riesel::RecordPage<TaskData>, TodoError> {
         Ok(self.records.list_page(after, limit)?)
+    }
+
+    /// Search one status in the provider's native registered-model Query.
+    /// Each call is bounded to at most four 256-candidate native slices;
+    /// an empty partial result is never mistaken for a complete empty list.
+    pub fn query_completed_page(
+        &self,
+        completed: bool,
+        limit: u64,
+        mut cursor: Option<String>,
+    ) -> Result<QueryPage<TaskData>, TodoError> {
+        let reader = self.query.as_ref().ok_or(TodoError::QueryUnavailable)?;
+        let predicate = Some(RecordPredicate {
+            field: "completed".into(),
+            operator: RecordCompare::Eq,
+            value: Some(serde_json::Value::Bool(completed)),
+        });
+        let mut total_inspected = 0;
+        for attempt in 0..4 {
+            let mut page = reader.page(predicate.clone(), limit, 256, cursor)?;
+            total_inspected += page.inspected;
+            if !page.exhausted && page.next_cursor.is_none() {
+                return Err(TodoError::Storage(SdkError::Query(
+                    RecordQueryError::Failed("partial Query result had no continuation".into()),
+                )));
+            }
+            page.inspected = total_inspected;
+            if !page.records.is_empty() || page.exhausted || attempt == 3 {
+                return Ok(page);
+            }
+            cursor = page.next_cursor;
+        }
+        unreachable!("the bounded loop always returns on its fourth iteration")
     }
 
     /// Update completion only if the caller's observed revision is current.

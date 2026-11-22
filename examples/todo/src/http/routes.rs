@@ -10,7 +10,10 @@ use axum::{
     http::StatusCode,
     response::{IntoResponse, Response},
 };
-use riesel::{SdkError, storage::StoreError};
+use riesel::{
+    SdkError,
+    storage::{RecordQueryError, StoreError},
+};
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
@@ -20,6 +23,8 @@ pub(super) enum ApiError {
     Forbidden,
     NotFound,
     Conflict,
+    InvalidQueryCursor,
+    QueryCapacity,
     TooLarge,
     UnsupportedMedia,
     MethodNotAllowed,
@@ -57,6 +62,16 @@ impl IntoResponse for ApiError {
                 StatusCode::CONFLICT,
                 "revision_conflict",
                 "Task revision is stale",
+            ),
+            Self::InvalidQueryCursor => (
+                StatusCode::CONFLICT,
+                "invalid_query_cursor",
+                "Query continuation expired or is invalid; start a new scan",
+            ),
+            Self::QueryCapacity => (
+                StatusCode::SERVICE_UNAVAILABLE,
+                "query_capacity",
+                "Query continuation capacity is unavailable",
             ),
             Self::TooLarge => (
                 StatusCode::PAYLOAD_TOO_LARGE,
@@ -106,6 +121,21 @@ impl From<TodoError> for ApiError {
         match error {
             TodoError::EmptyTitle => Self::BadInput,
             TodoError::NotFound => Self::NotFound,
+            TodoError::QueryUnavailable => Self::Unavailable,
+            TodoError::Storage(SdkError::Query(RecordQueryError::InvalidCursor)) => {
+                Self::InvalidQueryCursor
+            }
+            TodoError::Storage(SdkError::Query(RecordQueryError::CursorCapacity)) => {
+                Self::QueryCapacity
+            }
+            TodoError::Storage(SdkError::Query(
+                RecordQueryError::InvalidLimit
+                | RecordQueryError::InvalidScanBudget
+                | RecordQueryError::InvalidOperand
+                | RecordQueryError::UnsupportedPredicate
+                | RecordQueryError::UnknownField
+                | RecordQueryError::RequestTooLarge,
+            )) => Self::BadInput,
             TodoError::Storage(SdkError::Store(StoreError::NotFound)) => Self::NotFound,
             TodoError::Storage(SdkError::Store(StoreError::RevisionConflict)) => Self::Conflict,
             _ => Self::Internal,
@@ -179,6 +209,56 @@ pub(super) async fn list(
     Ok(Json(TaskPage {
         records: page.records.into_iter().map(TaskView::from).collect(),
         next_cursor: page.next_cursor,
+    }))
+}
+
+#[derive(Serialize)]
+pub(super) struct StatusTaskPage {
+    records: Vec<TaskView>,
+    next_cursor: Option<String>,
+    exhausted: bool,
+    inspected: u64,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+pub(super) struct StatusQuery {
+    completed: String,
+    limit: Option<u64>,
+    cursor: Option<String>,
+}
+
+/// One finite, status-scoped provider query, never an application-side filter
+/// over the legacy first 32 UUIDs or an unbounded query-until-first-match loop.
+pub(super) async fn query_completed(
+    State(state): State<HttpState>,
+    input: Result<Query<StatusQuery>, QueryRejection>,
+) -> Result<Json<StatusTaskPage>, ApiError> {
+    let Query(query) = input.map_err(|_| ApiError::BadInput)?;
+    let completed = match query.completed.as_str() {
+        "true" => true,
+        "false" => false,
+        _ => return Err(ApiError::BadInput),
+    };
+    let limit = query.limit.unwrap_or(32);
+    if !(1..=32).contains(&limit)
+        || query
+            .cursor
+            .as_ref()
+            .is_some_and(|cursor| cursor.is_empty() || cursor.len() > 64)
+    {
+        return Err(ApiError::BadInput);
+    }
+    let page = state
+        .invoke(OperationClass::Read, move |todo| {
+            todo.query_completed_page(completed, limit, query.cursor)
+        })
+        .await?;
+    Ok(Json(StatusTaskPage {
+        records: page.records.into_iter().map(TaskView::from).collect(),
+        next_cursor: page.next_cursor,
+        exhausted: page.exhausted,
+        inspected: page.inspected,
     }))
 }
 
