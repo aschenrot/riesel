@@ -122,10 +122,8 @@ fn actual_bevy_ecs_lost_reply_preserves_owner_snapshot_not_graph_confirmation() 
     executor().block_on(async {
         let setup = setup(Kind::ActualBevyEcsTick, 2, true);
         let task = tokio::spawn(setup.runner.execute());
-        until(|| {
-            setup.observer.snapshot().operations["frame"].state == OperationState::Running
-        })
-        .await;
+        until(|| setup.observer.snapshot().operations["frame"].state == OperationState::Running)
+            .await;
         for _ in 0..2 {
             grant(&setup.permits, OWNER_EPOCH, Kind::ActualBevyEcsTick)
                 .await
@@ -176,12 +174,19 @@ fn bevy_native_system_stepping_remains_domain_owned_and_feature_gated() {
     simulation.set_executor(SingleThreadedExecutor::new());
     simulation.add_systems((mark_a, mark_b, mark_c).chain());
 
-    world.resource_mut::<Stepping>().add_schedule(StepLab).enable();
+    world
+        .resource_mut::<Stepping>()
+        .add_schedule(StepLab)
+        .enable();
     begin_frame.run(&mut world);
     simulation.run(&mut world);
     assert!(world.resource::<StepLog>().0.is_empty());
 
-    for expected in [["a"].as_slice(), ["a", "b"].as_slice(), ["a", "b", "c"].as_slice()] {
+    for expected in [
+        ["a"].as_slice(),
+        ["a", "b"].as_slice(),
+        ["a", "b", "c"].as_slice(),
+    ] {
         world.resource_mut::<Stepping>().step_frame();
         begin_frame.run(&mut world);
         simulation.run(&mut world);
