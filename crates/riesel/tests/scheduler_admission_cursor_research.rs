@@ -4,7 +4,8 @@
 #![cfg(feature = "async-tcp")]
 
 use riesel::{
-    App, AsyncOperation, ConnectorRegistry, DeploymentConfig, ExecutionPlanDraft, GraphRunPhase,
+    AccessMode, App, AsyncOperation, ConnectorRegistry, DeploymentConfig, ExecutionPlanDraft,
+    GraphRunPhase,
     OperationKey, OperationNode, OperationOutcome, OperationRegistry, OperationState, RunningApp,
     async_operation,
 };
@@ -250,5 +251,196 @@ fn topology_changes_ready_tie_break_after_shared_signal() {
             "research #226 tie_break topology={} order={order:?}",
             std::env::var_os("RIESEL_RESEARCH_TOPO_CURSOR").is_some()
         );
+    });
+}
+
+#[test]
+fn many_signal_gated_ready_nodes_leave_unrelated_work_eligible() {
+    runtime().block_on(async {
+        const GATED: usize = 256;
+        const INDEPENDENT: usize = 64;
+        let independent_count = Arc::new(AtomicUsize::new(0));
+        let gated_count = Arc::new(AtomicUsize::new(0));
+        let mut registry = OperationRegistry::<AsyncOperation>::new();
+        registry
+            .register(
+                key("gated"),
+                async_operation({
+                    let gated_count = Arc::clone(&gated_count);
+                    move || {
+                        let gated_count = Arc::clone(&gated_count);
+                        async move {
+                            gated_count.fetch_add(1, Ordering::SeqCst);
+                            OperationOutcome::Completed
+                        }
+                    }
+                }),
+            )
+            .unwrap();
+        registry
+            .register(
+                key("independent"),
+                async_operation({
+                    let independent_count = Arc::clone(&independent_count);
+                    move || {
+                        let independent_count = Arc::clone(&independent_count);
+                        async move {
+                            independent_count.fetch_add(1, Ordering::SeqCst);
+                            OperationOutcome::Completed
+                        }
+                    }
+                }),
+            )
+            .unwrap();
+        let mut draft = ExecutionPlanDraft::new("signal-ready-stress", 1);
+        for index in 0..GATED {
+            draft = draft.operation(
+                OperationNode::new(format!("gated-{index}"), key("gated")).on_signal("release"),
+            );
+        }
+        for index in 0..INDEPENDENT {
+            draft = draft.operation(OperationNode::new(
+                format!("independent-{index}"),
+                key("independent"),
+            ));
+        }
+        let owner = owner();
+        let runner = owner
+            .execution_graph(
+                draft.validate().unwrap().bind(&registry).unwrap(),
+                NonZeroUsize::new(32).unwrap(),
+            )
+            .unwrap();
+        let observer = runner.observer();
+        let sender = runner.signal_sender();
+        let task = tokio::spawn(runner.execute());
+        tokio::time::timeout(Duration::from_secs(5), async {
+            while independent_count.load(Ordering::SeqCst) < INDEPENDENT {
+                tokio::task::yield_now().await;
+            }
+        })
+        .await
+        .unwrap();
+        assert_eq!(gated_count.load(Ordering::SeqCst), 0);
+        assert_eq!(observer.snapshot().operations["gated-0"].attempt, 0);
+        sender.fire("release").unwrap();
+        let report = tokio::time::timeout(Duration::from_secs(5), task)
+            .await
+            .unwrap()
+            .unwrap();
+        assert!(report.succeeded());
+        assert_eq!(report.started, GATED + INDEPENDENT);
+        assert_eq!(gated_count.load(Ordering::SeqCst), GATED);
+        eprintln!("research #226 signal_ready_stress gated={GATED} independent={INDEPENDENT} finished");
+    });
+}
+
+#[test]
+fn resource_contended_ready_nodes_preserve_independent_progress() {
+    runtime().block_on(async {
+        const WRITERS: usize = 256;
+        const INDEPENDENT: usize = 16;
+        let writers = Arc::new(AtomicUsize::new(0));
+        let independent = Arc::new(AtomicUsize::new(0));
+        let mut registry = OperationRegistry::<AsyncOperation>::new();
+        registry
+            .register(
+                key("writer"),
+                async_operation({
+                    let writers = Arc::clone(&writers);
+                    move || {
+                        let writers = Arc::clone(&writers);
+                        async move {
+                            writers.fetch_add(1, Ordering::SeqCst);
+                            OperationOutcome::Completed
+                        }
+                    }
+                }),
+            )
+            .unwrap();
+        registry
+            .register(
+                key("unrelated"),
+                async_operation({
+                    let independent = Arc::clone(&independent);
+                    move || {
+                        let independent = Arc::clone(&independent);
+                        async move {
+                            independent.fetch_add(1, Ordering::SeqCst);
+                            OperationOutcome::Completed
+                        }
+                    }
+                }),
+            )
+            .unwrap();
+
+        let mut draft = ExecutionPlanDraft::new("resource-ready-stress", 1);
+        for index in 0..WRITERS {
+            draft = draft.operation(
+                OperationNode::new(format!("writer-{index}"), key("writer"))
+                    .access("one-resource", AccessMode::Write),
+            );
+        }
+        for index in 0..INDEPENDENT {
+            draft = draft.operation(OperationNode::new(
+                format!("independent-{index}"),
+                key("unrelated"),
+            ));
+        }
+        let runner = owner()
+            .execution_graph(
+                draft.validate().unwrap().bind(&registry).unwrap(),
+                NonZeroUsize::new(32).unwrap(),
+            )
+            .unwrap();
+        let report = tokio::time::timeout(Duration::from_secs(8), runner.execute())
+            .await
+            .unwrap();
+        assert!(report.succeeded());
+        assert_eq!(report.started, WRITERS + INDEPENDENT);
+        assert_eq!(writers.load(Ordering::SeqCst), WRITERS);
+        assert_eq!(independent.load(Ordering::SeqCst), INDEPENDENT);
+        eprintln!("research #226 resource_ready_stress writers={WRITERS} independent={INDEPENDENT} finished");
+    });
+}
+
+#[test]
+fn reverse_declared_fanout_fanin_completes_all_registered_operations() {
+    runtime().block_on(async {
+        const BRANCHES: usize = 96;
+        let mut registry = OperationRegistry::<AsyncOperation>::new();
+        registry
+            .register(
+                key("noop"),
+                async_operation(|| async { OperationOutcome::Completed }),
+            )
+            .unwrap();
+
+        let mut final_join = OperationNode::new("join", key("noop"));
+        for index in 0..BRANCHES {
+            final_join = final_join.after(format!("branch-{index}"));
+        }
+        let mut draft = ExecutionPlanDraft::new("reverse-fanout-fanin", 1).operation(final_join);
+        for index in (0..BRANCHES).rev() {
+            draft = draft.operation(
+                OperationNode::new(format!("branch-{index}"), key("noop")).after("root"),
+            );
+        }
+        draft = draft.operation(OperationNode::new("root", key("noop")));
+        let runner = owner()
+            .execution_graph(
+                draft.validate().unwrap().bind(&registry).unwrap(),
+                NonZeroUsize::new(32).unwrap(),
+            )
+            .unwrap();
+        let observer = runner.observer();
+        let report = tokio::time::timeout(Duration::from_secs(5), runner.execute())
+            .await
+            .unwrap();
+        assert!(report.succeeded());
+        assert_eq!(report.started, BRANCHES + 2);
+        assert_eq!(report.operations["join"], OperationState::Completed);
+        assert_eq!(observer.snapshot().operations["join"].attempt, 1);
+        eprintln!("research #226 reverse fanout/fanin branches={BRANCHES} finished");
     });
 }
