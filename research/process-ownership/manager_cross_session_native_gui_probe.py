@@ -157,7 +157,7 @@ def wait_session(session_mod, account, expected_other=None, *, timeout=27):
     )
 
 
-def start_gui_session(session_mod, unit, user, directory, gui_log, display):
+def start_gui_session(session_mod, unit, user, directory, gui_log, display, xauthority):
     session_mod.unit_safe(unit)
     # Run the real GUI as the main process of a real PAM/logind session.
     # The launcher initially waits for the exact root-published research
@@ -168,6 +168,7 @@ def start_gui_session(session_mod, unit, user, directory, gui_log, display):
         "--property=User=" + user, "--property=PAMName=login",
         "--property=WorkingDirectory=/tmp",
         "--property=Environment=DISPLAY=" + display,
+        "--property=Environment=XAUTHORITY=" + str(xauthority),
         "--property=Environment=HOME=/tmp",
         "--property=Environment=LIBGL_ALWAYS_SOFTWARE=1",
         "--property=Environment=GALLIUM_DRIVER=llvmpipe",
@@ -200,7 +201,7 @@ def exercise(counter_root, session_root, launcher_source):
     display = os.environ.get("DISPLAY", "")
     if not display:
         raise AssertionError("Xvfb display missing")
-    for tool in ("xdotool", "xhost", "setpriv", "loginctl"):
+    for tool in ("xdotool", "xauth", "xdpyinfo", "setpriv", "loginctl"):
         if invoke(["/usr/bin/which", tool], check=False).returncode:
             raise AssertionError(f"missing required real Linux/X11 tool: {tool}")
     for path, digest in ((counter_root, COUNTER_SHA),
@@ -232,7 +233,6 @@ def exercise(counter_root, session_root, launcher_source):
     )
     installed = False
     created_user = False
-    x_permission = False
     started = []
     session_a, session_b = None, None
     try:
@@ -251,15 +251,47 @@ def exercise(counter_root, session_root, launcher_source):
                             (launcher_source, directory / "launcher.py")):
             invoke(root("install", "-o", "root", "-g", "root", "-m",
                         "0755", str(src), str(target)))
-        # CI Xvfb belongs to runner; explicitly admit ONLY the disposable
-        # user to share this X11 display. This is NOT a trustworthy desktop
-        # consent isolation; X11 clients with this UID can inject input.
-        invoke(["xhost", "+SI:localuser:" + account])
-        x_permission = True
-        print("RESEARCH_M59_XVFB_GUI_LOGIN_UID_DISPLAY_GRANTED", flush=True)
+        # Xvfb-run creates an Xauthority cookie private to the runner.
+        # A separate-UID systemd/PAM GUI cannot read that file. Explicitly
+        # provision a new disposable same-display cookie to this *test*
+        # user and check actual X11 connectivity before starting the GUI.
+        # Both login sessions intentionally share this cookie: it is NOT
+        # a credential for Riesel/Manager or an isolated GUI trust boundary.
+        original_auth = Path(os.environ.get("XAUTHORITY", ""))
+        if not original_auth.is_file():
+            raise AssertionError("xvfb-run original Xauthority file missing")
+        shown = invoke(["xauth", "-f", str(original_auth), "list", display])
+        cookies = re.findall(
+            r"MIT-MAGIC-COOKIE-1\s+([0-9a-fA-F]{32})", shown.stdout
+        )
+        if len(cookies) != 1:
+            raise AssertionError(
+                "real Xvfb display did not expose exactly one test cookie")
+        xauthority = directory / "Xauthority"
+        with tempfile.TemporaryDirectory(prefix="riesel-crossgui-xauth-") as temp:
+            temp_file = Path(temp) / "Xauthority"
+            invoke(["xauth", "-f", str(temp_file), "add", display,
+                    "MIT-MAGIC-COOKIE-1", cookies[0]])
+            invoke(root("install", "-o", account, "-g", account,
+                        "-m", "0600", str(temp_file), str(xauthority)))
+        verified = invoke(root(
+            "setpriv", "--reuid", str(info.pw_uid),
+            "--regid", str(info.pw_gid), "--clear-groups",
+            "/usr/bin/env", "DISPLAY=" + display,
+            "XAUTHORITY=" + str(xauthority),
+            "xdpyinfo", "-display", display
+        ), check=False)
+        if verified.returncode:
+            raise AssertionError(
+                f"disposable login UID cannot open original Xvfb "
+                f"display after explicit cookie provisioning: "
+                f"{verified.stderr[-500:]!r}")
+        print("RESEARCH_M59_DISPOSABLE_X11_COOKIE_ADMISSION_VERIFIED",
+              flush=True)
 
         started.append(unit_a)
-        start_gui_session(session_mod, unit_a, account, directory, log_a, display)
+        start_gui_session(session_mod, unit_a, account, directory, log_a,
+                          display, xauthority)
         session_a, scope_a = wait_session(session_mod, account)
         print("RESEARCH_M59_REAL_GUI_PAM_SESSION_A_SCOPE", flush=True)
 
@@ -309,7 +341,8 @@ def exercise(counter_root, session_root, launcher_source):
               flush=True)
 
         started.append(unit_b)
-        start_gui_session(session_mod, unit_b, account, directory, log_b, display)
+        start_gui_session(session_mod, unit_b, account, directory, log_b,
+                          display, xauthority)
         session_b, scope_b = wait_session(
             session_mod, account, expected_other=session_a
         )
@@ -374,8 +407,6 @@ def exercise(counter_root, session_root, launcher_source):
             if sid and re.fullmatch(r"[A-Za-z0-9_-]{1,64}", sid):
                 invoke(root("loginctl", "terminate-session", sid),
                        check=False)
-        if x_permission:
-            invoke(["xhost", "-SI:localuser:" + account], check=False)
         if created_user:
             invoke(root("pkill", "-KILL", "-u", account), check=False)
             for _ in range(35):
