@@ -154,6 +154,10 @@ pub enum GraphEffectError {
 struct ObservationState {
     snapshot: GraphRunSnapshot,
     transitions: VecDeque<GraphRunTransition>,
+    // Private authority to report from a live graph-owned callback attempt.
+    // Closed by the child future's drop guard, even before the parent runner
+    // processes the JoinSet completion. Not part of a public snapshot.
+    recording_attempts: BTreeMap<String, u64>,
 }
 
 impl ObservationState {
@@ -232,22 +236,23 @@ pub struct GraphEffectRecorder {
     state: Arc<Mutex<ObservationState>>,
     operation_id: String,
     attempt: u64,
-    // A callback may clone its recorder into other async tasks. Close all
-    // clones when the actual graph-owned operation future finishes or drops,
-    // not only when the coordinator next observes a JoinSet result.
-    active: Arc<Mutex<bool>>,
 }
 
 /// Held by the actual graph-owned child future and dropped on completion,
-/// panic or cancellation. Lock ordering is active -> observation in both
-/// this guard's lifetime and the reporter's confirmation path.
+/// panic or cancellation. Its closure and every confirmation use the same
+/// observation mutex, so a cloned reporter cannot publish after closure.
 pub(crate) struct GraphEffectAttemptGuard {
-    active: Arc<Mutex<bool>>,
+    state: Arc<Mutex<ObservationState>>,
+    operation_id: String,
+    attempt: u64,
 }
 
 impl Drop for GraphEffectAttemptGuard {
     fn drop(&mut self) {
-        *self.active.lock().unwrap_or_else(PoisonError::into_inner) = false;
+        let mut state = self.state.lock().unwrap_or_else(PoisonError::into_inner);
+        if state.recording_attempts.get(&self.operation_id) == Some(&self.attempt) {
+            state.recording_attempts.remove(&self.operation_id);
+        }
     }
 }
 
@@ -264,15 +269,13 @@ impl GraphEffectRecorder {
         if cumulative == 0 {
             return Err(GraphEffectError::ZeroProgress);
         }
-        // Hold this guard through the mutation. A cloned reporter racing
-        // with the operation future's completion must never publish after
-        // its attempt guard has closed.
-        let active = self.active.lock().unwrap_or_else(PoisonError::into_inner);
-        if !*active {
-            return Err(GraphEffectError::InactiveAttempt);
-        }
+        // Callback completion and confirmations serialize through the same
+        // authoritative lock, even if the parent coordinator has not yet
+        // consumed the operation's JoinSet result.
         let mut state = self.state.lock().unwrap_or_else(PoisonError::into_inner);
-        if state.snapshot.phase != GraphRunPhase::Running {
+        if state.snapshot.phase != GraphRunPhase::Running
+            || state.recording_attempts.get(&self.operation_id) != Some(&self.attempt)
+        {
             return Err(GraphEffectError::InactiveAttempt);
         }
         let operation = state
@@ -367,6 +370,7 @@ impl GraphRunPublication {
                         session_expired: false,
                     },
                     transitions: VecDeque::new(),
+                    recording_attempts: BTreeMap::new(),
                 })),
             },
             nodes: names,
@@ -392,15 +396,17 @@ impl GraphRunPublication {
         let operation_id = self.nodes[index].clone();
         let attempt = state.snapshot.operations[&operation_id].attempt;
         debug_assert!(attempt > 0, "only dispatched attempts may confirm effects");
-        let active = Arc::new(Mutex::new(true));
         (
             GraphEffectRecorder {
                 state: Arc::clone(&self.observer.state),
+                operation_id: operation_id.clone(),
+                attempt,
+            },
+            GraphEffectAttemptGuard {
+                state: Arc::clone(&self.observer.state),
                 operation_id,
                 attempt,
-                active: Arc::clone(&active),
             },
-            GraphEffectAttemptGuard { active },
         )
     }
 
@@ -454,6 +460,11 @@ impl GraphRunPublication {
         }
         operation.state = next.clone();
         let attempt = operation.attempt;
+        if matches!(next, OperationState::Running) {
+            state.recording_attempts.insert(name.clone(), attempt);
+        } else {
+            state.recording_attempts.remove(name);
+        }
         state.push(GraphRunChange::Operation {
             operation_id: name.clone(),
             attempt,
