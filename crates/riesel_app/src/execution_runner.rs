@@ -459,7 +459,8 @@ impl ExecutionGraphRunner {
         let (sender, signal_rx) = mpsc::channel(MAX_PENDING_SIGNALS);
         Ok(Self {
             research_pending_cursor_enabled: std::env::var_os("RIESEL_RESEARCH_PENDING_CURSOR")
-                .is_some() || research_topological_cursor_enabled,
+                .is_some()
+                || research_topological_cursor_enabled,
             research_topological_cursor_enabled,
             research_order,
             research_pending_cursor: 0,
