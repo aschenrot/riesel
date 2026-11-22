@@ -148,12 +148,21 @@ pub struct NestedDomainRegistration {
 }
 
 impl NestedDomainRegistration {
-    pub(crate) fn live_owner(&self) -> Result<(String, Uuid, Weak<DomainLifetime>), NestedObservationError> {
-        let owner = self.lifetime.upgrade().ok_or(NestedObservationError::OwnerClosed)?;
+    pub(crate) fn live_owner(
+        &self,
+    ) -> Result<(String, Uuid, Weak<DomainLifetime>), NestedObservationError> {
+        let owner = self
+            .lifetime
+            .upgrade()
+            .ok_or(NestedObservationError::OwnerClosed)?;
         if !owner.live.load(Ordering::Acquire) {
             return Err(NestedObservationError::OwnerClosed);
         }
-        Ok((owner.domain.clone(), owner.generation, Arc::downgrade(&owner)))
+        Ok((
+            owner.domain.clone(),
+            owner.generation,
+            Arc::downgrade(&owner),
+        ))
     }
 }
 
@@ -194,7 +203,11 @@ impl<T> NestedStore<T> {
             NestedStatus::SessionExpired
         } else if self.retired.load(Ordering::Acquire) {
             NestedStatus::Superseded
-        } else if !self.owner.upgrade().is_some_and(|owner| owner.live.load(Ordering::Acquire)) {
+        } else if !self
+            .owner
+            .upgrade()
+            .is_some_and(|owner| owner.live.load(Ordering::Acquire))
+        {
             NestedStatus::OwnerClosed
         } else {
             NestedStatus::Current
@@ -242,7 +255,11 @@ impl<T: Send + Sync + 'static> NestedPublisher<T> {
         if state.retired.load(Ordering::Acquire) {
             return Err(NestedObservationError::Superseded);
         }
-        if !state.owner.upgrade().is_some_and(|owner| owner.live.load(Ordering::Acquire)) {
+        if !state
+            .owner
+            .upgrade()
+            .is_some_and(|owner| owner.live.load(Ordering::Acquire))
+        {
             return Err(NestedObservationError::OwnerClosed);
         }
         state.sequence = state
@@ -289,7 +306,10 @@ impl<T> NestedObserver<T> {
         }
     }
 
-    pub fn changes_since(&self, cursor: NestedCursor) -> Result<NestedTransitions, NestedObservationError> {
+    pub fn changes_since(
+        &self,
+        cursor: NestedCursor,
+    ) -> Result<NestedTransitions, NestedObservationError> {
         let state = self.source.lock().unwrap_or_else(PoisonError::into_inner);
         if cursor.owner_generation != state.description.owner_generation {
             return Err(NestedObservationError::StaleCursor);
@@ -307,7 +327,11 @@ impl<T> NestedObserver<T> {
         if status == NestedStatus::Superseded {
             return Err(NestedObservationError::Superseded);
         }
-        let first = state.transitions.front().copied().unwrap_or(state.sequence.saturating_add(1));
+        let first = state
+            .transitions
+            .front()
+            .copied()
+            .unwrap_or(state.sequence.saturating_add(1));
         Ok(NestedTransitions {
             latest: NestedCursor {
                 owner_generation: state.description.owner_generation,
@@ -315,7 +339,12 @@ impl<T> NestedObserver<T> {
             },
             truncated: cursor.sequence < first.saturating_sub(1),
             status,
-            sequences: state.transitions.iter().copied().filter(|i| *i > cursor.sequence).collect(),
+            sequences: state
+                .transitions
+                .iter()
+                .copied()
+                .filter(|i| *i > cursor.sequence)
+                .collect(),
         })
     }
 }
