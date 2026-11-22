@@ -1,12 +1,12 @@
 # #138 — Query architecture decision review
 
-**Research status:** recommendation for the owner to **accept, revise or defer**, not an accepted contract or an approved implementation. **Date:** 2026-11-22. 
+**Research status:** the owner **accepted the optional shared typed Query product direction** on 2026-11-22 ([#138 decision](https://github.com/aschenrot/riesel/issues/138#issuecomment-7073259869)); **the record interface is not accepted** and implementation remains unapproved. **Date:** 2026-11-22. 
 **Decision source:** [specification #138](https://github.com/aschenrot/riesel/issues/138). **Evidence:** [REPORT.md](REPORT.md), [DISCOVERY.md](DISCOVERY.md), [PLAN.md](PLAN.md), [Todo research PR #130](https://github.com/aschenrot/riesel/pull/130).
-**Code baselines:** PR #140 originates at `93b5188`; current `main` `29c90f5` changed execution-plan/runner sources, tests and product docs, not the tested Storage contracts. Research branch merge commit `09c6144` includes that revision. Verify its exact merged-tree CI independently.
+**Code baselines:** PR #140 originates at `93b5188`; it merged product-accepted `main` `06e82e0` (the PR #150 squash) into the research branch in `2c5f603`. Verify final exact-head CI independently. Only research sources, tests, workflow and test-only dependencies differ from integrated `main`.
 
 ## 1. Decision to be made — distinguish the product direction from mechanics
 
-**Product outcome to accept or revise:** Riesel applications should be able
+**Accepted product outcome:** Riesel applications should be able
 to request selective, bounded, correctly typed reads from capability-owned
 data through reusable authoring/validation semantics, **without** adopting
 one engine for every data domain or transferring authoritative data ownership.
@@ -16,15 +16,13 @@ by a research-only model in #130, **not** an accepted editor-product feature.
 Game-engine/ECS/spatial/live analytics remain boundary tests or optional
 future consumers, not a mandate to adopt relational semantics everywhere.
 
-Accepting that outcome is a **product owner choice**. Current accepted
-Riesel products do not already require universal SQL, federation,
-stream subscriptions, distributed snapshots or cross-process query access.
+The owner **accepted** the optional reusable semantics, not a universal Query engine, general SQL, federation, subscriptions, distributed snapshots or cross-process Query access. [PR #150](https://github.com/aschenrot/riesel/pull/150) integrated the product requirement; these specialized or remote features remain excluded unless separately accepted.
 
 ### Conditional recommendation
 
-**Recommend accepting an optional, transport-neutral typed query
-*semantic foundation* with domain/provider-owned execution**, without
-requiring one universal planner or every capability to implement it.
+**Accepted: optional, transport-neutral typed Query semantics with
+provider/domain-owned execution**, without a universal mandatory planner
+or requiring every capability to implement a Query interface.
 **Do not yet select the durable-record interface packaging.** A
 separately versioned read-designated facet co-exposed with Storage v2
 is the leading *linked-only candidate*, but tested SDK authoring shows
@@ -189,6 +187,8 @@ with equivalent guarantees. A unified Storage version remains a
 valid comparator. Do not authorize a public API based merely on the
 current research-only `ResearchReadView<T>` wrapper.
 
+**Interface comparison updated:** [INTERFACE_CONFORMANCE.md](INTERFACE_CONFORMANCE.md) tests model-only schema, writable Storage facade, independent aliases, lifecycle non-affinity, composite injection and co-exposure against the same application requirements. It also evaluates an **authority-scoped facet bundle** as a distinct potential hybrid; neither a wrapper nor a provider name proves security. [Research CI #44979080373](https://github.com/aschenrot/riesel/actions/runs/44979080373) passed **9/9** authoring and owner-binding probes.
+
 ## 3. Recommended *semantic invariants*, not a public AST
 
 1. **Logical owner and schema first.** A query identifies the
@@ -327,34 +327,12 @@ interface accidentally.
   an optional first read capability with domain-owned execution.
   It does not claim the first adapter meets every future domain.
 
-### Requested recorded owner decision (in #138)
+### Recorded owner decision and outstanding interface gate
 
-**Recommended: ACCEPT SHARED SEMANTIC DIRECTION; REVISE OR DEFER THE
-RECORD-INTERFACE PACKAGING UNTIL ITS MODEL/OWNER AUTHORING CONTRACT
-IS VERIFIED.** Confirm or revise two independent statements:
+**Product direction ACCEPTED (2026-11-22):** optional shared typed Query semantics, domain-owned execution and no mandatory universal engine. The [authoritative product definition](https://github.com/aschenrot/riesel/blob/main/docs/product/riesel/riesel.md) contains the accepted outcome via [merged PR #150](https://github.com/aschenrot/riesel/pull/150).
 
-1. **Product:** Riesel should provide *optional reusable typed Query
-   semantics* for capability-owned application data across plausible
-   consumers, while preserving specialized/domain-owned execution.
-   It is not required that all capabilities use one Query protocol.
-2. **Architecture (conditional):** prefer a separately versioned
-   read-designated facet co-exposed with Storage v2 for the initial
-   *linked* record profile, **provided its authority pairing and
-   authoring ergonomics are explicitly specified and tested**. The
-   interface specification must compare this against a unified or
-   attenuated Storage facet on those criteria. No mandatory universal
-   planner, immediate Storage v3 migration, or physical co-location
-   requirement for future trusted proxies/replicas is implied.
-   Remote authorization and index lifecycle are distinct supported
-   gates and must fail closed until approved.
+**Record-interface packaging NOT accepted:** The remaining #138 decision should choose between (a) a separately versioned read-designated facet with model-only declaration and an explicitly verified authority/facet-group relation, (b) a genuinely least-privilege unified/attenuated Storage realization, or (c) a justified competing hybrid/deferral. [Same-task comparative analysis](INTERFACE_CONFORMANCE.md) includes **nine research-only authoring tests**; it is not a public contract.
 
-**Reasonable revision (now favored by authoring evidence):** Accept
-only the optional semantic foundation, and require a targeted interface
-specification to prove read-only typed model registration and fail-closed
-query/writer authority binding before selecting a separate read facet,
-unified Storage or a composite/attenuated variant. **Reasonable deferral:** if the intended
-product scope truly ends at Todo, record that constraint and
-deliver a domain-owned read contract rather than an unjustified
-platform-wide Query requirement.
+**First linked release boundaries:** Reuse Storage v2, permit read-only typed model declaration without a writer, fail closed on query/write owner mismatch, preserve typed budgets/errors, use Memory/SQLite provider-owned execution, and deny unverified remote reader attachment. Any shared authority relation should be applicable beyond Query **only if independently justified**; preserve #75 ownership of external identity and authorization.
 
-No owner decision is inferred from a green test or this research PR.
+**No public Query AST, method/trait name, wire protocol, model-permission credential, physical index migration, remote query service or implementation issue is approved.** Keep #138 open and PR #140 draft until the record-interface decision is recorded.

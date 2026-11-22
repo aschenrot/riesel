@@ -1,6 +1,6 @@
 # General Query architecture — evidence and cross-domain assessment (#138)
 
-**Research date:** 2026-11-22 (Europe/Berlin). **State:** **decision-review comparative research**, not an owner-accepted architecture, an exhaustive systematic literature review or an implementation. The optional shared semantic direction is recommended; the record-interface packaging remains explicitly undecided.
+**Research date:** 2026-11-22 (Europe/Berlin). **State:** **owner accepted the optional shared typed Query product direction** ([#138 decision](https://github.com/aschenrot/riesel/issues/138#issuecomment-7073259869)); the concrete record-interface architecture remains undecided. This is comparative research, not implementation, remote security proof or an exhaustive systematic literature review.
 **Code/contract baseline:** PR #140 originally branched from `aschenrot/riesel` `main` `93b5188d122f5fa35a3bf047d6d068995c1d74b5`. Rechecked current `main` `29c90f5285f99022badac4af50aa3e57f719d3cc` on 2026-11-22: its changes affect execution-plan/runner examples, tests, Cargo metadata, product documents and roadmap, **not** the Storage/model/provider contracts exercised by these fixtures. The research branch merged that main revision in commit `09c6144acc843664d550629915a793971d726370`. The merged-tree validation is tracked independently from earlier research commits. [spec #138](https://github.com/aschenrot/riesel/issues/138); [plan](PLAN.md); [discovery log](DISCOVERY.md). Other research cited below is **not merged into this baseline**.
 **Audience/outcome:** Rust application authors requiring honest selective reads over capability-owned data, starting with Todo. Whether other users need one shared cross-domain Query interface is **not yet an accepted requirement**.
 
@@ -417,7 +417,7 @@ The decision *could* change with:
 3. Complete the now-tested SDK authoring comparison with explicit
    model-only registration, same-data-authority preflight/session checks,
    and read-only permission enforcement versus co-exposed/unified
-   Storage; 6/6 research binding/authoring tests are not an accepted API;
+   Storage; 9/9 research binding/authoring tests verify gaps, not a public API;
 4. Establish real provider-native bounded index and cancellation behavior under Riesel ownership, not just scratch SQLite; then test managed placement and authorization before claiming remote support;
 5. If broad analytics, search, federation or ECS adapter becomes an
    accepted requirement, its distinct owner/consistency/performance
@@ -441,8 +441,8 @@ federation engine or analytics runtime is a prerequisite for Todo.
 - Typed provider research: run **cargo test -p todo --test query_architecture_research -- --nocapture**. [Research CI #44968670157](https://github.com/aschenrot/riesel/actions/runs/44968670157) passed two Rust tests against Memory and SQLite at earlier commit **a3aa116c**. The interpreter filters retrieved v2 data in Rust, not inside either provider.
 - Provider-authored SQLite native SQL experiment: `cargo test -p riesel_storage_sqlite --test query_architecture_research -- --nocapture`. [Research CI #44971511998](https://github.com/aschenrot/riesel/actions/runs/44971511998) passed **4/4 native SQL Rust tests** at head `2404ec84b62f2d47fb23ea644a8930e14b4ce411`, covering precise integer tokens, missing/null, incorrect lexical numeric sort, UUID spelling mismatch, forced scratch index and connection-local interrupted read. Bundled SQLite is **3.54.1**. SQL is executed **directly on a released disposable provider file**, not through a published Query operation.
 - Sparse-query cost: `python3 research/query-architecture/probes/sqlite_cost_budget.py`. [Research CI #44972111565](https://github.com/aschenrot/riesel/actions/runs/44972111565) passed 3/3 work-budget, parity and scratch index-maintenance tests at earlier commit `dc8a4a4`, Python SQLite 3.46.1; not a provider-native/query-transport SLA.
-- Decision-review document: [DECISION_REVIEW.md](DECISION_REVIEW.md), authored for owner acceptance/revision, **not** an approved product contract.
-- SDK authoring and linked owner semantics: `cargo test -p todo --test query_instance_binding_research -- --nocapture`. [Research CI #44976893605](https://github.com/aschenrot/riesel/actions/runs/44976893605) passed **6/6 tests** at revision `b74f5276`. The fixture demonstrates a read-only model declaration gap, extra aliases, and the fact that `depends_on` never implies shared data authority.
+- Decision-review document: [DECISION_REVIEW.md](DECISION_REVIEW.md), updated with accepted product scope but unresolved interface. [INTERFACE_CONFORMANCE.md](INTERFACE_CONFORMANCE.md) compares the same authored tasks and physical/permission gaps.
+- SDK authoring and linked owner semantics: `cargo test -p todo --test query_instance_binding_research -- --nocapture`. [Research CI #44979080373](https://github.com/aschenrot/riesel/actions/runs/44979080373) passed **9/9 tests** at revision `e09e27f`. The fixture demonstrates the model-only schema, read-only high-level declaration gap, extra aliases, lifecycle non-affinity, split/composite read-your-writes and the mutating Storage contract retained by a Rust-only read facade.
 - Comparative claims: upstream documentation links in
   `DISCOVERY.md`. **Not verified** here: legal licensing audit,
   upstream package MSRV at pinned Rust 1.100, actual integration
@@ -455,5 +455,4 @@ federation engine or analytics runtime is a prerequisite for Todo.
 
 **Research-stage inference:** A precise shared *typed* query vocabulary could plausibly support durable model operations across Memory and SQLite **without** imposing a universal execution engine. It cannot delegate type safety to SQL's ordinary numeric conversions, JSON text ordering or string UUID equality. This supports specifying a coherent logical semantics/evaluation boundary first, but **does not select an independently published Query capability, Storage v3, a read-only facet or any production API**. The external trust and session gap remains material.
 
-**No owner accept/revise/defer/reject decision has been recorded by
-this research report; #138 remains open and this PR remains draft.**
+**The owner accepted the shared semantic product direction on 2026-11-22, but has not accepted the record-interface architecture.** [INTERFACE_CONFORMANCE.md](INTERFACE_CONFORMANCE.md) supplies same-task comparative evidence; #138 and this research PR remain open/draft until the interface decision and corresponding accepted contract are recorded.
