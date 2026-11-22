@@ -1,8 +1,9 @@
-# Offline execution graph inspection — research #248
+# Execution graph inspection — offline and live research #248
 
-**Status:** Research-only visual read-model proof. Neither a supported live
-attachment nor a new SDK/wire format, publisher, credential, frontend standard
-or completed GUI implementation issue. Do not use this untrusted JSON file as an
+**Status:** Research-only visual read-model proof, with an optional **unprotected
+loopback live reader**. Neither an authenticated or supported external attachment,
+nor a new SDK/wire format, publisher, credential, frontend standard, or completed
+GUI implementation issue. Do not use this untrusted JSON file as an
 S2 executable source, a session token or permission to call the application.
 
 ## Reproduce from the current repository
@@ -29,6 +30,42 @@ existing locked Playwright dependency run in the separate research CI:
 node research/gui-boundary/browser-test.mjs graph.json
 ```
 
+## View a real running graph (optional local research adapter)
+
+Run the same example from the repository root. On Windows PowerShell, enter
+the command on **one line**:
+
+```powershell
+cargo run --locked -p riesel --features async-tcp --example execution_graph_inspection_export -- --live 45
+```
+
+The example prints a unique local URL in the form
+`http://127.0.0.1:<OS-selected-port>/`. Open that URL in a desktop browser
+while the command is running. The viewer automatically reads the live Riesel
+`GraphRunObserver` snapshot every 500 ms; no file selection or GUI-driven
+execution is required. The backend starts admission after three seconds,
+executes two parallel delayed operations followed by their dependency join,
+and retains the finished state for the requested 45 seconds. The final
+argument is the post-execution hold period (1–600 seconds). Once the process
+ends, the browser must indicate disconnection/staleness. Closing or reopening
+a browser does not stop the application.
+
+This server is **not protected against other programs running under the same
+user account**. It is a deliberately limited, GET-only, read-only **research**
+adapter bound to `127.0.0.1` on an OS-selected port, with exact Host checking,
+same-origin browser behavior, no cross-origin grant and no executable mutation
+routes. Origin restrictions and loopback do **not** constitute caller
+authentication. Do not place sensitive application data behind this adapter,
+treat the session UUID as a secret, or use it as a public/privileged GUI
+transport. No permanent Riesel GUI API, server dependency, or production
+security contract is established.
+
+The CI smoke executes the actual headless Rust graph and independent
+Chromium clients, verifies current snapshots, disconnection safety boundaries,
+read-only methods, independent browser detach/reopen and multiple readers,
+and retains real screenshots. The native/Bevy/web frontend decision remains
+separate from the authoritative observation boundary.
+
 ## What this proves
 
 - The existing **real** Riesel session-owned execution graph produces an
@@ -45,15 +82,17 @@ node research/gui-boundary/browser-test.mjs graph.json
 
 ## What this deliberately does not prove
 
-- **No live attachment or discovery:** this is a completed-run file export;
-  there is no reconnect, current-session readiness, event subscription or
-  source of fresh snapshots after the export.
-- **No authenticated principal, grant or transport:** file access inherits
-  local filesystem/browser policy. Same-user file readers are not isolated.
+- **No supported authenticated attachment/discovery:** the live example
+  has a local read-only snapshot endpoint and browser reconnect-by-URL, but no
+  independently verified client identity, grant, published interface readiness,
+  subscription, protocol stability or application recovery reattachment.
+- **No authenticated principal or grant:** offline file access inherits
+  local filesystem/browser policy; the live loopback adapter is accessible
+  to other local processes. Same-user readers are not isolated.
   The serialized runtime generation is correlation, not a credential.
 - **No accepted GUI schema:** the version label is restricted to this research
-  fixture. Its serializer is manually authored and duplicates a little display
-  mapping; there is no new exported Rust DTO or reusable app exporter yet.
+  fixture. Its read-only serializer is manually authored; there is no new
+  exported Rust DTO or reusable app exporter yet.
 - **No graphical editor or activation:** the GUI cannot publish, mutate, step,
   schedule, activate or import executable plans.
 - **No full scale/portability proof:** the UI caps imports at 2 MiB, 256
