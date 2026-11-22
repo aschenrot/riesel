@@ -56,3 +56,12 @@ The same `query_instance_binding_research` target now has **nine** experiments. 
 ## Strict schema compatibility for Query/writer affinity
 
 [Research CI #44979470753](https://github.com/aschenrot/riesel/actions/runs/44979470753) passed **10/10** `query_instance_binding_research` tests, including a tenth negative experiment: the existing application-schema parser rejects a proposed authority-relation field, and its `model_bindings` list can include read and write aliases without encoding their roles or proving shared data identity. This supports a first-party schema/compatibility design gate, **not** a specific new field/API or production schema migration. Compare against the one-handle Storage alternative in [INTERFACE_CONFORMANCE.md](../INTERFACE_CONFORMANCE.md).
+
+
+## Genuine provider-side Storage denial alternative (unified interface comparator)
+
+The same query_instance_binding_research target now includes an **eleventh** isolated test. A real generated Storage v2 local handle sends a create request to a test-only provider-side adapter, which returns an explicit research denial and keeps its MemoryStore unchanged; list_page remains usable. This contrasts with the earlier Rust-only read facade: **the provider actually refuses the write**, so enforcement is not intrinsically impossible behind one unified contract.
+
+However, the published Storage v2 contract still advertises the create/update/delete commands, the denial uses a **generic** StoreError::Failed rather than a stable authorization error, and this test configures one restriction **for the whole provider**, not independently verified read-only and read/write clients on the same instance. No principal/issuer/epoch, model-level authorization, real managed process, external transport, query execution or public read attenuation is implemented. Refer to [INTERFACE_CONFORMANCE.md](../INTERFACE_CONFORMANCE.md) for the fair T1–T5 comparison and exact architecture decision gate.
+
+Run: cargo test -p todo --test query_instance_binding_research -- --nocapture. Exact-head CI must pass separately; an earlier research pass cannot cover subsequent formatting or documentation revisions.
