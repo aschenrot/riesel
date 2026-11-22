@@ -105,17 +105,27 @@ acknowledgement within its active graph attempt.
 
 A trusted in-process reader uses
 `observer.nested_description("frame")` to discover the optional view and
-its owner generation / parent address / payload version. A known typed view
-is acquired by `observer.nested::<T>("frame", version)`; absence returns
+its owner generation / parent address / payload version. A **generic** reader
+may instead use `observer.nested_header("frame")`, whose
+`NestedHeaderObserver::snapshot()` exposes owner-attributed
+`NestedViewInfo { description, latest, status }` and whose
+`changes_since(NestedCursor { owner_generation, sequence })` handles
+the same bounded owner-local event-loss semantics **without knowing `T`**.
+This is the reusable common status/timeline envelope; it does not reveal
+an engine-specific payload or an internal scheduler.
+
+A known typed view is acquired by
+`observer.nested::<T>("frame", version)`; absence returns
 `None`, unsupported versions and mismatched Rust payload types are explicit
-errors. `NestedObserver<T>` supports `snapshot()` and
+errors. `NestedObserver<T>` likewise supports `snapshot()` and
 `changes_since(NestedCursor { owner_generation, sequence })`, with no
-publisher or control authority. A current snapshot contains the latest
+publisher or control authority. A typed snapshot contains the latest
 `Option<Arc<T>>` and owner-local high-water sequence; its state is
 `Unpublished`, `Current`, `OwnerClosed`, `Superseded`, or
 `SessionExpired`. Replacement invalidates older attachments and old
 publishers. Closing the domain does **not** erase an already copied last
-snapshot; expiring the Riesel session is visible independently.
+snapshot; expiring the Riesel session also invalidates subsequent publisher
+updates and is visible independently to both generic and typed readers.
 
 - **Bounded notifications:** each attached source retains at most
   `MAX_NESTED_TRANSITIONS = 64` increasing sequence numbers (no copies of
