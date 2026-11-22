@@ -53,6 +53,9 @@ jobs:
           target/debug/examples/v2_artifact_new "$scratch/plans.sqlite" "$scratch/old-backup.sqlite"
       - name: Smoke test runtime and managed providers
         run: cargo smoke
+      - name: Temporary A1 release profiling for accepted #253 (remove before merge)
+        if: ${{ github.event_name == 'pull_request' && github.head_ref == 'impl/253-scheduler-ready-eligibility' }}
+        run: cargo test --locked --release -p riesel --features async-tcp --test execution_eligibility -- --nocapture --test-threads=1
 
   windows:
     if: ${{ github.event_name == 'workflow_dispatch' && inputs.windows }}
