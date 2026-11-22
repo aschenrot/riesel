@@ -1,6 +1,8 @@
 pub mod app;
 #[cfg(feature = "async-tcp")]
 mod async_tasks;
+#[cfg(all(test, feature = "internal-publication"))]
+mod internal_publication_tests;
 mod catalog;
 mod component;
 mod deployment;
