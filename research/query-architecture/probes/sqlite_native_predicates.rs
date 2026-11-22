@@ -187,8 +187,7 @@ fn isolated_expression_index_can_support_exact_u64_without_proving_auto_planning
          records(model, (CAST(data AS TEXT) -> '$.big'), id);",
     )
     .unwrap();
-    let sql =
-        "SELECT id FROM records INDEXED BY research_exact_big_idx
+    let sql = "SELECT id FROM records INDEXED BY research_exact_big_idx
          WHERE model=?1 AND (CAST(data AS TEXT) -> '$.big')=?2
          ORDER BY id LIMIT 2";
     assert_eq!(
@@ -199,18 +198,23 @@ fn isolated_expression_index_can_support_exact_u64_without_proving_auto_planning
         select_ids(&conn, sql, params![MODEL, (u64::MAX - 1).to_string()]),
         vec![ids[1]]
     );
-    let mut stmt = conn.prepare(
-        "EXPLAIN QUERY PLAN SELECT id FROM records
+    let mut stmt = conn
+        .prepare(
+            "EXPLAIN QUERY PLAN SELECT id FROM records
          INDEXED BY research_exact_big_idx
          WHERE model=?1 AND (CAST(data AS TEXT) -> '$.big')=?2
          ORDER BY id LIMIT 2",
-    ).unwrap();
+        )
+        .unwrap();
     let plans: Vec<String> = stmt
         .query_map(params![MODEL, u64::MAX.to_string()], |row| row.get(3))
         .unwrap()
         .map(Result::unwrap)
         .collect();
-    assert!(plans.iter().any(|p| p.contains("research_exact_big_idx")), "{plans:?}");
+    assert!(
+        plans.iter().any(|p| p.contains("research_exact_big_idx")),
+        "{plans:?}"
+    );
     println!("forced expression-index plan: {plans:?}");
     // INDEXED BY requires the index, so no automatic planner or latency
     // performance guarantee follows from this experiment.
