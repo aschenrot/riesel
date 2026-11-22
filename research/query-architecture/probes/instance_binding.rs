@@ -172,7 +172,8 @@ impl<T: RieselModel> riesel::ApplicationParam for ResearchReadView<T> {
 
     fn declare(application: Application, alias: &str) -> riesel::Result<Application> {
         <Capability<ResearchReadOnlyContract> as riesel::ApplicationParam>::declare(
-            application, alias,
+            application,
+            alias,
         )
     }
 
@@ -189,10 +190,12 @@ impl<T: RieselModel> riesel::ApplicationParam for ResearchReadView<T> {
 #[test]
 fn research_typed_read_parameter_requires_no_writer_but_lacks_model_registration() {
     let ready = Application::new("ResearchOnlyReadView")
-        .handler(|reader: ResearchReadView<TaskData>| -> Result<(), StoreError> {
-            assert_eq!(reader.count()?, 0);
-            Ok(())
-        })
+        .handler(
+            |reader: ResearchReadView<TaskData>| -> Result<(), StoreError> {
+                assert_eq!(reader.count()?, 0);
+                Ok(())
+            },
+        )
         .unwrap();
     assert_eq!(ready.definition().requires.len(), 1);
     assert!(
@@ -200,7 +203,11 @@ fn research_typed_read_parameter_requires_no_writer_but_lacks_model_registration
         "research-only ApplicationParam did not register the typed model"
     );
     assert!(ready.definition().model_bindings.is_empty());
-    ready.provider(reader_only("research.readonly.local")).unwrap().run().unwrap();
+    ready
+        .provider(reader_only("research.readonly.local"))
+        .unwrap()
+        .run()
+        .unwrap();
 }
 
 #[test]
@@ -209,8 +216,16 @@ fn compared_authoring_shapes_show_distinct_model_and_alias_tradeoffs() {
         .handler(|_records: riesel::Records<TaskData>| -> Result<(), StoreError> { Ok(()) })
         .unwrap();
     assert_eq!(writer.definition().requires.len(), 1);
-    assert!(writer.definition().models.contains_key(TaskData::MODEL_NAME));
-    assert_eq!(writer.definition().model_bindings[TaskData::MODEL_NAME], ["storage"]);
+    assert!(
+        writer
+            .definition()
+            .models
+            .contains_key(TaskData::MODEL_NAME)
+    );
+    assert_eq!(
+        writer.definition().model_bindings[TaskData::MODEL_NAME],
+        ["storage"]
+    );
     // Records<T> also exposes create/update/delete, even for read-only use.
 
     let combined = Application::new("ResearchPairShape")
@@ -222,8 +237,17 @@ fn compared_authoring_shapes_show_distinct_model_and_alias_tradeoffs() {
         )
         .unwrap();
     assert_eq!(combined.definition().requires.len(), 2);
-    assert_eq!(combined.definition().model_bindings[TaskData::MODEL_NAME], ["writer"]);
+    assert_eq!(
+        combined.definition().model_bindings[TaskData::MODEL_NAME],
+        ["writer"]
+    );
     // There is no relation in today's schema saying that "read" resolves
     // against the same logical data authority as "writer".
-    assert!(combined.definition().requires.iter().all(|r| r.name == "writer" || r.name == "read"));
+    assert!(
+        combined
+            .definition()
+            .requires
+            .iter()
+            .all(|r| r.name == "writer" || r.name == "read")
+    );
 }
