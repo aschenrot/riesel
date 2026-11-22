@@ -1,8 +1,8 @@
 # Riesel #111 — visual plan edit/round-trip research on the current plan API
 
 **Status:** RESEARCH ONLY; no owner acceptance, implementation contract or public
-document format is claimed. Baseline: \`main\` at
-\`b8ffe4b6d6400315c65d0649527721654c4bff87\` (2026-11-22).
+document format is claimed. Baseline: `main` at
+`b8ffe4b6d6400315c65d0649527721654c4bff87` (2026-11-22).
 Associated specification: [#111](https://github.com/aschenrot/riesel/issues/111).
 Independent user-facing graphical inspection: [#114](https://github.com/aschenrot/riesel/issues/114).
 
@@ -23,11 +23,11 @@ it is not grounds to remove graph editing from this comparison.
 
 ## 2. Verified production baseline (source audit)
 
-- \`crates/riesel_app/src/execution_plan.rs\` defines
-  \`ExecutionPlanDraft\`, \`OperationNode\`, immutable
-  \`ValidatedExecutionPlan\`, exact-key \`OperationRegistry<H>\`,
-  \`BoundExecutionPlan<H>\` and process-local \`PlanRevisionCatalog\`.
-- \`ExecutionPlanDescription\` and its nodes implement **Serialize, not
+- `crates/riesel_app/src/execution_plan.rs` defines
+  `ExecutionPlanDraft`, `OperationNode`, immutable
+  `ValidatedExecutionPlan`, exact-key `OperationRegistry<H>`,
+  `BoundExecutionPlan<H>` and process-local `PlanRevisionCatalog`.
+- `ExecutionPlanDescription` and its nodes implement **Serialize, not
   Deserialize**. The description explicitly disclaims executable imports,
   a document ABI and visual-editor round-trip. This is a *read-only
   inspection projection*, not an approved source document.
@@ -40,9 +40,9 @@ it is not grounds to remove graph editing from this comparison.
   execution and observation are delivered in #110/#112/#113. #146/#153
   add optional owner-published nested *read-only* observation, not editable
   ECS system schedules or domain-internal controls.
-- \`docs/product/riesel/execution-plan-contract.md\` explicitly defers
+- `docs/product/riesel/execution-plan-contract.md` explicitly defers
   code-vs-document ownership, layout/version boundaries, typed dataflow and
-  editor publication. Current app/Provider \`AppSchema\` is NOT this graph.
+  editor publication. Current app/Provider `AppSchema` is NOT this graph.
 - Earlier [#83 research report Gate G](https://github.com/aschenrot/riesel/blob/chore/83-scheduler-research/research/execution-scheduler/REPORT.md)
   tested a **separate research runner** with a versioned document,
   registered operations, negative cases, mock typed-edge checks and known
@@ -66,17 +66,17 @@ reason to add untested layers. A remains valid for code-only applications.
 
 ## 4. Narrow test prototype against the *actual* production plan
 
-\`crates/riesel_app/tests/visual_editor_roundtrip_research.rs\` defines a
+`crates/riesel_app/tests/visual_editor_roundtrip_research.rs` defines a
 **test-only** explicitly strict document adapter that reconstructs real
-\`ExecutionPlanDraft\` / \`OperationNode\` values and binds them through the
-existing \`OperationRegistry\`. No production type, parser, public API or
+`ExecutionPlanDraft` / `OperationNode` values and binds them through the
+existing `OperationRegistry`. No production type, parser, public API or
 runner is changed.
 
 Research questions and expected assertions (CI must verify them):
 
 1. A code-authored headless/event-driven pipeline and a JSON-round-tripped
    declarative equivalent yield **identical actual production plan
-   descriptions**. Its simulation \`DelegatedFrame\` remains domain-owned.
+   descriptions**. Its simulation `DelegatedFrame` remains domain-owned.
 2. Parsing/validating/binding a registered operation is passive; executable
    callbacks are not called. Missing or changed Rust operation versions
    fail closed. A document never supplies executable Rust code.
@@ -95,9 +95,9 @@ code round-trip, durable storage, concurrent editors, permission checks,
 authenticated external publication or safe code generation. Test fixtures
 cannot establish a stable public format merely by successfully serializing.
 
-**Reproduction:** run \`cargo test --locked -p riesel_app --test
-visual_editor_roundtrip_research\`, followed by \`cargo validate --check\`
-and \`cargo smoke\` at the exact branch head. An independent Rust toolchain
+**Reproduction:** run `cargo test --locked -p riesel_app --test
+visual_editor_roundtrip_research`, followed by `cargo validate --check`
+and `cargo smoke` at the exact branch head. An independent Rust toolchain
 is not available to the session executing this research; GitHub CI must
 be checked before marking tests passed. Do not merge the research branch
 as production architecture.
@@ -110,7 +110,7 @@ as production architecture.
   modify *admitted* signal/resource/domain metadata and validate the entire
   graph again. No partial execution of an invalid edit.
 - An operation catalog must expose **editor-safe authoring descriptors**
-  controlled by the application publisher. Existing \`OperationRegistry<H>\`
+  controlled by the application publisher. Existing `OperationRegistry<H>`
   exposes executable closures by key; it is not by itself an authenticated,
   independent-process catalog, operation permission declaration or
   schema for editable parameters.
@@ -141,7 +141,7 @@ as production architecture.
    owns a code/document plan; how a reader verifies it without launching
    untrusted code; where a persistent semantic ID/revision is stored; how
    concurrent editor compare-and-set and distinct app installations are
-   differentiated. A \`PlanRevisionCatalog\` is process-local, not a
+   differentiated. A `PlanRevisionCatalog` is process-local, not a
    persistent globally authoritative registry.
 2. **Operation-catalog descriptors:** which parameters and resource/
    ownership declarations are safe to expose and edit, and whether metadata
@@ -169,7 +169,7 @@ as production architecture.
 ## 7. Bias and decision gate
 
 - **Against short-term bias:** do not choose A solely because current
-  \`ExecutionPlanDraft\` is Rust-only; that would fail accepted long-term
+  `ExecutionPlanDraft` is Rust-only; that would fail accepted long-term
   visual edit/execution.
 - **Against speculative abstraction bias:** C must not become a universal
   workflow language, second provider resolver, process manager, typed
