@@ -136,7 +136,6 @@ fn diagnostic_graph_size_samples_preserve_authoritative_results() {
     });
 }
 
-
 #[test]
 fn external_fixed_step_proposals_are_distinct_one_shot_runs_not_replay() {
     runtime().block_on(async {
