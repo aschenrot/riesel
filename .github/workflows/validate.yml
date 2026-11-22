@@ -41,6 +41,27 @@ jobs:
         run: cargo test --locked -p riesel_storage_sqlite --test v2_backup
       - name: Smoke test runtime and managed providers
         run: cargo smoke
+      - name: Research #226 actual-runner ready-index correctness (draft only)
+        if: ${{ github.event_name == 'pull_request' && github.head_ref == 'research/226-event-driven-ready-index' }}
+        run: |
+          cargo test -p riesel --features async-tcp --test scheduler_ready_index_research -- --nocapture --test-threads=1
+          RIESEL_RESEARCH_READY_INDEX=1 cargo test -p riesel --features async-tcp --test scheduler_ready_index_research -- --nocapture --test-threads=1
+          RIESEL_RESEARCH_READY_INDEX=1 cargo test -p riesel --features async-tcp --test execution_runner
+          RIESEL_RESEARCH_READY_INDEX=1 cargo test -p riesel --features async-tcp --test execution_domains
+          RIESEL_RESEARCH_READY_INDEX=1 cargo test -p riesel --features async-tcp --test execution_nested
+      - name: Research #226 A/B/B/A release ready-index measurements (draft only)
+        if: ${{ github.event_name == 'pull_request' && github.head_ref == 'research/226-event-driven-ready-index' }}
+        env:
+          RIESEL_RESEARCH_READY_COUNTS: "1"
+        run: |
+          echo "research #226 ready A1 baseline"
+          cargo test -p riesel --release --features async-tcp --test scheduler_ready_index_research ready_index_differential_shapes -- --nocapture --test-threads=1
+          echo "research #226 ready B1 derived index"
+          RIESEL_RESEARCH_READY_INDEX=1 cargo test -p riesel --release --features async-tcp --test scheduler_ready_index_research ready_index_differential_shapes -- --nocapture --test-threads=1
+          echo "research #226 ready B2 derived index"
+          RIESEL_RESEARCH_READY_INDEX=1 cargo test -p riesel --release --features async-tcp --test scheduler_ready_index_research ready_index_differential_shapes -- --nocapture --test-threads=1
+          echo "research #226 ready A2 baseline"
+          cargo test -p riesel --release --features async-tcp --test scheduler_ready_index_research ready_index_differential_shapes -- --nocapture --test-threads=1
 
   windows:
     if: ${{ github.event_name == 'workflow_dispatch' && inputs.windows }}
