@@ -127,7 +127,10 @@ class Gateway:
             return {"error": "stale_gateway_epoch"}
         if op not in ("value", "add"):
             return {"error": "not_published"}
-        if op == "add" and request.get("arguments") != {"amount": request.get("arguments", {}).get("amount")}:
+        if op == "add" and (
+            not isinstance(request.get("arguments"), dict)
+            or set(request["arguments"]) != {"amount"}
+        ):
             return {"error": "invalid_arguments"}
         if op == "add":
             amount = request.get("arguments", {}).get("amount")
@@ -147,7 +150,7 @@ class Gateway:
                 return {"error": "test_gate_timeout"}
         with self.lock:
             if op not in self.allowed.get(credential["uid"], set()):
-                return {"error": "not_authorized", "observed_uid": credential["uid"]}
+                return {"error": "not_authorized", "observed_uid": credential["uid"], "observed_pid": credential["pid"]}
             try:
                 # Prevent the admin revocation from returning while an
                 # already admitted synchronous request is dispatching.
@@ -155,7 +158,7 @@ class Gateway:
                 result = call_counter(self.endpoint, op, request.get("arguments"))
             except (OSError, EOFError, TimeoutError) as exc:
                 return {"error": "outcome_unknown", "detail": type(exc).__name__}
-            return {"result": result, "observed_uid": credential["uid"]}
+            return {"result": result, "observed_uid": credential["uid"], "observed_pid": credential["pid"]}
 
     def admin(self, request):
         with self.lock:
