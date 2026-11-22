@@ -147,7 +147,7 @@ fn native_record_query_and_storage_v2_share_one_confirmed_writer() {
                 let typed = reader.page(None, 16, 16, None)?;
                 assert_eq!(typed.records.len(), 1);
                 assert_eq!(typed.records[0].value.title, "Committed");
-                assert_eq!(typed.records[0].value.completed, false);
+                assert!(!typed.records[0].value.completed);
                 Ok(())
             },
             ["read", "writer"],
