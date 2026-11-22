@@ -2,8 +2,8 @@
 //! observer. No scheduler, provider resolver, GUI renderer, or graph-control
 //! handle is created. Publication is a separate deliberate T1 application act.
 use crate::{
-    GraphRunChange, GraphRunIdentity, GraphRunObserver, GraphRunPhase, OperationState,
-    ValidatedExecutionPlan, capability, RieselType,
+    GraphRunChange, GraphRunIdentity, GraphRunObserver, GraphRunPhase, OperationState, RieselType,
+    ValidatedExecutionPlan, capability,
 };
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
@@ -263,7 +263,9 @@ impl ExecutionGraphRead for ExecutionGraphReadFacade {
                         control_mode: None,
                     },
                     GraphRunChange::Operation {
-                        operation_id, attempt, state,
+                        operation_id,
+                        attempt,
+                        state,
                     } => {
                         let (name, failure) = state_name(&state);
                         GraphReadEvent {
@@ -281,7 +283,10 @@ impl ExecutionGraphRead for ExecutionGraphReadFacade {
                         }
                     }
                     GraphRunChange::ConfirmedPrefix {
-                        operation_id, attempt, stream, cumulative,
+                        operation_id,
+                        attempt,
+                        stream,
+                        cumulative,
                     } => GraphReadEvent {
                         sequence: event.sequence,
                         kind: "confirmed_prefix".into(),
