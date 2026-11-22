@@ -54,13 +54,6 @@ pub use application::{
 };
 #[cfg(feature = "records")]
 pub use records::{QueryPage, Record, RecordPage, Records};
-#[cfg(feature = "experimental-typed-dataflow")]
-pub use riesel_app::{
-    AsyncTypedOperation, LocalPort, LocalPortType, PreparedTypedExecution, TypedEdge,
-    TypedExecutionGraphRunner, TypedExecutionPlan, TypedGraphError, TypedGraphRunReport,
-    TypedInputs, TypedOperationFuture, TypedOperationOutcome, TypedOperationRegistry,
-    TypedOperationSpec, TypedOutputs, typed_operation,
-};
 #[cfg(feature = "async-tcp")]
 pub use riesel_app::{
     AsyncOperation, ExecutionGraphRunner, GraphControlError, GraphControlMode, GraphControlTarget,
@@ -76,6 +69,13 @@ pub use riesel_app::{
 };
 #[cfg(feature = "async-tcp")]
 pub use riesel_app::{AsyncTasks, ProviderBlocking, ProviderBlockingError, ProviderCancellation};
+#[cfg(feature = "experimental-typed-dataflow")]
+pub use riesel_app::{
+    AsyncTypedOperation, LocalPort, LocalPortType, PreparedTypedExecution, TypedEdge,
+    TypedExecutionGraphRunner, TypedExecutionPlan, TypedGraphError, TypedGraphRunReport,
+    TypedInputs, TypedOperationFuture, TypedOperationOutcome, TypedOperationRegistry,
+    TypedOperationSpec, TypedOutputs, typed_operation,
+};
 #[cfg(feature = "async-tcp")]
 pub use rpc_connector::AsyncRpcConnector;
 pub use rpc_connector::RpcConnector;
