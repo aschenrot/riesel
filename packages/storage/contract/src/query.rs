@@ -487,7 +487,11 @@ mod tests {
         assert!(matches!(
             validate_record_query(
                 &m,
-                &request(Some(pred("completed", RecordCompare::Gt, Some(json!(false)))))
+                &request(Some(pred(
+                    "completed",
+                    RecordCompare::Gt,
+                    Some(json!(false))
+                )))
             ),
             Err(RecordQueryError::UnsupportedPredicate)
         ));
