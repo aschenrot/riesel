@@ -28,6 +28,11 @@ jobs:
         run: cargo fmt --manifest-path research/grid-workbench-175/Cargo.toml -- --check
       - name: Compile and test actual Grid/Riesel headless integration
         run: cargo test --manifest-path research/grid-workbench-175/Cargo.toml -- --nocapture
+      - name: Display resolved nested Cargo lockfile for pinning
+        run: |
+          echo '__RIESel_WORKBENCH_LOCK_START__'
+          cat research/grid-workbench-175/Cargo.lock
+          echo '__RIESel_WORKBENCH_LOCK_END__'
       - name: Run reproducible 64x64 five-step workflow
         run: cargo run --manifest-path research/grid-workbench-175/Cargo.toml -- --seed 42 --width 64 --height 64 --threshold 0.55 --iterations 5 --revision 1
       - name: Rerun modified parameter and immutable revision
