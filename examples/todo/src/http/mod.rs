@@ -354,7 +354,9 @@ mod tests {
                     next_request: Arc::new(AtomicU64::new(1)),
                 };
                 let created = state
-                    .invoke(OperationClass::Mutation, |todo| todo.create_task("Persisted first stage"))
+                    .invoke(OperationClass::Mutation, |todo| {
+                        todo.create_task("Persisted first stage")
+                    })
                     .await
                     .expect("domain-confirmed SQLite create");
                 let success = AdapterOperationSnapshot::report(
@@ -373,7 +375,9 @@ mod tests {
 
                 let id = created.id;
                 let failed = state
-                    .invoke(OperationClass::Mutation, move |todo| todo.set_completed(id, 0, true))
+                    .invoke(OperationClass::Mutation, move |todo| {
+                        todo.set_completed(id, 0, true)
+                    })
                     .await;
                 assert!(matches!(failed, Err(ApiError::Conflict)));
                 let confirmed_failure = AdapterOperationSnapshot::report(
@@ -518,7 +522,10 @@ mod tests {
                         "todo.task.list",
                         AdapterOperationEvidence::AdmittedReadResultLost,
                     )?;
-                    assert_eq!(reported.disposition(), OperationDisposition::ReadUnavailable);
+                    assert_eq!(
+                        reported.disposition(),
+                        OperationDisposition::ReadUnavailable
+                    );
                 }
                 Ok::<(), Box<dyn std::error::Error + Send + Sync>>(())
             })
