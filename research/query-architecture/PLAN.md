@@ -95,51 +95,61 @@ other. Distinguish compile-time Rust typing and generated schema
 metadata from runtime schema/version negotiation; state which
 unsupported combinations fail at binding, preflight or call time.
 
-## Candidate dimensions — avoid comparing orthogonal decisions as one list
+## Open alternative discovery before any shortlist
 
-**Axis A: reusable semantic surface**
+**Discover candidates rather than treat the initial architecture sketches as
+the set of answers.** The examples that triggered #138 (Todo, RecordStore v2,
+separate Query, Storage v3, specialized ECS) are sources of questions and
+known reference designs, **not a preselected evaluation shortlist**.
 
-- A0: no shared Query facility; use existing independently typed capabilities.
-- A1: optional shared vocabulary, introspection and/or schema-aware
-  validation helpers; providers and SDKs keep own query APIs.
-- A2: common typed logical query description and protocol, with explicit
-  supported-feature negotiation; provider/domain owns planning/execution.
-- A3: general query engine or federated planner, possibly adapting specialized
-  data sources; require distinct, decision-critical evidence for this cost.
+**Step 1 — independent discovery log.** Work from required outcomes and
+plausible growth scenarios. Search relevant primary sources on Rust
+query/ORM/DSL libraries, embedded and service query interfaces,
+typed expression builders, domain-specific query systems, standards and
+general data-processing approaches. Inspect Riesel's existing
+capabilities and relevant independent engines. Capture the date,
+source/version, claimed capabilities, ownership/placement assumptions,
+and why each materially distinct idea could be applicable. State what
+search scope was actually covered and what remained unsearched.
 
-For A1/A2, examine whether `predicate`, `sort`, `projection`,
-`cursor`, `result set`, `snapshot` and `explain` have sufficiently
-shared *guarantees*, not merely analogous names. Partial sharing is a
-legitimate candidate. Do not assume a universal AST or all-operator DSL.
+**Step 2 — transparent screening.** Establish minimum semantic/security/
+compatibility requirements *before* excluding an approach. Separate
+requirements from preferences. Screen candidates using the same criteria;
+label insufficient evidence **unknown**, not unsuitable. Keep a record of
+the origin, inclusion, exclusion and important open risk for every screened
+family. Do not infer that the most familiar four examples are exhaustive.
 
-**Axis B: concrete durable-record interface** (conditional on a reusable
-record-query need, independent from Axis A)
+**Step 3 — construct alternatives.** Synthesize concrete candidate designs
+from the discovered approaches, including non-obvious hybrids and
+compositions. Allow an independently discovered architecture to replace
+all prior sketches. A solution may reuse vocabulary without a common
+execution API; use a common protocol for a narrow domain; combine
+specialized query interfaces with optional inspection; or take a quite
+different supported form. Do not force a candidate into a taxonomy just
+because it mentions `query`, `filter` or `plan`.
 
-- B0: Todo/domain-owned portable adapter on existing RecordStore v2.
-- B1: additive independently versioned Record Query capability with
-  validated same-authoritative-instance selection where necessary.
-- B2: unified versioned RecordStore v3, with intentional v2 co-exposure,
-  migration and read-only consumer semantics.
-- B3: alternative coherent design emerging from the research.
+**Step 4 — analyze independent questions only after discovery.**
+For each viable candidate, separately report:
+- **Semantic sharing:** if anything is reusable, what exact guarantees
+  and consumers make it valuable?
+- **Record integration:** if durable-record querying is needed, what
+  interface/compatibility shape makes it safe and maintainable? Existing
+  v2 adapters, a separate versioned Record Query and an updated Storage
+  contract are merely reference examples to screen, not required winners.
+- **Physical realization and ownership:** what executes/validates a query,
+  where, for whom, with what resource/consistency/session guarantees?
+  Local, managed and external placements must not silently share guarantees.
 
-Do not treat B1-vs-B2 as a proof of A2-vs-A3. Query-only consumers should
-not gain mutation permission merely from the interface shape.
-
-**Axis C: physical execution and ownership**
-
-- Linked local versus managed child versus externally operated provider;
-- provider-native scan/index versus externally materialized projection;
-- synchronous owned worker versus genuinely nonblocking async path;
-- read/view generation, read-your-writes, restart and stale cursor semantics.
-
-This axis cannot silently redefine Riesel's established provider/session
-owner, authorization or existing operational identity. A plan can be
-metadata-only while a query **execution** necessarily consumes work; no
-"pure inspection" guarantee follows from a validated query string.
+The three questions are **analytical dimensions, not three mandatory APIs,
+packages, layers or phases**. If the best candidate does not fit these
+questions cleanly, document why and adjust the analysis. Existing
+provider/session/authorization authority remains an explicit compatibility
+constraint, not an argument for a particular query abstraction.
 
 ## External alternatives and applicability
 
-Do not design a homegrown Query DSL from memory. Discover and screen
+The discovery log must be prepared before ranking or narrowing proposals. Prior
+proposals are reference cases, not the candidate boundary. Do not design a homegrown Query DSL from memory. Discover and screen
 materially different existing Rust data-query APIs, typed query builders,
 relational/document query approaches, and standardized query representations
 or engines **where their semantics could satisfy the stated product
@@ -189,7 +199,7 @@ its advertised guarantee.
 First **inventory existing evidence**; do not rerun PR #130's tests unless
 their exact SHA, inputs or reliability is materially in doubt.
 
-Use paper/typed-schema contract sketches to test A0–A3 and B0–B3 against
+Use paper/typed-schema contract sketches to pressure-test the *discovered viable designs* against
 two concrete registered models and a specialized-domain counterexample.
 Sketch old/new query versions, incompatible cursors, missing/null,
 full-width numeric equality and unsupported feature responses.
@@ -220,8 +230,11 @@ must not silently publish product APIs.
   across credible later consumers.
 - **Abstraction bias:** do not accept generality because query syntax
   looks unified; test semantics, heterogeneous owners and reuse value.
-- **Implementation bias:** existing SQLite, RecordStore v2, SDK macros,
-  RunenECS and prior #130 recommendations are evidence, not required winners.
+- **Implementation and shortlist bias:** existing SQLite, RecordStore v2,
+  SDK macros, RunenECS and prior #130 recommendations are evidence, not
+  required winners. Recheck the candidates and exclusions independently
+  of the earlier A0–A3/B0–B3 scheme; disclose which proposals were found
+  only after seeing the preferred answer.
 - **Example bias:** one Todo testcase cannot define platform contract;
   hypothetical massive datasets or games do not establish accepted
   functionality either.
