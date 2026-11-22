@@ -383,4 +383,110 @@ mod tests {
         }
     }
 
+    struct FullPrecisionNoise;
+
+    impl NoiseGeneration for FullPrecisionNoise {
+        async fn generate(
+            &self,
+            width: u64,
+            height: u64,
+            _seed: u64,
+        ) -> Result<ScalarGridDto, ProbeError> {
+            let len = bounded_size(width, height)?;
+            Ok(ScalarGridDto {
+                width,
+                height,
+                samples: vec![0.12345678912345678; len],
+            })
+        }
+    }
+
+    /// Real generated async RPC adapters, not a simulated frame assertion.
+    /// This proves bounded 64x64 data can travel between independent
+    /// loopback endpoints; these experimental transports are NOT authenticated.
+    #[test]
+    fn real_async_rpc_small_grids_work_and_oversized_responses_fail() {
+        use riesel_protocol::{
+            AsyncRpcClientBinding, AsyncRpcHandler, AsyncTcpRpcTransport, CallError, RpcError,
+        };
+        use std::sync::{
+            Arc,
+            atomic::{AtomicBool, Ordering},
+        };
+        use std::time::Duration;
+
+        let runtime = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .unwrap();
+        runtime.block_on(async {
+            let noise_listener = tokio::net::TcpListener::bind("127.0.0.1:0")
+                .await
+                .unwrap();
+            let noise_address = noise_listener.local_addr().unwrap();
+            let noise_stop = Arc::new(AtomicBool::new(false));
+            let noise_handler: Arc<dyn AsyncRpcHandler> =
+                Arc::new(NoiseGenerationAsyncRpcDispatcher::new(FullPrecisionNoise));
+            let noise_host = tokio::spawn(riesel_protocol::serve_async_tcp_rpc_host(
+                noise_listener,
+                noise_handler,
+                Arc::clone(&noise_stop),
+            ));
+
+            let ca_listener = tokio::net::TcpListener::bind("127.0.0.1:0")
+                .await
+                .unwrap();
+            let ca_address = ca_listener.local_addr().unwrap();
+            let ca_stop = Arc::new(AtomicBool::new(false));
+            let ca_handler: Arc<dyn AsyncRpcHandler> =
+                Arc::new(CellularAutomataAsyncRpcDispatcher::new(RuleCa));
+            let ca_host = tokio::spawn(riesel_protocol::serve_async_tcp_rpc_host(
+                ca_listener,
+                ca_handler,
+                Arc::clone(&ca_stop),
+            ));
+
+            let noise = NoiseGenerationContract::bind_async(Arc::new(
+                AsyncTcpRpcTransport::new(noise_address),
+            ));
+            let ca = CellularAutomataContract::bind_async(Arc::new(
+                AsyncTcpRpcTransport::new(ca_address),
+            ));
+
+            let field = noise.generate(64, 64, 42).await.unwrap();
+            assert_eq!((field.width, field.height), (64, 64));
+            let original = threshold(field, 0.55).unwrap();
+            let rule = CaRuleDto {
+                birth_min: 5,
+                survive_min: 5,
+                protected_border: 1,
+                outside_occupied: true,
+            };
+            let remote = ca.apply(original.clone(), 4, rule.clone()).await.unwrap();
+            let direct = apply_ca(original, 4, &rule).unwrap();
+            assert_eq!(remote, direct);
+            eprintln!("64x64 generated Noise and CA async TCP contract round-trip succeeded");
+
+            let oversized = noise.generate(512, 512, 42).await.unwrap_err();
+            assert!(
+                matches!(oversized, CallError::Rpc(RpcError::Transport(_))),
+                "oversized RPC result must fail as transport, got {oversized:?}"
+            );
+            eprintln!("512x512 high-precision scalar response rejected by RPC framing");
+
+            noise_stop.store(true, Ordering::Release);
+            ca_stop.store(true, Ordering::Release);
+            tokio::time::timeout(Duration::from_secs(3), noise_host)
+                .await
+                .expect("noise host shutdown timed out")
+                .unwrap()
+                .unwrap();
+            tokio::time::timeout(Duration::from_secs(3), ca_host)
+                .await
+                .expect("CA host shutdown timed out")
+                .unwrap()
+                .unwrap();
+        });
+    }
+
 }
