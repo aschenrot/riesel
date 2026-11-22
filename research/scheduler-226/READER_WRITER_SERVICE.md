@@ -6,7 +6,7 @@
 
 The owner accepted B1: bounded fair **admission opportunities among continuously eligible live graph runs** competing for session-owned resources, without promising elapsed-time deadlines or preempting opaque callbacks. The exact service bound, fairness accounting unit and read/write/multi-key behavior are **not accepted**. B1 may not replace the existing single `SessionGraphAdmission` reservation authority, `GraphRunPublication` safe-point authority, immutable authoring semantics or domain-owned inner scheduling.
 
-Earlier #245 used long exclusive writers and demonstrated one run repeatedly reacquiring a resource ahead of another; #249/#251 found different results for distinct short live runs. This experiment adds two **reader/writer** constraints, tested against the delivered A1 code.
+Earlier #245 used long exclusive writers and demonstrated one run repeatedly reacquiring a resource ahead of another; #249/#251 found different results for distinct short live runs. This experiment exercises the delivered A1 code through reader/writer and admission-capacity probes, without treating an unaccepted scheduling policy as a test expectation.
 
 ## Fixtures and expected observables
 
@@ -19,6 +19,10 @@ Earlier #245 used long exclusive writers and demonstrated one run repeatedly rea
 **Case T — Continuously overlapping reader handoffs (four rounds, debug and release).** Start one reader holding `shared:Read`, then an exclusive writer waiting on `shared:Write`. For eight successive handoffs, start a new reader and verify its callback has acquired a read lease **before** releasing the previous one. Await the previous read completion while the new read remains held. The exclusive writer must remain undispatched throughout because the resource is never fully grantable; when the final read releases, the writer completes. All readers and the writer must report success, with bounded live runs.
 
 **Interpretation limit for T:** This shows that the current shared-resource conflict semantics permit a deliberately overlapping finite reader stream to keep a writer ungrantable, *despite each individual reader eventually finishing*. It does **not prove indefinite starvation** or measure the implementation of any alternative fairness policy. It isolates the need for a deliberate reader-admission phase if the accepted B1 product goal is intended to promise writer progress under a continuously replenished reader stream.
+
+**Case U — Mixed contested and independent demand (four rounds, debug and release).** A held \`alpha:Read\` lease prevents one cold graph's \`alpha:Write\` operation from being grantable. That cold graph also contains eight independently ready \`gamma:Write\` operations with max one in flight. Verify all eight \`gamma\` callbacks complete while the cold writer remains \`Pending\`; the writer may execute only after the held read releases. This is a **baseline counterexample to treating any successful callback in the cold run as service of its contested writer demand**. It tests no actual fairness-credit ledger, since B1 is not implemented. Acceptance of F2 would require an additional candidate-side oracle proving that independent progress cannot indefinitely reset the contested writer's fair claim.
+
+**Case V — Session-capacity-only contention (four rounds, debug and release).** One graph starts 64 independent resource-free callbacks with run parallelism 32; the first 32 hold their leases on an explicit semaphore, saturating the shared session's 32-operation budget. A second graph has one resource-free callback and remains undispatched until at least one hot lease releases. Release the hot semaphore and record the cold callback's actual admission rank among 65 starts. Test successful completion without asserting a specific fairness rank. This isolates a **capacity bottleneck without a declared read/write/domain conflict**. #226 still requires an explicit product-scope choice about whether B1 protects capacity-only competing runs. An ordinary (resource-free) callback competing for session capacity is not proof that the current scheduler violates an unaccepted capacity fairness guarantee.
 
 ## Why these cases matter for B1
 
@@ -37,7 +41,7 @@ cargo test --locked -p riesel --features async-tcp --test scheduler_reader_fairn
 cargo test --locked --release -p riesel --features async-tcp --test scheduler_reader_fairness_research -- --nocapture --test-threads=1
 ```
 
-The temporary workflow steps are **strictly gated** to the draft research branch. No changes to `crates/riesel_app/src/execution_runner.rs`, shared resource admission, public API, product contract or standard validation path are permitted in this PR.
+Cases U and V also run through the same debug and release commands; a green result means they exercised the current runner, **not** that a B1 fairness policy passed. The temporary workflow steps are **strictly gated** to the draft research branch. No changes to `crates/riesel_app/src/execution_runner.rs`, shared resource admission, public API, product contract or standard validation path are permitted in this PR.
 
 ## Decision disposition
 
