@@ -31,6 +31,8 @@ mod supervisor;
 mod tasks;
 
 pub use app::{App, AppError};
+#[cfg(feature = "app-publication")]
+pub use app_publication::{AppReadPublication, ReadExposure, ReadPublicationDescriptor, ReadPublicationError};
 #[cfg(feature = "async-tcp")]
 pub use async_tasks::AsyncTasks;
 #[cfg(feature = "internal-publication")]
