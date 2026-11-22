@@ -429,7 +429,7 @@ test('narrow 320px viewport keeps refresh and filters accessible', async ({ page
     document.documentElement.scrollWidth > window.innerWidth + 1)).toBe(false);
 });
 
-test('connection failure while editing preserves the draft until explicit cancellation', async ({ page }) => {
+test('uncertain edit connection preserves the draft until deliberate reconciliation', async ({ page }) => {
   await page.goto('/');
   await page.getByRole('textbox', { name: 'New task' }).fill('Original title');
   await page.getByRole('button', { name: 'Add task' }).click();
@@ -441,15 +441,17 @@ test('connection failure while editing preserves the draft until explicit cancel
     return route.continue();
   });
   await page.getByRole('button', { name: 'Save' }).click();
-  await expect(page.getByRole('alert')).toContainText('Cannot connect to the Todo backend.');
+  await expect(page.getByRole('alert')).toContainText('may have been applied');
   await expect(title).toHaveValue('Unsaved title');
   await expect(page.getByRole('button', { name: 'Refresh tasks' })).toBeDisabled();
-  await page.getByRole('button', { name: 'Dismiss' }).click();
-  await expect(title).toHaveValue('Unsaved title');
-  await expect(page.getByRole('alert')).toHaveCount(0);
+  await expect(page.getByRole('button', { name: 'Discard draft and check tasks' })).toBeVisible();
   await page.unroute('**/api/v1/tasks/*');
+  // A user can retain the draft until explicitly cancelling; no automatic
+  // retry or implicit discard is allowed when the write reply is unknown.
   await page.getByRole('button', { name: 'Cancel' }).click();
   await expect(page.getByRole('button', { name: 'Refresh tasks' })).toBeEnabled();
+  await page.getByRole('button', { name: 'Check current tasks' }).click();
+  await expect(page.getByRole('alert')).toHaveCount(0);
 });
 
 test('revision conflict explicitly permits reloading a stale edit', async ({ page, request }) => {
@@ -910,7 +912,7 @@ test('Undo uncertain network response is not retried automatically', async ({ pa
     return route.continue();
   });
   await page.getByRole('button', { name: 'Undo', exact: true }).click();
-  await expect(page.getByRole('alert')).toContainText('Cannot connect to the Todo backend.');
+  await expect(page.getByRole('alert')).toContainText('may have been applied');
   await expect(page.getByRole('button', { name: 'Undo', exact: true })).toHaveCount(0);
   expect(undoRequests).toBe(1);
   const retained = (await (await request.get(api)).json()).records[0];
