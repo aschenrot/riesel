@@ -879,6 +879,180 @@ fn local_provider_exposes_multiple_capabilities_from_one_instance() {
     assert!(Arc::ptr_eq(first, third));
 }
 
+// #160: test-only provider/read/write contract fixtures. These are not a
+// published Query API, an authenticated client grant, or native filtering.
+fn linked_reader_contract(mutating: bool) -> CapabilityContract {
+    let mut reader = contract(1);
+    if mutating {
+        reader.operations.get_mut("read").unwrap().kind = OperationKind::Command;
+    }
+    reader
+}
+
+fn linked_writer_contract() -> CapabilityContract {
+    let mut writer = contract(1);
+    writer.capability.id = "example.records.writer".into();
+    writer.operations.get_mut("read").unwrap().kind = OperationKind::Command;
+    writer
+}
+
+struct LinkedQueryFixture {
+    id: &'static str,
+    reader: bool,
+    writer: bool,
+    mutating_reader: bool,
+    created: Arc<std::sync::atomic::AtomicUsize>,
+}
+
+impl LocalProviderFactory for LinkedQueryFixture {
+    fn definition(&self) -> Result<ProviderDefinition, ConnectorError> {
+        Ok(ProviderDefinition {
+            id: self.id.into(),
+            capabilities: self
+                .contracts()?
+                .into_iter()
+                .map(|contract| contract.capability)
+                .collect(),
+        })
+    }
+
+    fn contracts(&self) -> Result<Vec<CapabilityContract>, ConnectorError> {
+        let mut provided = Vec::new();
+        if self.reader {
+            provided.push(linked_reader_contract(self.mutating_reader));
+        }
+        if self.writer {
+            provided.push(linked_writer_contract());
+        }
+        Ok(provided)
+    }
+
+    fn create(&self) -> Result<LocalProviderInstance, ConnectorError> {
+        self.created
+            .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+        let shared = Arc::new(47_u64);
+        Ok(LocalProviderInstance {
+            definition: self.definition()?,
+            bindings: self
+                .contracts()?
+                .into_iter()
+                .map(|contract| {
+                    LocalCapabilityBinding::raw(contract, Box::new(Arc::clone(&shared)))
+                })
+                .collect(),
+            #[cfg(feature = "async-tcp")]
+            blocking: None,
+        })
+    }
+}
+
+fn linked_query_app() -> App {
+    App::from_schema(
+        r#"{"version":2,"app":{"name":"LinkedRecordQuery"},
+           "models":{"task":{"fields":{"title":{"kind":"string"}}}},
+           "model_bindings":{"task":["writer"]},
+           "record_query_links":{"task":{"reader":"read","writer":"writer",
+                                        "consistency":"linked_session_live"}},
+           "requires":[
+             {"name":"read","capability":{"id":"example.counter","version":1}},
+             {"name":"writer","capability":{"id":"example.records.writer","version":1}}
+           ]}"#,
+    )
+    .unwrap()
+}
+
+#[test]
+fn linked_record_query_requires_one_actual_local_instance() {
+    use std::sync::atomic::{AtomicUsize, Ordering};
+    let created = Arc::new(AtomicUsize::new(0));
+    let mut registry = ConnectorRegistry::new();
+    registry
+        .register_local(LinkedQueryFixture {
+            id: "example.record.linked",
+            reader: true,
+            writer: true,
+            mutating_reader: false,
+            created: Arc::clone(&created),
+        })
+        .unwrap();
+    let running = linked_query_app().start_local(&registry).unwrap();
+    assert_eq!(created.load(Ordering::SeqCst), 1);
+    assert!(Arc::ptr_eq(
+        running.service::<Arc<u64>>("read").unwrap(),
+        running.service::<Arc<u64>>("writer").unwrap()
+    ));
+}
+
+#[test]
+fn linked_record_query_rejects_split_owners_before_state_factory_runs() {
+    use std::sync::atomic::{AtomicUsize, Ordering};
+    let created = Arc::new(AtomicUsize::new(0));
+    let mut registry = ConnectorRegistry::new();
+    registry
+        .register_local(LinkedQueryFixture {
+            id: "example.record.read",
+            reader: true,
+            writer: false,
+            mutating_reader: false,
+            created: Arc::clone(&created),
+        })
+        .unwrap();
+    registry
+        .register_local(LinkedQueryFixture {
+            id: "example.record.write",
+            reader: false,
+            writer: true,
+            mutating_reader: false,
+            created: Arc::clone(&created),
+        })
+        .unwrap();
+
+    let config = DeploymentConfig::new(BTreeMap::from([
+        (
+            "read".into(),
+            ServiceEndpoint::Local {
+                provider: "example.record.read".into(),
+            },
+        ),
+        (
+            "writer".into(),
+            ServiceEndpoint::Local {
+                provider: "example.record.write".into(),
+            },
+        ),
+    ]));
+    assert!(matches!(
+        linked_query_app().preflight(&config, &registry),
+        Err(RuntimeError::LinkedRecordOwnerMismatch { model, .. }) if model == "task"
+    ));
+    assert!(matches!(
+        linked_query_app().start(&config, &registry),
+        Err(RuntimeError::LinkedRecordOwnerMismatch { .. })
+    ));
+    assert_eq!(created.load(Ordering::SeqCst), 0);
+}
+
+#[test]
+fn linked_record_query_rejects_mutating_read_surface_before_startup() {
+    use std::sync::atomic::{AtomicUsize, Ordering};
+    let created = Arc::new(AtomicUsize::new(0));
+    let mut registry = ConnectorRegistry::new();
+    registry
+        .register_local(LinkedQueryFixture {
+            id: "example.record.invalid",
+            reader: true,
+            writer: true,
+            mutating_reader: true,
+            created: Arc::clone(&created),
+        })
+        .unwrap();
+    assert!(matches!(
+        linked_query_app().start_local(&registry),
+        Err(RuntimeError::InvalidLinkedRecordReader { model, .. }) if model == "task"
+    ));
+    assert_eq!(created.load(Ordering::SeqCst), 0);
+}
+
 #[test]
 fn local_provider_rejects_unadvertised_or_duplicate_bindings() {
     struct Broken;
