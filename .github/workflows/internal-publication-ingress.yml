@@ -34,5 +34,6 @@ jobs:
         run: |
           cargo build --locked -p riesel_counter_example --bin counter_crash_fixture
           cargo build --locked -p riesel_counter_example --bin counter_recovery_client --features internal-publication
+          cargo build --locked -p riesel_counter_example --bin counter_async_publication_recovery --features internal-publication
       - name: Test real same-PID Counter session replacement and stale-effect rejection
         run: python3 research/operational-contract/probe_internal_publication.py
