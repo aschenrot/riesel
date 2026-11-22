@@ -8,6 +8,8 @@ repository.workspace = true
 [features]
 default = []
 http = ["dep:axum", "dep:tokio", "dep:tower-http"]
+# Test-only #158 semantics; never enabled by normal HTTP builds.
+internal-observation = ["riesel/internal-publication"]
 
 [dependencies]
 riesel = { workspace = true, features = ["dev-memory-storage", "sqlite-storage", "async-tcp"] }
