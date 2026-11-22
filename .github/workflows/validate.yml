@@ -62,6 +62,14 @@ jobs:
           RIESEL_RESEARCH_READY_INDEX=1 cargo test -p riesel --release --features async-tcp --test scheduler_admission_cursor_research cursor_differential_shapes -- --nocapture --test-threads=1
           echo "research #226 ready-index A2 baseline"
           cargo test -p riesel --release --features async-tcp --test scheduler_admission_cursor_research cursor_differential_shapes -- --nocapture --test-threads=1
+          echo "research #226 negative gate A: 256 gated ready nodes"
+          cargo test -p riesel --release --features async-tcp --test scheduler_admission_cursor_research many_signal_gated_ready_nodes -- --nocapture --test-threads=1
+          echo "research #226 negative gate B: 256 gated ready nodes"
+          RIESEL_RESEARCH_READY_INDEX=1 cargo test -p riesel --release --features async-tcp --test scheduler_admission_cursor_research many_signal_gated_ready_nodes -- --nocapture --test-threads=1
+          echo "research #226 negative lock A: 256 conflicting writers"
+          cargo test -p riesel --release --features async-tcp --test scheduler_admission_cursor_research resource_contended_ready_nodes -- --nocapture --test-threads=1
+          echo "research #226 negative lock B: 256 conflicting writers"
+          RIESEL_RESEARCH_READY_INDEX=1 cargo test -p riesel --release --features async-tcp --test scheduler_admission_cursor_research resource_contended_ready_nodes -- --nocapture --test-threads=1
 
   windows:
     if: ${{ github.event_name == 'workflow_dispatch' && inputs.windows }}
