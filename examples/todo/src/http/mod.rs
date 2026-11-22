@@ -139,8 +139,8 @@ mod tests {
     #[test]
     fn real_todo_sqlite_listener_has_only_adapter_evidence() {
         use riesel::internal_observation::{
-            ObservationSnapshot, ObservationSource, ObservationState, ObservationSubject,
-            MAX_OBSERVATION_AGE,
+            MAX_OBSERVATION_AGE, ObservationSnapshot, ObservationSource, ObservationState,
+            ObservationSubject,
         };
         use std::sync::Mutex;
 
@@ -161,8 +161,7 @@ mod tests {
 
                     // A real bound socket is evidence of an adapter-owned
                     // listener event, not authorized HTTP dispatch.
-                    let listener =
-                        tokio::net::TcpListener::bind((Ipv4Addr::LOCALHOST, 0)).await?;
+                    let listener = tokio::net::TcpListener::bind((Ipv4Addr::LOCALHOST, 0)).await?;
                     let address = listener.local_addr()?;
                     let observed = ObservationSnapshot::local_listener(
                         tasks.internal_session_token(),
@@ -210,9 +209,7 @@ mod tests {
                     assert_eq!(
                         observed.state_at(
                             0,
-                            observed.observed_at()
-                                + MAX_OBSERVATION_AGE
-                                + Duration::from_nanos(1)
+                            observed.observed_at() + MAX_OBSERVATION_AGE + Duration::from_nanos(1)
                         ),
                         Some(ObservationState::Stale),
                         "an old bind announcement must age out"
