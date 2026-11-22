@@ -380,7 +380,15 @@ pub struct GraphExecutionFailure {
 /// reusable runner containing stale Running nodes. In-flight operations are
 /// aborted on session invalidation, but effects already dispatched may be
 /// irreversible; they are conservatively reported as OutcomeUnknown.
+// Temporary #226 research instrumentation. This branch must NOT be merged
+// into production main or mistaken for an accepted scheduler policy.
 pub struct ExecutionGraphRunner {
+    research_pending_cursor_enabled: bool,
+    research_topological_cursor_enabled: bool,
+    research_order: Vec<usize>,
+    research_pending_cursor: usize,
+    research_admit_passes: u64,
+    research_admit_visits: u64,
     plan: BoundExecutionPlan<AsyncOperation>,
     session: SessionToken,
     admission: Arc<SessionGraphAdmission>,
@@ -426,11 +434,21 @@ impl ExecutionGraphRunner {
             description.revision(),
         );
         let publication = GraphRunPublication::new(identity, operations, session.clone());
-        let index = operations
+        let index: BTreeMap<String, usize> = operations
             .iter()
             .enumerate()
             .map(|(i, node)| (node.id().to_owned(), i))
             .collect();
+        let research_topological_cursor_enabled =
+            std::env::var_os("RIESEL_RESEARCH_TOPO_CURSOR").is_some();
+        let research_order = if research_topological_cursor_enabled {
+            plan.plan()
+                .dependency_order()
+                .map(|node| *index.get(node.id()).expect("validated operation id"))
+                .collect()
+        } else {
+            Vec::new()
+        };
         let allowed = operations
             .iter()
             .filter_map(|node| match node.trigger() {
@@ -440,6 +458,14 @@ impl ExecutionGraphRunner {
             .collect();
         let (sender, signal_rx) = mpsc::channel(MAX_PENDING_SIGNALS);
         Ok(Self {
+            research_pending_cursor_enabled: std::env::var_os("RIESEL_RESEARCH_PENDING_CURSOR")
+                .is_some()
+                || research_topological_cursor_enabled,
+            research_topological_cursor_enabled,
+            research_order,
+            research_pending_cursor: 0,
+            research_admit_passes: 0,
+            research_admit_visits: 0,
             states: vec![OperationState::Pending; operations.len()],
             plan,
             session: session.clone(),
@@ -616,6 +642,18 @@ impl ExecutionGraphRunner {
 
         let identity = self.publication.identity();
         self.publication.finish(session_expired);
+        if std::env::var_os("RIESEL_RESEARCH_ADMISSION_COUNTERS").is_some() {
+            eprintln!(
+                "research #226 admission plan={} nodes={} cursor={} topo={} passes={} visited={} started={}",
+                self.plan.plan().description().id(),
+                self.states.len(),
+                self.research_pending_cursor_enabled,
+                self.research_topological_cursor_enabled,
+                self.research_admit_passes,
+                self.research_admit_visits,
+                self.started,
+            );
+        }
         let confirmed_prefixes = self
             .publication
             .observer()
@@ -654,11 +692,43 @@ impl ExecutionGraphRunner {
         jobs: &mut JoinSet<(usize, OperationOutcome)>,
         active: &mut HashMap<Id, usize>,
     ) {
+        // In a one-shot immutable plan, a node never becomes Pending again.
+        // Temporary research variants: skip a prefix in either declared or
+        // validated topological order, but never skip a still-Pending node.
+        // In topological mode, actual admission still uses the original node
+        // identity and the same session/control ownership gates. Topological
+        // order may change tie-breaking among independent ready operations.
+        if self.research_pending_cursor_enabled {
+            while self.research_pending_cursor < self.states.len() {
+                let index = if self.research_topological_cursor_enabled {
+                    self.research_order[self.research_pending_cursor]
+                } else {
+                    self.research_pending_cursor
+                };
+                if matches!(self.states[index], OperationState::Pending) {
+                    break;
+                }
+                self.research_pending_cursor += 1;
+            }
+        }
         let operations = self.plan.plan().description().operations();
-        for (index, node) in operations.iter().enumerate() {
+        self.research_admit_passes += 1;
+        let begin = if self.research_pending_cursor_enabled {
+            self.research_pending_cursor
+        } else {
+            0
+        };
+        for position in begin..operations.len() {
             if active.len() >= self.max_in_flight {
                 break;
             }
+            let index = if self.research_topological_cursor_enabled {
+                self.research_order[position]
+            } else {
+                position
+            };
+            let node = &operations[index];
+            self.research_admit_visits += 1;
             if !matches!(self.states[index], OperationState::Pending) {
                 continue;
             }
