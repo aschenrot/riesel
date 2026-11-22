@@ -164,3 +164,31 @@ mod tests {
         restored.validate().unwrap();
     }
 }
+
+#[cfg(test)]
+mod generated_result_hygiene {
+    use super::StoreError;
+    use riesel_macros::capability;
+
+    // Deliberately shadows the conventional two-parameter Result name.
+    // Generated method signatures must never capture this alias.
+    #[allow(dead_code)]
+    type Result<T> = std::result::Result<T, StoreError>;
+
+    #[capability(id = "research.generated.result.hygiene", version = 1, client_trait)]
+    pub trait ShadowedReader {
+        /// Verify a read-only generated operation under a conflicting Result alias.
+        #[query]
+        fn read_count(&self, model: &str) -> std::result::Result<u64, StoreError>;
+    }
+
+    #[test]
+    fn capability_contract_compiles_under_single_parameter_result_alias() {
+        use riesel_schema::OperationKind;
+
+        let contract = ShadowedReaderContract::definition().unwrap();
+        assert_eq!(contract.operations.len(), 1);
+        assert_eq!(contract.operations["read_count"].kind, OperationKind::Query);
+        assert_eq!(contract.capability.version, 1);
+    }
+}

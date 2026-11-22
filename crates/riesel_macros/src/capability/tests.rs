@@ -97,3 +97,37 @@ fn mixed_sync_and_async_capability_methods_are_rejected() {
             .contains("mixing synchronous and asynchronous")
     );
 }
+
+#[test]
+fn generated_sync_and_async_result_types_are_qualified_at_call_site() {
+    for asynchronous in [false, true] {
+        let args: CapabilityArgs = syn::parse_quote! {
+            id = "example.hygiene.reader", version = 1, client_trait
+        };
+        let source: ItemTrait = if asynchronous {
+            parse_quote! {
+                trait Reader {
+                    /// Read without inheriting a caller's Result alias.
+                    #[query]
+                    async fn read(&self) -> Result<u64, String>;
+                }
+            }
+        } else {
+            parse_quote! {
+                trait Reader {
+                    /// Read without inheriting a caller's Result alias.
+                    #[query]
+                    fn read(&self) -> Result<u64, String>;
+                }
+            }
+        };
+        let generated = expand_capability(args, source).unwrap().to_string();
+        // The declaration itself may use the user's preferred Result alias.
+        // Generated client, dispatcher and contract signatures must instead
+        // refer to std::result::Result explicitly, including async output.
+        assert!(
+            generated.matches(":: std :: result :: Result <").count() >= 5,
+            "generated capability signatures lost explicit Result qualification"
+        );
+    }
+}
