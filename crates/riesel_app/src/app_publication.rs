@@ -389,6 +389,18 @@ mod tests {
             )
             .unwrap();
         let descriptor = publication.descriptor();
+        let second_same_runtime = running
+            .publish_local_reads(
+                "research.app",
+                "graph.visible",
+                ReadExposure::NonSensitiveSharedUser,
+                domain.clone(),
+                ["count".into()],
+            )
+            .unwrap();
+        let second_descriptor = second_same_runtime.descriptor();
+        assert_eq!(descriptor.generation, second_descriptor.generation);
+        assert_ne!(descriptor.publication_id, second_descriptor.publication_id);
         assert_eq!(descriptor.contract.version, 1);
         assert_eq!(descriptor.exposure, ReadExposure::NonSensitiveSharedUser);
         assert_eq!(descriptor.allowed_queries, ["count"]);
@@ -423,6 +435,10 @@ mod tests {
             ));
             assert!(matches!(
                 publication.query(&wrong_publication, "count", json!({})).await,
+                Err(ReadPublicationError::WrongPublication)
+            ));
+            assert!(matches!(
+                publication.query(&second_descriptor, "count", json!({})).await,
                 Err(ReadPublicationError::WrongPublication)
             ));
             assert!(matches!(
