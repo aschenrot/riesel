@@ -103,8 +103,20 @@ def gui_main_pid(session_mod, unit, log, uid, scope, executable):
             f"uid={observed['uid']} expected={uid}, cgroup={observed['groups']!r}, scope={scope}"
         )
     unit_state = session_mod.service_state(unit)
-    if unit_state.get("ActiveState") != "active":
-        raise AssertionError(f"real PAM native GUI service not active: {unit_state}")
+    # Real PAMName=login Type=exec may remain "activating" while the
+    # actual scoped GUI is executing and already emitting typed Counter
+    # values. OS unit activation and app callability are separate facts.
+    # Require kernel-observed PID, session cgroup and exact OS InvocationID.
+    if (unit_state.get("ActiveState") not in ("active", "activating")
+        or int(unit_state.get("MainPID", "0")) != pid
+        or not unit_state.get("InvocationID")):
+        raise AssertionError(
+            f"real PAM GUI service identity/attempt not established: {unit_state}, "
+            f"gui_pid={pid}"
+        )
+    if unit_state["ActiveState"] == "activating":
+        print("RESEARCH_M59_PAM_GUI_CALLABLE_WHILE_OS_SERVICE_ACTIVATING",
+              flush=True)
     proc_exe = os.readlink(f"/proc/{pid}/exe")
     if proc_exe != str(executable):
         raise AssertionError(f"GUI executable differs from pinned installed GUI: {proc_exe}")
