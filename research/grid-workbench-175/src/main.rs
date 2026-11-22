@@ -438,14 +438,17 @@ fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     let result = run_workbench(config)?;
     let last = result.history.steps.last().expect("initial snapshot");
     let walls = last.cells().iter().filter(|cell| **cell).count();
+    let initial_walls = result.occupancy.cells().iter().filter(|cell| **cell).count();
     println!(
-        "grid.workbench revision={} size={}x{} seed={} nodes={} snapshots={} occupancy={} mean={:.6} dual={}x{} succeeded={}",
+        "grid.workbench revision={} size={}x{} seed={} nodes={} snapshots={} samples={} initial_occupied={} final_occupied={} mean={:.6} dual={}x{} succeeded={}",
         result.revision,
         config.width,
         config.height,
         config.seed,
         result.started,
         result.history.steps.len(),
+        result.scalar.len(),
+        initial_walls,
         walls,
         result.stats.mean,
         result.topology.width(),
