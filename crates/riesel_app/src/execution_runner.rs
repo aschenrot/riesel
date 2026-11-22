@@ -712,30 +712,26 @@ impl ExecutionGraphRunner {
     }
 
     fn block_dependents(&mut self) {
-        let operations = self.plan.plan().description().operations();
-        loop {
-            let mut changed = false;
-            for (index, node) in operations.iter().enumerate() {
-                if !matches!(self.states[index], OperationState::Pending) {
-                    continue;
-                }
-                let failed_prerequisite = node.dependencies().iter().any(|dep| {
-                    matches!(
-                        self.states[*self.index.get(dep).expect("validated dependency")],
-                        OperationState::Failed(_)
-                            | OperationState::Cancelled
-                            | OperationState::OutcomeUnknown
-                            | OperationState::Blocked
-                    )
-                });
-                if failed_prerequisite {
-                    self.states[index] = OperationState::Blocked;
-                    self.publication.transition(index, OperationState::Blocked);
-                    changed = true;
-                }
+        // Every prerequisite precedes its dependents in the validated plan.
+        // A single pass therefore propagates terminal blocking through even
+        // a reverse-declared chain; repeated whole-plan scans are unnecessary.
+        for node in self.plan.plan().dependency_order() {
+            let index = *self.index.get(node.id()).expect("validated operation id");
+            if !matches!(self.states[index], OperationState::Pending) {
+                continue;
             }
-            if !changed {
-                return;
+            let failed_prerequisite = node.dependencies().iter().any(|dep| {
+                matches!(
+                    self.states[*self.index.get(dep).expect("validated dependency")],
+                    OperationState::Failed(_)
+                        | OperationState::Cancelled
+                        | OperationState::OutcomeUnknown
+                        | OperationState::Blocked
+                )
+            });
+            if failed_prerequisite {
+                self.states[index] = OperationState::Blocked;
+                self.publication.transition(index, OperationState::Blocked);
             }
         }
     }
