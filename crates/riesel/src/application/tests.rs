@@ -136,6 +136,51 @@ fn sdk_generated_definition_round_trips_without_handwritten_json() {
 }
 #[cfg(feature = "records")]
 #[test]
+fn typed_model_can_be_declared_without_writable_storage() {
+    let app = Application::new("ReadOnlyModelDefinition")
+        .model::<TodoModel>()
+        .unwrap();
+
+    let schema = riesel_schema::parse_schema(&app.definition_json().unwrap()).unwrap();
+    schema.validate().unwrap();
+    assert_eq!(schema.version, 1);
+    assert_eq!(schema.models["todo"], TodoModel::model_definition());
+    assert!(schema.model_bindings.is_empty());
+    assert!(
+        schema.requires.is_empty(),
+        "registering a model must not implicitly require the mutating Storage contract"
+    );
+    // This only declares model metadata. A future read-designated Query
+    // capability must separately establish a valid model/owner relationship.
+}
+
+#[cfg(feature = "records")]
+#[test]
+fn model_only_registration_can_be_reused_by_existing_storage_v2_authoring() {
+    let original = Application::new("ModelAndStorage")
+        .records_at::<TodoModel>("primary")
+        .unwrap();
+    let explicit = Application::new("ModelAndStorage")
+        .model::<TodoModel>()
+        .unwrap()
+        .records_at::<TodoModel>("primary")
+        .unwrap();
+
+    assert_eq!(
+        original.definition_json().unwrap(),
+        explicit.definition_json().unwrap(),
+        "typed model-only registration must preserve the existing canonical Storage v2 schema"
+    );
+    assert_eq!(explicit.definition().model_bindings["todo"], ["primary"]);
+    assert_eq!(explicit.definition().requires.len(), 1);
+    assert_eq!(
+        explicit.definition().requires[0].capability,
+        RecordStoreContract::definition().unwrap().capability
+    );
+}
+
+#[cfg(feature = "records")]
+#[test]
 fn generated_rpc_capability_is_registered_once_for_multiple_aliases() {
     let app = Application::new("Example")
         .rpc::<RecordStoreContract>("primary")
