@@ -32,7 +32,7 @@ cargo test --manifest-path research/typed-handoff-187/Cargo.toml
 cargo run --manifest-path research/typed-handoff-187/Cargo.toml
 ```
 
-**Tests and CI result:** pending initial compilation on the exact research branch. Do not claim execution until workflow evidence is recorded.
+**Executed focused tests (source SHA `06acf302d5f0c2e7e43de512861c85a89b6461f2`):** [Research S3 Typed Handoff #44996709031](https://github.com/aschenrot/riesel/actions/runs/44996709031) **PASS** — **3/3 tests** passed and the headless executable ran. The tests proved the real runner admitted a source and two dependent callbacks with a matching run/report identity; the application, not Riesel, owned the shared `Arc<Vec<f64>>` sampled values, produced occupancy and a separate heat summary, checked simple source revision, and rejected one implicit port type conversion in toy local validation. The success does **not** prove S3 executable ports, cross-process/shared-memory access, authoritative persistent revision CAS or a production reusable dataflow runner. Full Linux Validate/smoke is a separate check and must be reviewed on the final PR head.
 
 ## 4. Critical gaps / falsification plan
 
@@ -48,3 +48,11 @@ cargo run --manifest-path research/typed-handoff-187/Cargo.toml
 **#175 owns** first-domain use case, genuine Grid data/algorithm contracts, app-owned snapshot/recompute policy, optional renderer adaptation and user-facing UX evidence. **#187 owns** reusable executable typed data port/edge semantics, value lifetime, runner evolution, S2 preservation and all-application authoring compatibility. #111 accepted authoring authority semantics remain normative. #191/#192/#193/#195/#196 implement S2 safe authoring/publication and GUI independently and should not be blocked or silently redefined by this research.
 
 The next owner decision must compare genuine end-to-end developer authoring of A/B/C/D, real Grid/heat-map fan-out, measured memory/copies and S3 migration. No decision should depend only on a 64x64 room generator or speculative universal GPU graph.
+
+
+## 6. Source and evidence correction after audit
+
+- #111's C+S2+V2+A2+B2+C3 architecture is **owner accepted and integrated**; do not treat it as still open. Initial headless A2 editor-safe binding has entered the SDK, while document import, persistent V2 fencing, C3 activation and GUI #196 remain separate implementation workstreams.
+- The user reported running Grid's local `grid_generation::workbench_175` and `tile_topology` tests successfully. Those results are **user-reported local pass**, not a GitHub Linux CI pass because the private repository's job ended before launching a runner. Exact local toolchain/commit evidence beyond the supplied command/output is not independently recorded.
+- The first Workbench visual node graph is a **product UX preference**. The choice of application-owned bounded node authoring versus future generic S3 executable ports has not yet been accepted. Do not conflate a read-only S2 graph inspector, a control-only S2 editor and an executable typed-dataflow editor.
+- The `Render2D` entry should be modeled as an **optional effectful output/presentation boundary** unless an actual reusable render-result contract is justified. Rendering cannot silently become canonical editable data or hide the distinction between grid data revisions and displayed frames.
