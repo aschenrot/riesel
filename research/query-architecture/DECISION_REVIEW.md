@@ -22,18 +22,19 @@ stream subscriptions, distributed snapshots or cross-process query access.
 
 ### Conditional recommendation
 
-**Accept a reusable, transport-neutral typed query *semantic foundation*
-with optional domain/provider-specific realization; do not adopt a
-universal planner or require all capabilities to implement it.** First
-expose selective query semantics for schema-registered durable records
-through an **optional, separately versioned, read-designated
-capability**, co-exposed with Storage v2 by one real linked provider
-instance as the initial implementation. The declared read-your-writes
-relationship must be enforced at preflight and runtime; this is **not**
-a universal physical co-location requirement.
-Keep an independently evolvable logical query description and explicitly
-negotiated provider features; do **not** copy SQL syntax or SQLite's
-implicit coercions into a Riesel public contract.
+**Recommend accepting an optional, transport-neutral typed query
+*semantic foundation* with domain/provider-owned execution**, without
+requiring one universal planner or every capability to implement it.
+**Do not yet select the durable-record interface packaging.** A
+separately versioned read-designated facet co-exposed with Storage v2
+is the leading *linked-only candidate*, but tested SDK authoring shows
+it still needs an independent typed model declaration path and a
+fail-closed read/write owner relationship. A unified, attenuated or
+composite record interface could prove better on the same criteria.
+Keep logical query descriptions and supported features versionable;
+do **not** copy SQL's implicit conversions into a Riesel contract.
+Physical co-location can realize the first local profile, but is not
+a universal requirement for future authorized proxies or replicas.
 
 This is a **direction**, not an approved API name, Rust trait, wire
 format, planner, grammar, set of SQL dialects or implementation issue.
@@ -256,11 +257,12 @@ any names, AST nodes or error enum from this research document.**
 
 ## 4. Concrete first increment and extensions (if direction accepted)
 
-**First delivery candidate — optional linked registered-record queries:**
-Keep v2; tentatively publish a separately versioned **read-designated
-capability** (named by a later interface specification) co-exposed
-from one Memory/SQLite owner instance **with fail-closed authority
-binding**, rather than assuming any two resolved aliases share state.
+**First delivery candidate — optional linked registered-record queries
+after interface packaging acceptance:** Preserve Storage v2. Evaluate
+a separately versioned **read-designated capability** co-exposed by one
+Memory/SQLite owner against a unified/attenuated or composite model
+interface; select the winner only after demonstrating model registration,
+least privilege and fail-closed authority binding.
 A read-only application may bind that facet without a writer; an
 application requiring read-your-writes must explicitly declare the
 relation and have the SDK/resolver validate it before side effects.
