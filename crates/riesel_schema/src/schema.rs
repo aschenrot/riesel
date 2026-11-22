@@ -219,7 +219,11 @@ impl AppSchema {
                     });
                 }
             }
-            let legacy = self.model_bindings.get(model).map(Vec::as_slice).unwrap_or(&[]);
+            let legacy = self
+                .model_bindings
+                .get(model)
+                .map(Vec::as_slice)
+                .unwrap_or(&[]);
             let expected: &[String] = match &link.writer {
                 Some(writer) => std::slice::from_ref(writer),
                 None => &[],
@@ -540,7 +544,9 @@ mod tests {
             schema.validate(),
             Err(SchemaError::InconsistentQueryWriter { model }) if model == "task"
         ));
-        schema.model_bindings.insert("task".into(), vec!["writer".into()]);
+        schema
+            .model_bindings
+            .insert("task".into(), vec!["writer".into()]);
 
         schema.record_query_links.get_mut("task").unwrap().writer = Some("read".into());
         assert!(matches!(
@@ -560,10 +566,8 @@ mod tests {
             Err(SchemaError::UnknownQueryReader { reader, .. }) if reader == "missing"
         ));
         schema.record_query_links.get_mut("task").unwrap().reader = "read".into();
-        schema.record_query_links.insert(
-            "other".into(),
-            schema.record_query_links["task"].clone(),
-        );
+        let other_link = schema.record_query_links["task"].clone();
+        schema.record_query_links.insert("other".into(), other_link);
         assert!(matches!(
             schema.validate(),
             Err(SchemaError::UnknownQueryModel { model }) if model == "other"
