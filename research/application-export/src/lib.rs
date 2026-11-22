@@ -5,8 +5,8 @@ use riesel_protocol::{AsyncRpcHandler, RpcError};
 use riesel_schema::{CapabilityContract, CapabilityRef, OperationKind};
 use serde_json::Value;
 use std::collections::{BTreeMap, BTreeSet};
-use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
 use thiserror::Error;
 
 /// The caller identity must come from an independently verified local or
@@ -98,7 +98,9 @@ impl ResearchExport {
         }
         for (principal, operations) in &grants {
             if principal.trim().is_empty() || operations.is_empty() {
-                return Err(ExportError::Invalid("empty principal or operation grant".into()));
+                return Err(ExportError::Invalid(
+                    "empty principal or operation grant".into(),
+                ));
             }
             for operation in operations {
                 if !contract.operations.contains_key(operation) {
@@ -179,7 +181,10 @@ impl ResearchExport {
         if !self.accepting.load(Ordering::Acquire) {
             return Err(ExportError::NotReady);
         }
-        let allowed = self.grants.get(&attachment.principal).ok_or(ExportError::Unauthorized)?;
+        let allowed = self
+            .grants
+            .get(&attachment.principal)
+            .ok_or(ExportError::Unauthorized)?;
         let spec = self
             .contract
             .operations
