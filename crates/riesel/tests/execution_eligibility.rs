@@ -38,6 +38,20 @@ fn runtime() -> tokio::runtime::Runtime {
         .unwrap()
 }
 
+/// Diagnostic only: process RSS includes the allocator, runtime, test harness
+/// and all previous tests. It is not an index allocation measurement or SLA.
+#[cfg(target_os = "linux")]
+fn process_rss_kib() -> Option<usize> {
+    std::fs::read_to_string("/proc/self/status")
+        .ok()?
+        .lines()
+        .find_map(|line| {
+            line.strip_prefix("VmRSS:")
+                .and_then(|value| value.split_whitespace().next())
+                .and_then(|value| value.parse().ok())
+        })
+}
+
 #[test]
 fn ready_nodes_retain_declaration_order_after_shared_signal() {
     runtime().block_on(async {
@@ -353,10 +367,15 @@ fn repeated_runs_share_immutable_plan_without_retaining_old_eligibility() {
         }
         let plan = draft.validate().unwrap().bind(&registry).unwrap();
         let started_at = Instant::now();
+        #[cfg(target_os = "linux")]
+        let rss_before = process_rss_kib();
+        let mut creation_us = 0u128;
         for _ in 0..REPEATS {
+            let constructing = Instant::now();
             let runner = app
                 .execution_graph(plan.clone(), NonZeroUsize::new(32).unwrap())
                 .unwrap();
+            creation_us += constructing.elapsed().as_micros();
             let report = tokio::time::timeout(Duration::from_secs(5), runner.execute())
                 .await
                 .unwrap();
@@ -365,8 +384,13 @@ fn repeated_runs_share_immutable_plan_without_retaining_old_eligibility() {
         }
         assert_eq!(calls.load(Ordering::SeqCst), COUNT * REPEATS);
         eprintln!(
-            "scheduler A1 repeated_runs count={REPEATS} nodes={COUNT} total_us={}",
+            "scheduler A1 repeated_runs count={REPEATS} nodes={COUNT} total_us={} total_runner_construction_us={creation_us}",
             started_at.elapsed().as_micros()
+        );
+        #[cfg(target_os = "linux")]
+        eprintln!(
+            "scheduler A1 indicative_process_rss_kib_before={rss_before:?} after={:?}; process RSS is NOT per-index retained heap",
+            process_rss_kib()
         );
     });
 }
