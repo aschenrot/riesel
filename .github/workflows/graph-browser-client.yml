@@ -36,6 +36,7 @@ jobs:
           node --check examples/graph-inspector/local-browser.mjs
           node --check examples/graph-inspector/inspector.js
           node --check examples/graph-inspector/e2e.mjs
+          node --check examples/graph-inspector/e2e-overflow.mjs
       - name: Reuse locked Chromium test dependency
         working-directory: examples/todo/web
         run: npm ci --no-audit --no-fund
@@ -75,6 +76,38 @@ jobs:
           kill "$viewer_pid" 2>/dev/null || true
           viewer_pid=''
           wait "$owner_pid"
+          trap - EXIT
+      - name: Verify real 128-event ring loss, authoritative resnapshot and UI disconnect
+        run: |
+          set -euo pipefail
+          target/debug/examples/graph_read_host 30 --wide > "$RUNNER_TEMP/wide-owner.log" 2>&1 &
+          owner_pid=$!
+          viewer_pid=''
+          cleanup() {
+            if [[ -n "$viewer_pid" ]]; then kill "$viewer_pid" 2>/dev/null || true; fi
+            kill "$owner_pid" 2>/dev/null || true
+          }
+          trap cleanup EXIT
+          endpoint=''
+          for i in $(seq 1 300); do
+            endpoint=$(sed -n 's/^GRAPH_SOCKET=//p' "$RUNNER_TEMP/wide-owner.log" | head -n1)
+            if [[ -n "$endpoint" && -S "$endpoint" ]]; then break; fi
+            sleep 0.1
+          done
+          if [[ -z "$endpoint" || ! -S "$endpoint" ]]; then
+            cat "$RUNNER_TEMP/wide-owner.log"
+            exit 1
+          fi
+          node examples/graph-inspector/local-browser.mjs "$endpoint" > "$RUNNER_TEMP/wide-browser.log" 2>&1 &
+          viewer_pid=$!
+          GRAPH_OWNER_PID="$owner_pid" node examples/graph-inspector/e2e-overflow.mjs "$RUNNER_TEMP/wide-browser.log" || {
+            cat "$RUNNER_TEMP/wide-browser.log"
+            cat "$RUNNER_TEMP/wide-owner.log"
+            exit 1
+          }
+          kill "$viewer_pid" 2>/dev/null || true
+          viewer_pid=''
+          wait "$owner_pid" 2>/dev/null || true
           trap - EXIT
       - name: Retain actual Chromium screenshot
         uses: actions/upload-artifact@v4
