@@ -27,10 +27,10 @@ fn state_name(state: &OperationState) -> &'static str {
 }
 
 fn main() -> riesel::Result<()> {
-    let output = std::env::args_os()
-        .nth(1)
-        .map(std::path::PathBuf::from)
-        .ok_or_else(|| std::io::Error::other("expected output JSON path"))?;
+    let Some(output) = std::env::args_os().nth(1).map(std::path::PathBuf::from) else {
+        eprintln!("usage: execution_graph_inspection_export OUTPUT.json");
+        std::process::exit(2);
+    };
     Application::new("Headless Execution Graph").run(move |context| {
         let joined = Arc::new(AtomicUsize::new(0));
         let barrier = Arc::new(tokio::sync::Barrier::new(2));
