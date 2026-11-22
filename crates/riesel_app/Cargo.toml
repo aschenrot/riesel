@@ -15,6 +15,8 @@ test-fixtures = ["async-tcp"]
 internal-publication = ["async-tcp", "riesel_protocol/internal-publication", "riesel_manager/internal-observation"]
 # Opt-in public read policy reuses the runtime-issued session permit; no listener.
 app-publication = ["async-tcp", "riesel_protocol/internal-publication"]
+# Explicit Unix-only local adapter for the trusted shared-user T1 profile.
+app-publication-unix = ["app-publication"]
 
 [dependencies]
 tokio = { workspace = true, optional = true }
