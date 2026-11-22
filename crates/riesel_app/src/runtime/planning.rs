@@ -1,4 +1,5 @@
 use super::*;
+use riesel_schema::OperationKind;
 
 impl App {
     /// Inspect the complete deployment without executing provider factories,
@@ -97,6 +98,81 @@ impl App {
                 target,
             });
         }
+        // A declared linked record Query is not two arbitrary capabilities:
+        // preflight must prove one selected local registration before any
+        // component factory or managed process can start.
+        for (model, link) in &schema.record_query_links {
+            let read = services
+                .iter()
+                .find(|service| service.requirement == link.reader)
+                .expect("schema validation ensures a declared read requirement");
+            let read_provider = match &read.target {
+                PlannedTarget::Local { provider } => provider,
+                _ => {
+                    return Err(RuntimeError::UnsupportedLinkedRecordPlacement {
+                        model: model.clone(),
+                        requirement: link.reader.clone(),
+                    });
+                }
+            };
+            let local = connectors
+                .local
+                .get(read_provider)
+                .expect("local requirement was verified during preflight");
+            let read_contract = local
+                .contracts
+                .get(&(read.capability.id.clone(), read.capability.version))
+                .expect("local capability contract was verified during preflight");
+            if read_contract.operations.is_empty()
+                || read_contract
+                    .operations
+                    .values()
+                    .any(|operation| operation.kind != OperationKind::Query)
+            {
+                return Err(RuntimeError::InvalidLinkedRecordReader {
+                    model: model.clone(),
+                    requirement: link.reader.clone(),
+                });
+            }
+
+            if let Some(writer) = &link.writer {
+                let write = services
+                    .iter()
+                    .find(|service| &service.requirement == writer)
+                    .expect("schema validation ensures a declared writer requirement");
+                let write_provider = match &write.target {
+                    PlannedTarget::Local { provider } => provider,
+                    _ => {
+                        return Err(RuntimeError::UnsupportedLinkedRecordPlacement {
+                            model: model.clone(),
+                            requirement: writer.clone(),
+                        });
+                    }
+                };
+                if write_provider != read_provider {
+                    return Err(RuntimeError::LinkedRecordOwnerMismatch {
+                        model: model.clone(),
+                        reader: link.reader.clone(),
+                        writer: writer.clone(),
+                    });
+                }
+                let write_contract = local
+                    .contracts
+                    .get(&(write.capability.id.clone(), write.capability.version))
+                    .expect("local capability contract was verified during preflight");
+                if !write_contract
+                    .operations
+                    .values()
+                    .any(|operation| operation.kind == OperationKind::Command)
+                {
+                    return Err(RuntimeError::InvalidLinkedRecordWriter {
+                        model: model.clone(),
+                        requirement: writer.clone(),
+                    });
+                }
+            }
+        }
+
         Ok(DeploymentPlan { services })
     }
 

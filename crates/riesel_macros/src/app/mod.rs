@@ -151,7 +151,7 @@ fn is_framework_parameter(ty: &Type) -> bool {
     path.path.segments.last().is_some_and(|segment| {
         matches!(
             segment.ident.to_string().as_str(),
-            "Records" | "Capability" | "AsyncCapability" | "AsyncTasks"
+            "Records" | "ModelRead" | "Capability" | "AsyncCapability" | "AsyncTasks"
         )
     })
 }
