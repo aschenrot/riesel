@@ -21,6 +21,7 @@ import pwd
 import re
 import subprocess
 import sys
+import tempfile
 import time
 import uuid
 
@@ -289,11 +290,14 @@ def exercise(counter_root, session_root, launcher_source):
         endpoint = observe_endpoint(log_backend)
         # Real app's unsecured endpoint is deliberately published as an
         # ordinary address, NOT a credential or Management authorization.
-        endpoint_temp = directory / "endpoint.tmp"
-        endpoint_temp.write_text(endpoint + "\n")
-        invoke(root("install", "-o", "root", "-g", "root", "-m", "0644",
-                    str(endpoint_temp), str(directory / "counter-endpoint")))
-        endpoint_temp.unlink()
+        # The install is root-owned, so create the fixture disclosure in
+        # the ordinary runner's *private* temporary file before root copies
+        # it into the disposable test directory. No privileged path writes.
+        with tempfile.TemporaryDirectory(prefix="riesel-crossgui-endpoint-") as temp:
+            endpoint_temp = Path(temp) / "endpoint"
+            endpoint_temp.write_text(endpoint + "\n")
+            invoke(root("install", "-o", "root", "-g", "root", "-m", "0644",
+                        str(endpoint_temp), str(directory / "counter-endpoint")))
         wait_marker(log_a, "GUI_VALUE 0", timeout=35)
         pid_a, tick_a = gui_main_pid(
             session_mod, unit_a, log_a, info.pw_uid, scope_a, gui
