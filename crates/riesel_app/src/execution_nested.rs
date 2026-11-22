@@ -84,6 +84,7 @@ type NestedSample = dyn Fn(&SessionToken) -> NestedViewInfo + Send + Sync;
 type NestedHistory = dyn Fn(&SessionToken, NestedCursor) -> Result<NestedTransitions, NestedObservationError>
     + Send
     + Sync;
+type NestedRetire = dyn Fn() + Send + Sync;
 
 /// The common read-only projection and bounded loss recovery do not depend
 /// on any ECS, pipeline, or version-specific nested payload type.
@@ -208,12 +209,14 @@ pub(crate) struct NestedAttachment {
     erased: Arc<dyn Any + Send + Sync>,
     sample: Arc<NestedSample>,
     history: Arc<NestedHistory>,
-    retired: Arc<AtomicBool>,
+    retire: Arc<NestedRetire>,
 }
 
 impl NestedAttachment {
     pub(crate) fn retire(&self) {
-        self.retired.store(true, Ordering::Release);
+        // Linearize replacement with any already admitted owner publication:
+        // after this method returns, the old source rejects new commits.
+        (self.retire)();
     }
 
     pub(crate) fn header(&self, session: SessionToken) -> NestedHeaderObserver {
@@ -239,7 +242,7 @@ struct NestedStore<T> {
     description: NestedDescription,
     owner: Weak<DomainLifetime>,
     session: SessionToken,
-    retired: Arc<AtomicBool>,
+    retired: bool,
     sequence: u64,
     payload: Option<Arc<T>>,
     transitions: VecDeque<u64>,
@@ -249,7 +252,7 @@ impl<T> NestedStore<T> {
     fn status(&self, session: &SessionToken) -> NestedStatus {
         if !session.is_active() {
             NestedStatus::SessionExpired
-        } else if self.retired.load(Ordering::Acquire) {
+        } else if self.retired {
             NestedStatus::Superseded
         } else if !self
             .owner
@@ -320,17 +323,23 @@ impl<T: Send + Sync + 'static> NestedPublisher<T> {
         owner: Weak<DomainLifetime>,
         session: SessionToken,
     ) -> (NestedAttachment, Self) {
-        let retired = Arc::new(AtomicBool::new(false));
         let source = Arc::new(Mutex::new(NestedStore {
             description: description.clone(),
             owner,
             session,
-            retired: Arc::clone(&retired),
+            retired: false,
             sequence: 0,
             payload: None,
             transitions: VecDeque::new(),
         }));
         let erased: Arc<dyn Any + Send + Sync> = source.clone();
+        let for_retirement = Arc::clone(&source);
+        let retire: Arc<NestedRetire> = Arc::new(move || {
+            let mut state = for_retirement
+                .lock()
+                .unwrap_or_else(PoisonError::into_inner);
+            state.retired = true;
+        });
 
         let sampled = Arc::clone(&source);
         let sample: Arc<NestedSample> = Arc::new(move |session| {
@@ -355,7 +364,7 @@ impl<T: Send + Sync + 'static> NestedPublisher<T> {
                 erased,
                 sample,
                 history,
-                retired,
+                retire,
             },
             Self { source },
         )
@@ -371,7 +380,7 @@ impl<T: Send + Sync + 'static> NestedPublisher<T> {
         if !state.session.is_active() {
             return Err(NestedObservationError::SessionExpired);
         }
-        if state.retired.load(Ordering::Acquire) {
+        if state.retired {
             return Err(NestedObservationError::Superseded);
         }
         if !state
