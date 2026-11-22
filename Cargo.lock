@@ -808,6 +808,7 @@ dependencies = [
  "axum",
  "riesel",
  "riesel_storage_component",
+ "riesel_storage_sqlite",
  "serde",
  "serde_json",
  "tempfile",

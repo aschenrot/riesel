@@ -1,0 +1,29 @@
+name: Todo Native Query Research
+
+# Evidence only: exercise already delivered provider-native Query without
+# publishing a new Todo HTTP contract or changing production provider behavior.
+permissions:
+  contents: read
+
+on:
+  pull_request:
+    paths:
+      - "examples/todo/tests/native_status_query_research.rs"
+      - "examples/todo/Cargo.toml"
+      - "docs/product/todo/status-query-native-review.md"
+      - ".github/workflows/todo-native-query-research.yml"
+
+jobs:
+  native-todo:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install Rust 1.100.0
+        run: |
+          rustup toolchain install 1.100.0 --profile minimal
+          rustup default 1.100.0
+      - name: Exercise real Memory and SQLite sparse and live pages
+        run: cargo test --locked -p todo --test native_status_query_research -- --nocapture
+      - name: Probe 10,000-record last-match growth horizon
+        run: cargo test --locked -p todo --test native_status_query_research -- --ignored --nocapture
