@@ -12,6 +12,7 @@ use todo::TaskData;
 
 #[capability(id = "research.query.record.reader", version = 1, client_trait)]
 trait ResearchReadOnly {
+    /// Count the current model's records by scanning Storage v2 UUID pages.
     #[query]
     fn count_records(&self, model: &str) -> Result<u64, StoreError>;
 }
