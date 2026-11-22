@@ -198,7 +198,9 @@ pub(super) async fn show(
 ) -> Result<Json<TaskView>, ApiError> {
     let id = parse_id(&id)?;
     let task = state
-        .invoke(OperationClass::Read, move |todo| todo.get_task(id).and_then(|x| x.ok_or(TodoError::NotFound)))
+        .invoke(OperationClass::Read, move |todo| {
+            todo.get_task(id).and_then(|x| x.ok_or(TodoError::NotFound))
+        })
         .await?;
     Ok(Json(task.into()))
 }
@@ -244,7 +246,9 @@ pub(super) async fn patch(
         }
         (None, Some(completed)) => {
             state
-                .invoke(OperationClass::Mutation, move |todo| todo.set_completed(id, revision, completed))
+                .invoke(OperationClass::Mutation, move |todo| {
+                    todo.set_completed(id, revision, completed)
+                })
                 .await?
         }
         _ => return Err(ApiError::BadInput),
