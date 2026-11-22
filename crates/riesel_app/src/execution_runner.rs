@@ -10,7 +10,8 @@
 //! publishes authoritative run state. An attempt-scoped confirmed-prefix
 //! reporter is an incremental #113 facility; cooperative control remains open.
 use crate::execution_observation::{
-    GraphEffectRecorder, GraphRunIdentity, GraphRunObserver, GraphRunPublication,
+    GraphEffectRecorder, GraphRunController, GraphRunIdentity, GraphRunObserver,
+    GraphRunPublication,
 };
 use crate::execution_plan::{
     AccessMode, BoundExecutionPlan, DomainAdmissionMode, DomainBoundary, OperationTrigger,
@@ -38,7 +39,7 @@ const MAX_PENDING_SIGNALS: usize = 64;
 /// conflicting declared accesses without coordination.
 pub(crate) struct SessionGraphAdmission {
     state: Mutex<SessionGraphState>,
-    changed: Notify,
+    changed: Arc<Notify>,
     // Runtime-issued, in-process scope identity for every run in this
     // application generation; not an external identity or credential.
     session_generation: Uuid,
@@ -48,7 +49,7 @@ impl Default for SessionGraphAdmission {
     fn default() -> Self {
         Self {
             state: Mutex::new(SessionGraphState::default()),
-            changed: Notify::new(),
+            changed: Arc::new(Notify::new()),
             session_generation: Uuid::new_v4(),
         }
     }
@@ -470,6 +471,16 @@ impl ExecutionGraphRunner {
         self.publication.observer()
     }
 
+    /// Cooperatively gate future graph admission at this run's advertised
+    /// outer operation and Riesel-owned domain-tick boundaries. The returned
+    /// handle is in-process, exact-run/session-bound and may be cloned before
+    /// the runner is moved to an application-owned async task. It cannot
+    /// suspend already dispatched callbacks or step delegated ECS internals.
+    pub fn controller(&self) -> GraphRunController {
+        self.publication
+            .controller(Arc::clone(&self.admission.changed))
+    }
+
     pub(crate) fn belongs_to_session(&self, session: &SessionToken) -> bool {
         self.session.shares_session_with(session)
     }
@@ -654,6 +665,12 @@ impl ExecutionGraphRunner {
             {
                 continue;
             }
+            // Check the local safe-point gate before claiming scarce
+            // session capacity. The final admission rechecks atomically
+            // against concurrent pause/step commands after reservation.
+            if !self.publication.may_admit(index, node.domain_boundary()) {
+                continue;
+            }
             // The one session-level admission table enforces conflicts for
             // both this run and every other run in the same application.
             let Some(lease) = self
@@ -667,11 +684,14 @@ impl ExecutionGraphRunner {
                     .handler(node.id())
                     .expect("validated exact-version operation binding"),
             );
-            // Publish the attempt before the handler can execute on another
-            // Tokio worker. Its recorder is then fenced to this running
-            // operation; terminal/abandoned attempts reject late reports.
+            // One authoritative lock atomically consumes the admitted
+            // safe-point step and marks the callback Running, so a pause
+            // cannot retroactively claim to stop already dispatched work.
+            if !self.publication.admit(index, node.domain_boundary()) {
+                drop(lease);
+                continue;
+            }
             self.states[index] = OperationState::Running;
-            self.publication.transition(index, OperationState::Running);
             let (effects, effect_scope) = self.publication.recorder(index);
             let session = self.session.clone();
             let handle = jobs.spawn(async move {
