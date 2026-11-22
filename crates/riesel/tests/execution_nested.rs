@@ -5,12 +5,11 @@
 
 use riesel::{
     App, AsyncOperation, ConnectorRegistry, DeploymentConfig, ExecutionGraphRunner,
-    ExecutionPlanDraft, GraphControlError, GraphControlTarget, GraphEffectRecorder, GraphRunObserver,
-    GraphRunPhase,
-    MAX_NESTED_TRANSITIONS, NestedCursor, NestedDomainOwner, NestedDomainRegistration,
-    NestedObservationError, NestedPublisher, NestedStatus, OperationKey, OperationNode,
-    OperationOutcome, OperationRegistry, OperationState, RunningApp, async_operation,
-    async_operation_with_effects,
+    ExecutionPlanDraft, GraphControlError, GraphControlTarget, GraphEffectRecorder,
+    GraphRunObserver, GraphRunPhase, MAX_NESTED_TRANSITIONS, NestedCursor, NestedDomainOwner,
+    NestedDomainRegistration, NestedObservationError, NestedPublisher, NestedStatus, OperationKey,
+    OperationNode, OperationOutcome, OperationRegistry, OperationState, RunningApp,
+    async_operation, async_operation_with_effects,
 };
 use std::{
     cell::Cell,
@@ -478,7 +477,6 @@ fn bounded_snapshot_cursor_overflow_and_owner_generation_fencing() {
     });
 }
 
-
 #[test]
 fn abandoned_outer_future_does_not_erase_late_domain_owned_effects() {
     executor().block_on(async {
@@ -511,7 +509,10 @@ fn abandoned_outer_future_does_not_erase_late_domain_owned_effects() {
         );
         assert_eq!(
             setup.domain.stop(),
-            StageSnapshot { stage: 2, position: 4 }
+            StageSnapshot {
+                stage: 2,
+                position: 4
+            }
         );
         assert_eq!(view.snapshot().status, NestedStatus::OwnerClosed);
     });
@@ -561,7 +562,10 @@ fn replacing_owner_generation_retires_old_readers_and_publishers() {
                                 effects.attach_nested::<i32>(&first, 1),
                                 Err(NestedObservationError::AlreadyAttached)
                             ));
-                            assert!(attached_tx.send(original).is_ok(), "test receiver must still exist");
+                            assert!(
+                                attached_tx.send(original).is_ok(),
+                                "test receiver must still exist"
+                            );
                             continue_rx.await.unwrap();
                             let replacement = effects.attach_nested::<i32>(&second, 2).unwrap();
                             replacement.publish(42).unwrap();
@@ -578,14 +582,22 @@ fn replacing_owner_generation_retires_old_readers_and_publishers() {
             .bind(&registry)
             .unwrap();
         let app = session();
-        let runner = app.execution_graph(plan, NonZeroUsize::new(1).unwrap()).unwrap();
+        let runner = app
+            .execution_graph(plan, NonZeroUsize::new(1).unwrap())
+            .unwrap();
         let observer = runner.observer();
         let task = tokio::spawn(runner.execute());
-        let original = tokio::time::timeout(WAIT, attached_rx).await.unwrap().unwrap();
+        let original = tokio::time::timeout(WAIT, attached_rx)
+            .await
+            .unwrap()
+            .unwrap();
         original.publish(7).unwrap();
         let old = observer.nested::<i32>("frame", 1).unwrap().unwrap();
         assert_eq!(*old.snapshot().payload.unwrap(), 7);
-        assert_eq!(old.snapshot().description.owner_generation, first.generation());
+        assert_eq!(
+            old.snapshot().description.owner_generation,
+            first.generation()
+        );
         let old_cursor = NestedCursor {
             owner_generation: first.generation(),
             sequence: 1,
@@ -615,7 +627,10 @@ fn replacing_owner_generation_retires_old_readers_and_publishers() {
         let new = observer.nested::<i32>("frame", 2).unwrap().unwrap();
         assert_eq!(new.snapshot().status, NestedStatus::Current);
         assert_eq!(*new.snapshot().payload.unwrap(), 42);
-        assert_ne!(new.snapshot().description.owner_generation, old_cursor.owner_generation);
+        assert_ne!(
+            new.snapshot().description.owner_generation,
+            old_cursor.owner_generation
+        );
         assert!(matches!(
             new.changes_since(old_cursor),
             Err(NestedObservationError::StaleCursor)
@@ -625,7 +640,12 @@ fn replacing_owner_generation_retires_old_readers_and_publishers() {
         assert_eq!(new.snapshot().description.parent.run, report.identity);
         assert_eq!(new.snapshot().description.parent.attempt, 1);
         assert!(matches!(
-            reporter.lock().unwrap().as_ref().unwrap().attach_nested::<i32>(&second.registration(), 2),
+            reporter
+                .lock()
+                .unwrap()
+                .as_ref()
+                .unwrap()
+                .attach_nested::<i32>(&second.registration(), 2),
             Err(NestedObservationError::InactiveAttempt)
         ));
         drop(second);
@@ -670,9 +690,14 @@ fn ordinary_operations_cannot_create_domain_owned_nested_views() {
             .unwrap();
         let plan = ExecutionPlanDraft::new("nested.unsupported", 1)
             .operation(OperationNode::new("ordinary", key("ordinary")))
-            .validate().unwrap().bind(&registry).unwrap();
+            .validate()
+            .unwrap()
+            .bind(&registry)
+            .unwrap();
         let app = session();
-        let runner = app.execution_graph(plan, NonZeroUsize::new(1).unwrap()).unwrap();
+        let runner = app
+            .execution_graph(plan, NonZeroUsize::new(1).unwrap())
+            .unwrap();
         let observer = runner.observer();
         let report = runner.execute().await;
         assert!(report.succeeded());
