@@ -33,6 +33,15 @@ jobs:
         run: |
           rustup toolchain install 1.100.0 --profile minimal --component rustfmt --component clippy
           rustup default 1.100.0
+      # Run branch-specific research first for fast failure feedback; the
+      # normal workspace validation and smoke gates remain mandatory below.
+      # No research-only dependency enters default main CI.
+      - name: Verify Issue 146 nested execution research
+        if: ${{ github.event_name == 'pull_request' && github.head_ref == 'research/146-nested-domain-contract' }}
+        run: |
+          cargo fmt --manifest-path research/nested-execution/Cargo.toml -- --check
+          cargo clippy --locked --manifest-path research/nested-execution/Cargo.toml --all-targets -- -D warnings
+          cargo test --locked --manifest-path research/nested-execution/Cargo.toml -- --nocapture
       - name: Validate workspace
         run: cargo validate --check
       - name: Smoke test runtime and managed providers
