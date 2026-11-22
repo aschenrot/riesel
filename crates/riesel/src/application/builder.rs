@@ -182,9 +182,7 @@ impl Application {
                 .values()
                 .any(|operation| operation.kind != OperationKind::Query)
         {
-            return Err(SdkError::InvalidRecordQueryContract(
-                contract.capability.id,
-            ));
+            return Err(SdkError::InvalidRecordQueryContract(contract.capability.id));
         }
 
         let read_alias = read_alias.into();
@@ -214,7 +212,9 @@ impl Application {
         {
             return Err(SdkError::ConflictingRecordQueryLink(model));
         }
-        app.definition.record_query_links.insert(model, relationship);
+        app.definition
+            .record_query_links
+            .insert(model, relationship);
         app.definition.version = 2;
         Ok(app)
     }
