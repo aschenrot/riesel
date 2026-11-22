@@ -71,7 +71,7 @@ def safe_runtime(path):
 
 
 def safe_unit(name):
-    if not re.fullmatch(r"riesel-m60-label-[a-f0-9]{12}\.service", name):
+    if not re.fullmatch(r"riesel-m60-export-[a-f0-9]{12}\.service", name):
         raise AssertionError("refusing non-research systemd unit")
     return name
 
@@ -192,7 +192,7 @@ def exercise(gateway_root, counter_root):
         if not p.is_file():
             raise AssertionError(f"required pinned research file not found {p}")
     nonce = uuid.uuid4().hex[:12]
-    unit = safe_unit("riesel-m60-label-" + nonce + ".service")
+    unit = safe_unit("riesel-m60-export-" + nonce + ".service")
     install = safe_install(Path("/opt/riesel-m60-protected-export-" + nonce))
     runtime = safe_runtime(Path("/run/riesel-m60-protected-export-" + nonce))
     trusted = "riesel_m60_client_" + nonce
