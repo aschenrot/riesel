@@ -69,6 +69,8 @@ fn trusted_exact_registration_and_editor_binding_are_passive() {
     );
     let static_json = serde_json::to_value(inspected[0]).unwrap();
     assert_eq!(static_json["key"]["version"], 1);
+    assert_eq!(static_json["descriptor_version"], 1);
+    assert_eq!(inspected[0].descriptor_version(), 1);
 
     let edited = plan(valid_node()
         .access("cache", AccessMode::Read)
@@ -174,6 +176,12 @@ fn unsafe_publisher_descriptors_are_rejected_before_handler_registration() {
     assert!(matches!(
         registry.register_editor_operation(affine, Arc::new(|| {})),
         Err(EditorCatalogError::UnsupportedAffinity { .. })
+    ));
+    let zero_version =
+        EditorOperationDescriptor::new(key("editor.zero", 1)).with_descriptor_version(0);
+    assert!(matches!(
+        registry.register_editor_operation(zero_version, Arc::new(|| {})),
+        Err(EditorCatalogError::InvalidDescriptor { .. })
     ));
     assert_eq!(registry.editor_descriptors().len(), 0);
     assert!(registry.get(&key("editor.bad", 1)).is_none());
