@@ -84,7 +84,10 @@ fn verify_metadata_record_query(
     assert_eq!(matches.records.len(), 1);
     assert_eq!(matches.records[0].value.count, u64::MAX);
     assert_eq!(matches.records[0].value.delta, i64::MIN);
-    assert_eq!(matches.records[0].value.tags, ["editor", "metadata"]);
+    assert_eq!(
+        matches.records[0].value.tags,
+        vec!["editor".to_owned(), "metadata".to_owned()]
+    );
     assert!(matches.records[0].value.note.is_none());
 
     let nulls = reader.page(
