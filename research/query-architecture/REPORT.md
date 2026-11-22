@@ -136,6 +136,25 @@ all concurrent record-membership/filter changes. This experiment
 is **not** a Riesel native-query parity, throughput, cancellation
 or transaction test.
 
+## New typed-provider research: semantics and continuation (2026-11-22)
+
+**Reproduction:** Run the Rust test target via **cargo test -p todo --test query_architecture_research -- --nocapture**. The wrapper includes [probes/typed_record_contract.rs](probes/typed_record_contract.rs) outside the production source directories.
+
+**Actual scope:** Two Rust tests register an independently derived **ResearchMetadata** schema on the *real MemoryStore and linked SqliteStore*, seed 65 records, and inspect reads/mutations through unchanged published RecordStore v2. A tiny **research-only Rust interpreter** applies validated typed predicates **after v2 page retrieval**. It is **not** a native indexed provider, production query protocol, new public interface or benchmark of SQLite predicate pushdown.
+
+| Probe | Reproduced result on both providers | What it does not prove |
+| --- | --- | --- |
+| Full-width unsigned/signed values | u64 maximum and maximum minus one remain distinct on Storage round-trip; i64 minimum and maximum round-trip | Direct SQLite json_extract filter correctness, indexed numeric ordering or a new Query provider |
+| Optional field presence | Explicit JSON null matches a different filter than a missing registered optional field | Rust Option<T> preserves presence; it normally collapses both to None on typed decode |
+| Invalid/unsupported operator | U64 predicate on boolean, missing-check on required field and unsupported range fail before scan | A complete public expression language or provider support negotiation |
+| Sparse matches | First two 32-record scan budgets return **empty partial pages**; continuation finds the only match at UUID position 65 | Bounded latency, native index selectivity or globally empty result from an empty partial page |
+| Cursor query/session mismatch | A test-local cursor rejects changed model, predicate or manually supplied generation | Authenticated runtime session, tamper-proof cursor, restart or managed lifecycle proof |
+| Known exhaustion | A 64-record bounded scan with an early match is still *partial* until the remaining 65th record is inspected | Snapshot-consistent results across pages |
+
+**Verification:** [Research CI #44968670157](https://github.com/aschenrot/riesel/actions/runs/44968670157) passed **2/2 Rust tests** (each exercises both actual providers) and **3/3 Python SQLite tests** on the earlier revision **a3aa116c639a2b0be4bd3faffd88e892453dc66a**. The first compilation revealed real SDK constraints: RieselModel derives reject Serde field modifiers, so optional missing/null tests must use valid raw record data; test-only direct SQLite dependency registration was also required. These corrections do not change the production contract. Normal workspace validation is an **independent** gate.
+
+**Architectural significance:** Riesel needs an explicit choice between *portable logical semantics* and *native provider acceleration*. A bounded output count does not bound scan cost. Full-width integers, optional-field presence and cursor provenance must be defined before freezing a shared Query contract. These tests strengthen semantic feasibility but do **not** decide between independent domain APIs, shared validation, separate Record Query or Storage evolution.
+
 ## Comparative candidate synthesis — derived *after* discovery
 
 These are **design families, not mandated alternatives**. Each remains
@@ -230,9 +249,11 @@ The decision *could* change with:
 
 1. A real second registered-model consumer proving equivalent typed
    operations, not merely contrived analogies to Todo;
-2. A contract pressure test of complete `u64`, `i64`, missing/null,
-   string/UUID ordering, operator rejection, projection and cursor/
-   version/restart behavior for concrete interface variants;
+2. Extend the new **research-only typed interpreter** proof to actual
+   provider-native predicates, signed/UUID ordering, projection and
+   cursor version/restart behavior. So far the probe covers scalar
+   equality/presence/invalid-operator and *caller-supplied* epoch checks,
+   not a production or managed-provider Query API;
 3. A measured/practical comparison of **same-instance binding and
    read-only authorization** versus co-exposed unified storage;
 4. Real bounded-selectivity/cancellation behavior on linked Memory/
@@ -256,6 +277,7 @@ federation engine or analytics runtime is a prerequisite for Todo.
   Python stdlib only, deterministic seed, in-memory database and
   no user filesystem side effects. Initial SQLite **3.46.1** run
   asserted all **3/3** outcomes; [research CI #44967915491](https://github.com/aschenrot/riesel/actions/runs/44967915491) passed **3/3** tests at earlier commit `403ecaed`. A later doc update requires an independent **new exact-head** CI check; do not transfer the old run's pass status automatically.
+- Typed provider research: run **cargo test -p todo --test query_architecture_research -- --nocapture**. [Research CI #44968670157](https://github.com/aschenrot/riesel/actions/runs/44968670157) passed two Rust tests against Memory and SQLite at earlier commit **a3aa116c**. The interpreter filters retrieved v2 data in Rust, not inside either provider.
 - Comparative claims: upstream documentation links in
   `DISCOVERY.md`. **Not verified** here: legal licensing audit,
   upstream package MSRV at pinned Rust 1.100, actual integration
