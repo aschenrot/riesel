@@ -76,6 +76,27 @@ parameter type alias or a custom type already implementing
 `ApplicationParam`, use `#[riesel(parameter)]` to bypass the generated
 native handle adapter.
 
+## Model metadata without writable Storage
+
+A Rust-derived record model can also be registered **independently** of
+Storage v2 mutation authority:
+
+```rust
+use riesel::Application;
+use todo::TaskData;
+
+let declared = Application::new("MetadataOnly").model::<TaskData>()?;
+let schema = declared.definition_json()?;
+```
+
+The inspectable schema contains the model definition but **no Storage
+requirement**, provider selection or read permission. This helper does **not**
+execute queries or publish a read endpoint. The separately accepted
+[linked Record Query architecture](record-query-architecture.md) requires a
+future read-designated Query capability and a validated model/data-owner
+relationship before reading. Existing `Records<T>` and
+`records_at<T>` remain the explicit **writable Storage v2** path.
+
 ## Explicit linked SQLite Storage (Stage 6)
 
 For durable local records, enable the SDK's `sqlite-storage` Cargo feature
