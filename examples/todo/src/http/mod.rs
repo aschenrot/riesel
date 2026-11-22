@@ -49,7 +49,6 @@ impl HttpState {
     }
 }
 
-
 /// An accepted blocking operation may have changed persistent data even if
 /// its result sender disappears (worker failure, cancellation or teardown).
 /// Unlike synchronous task-admission refusal, this outcome is ambiguous.
@@ -179,8 +178,7 @@ mod tests {
         Application::new("Todo HTTP lost response after effect")
             .async_handler(|records: Records<TaskData>, tasks: AsyncTasks| async move {
                 let writer = records.clone();
-                let (sender, receiver) =
-                    tokio::sync::oneshot::channel::<Result<(), ApiError>>();
+                let (sender, receiver) = tokio::sync::oneshot::channel::<Result<(), ApiError>>();
                 tasks.spawn_blocking("committed-lost-reply", move |_cancellation| {
                     Todo::new(writer).create_task("Applied exactly once")?;
                     // The worker completed the real Storage operation but
@@ -197,7 +195,10 @@ mod tests {
                 assert_eq!(tasks_after[0].value.title, "Applied exactly once");
 
                 let response = ApiError::OutcomeUnknown.into_response();
-                assert_eq!(response.status(), axum::http::StatusCode::SERVICE_UNAVAILABLE);
+                assert_eq!(
+                    response.status(),
+                    axum::http::StatusCode::SERVICE_UNAVAILABLE
+                );
                 let body = axum::body::to_bytes(response.into_body(), 1024).await?;
                 let json: serde_json::Value = serde_json::from_slice(&body)?;
                 assert_eq!(json["error"]["code"], "outcome_unknown");
