@@ -113,9 +113,7 @@ impl Drop for UnixReadServer {
         // T1 does not promise protection against concurrent hostile same-UID
         // path replacement between this check and unlink.
         if let Ok(meta) = fs::symlink_metadata(&self.path) {
-            if meta.file_type().is_socket()
-                && meta.dev() == self.device
-                && meta.ino() == self.inode
+            if meta.file_type().is_socket() && meta.dev() == self.device && meta.ino() == self.inode
             {
                 let _ = fs::remove_file(&self.path);
             }
@@ -179,9 +177,11 @@ async fn respond(publication: &AppReadPublication, request: Value) -> Value {
             let Some(operation) = request.get("operation").and_then(Value::as_str) else {
                 return problem("invalid_request");
             };
-            let Some(descriptor) = request.get("descriptor").cloned().and_then(|v| {
-                serde_json::from_value::<ReadPublicationDescriptor>(v).ok()
-            }) else {
+            let Some(descriptor) = request
+                .get("descriptor")
+                .cloned()
+                .and_then(|v| serde_json::from_value::<ReadPublicationDescriptor>(v).ok())
+            else {
                 return problem("invalid_request");
             };
             let Some(arguments) = request.get("arguments").cloned() else {
@@ -202,8 +202,9 @@ async fn respond(publication: &AppReadPublication, request: Value) -> Value {
                     ReadPublicationError::StaleGeneration => "stale_generation",
                     ReadPublicationError::WrongPublication => "wrong_publication",
                     ReadPublicationError::Withdrawn => "withdrawn",
-                    ReadPublicationError::NotPublished
-                    | ReadPublicationError::NotReadOnly(_) => "not_published",
+                    ReadPublicationError::NotPublished | ReadPublicationError::NotReadOnly(_) => {
+                        "not_published"
+                    }
                     ReadPublicationError::AtCapacity => "at_capacity",
                     ReadPublicationError::Expired => "expired",
                     ReadPublicationError::OverBudget => "over_budget",
@@ -232,7 +233,10 @@ impl UnixReadClient {
         let body = serde_json::to_vec(&request)
             .map_err(|error| io::Error::new(io::ErrorKind::InvalidInput, error))?;
         if body.len() as u64 > MAX_WIRE_REQUEST_BYTES {
-            return Err(io::Error::new(io::ErrorKind::InvalidInput, "request too large"));
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidInput,
+                "request too large",
+            ));
         }
         let mut stream = tokio::time::timeout(IO_TIMEOUT, UnixStream::connect(&self.path))
             .await
@@ -247,18 +251,26 @@ impl UnixReadClient {
             .await
             .map_err(|_| io::Error::new(io::ErrorKind::TimedOut, "local read timeout"))??;
         if reply.len() > MAX_WIRE_RESPONSE_BYTES {
-            return Err(io::Error::new(io::ErrorKind::InvalidData, "response too large"));
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidData,
+                "response too large",
+            ));
         }
         serde_json::from_slice(&reply)
             .map_err(|error| io::Error::new(io::ErrorKind::InvalidData, error))
     }
 
     pub async fn describe(&self) -> io::Result<ReadPublicationDescriptor> {
-        let reply = self.exchange(json!({
-            "wire_version": WIRE_VERSION, "action": "describe"
-        })).await?;
+        let reply = self
+            .exchange(json!({
+                "wire_version": WIRE_VERSION, "action": "describe"
+            }))
+            .await?;
         if reply["status"] != "descriptor" {
-            return Err(io::Error::new(io::ErrorKind::PermissionDenied, "no descriptor"));
+            return Err(io::Error::new(
+                io::ErrorKind::PermissionDenied,
+                "no descriptor",
+            ));
         }
         serde_json::from_value(reply["descriptor"].clone())
             .map_err(|error| io::Error::new(io::ErrorKind::InvalidData, error))
@@ -279,6 +291,7 @@ impl UnixReadClient {
             "descriptor": descriptor,
             "operation": operation,
             "arguments": arguments
-        })).await
+        }))
+        .await
     }
 }
