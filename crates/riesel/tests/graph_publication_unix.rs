@@ -86,16 +86,24 @@ fn graph_with_uncertain_effects(
         )
         .unwrap();
     let validated = ExecutionPlanDraft::new("example.gui_public_graph", 1)
-        .operation(OperationNode::new("failed", OperationKey::new("failed", 1).unwrap()))
+        .operation(OperationNode::new(
+            "failed",
+            OperationKey::new("failed", 1).unwrap(),
+        ))
         .operation(
-            OperationNode::new("blocked", OperationKey::new("blocked", 1).unwrap())
-                .after("failed"),
+            OperationNode::new("blocked", OperationKey::new("blocked", 1).unwrap()).after("failed"),
         )
-        .operation(OperationNode::new("unknown", OperationKey::new("unknown", 1).unwrap()))
+        .operation(OperationNode::new(
+            "unknown",
+            OperationKey::new("unknown", 1).unwrap(),
+        ))
         .validate()
         .unwrap();
     let runner = running
-        .execution_graph(validated.bind(&registry).unwrap(), NonZeroUsize::new(2).unwrap())
+        .execution_graph(
+            validated.bind(&registry).unwrap(),
+            NonZeroUsize::new(2).unwrap(),
+        )
         .unwrap();
     (runner, validated)
 }
@@ -368,11 +376,17 @@ fn actual_graph_read_loss_resnapshot_and_same_pid_session_recovery() {
         );
         assert_ne!(second.identity.run_sequence, 0);
         let second_report = new_runner.execute().await;
-        assert!(!second_report.succeeded(), "known failure/unknown are not completion");
+        assert!(
+            !second_report.succeeded(),
+            "known failure/unknown are not completion"
+        );
         let terminal = read_snapshot(&client, &fresh).await;
         assert_eq!(terminal.phase, "finished");
         assert_eq!(terminal.nodes[0].state, "failed");
-        assert_eq!(terminal.nodes[0].failure.as_deref(), Some("domain rejected"));
+        assert_eq!(
+            terminal.nodes[0].failure.as_deref(),
+            Some("domain rejected")
+        );
         assert_eq!(terminal.nodes[1].state, "blocked");
         assert_eq!(terminal.nodes[2].state, "outcome_unknown");
         next_tasks.finish_scope().await.unwrap();
