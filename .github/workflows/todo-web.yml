@@ -7,12 +7,18 @@ on:
   pull_request:
     paths:
       - "examples/todo/web/**"
+      - "examples/todo/src/**"
+      - "examples/todo/Cargo.toml"
+      - "examples/todo/tests/http.rs"
       - ".github/workflows/todo-web.yml"
   push:
     branches:
       - main
     paths:
       - "examples/todo/web/**"
+      - "examples/todo/src/**"
+      - "examples/todo/Cargo.toml"
+      - "examples/todo/tests/http.rs"
       - ".github/workflows/todo-web.yml"
 
 jobs:
