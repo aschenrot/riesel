@@ -104,7 +104,7 @@ test('connection errors are visible and allow retry without losing tasks', async
   await page.getByRole('button', { name: 'Refresh tasks' }).click();
   await expect(page.getByRole('alert')).toContainText('Cannot connect to the Todo backend.');
   await page.unroute('**/api/v1/tasks/query?*');
-  await page.getByRole('button', { name: 'Try again' }).click();
+  await page.getByRole('button', { name: 'Check from start' }).click();
   await expect(page.getByText('Reconnect task', { exact: true })).toBeVisible();
 });
 
@@ -408,7 +408,7 @@ test('failed refresh does not falsely advance last checked timestamp', async ({ 
   await expect(page.getByRole('alert')).toContainText('Cannot connect to the Todo backend.');
   await expect(page.locator('.refresh-details time')).toHaveAttribute('datetime', previous!);
   await page.unroute('**/api/v1/tasks/query?*');
-  await page.getByRole('button', { name: 'Try again' }).click();
+  await page.getByRole('button', { name: 'Check from start' }).click();
   await expect(page.getByRole('alert')).toHaveCount(0);
   await expect(page.locator('.refresh-details time')).toHaveAttribute('datetime', /\d{4}-\d{2}-\d{2}T/);
 });

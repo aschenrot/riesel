@@ -65,7 +65,12 @@
   // Each count is explicitly of loaded task rows, never global matches.
   const openTasks = $derived(tasks.filter((task) => !task.completed));
   const completedTasks = $derived(tasks.filter((task) => task.completed));
-  const visible = $derived(tasks.filter((task) => !task.completed || completedExpanded));
+  // Shift-range and visible-only selection follow the rendered section order,
+  // not the interleaved UUID order of the backing row cache.
+  const visible = $derived([
+    ...openTasks,
+    ...(completedExpanded ? completedTasks : [])
+  ]);
   const openCount = $derived(openTasks.length);
   const selectedVisible = $derived(visible.filter((task) => selectedIds.includes(task.id)));
   const lastCheckedLabel = $derived(
@@ -894,10 +899,14 @@
           <p class="section-message" role="status">No open tasks in the records checked yet. More records remain.</p>
         {:else if loading && openTasks.length === 0}
           <p class="placeholder" role="status">Loading tasks…</p>
+        {:else if openTasks.length === 0 && !openScan.requested}
+          <p class="section-message">Open tasks changed. Refresh to check the current list.</p>
         {/if}
         {@render taskList(openTasks, 'Open tasks')}
         <div class="panel-footer">
-          {#if openScan.cursor && !openScan.exhausted && !openScan.scanning}
+          {#if !openScan.requested && !openScan.scanning}
+            <button type="button" class="secondary" disabled={loadingMore || refreshing || creating || actingId !== null || batchRunning || editingId !== null} onclick={() => void scanStatus('open', true)}>Check current open tasks</button>
+          {:else if openScan.cursor && !openScan.exhausted && !openScan.scanning}
             <button type="button" class="secondary" disabled={loadingMore || refreshing || creating || actingId !== null || batchRunning} onclick={() => void loadMore('open')}>Continue checking open tasks</button>
           {:else if openScan.exhausted}
             <span>Open scan complete for now · {openScan.inspected} records inspected</span>

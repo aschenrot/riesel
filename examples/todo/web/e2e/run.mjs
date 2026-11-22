@@ -49,7 +49,7 @@ const seedExecutable = path.join(root, 'target', 'debug',
 
 async function runPlaywright(spec, baseURL) {
   const command = process.platform === 'win32' ? 'npx.cmd' : 'npx';
-  const tests = spawn(command, ['playwright', 'test', '--config', 'playwright.config.ts', spec], {
+  const tests = spawn(command, ['playwright', 'test', '--config', 'playwright.config.ts', ...[spec].flat()], {
     cwd: webDir,
     stdio: 'inherit',
     env: { ...process.env, TODO_E2E_BASE_URL: baseURL }
@@ -90,7 +90,7 @@ try {
   const baseURL = await awaitReady(backend, errors);
   console.log('Browser E2E using ' + baseURL);
 
-  result = await runPlaywright('e2e/tasks.spec.ts', baseURL);
+  result = await runPlaywright(['e2e/tasks.spec.ts', 'e2e/status-discovery.spec.ts'], baseURL);
 
   if (result === 0) {
     // Test the actual SQLite provider on a fresh, offline-seeded 10k database,

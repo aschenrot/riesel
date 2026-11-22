@@ -48,7 +48,10 @@ fn run() -> Result<(), Box<dyn Error + Send + Sync>> {
             )?;
             assert_eq!(opened.id, last.id);
             assert_eq!(opened.revision, last.revision + 1);
-            println!("TODO_SPARSE_SEED_OK records=10000 last_open_id={}", opened.id);
+            println!(
+                "TODO_SPARSE_SEED_OK records=10000 last_open_id={}",
+                opened.id
+            );
             Ok(())
         })?
         .sqlite_storage(db)?
