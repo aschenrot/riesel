@@ -99,6 +99,13 @@ pub use riesel_app::{
     S2OperationDocument, S2PlanDocument, S2SourceDocument, bind_s2_document, inspect_s2_source,
 };
 
+pub use riesel_app::{
+    MAX_STORED_LAYOUT_BYTES, MAX_STORED_PLAN_BYTES, CheckedSourceHandoff, PlanAuthoringHead,
+    PlanAuthoringSource, PlanLayoutDraft, PlanLayoutPoint, PlanRevisionError,
+    PlanRevisionRepository, PlanSemanticCandidate, StoredPlanLayout, StoredSemanticPlan,
+    check_layout_nodes,
+};
+
 pub use riesel_macros::{RieselModel, RieselType, app, capability, component};
 
 /// An application entrypoint result that retains typed source errors behind
