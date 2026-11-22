@@ -62,6 +62,35 @@ A candidate service rule worth testing: when a run remains E and some requested 
 
 A chosen F2 implementation is free to use an internal queue, ticket, read phase, grant reservation or alternative bookkeeping **provided the observable bounded-service rule is met** and only the existing session arbiter actually owns resources. Run-local A1 readiness remains **candidate selection**, never a competing resource authority.
 
+## Gate N contract precision — evidence, not accepted policy
+
+[Real-runner research #260](https://github.com/aschenrot/riesel/pull/260) at exact head `c0e8dee92dee32be2a086c5847c9fbfd7a694eca` passed [Linux workspace/smoke and five debug/release tests](https://github.com/aschenrot/riesel/actions/runs/45067525794); the detailed source-qualified record is [#226 Gate N](https://github.com/aschenrot/riesel/issues/226#issuecomment-7085467199). Two added tests change the fairness contract's required discrimination:
+
+- **Contested demand versus unrelated run progress:** with a held `alpha:Read` and an eligible cold `alpha:Write`, eight independent `gamma:Write` operations of that same cold run completed while the writer remained pending in all eight debug/release rounds. A scheduler that clears the cold run's fairness debt on *any* successful callback would incorrectly count `gamma` as service for `alpha`. Thus **run-level anti-monopoly identity alone is insufficient** for the stronger F2 promise unless the specific contested demand remains owed. This is a counterexample to a proposed accounting rule, not evidence of a fairness ledger implemented today. A possible representation is session-fenced `(run, eligible contested operation, complete demand)` plus run-normalized turns; the representation is **not selected**.
+- **Capacity-only contention:** with no declared resource keys, 32 held hot callbacks saturated the session budget, then the waiting cold callback started **65th/65** in all eight debug/release rounds. This shows the existing opportunistic arbiter can favor a hot graph solely through session capacity, without a resource-access conflict. The accepted B1 goal refers to shared session-owned resources; **explicitly decide** whether its fairness guarantee includes the shared 32-operation budget. A capacity-fair rule may use the existing budget as one contested admission dimension, but must not invent a second resource owner or impose a global FIFO.
+
+### Admission distinctions that the test oracle must maintain
+
+- **E — logical eligibility:** exact session/run/operation, dependencies and trigger, controls and pending state permit the candidate to request admission.
+- **G — physical grantability:** at this instant the complete declared access/domain request *and* operation budget can be reserved atomically, without considering prospective fairness preference.
+- **P — policy permission:** if F2 is accepted, an otherwise physically compatible newly arriving read may be deferred to protect a continuously eligible exclusive contender. Therefore **G does not imply P** under F2. In F1, service is considered only at G opportunities.
+- **A — actual dispatch admission:** only the authoritative post-reservation `GraphRunPublication::admit` transition starts an attempt and consumes any step credit. A speculative reservation later rejected by pause, cancellation or a stale generation **must not** be recorded as A or consume final fair-service credit.
+
+A service oracle shall count conflicting successful **A** admissions overtaking a continuously E contender; it shall separately record G/P when interpreting intentional reader-phase closure, session capacity limits and multi-key availability. It must never substitute callback completion, `Notify` wake order, release count, a `Pending` flag alone, or unrelated admissions of the same run as proof of service.
+
+### Required scope and mechanism questions
+
+| Question | Required owner-level outcome | What research must establish before production |
+| --- | --- | --- |
+| **Read/write liveness** | Choose F1 grantable-only or F2 drain-aware reader/writer phases | Falsifiable admission bound under cooperative releases and rolling read/write arrivals |
+| **Fairness unit** | Run-level non-monopoly with **contested-demand claims** if F2 protects an eligible writer even while its run executes disjoint work | Claims move among pending nodes without registration explosion, loss of older claims or repeated unfair credit |
+| **Capacity-only admission** | Explicitly include in B1, or defer as a stated limitation | Resource-free saturated competing runs; bounded service after cooperative capacity releases |
+| **Multi-key atomicity** | Full-set all-or-nothing reservation and unrelated-key progress | Continuous `{alpha,beta}` claims against separate `alpha`/`beta` contenders; no deadlock, partial lease or global head-of-line blocking |
+| **Safe-point and lifecycle** | Existing control/session/domain authority; never reserve or age a paused/cancelled/stale contender | Pause/step racing reservation, abandonment, generation replacement; earned turn only after A |
+| **Executor independence** | No fairness guarantee based on current-thread ordering alone | Compare current-thread/four-worker Tokio; count actual admissions and preserve safety |
+
+No numerical overtaking bound or specific FIFO/run-queue policy is accepted by this research update. If B1 excludes capacity-only contention, the contract must say so plainly; otherwise the proposed general-purpose session fairness may fail for pure asynchronous workloads without resource annotations. Neither F1 nor F2 is implementation authorization.
+
 ## Mandatory risk and acceptance matrix
 
 Each test must execute **real `RunningApp::execution_graph` callbacks**, not only a stand-in simulation; define oracle/counters before changing the code. Include bounded deterministic tests, debug and optimized stress where useful, and the full graph/session regressions.
