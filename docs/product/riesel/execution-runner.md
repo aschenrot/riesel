@@ -145,7 +145,10 @@ updates and is visible independently to both generic and typed readers.
   projection data, not an `Arc<Mutex<_>>` or another mutable alias to its
   authoritative native world. The trusted-local API does not enforce this
   deeper property or provide a serialized isolation boundary.
-  Copy/allocation and mutex acquisition are not real-time guaranteed.
+  Snapshot allocation and destruction happen outside the observation
+  mutex; the latest pointer and bounded sequence ring are exchanged under
+  that mutex. However, domain-provided snapshot copying/destructors and
+  lock acquisition are **not** real-time guaranteed.
   A slow reader never applies queue backpressure to the native schedule.
   No global synchronization or transaction combines an outer graph
   snapshot with an inner domain snapshot.
