@@ -5,8 +5,9 @@ use riesel_counter::CounterContract;
 
 #[cfg(feature = "internal-publication")]
 use riesel::internal_observation::{
-    GenerationEvidence, ObservationEvidence, ObservationSnapshot, ObservationSource,
-    ObservationState, ObservationSubject,
+    AdapterOperationEvidence, AdapterOperationSnapshot, GenerationEvidence, ObservationEvidence,
+    ObservationSnapshot, ObservationSource, ObservationState, ObservationSubject,
+    OperationDisposition,
 };
 use std::io;
 use std::time::Duration;
@@ -49,6 +50,8 @@ fn main() -> riesel::Result<()> {
     let mut previous: Option<std::sync::Arc<dyn riesel_counter::Counter + Send + Sync>> = None;
     #[cfg(feature = "internal-publication")]
     let mut previous_observation: Option<ObservationSnapshot> = None;
+    #[cfg(feature = "internal-publication")]
+    let mut previous_operation: Option<AdapterOperationSnapshot> = None;
     Application::new("RecoveryProbe")
         .rpc::<CounterContract>("counter")?
         .run_from_env(move |ctx| {
@@ -144,6 +147,21 @@ fn main() -> riesel::Result<()> {
                         2
                     );
                     assert_eq!(counter.value()?, 2);
+                    let confirmed = AdapterOperationSnapshot::report(
+                        ctx.async_tasks().internal_session_token(),
+                        "counter.add",
+                        AdapterOperationEvidence::DomainConfirmedSuccess,
+                    )?;
+                    assert_eq!(
+                        confirmed.disposition(),
+                        OperationDisposition::ConfirmedSuccess
+                    );
+                    assert_eq!(confirmed.generation(), generation);
+                    assert_eq!(
+                        confirmed.generation_evidence(),
+                        GenerationEvidence::AdapterReferenceOnly
+                    );
+                    previous_operation = Some(confirmed);
                     previous_publication = Some((publication, generation, pid));
                 }
                 previous = Some(counter.clone());
@@ -194,6 +212,22 @@ fn main() -> riesel::Result<()> {
                         99
                     ).is_err());
                     assert_eq!(counter.value()?, 0);
+                    let rejected = AdapterOperationSnapshot::report(
+                        ctx.async_tasks().internal_session_token(),
+                        "counter.add",
+                        AdapterOperationEvidence::RejectedBeforeDomainDispatch,
+                    )?;
+                    assert_eq!(
+                        rejected.disposition(),
+                        OperationDisposition::RejectedBeforeDispatch,
+                        "stale attachment cannot dispatch into recovered Counter"
+                    );
+                    let former = previous_operation.take().expect("A has a confirmed result");
+                    assert_eq!(
+                        former.state_at(std::time::Instant::now()),
+                        ObservationState::Stale
+                    );
+                    assert_ne!(former.generation(), rejected.generation());
                     assert_eq!(
                         test_adapter_value(&next_publication, &next_generation, counter)?,
                         0
@@ -210,6 +244,7 @@ fn main() -> riesel::Result<()> {
                         "INTERNAL_PUBLICATION_RECOVERY_OK same_pid={} generation_changed=true old_effect_rejected=true",
                         original_pid
                     );
+                    println!("SDK_OPERATION_OUTCOME_COUNTER_OK source_scoped=true stale_rejected=true no_mutation=true");
                 }
                 #[cfg(not(feature = "internal-publication"))]
                 assert_eq!(counter.add(7)?, 7);
