@@ -7,8 +7,7 @@ use riesel_app::{
     App, AsyncOperation, BoundExecutionPlan, CapabilityConnector, ConnectedProvider,
     ConnectorError, ConnectorRegistry, DeploymentConfig, ExecutionPlanDraft, GraphRunError,
     GraphRunPhase, OperationKey, OperationNode, OperationOutcome, OperationRegistry,
-    OperationState, RunningApp,
-    RuntimeError, ServiceEndpoint, async_operation,
+    OperationState, RunningApp, RuntimeError, ServiceEndpoint, async_operation,
 };
 use riesel_protocol::SessionToken;
 use riesel_schema::{
@@ -254,11 +253,20 @@ fn managed_process_crash_fences_run_and_preserves_confirmed_prefix() {
     assert_eq!(snapshot.identity, address);
     assert_eq!(snapshot.phase, GraphRunPhase::Finished);
     assert!(snapshot.session_expired);
-    assert_eq!(snapshot.operations["commit"].state, OperationState::Completed);
+    assert_eq!(
+        snapshot.operations["commit"].state,
+        OperationState::Completed
+    );
     assert_eq!(snapshot.operations["commit"].attempt, 1);
-    assert_eq!(snapshot.operations["crash"].state, OperationState::OutcomeUnknown);
+    assert_eq!(
+        snapshot.operations["crash"].state,
+        OperationState::OutcomeUnknown
+    );
     assert_eq!(snapshot.operations["crash"].attempt, 1);
-    assert_eq!(snapshot.operations["successor"].state, OperationState::Blocked);
+    assert_eq!(
+        snapshot.operations["successor"].state,
+        OperationState::Blocked
+    );
     assert_eq!(snapshot.operations["successor"].attempt, 0);
     assert!(!observer.changes_since(0).unwrap().truncated);
     assert_eq!(confirmed.load(Ordering::SeqCst), 1);
