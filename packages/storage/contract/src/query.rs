@@ -100,8 +100,7 @@ impl From<riesel_protocol::RpcError> for RecordQueryError {
 pub trait RecordQuery {
     /// Read one bounded live page under the selected registered-model owner.
     #[query]
-    fn query_page(&self, request: RecordQueryRequest)
-        -> Result<RecordQueryPage, RecordQueryError>;
+    fn query_page(&self, request: RecordQueryRequest) -> Result<RecordQueryPage, RecordQueryError>;
 }
 
 /// Validate the first profile before a provider begins inspecting records.
@@ -117,7 +116,11 @@ pub fn validate_record_query(
     if !(1..=MAX_QUERY_SCAN_BUDGET).contains(&request.scan_budget) {
         return Err(RecordQueryError::InvalidScanBudget);
     }
-    if request.cursor.as_ref().is_some_and(|c| c.len() > 64 || c.is_empty()) {
+    if request
+        .cursor
+        .as_ref()
+        .is_some_and(|c| c.len() > 64 || c.is_empty())
+    {
         return Err(RecordQueryError::InvalidCursor);
     }
     if let Some(predicate) = &request.predicate {
@@ -218,15 +221,18 @@ pub fn record_matches_predicate(
         .as_ref()
         .ok_or(RecordQueryError::InvalidOperand)?;
     let ord = match field_value_kind(kind) {
-        TypeRef::Bool => actual.as_bool().zip(wanted.as_bool()).map(|(a,b)| a.cmp(&b)),
-        TypeRef::String => actual.as_str().zip(wanted.as_str()).map(|(a,b)| a.cmp(b)),
+        TypeRef::Bool => actual
+            .as_bool()
+            .zip(wanted.as_bool())
+            .map(|(a, b)| a.cmp(&b)),
+        TypeRef::String => actual.as_str().zip(wanted.as_str()).map(|(a, b)| a.cmp(b)),
         TypeRef::Uuid => actual
             .as_str()
             .and_then(|s| Uuid::parse_str(s).ok())
             .zip(wanted.as_str().and_then(|s| Uuid::parse_str(s).ok()))
-            .map(|(a,b)| a.cmp(&b)),
-        TypeRef::U64 => actual.as_u64().zip(wanted.as_u64()).map(|(a,b)| a.cmp(&b)),
-        TypeRef::I64 => actual.as_i64().zip(wanted.as_i64()).map(|(a,b)| a.cmp(&b)),
+            .map(|(a, b)| a.cmp(&b)),
+        TypeRef::U64 => actual.as_u64().zip(wanted.as_u64()).map(|(a, b)| a.cmp(&b)),
+        TypeRef::I64 => actual.as_i64().zip(wanted.as_i64()).map(|(a, b)| a.cmp(&b)),
         _ => None,
     }
     .ok_or_else(|| RecordQueryError::Failed("stored field violates registered type".into()))?;
@@ -257,19 +263,32 @@ mod tests {
                 ("delta".into(), TypeRef::I64),
                 ("external_id".into(), TypeRef::Uuid),
                 ("name".into(), TypeRef::String),
-                ("note".into(), TypeRef::Optional { item: Box::new(TypeRef::String) }),
+                (
+                    "note".into(),
+                    TypeRef::Optional {
+                        item: Box::new(TypeRef::String),
+                    },
+                ),
                 ("dynamic".into(), TypeRef::Json),
             ]),
         }
     }
 
     fn pred(field: &str, op: RecordCompare, value: Option<Value>) -> RecordPredicate {
-        RecordPredicate { field: field.into(), operator: op, value }
+        RecordPredicate {
+            field: field.into(),
+            operator: op,
+            value,
+        }
     }
 
     fn request(predicate: Option<RecordPredicate>) -> RecordQueryRequest {
         RecordQueryRequest {
-            model: "asset".into(), predicate, limit: 32, scan_budget: 32, cursor: None,
+            model: "asset".into(),
+            predicate,
+            limit: 32,
+            scan_budget: 32,
+            cursor: None,
         }
     }
 
@@ -280,7 +299,12 @@ mod tests {
         assert_eq!(contract.capability.version, 1);
         assert_eq!(contract.operations.len(), 1);
         assert_eq!(contract.operations["query_page"].kind, OperationKind::Query);
-        assert!(contract.operations.values().all(|op| op.kind == OperationKind::Query));
+        assert!(
+            contract
+                .operations
+                .values()
+                .all(|op| op.kind == OperationKind::Query)
+        );
     }
 
     #[test]
@@ -291,26 +315,61 @@ mod tests {
                          "external_id":id.to_string().to_uppercase(), "name":"Asset", "note":null});
         for (predicate, matches) in [
             (pred("big", RecordCompare::Eq, Some(json!(u64::MAX))), true),
-            (pred("big", RecordCompare::Eq, Some(json!(u64::MAX - 1))), false),
-            (pred("big", RecordCompare::Gt, Some(json!(u64::MAX - 1))), true),
-            (pred("delta", RecordCompare::Eq, Some(json!(i64::MIN))), true),
-            (pred("external_id", RecordCompare::Eq, Some(json!(id.to_string()))), true),
+            (
+                pred("big", RecordCompare::Eq, Some(json!(u64::MAX - 1))),
+                false,
+            ),
+            (
+                pred("big", RecordCompare::Gt, Some(json!(u64::MAX - 1))),
+                true,
+            ),
+            (
+                pred("delta", RecordCompare::Eq, Some(json!(i64::MIN))),
+                true,
+            ),
+            (
+                pred(
+                    "external_id",
+                    RecordCompare::Eq,
+                    Some(json!(id.to_string())),
+                ),
+                true,
+            ),
             (pred("note", RecordCompare::IsNull, None), true),
             (pred("note", RecordCompare::IsMissing, None), false),
-            (pred("completed", RecordCompare::Eq, Some(json!(false))), true),
-            (pred("completed", RecordCompare::Eq, Some(json!(true))), false),
+            (
+                pred("completed", RecordCompare::Eq, Some(json!(false))),
+                true,
+            ),
+            (
+                pred("completed", RecordCompare::Eq, Some(json!(true))),
+                false,
+            ),
         ] {
             validate_record_query(&m, &request(Some(predicate.clone()))).unwrap();
-            assert_eq!(record_matches_predicate(&rec, &m, Some(&predicate)).unwrap(), matches);
+            assert_eq!(
+                record_matches_predicate(&rec, &m, Some(&predicate)).unwrap(),
+                matches
+            );
         }
         let without_note = json!({"completed":false, "big":u64::MAX, "delta":i64::MIN,
             "external_id":id.to_string(), "name":"Asset"});
-        assert!(record_matches_predicate(
-            &without_note, &m, Some(&pred("note", RecordCompare::IsMissing, None))
-        ).unwrap());
-        assert!(!record_matches_predicate(
-            &without_note, &m, Some(&pred("note", RecordCompare::Ne, Some(json!("x"))))
-        ).unwrap());
+        assert!(
+            record_matches_predicate(
+                &without_note,
+                &m,
+                Some(&pred("note", RecordCompare::IsMissing, None))
+            )
+            .unwrap()
+        );
+        assert!(
+            !record_matches_predicate(
+                &without_note,
+                &m,
+                Some(&pred("note", RecordCompare::Ne, Some(json!("x"))))
+            )
+            .unwrap()
+        );
     }
 
     #[test]
@@ -328,9 +387,15 @@ mod tests {
         }
         let mut q = request(None);
         q.limit = 33;
-        assert!(matches!(validate_record_query(&m, &q), Err(RecordQueryError::InvalidLimit)));
+        assert!(matches!(
+            validate_record_query(&m, &q),
+            Err(RecordQueryError::InvalidLimit)
+        ));
         q.limit = 1;
         q.scan_budget = 257;
-        assert!(matches!(validate_record_query(&m, &q), Err(RecordQueryError::InvalidScanBudget)));
+        assert!(matches!(
+            validate_record_query(&m, &q),
+            Err(RecordQueryError::InvalidScanBudget)
+        ));
     }
 }
