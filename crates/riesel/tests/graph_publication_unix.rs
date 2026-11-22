@@ -6,8 +6,8 @@ use riesel::{
     App, AppReadPublication, AsyncOperation, ConnectorError, ConnectorRegistry,
     ExecutionGraphReadAsyncRpcDispatcher, ExecutionGraphReadFacade, ExecutionPlanDraft,
     GraphReadChanges, GraphReadError, GraphReadSnapshot, OperationKey, OperationNode,
-    OperationOutcome, OperationRegistry, ReadExposure, RunningApp, UnixReadClient,
-    UnixReadServer, ValidatedExecutionPlan, async_operation,
+    OperationOutcome, OperationRegistry, ReadExposure, RunningApp, UnixReadClient, UnixReadServer,
+    ValidatedExecutionPlan, async_operation,
 };
 use serde_json::{Value, json};
 use std::fs;
@@ -55,7 +55,10 @@ fn graph(
     }
     let validated = draft.validate().unwrap();
     let runner = running
-        .execution_graph(validated.bind(&registry).unwrap(), NonZeroUsize::new(2).unwrap())
+        .execution_graph(
+            validated.bind(&registry).unwrap(),
+            NonZeroUsize::new(2).unwrap(),
+        )
         .unwrap();
     (runner, validated)
 }
@@ -89,8 +92,12 @@ async fn read_snapshot(
     client: &UnixReadClient,
     descriptor: &riesel::ReadPublicationDescriptor,
 ) -> GraphReadSnapshot {
-    let result: Result<GraphReadSnapshot, GraphReadError> =
-        decode(client.query(descriptor, "snapshot", json!({})).await.unwrap());
+    let result: Result<GraphReadSnapshot, GraphReadError> = decode(
+        client
+            .query(descriptor, "snapshot", json!({}))
+            .await
+            .unwrap(),
+    );
     result.unwrap()
 }
 
@@ -201,9 +208,10 @@ fn actual_graph_read_loss_resnapshot_and_same_pid_session_recovery() {
         let serving = Arc::clone(&publication);
         tasks
             .spawn("graph-read-export", async move {
-                server.serve(serving).await.map_err(|error| -> ConnectorError {
-                    Box::new(error)
-                })
+                server
+                    .serve(serving)
+                    .await
+                    .map_err(|error| -> ConnectorError { Box::new(error) })
             })
             .unwrap();
 
@@ -232,7 +240,10 @@ fn actual_graph_read_loss_resnapshot_and_same_pid_session_recovery() {
         assert!(history.events.is_empty(), "no partial replay on loss");
         assert_eq!(history.latest_sequence, finished.latest_sequence);
         let current = read_changes(
-            &client, &old_descriptor, &finished.identity, finished.latest_sequence,
+            &client,
+            &old_descriptor,
+            &finished.identity,
+            finished.latest_sequence,
         )
         .await
         .unwrap();
@@ -240,7 +251,9 @@ fn actual_graph_read_loss_resnapshot_and_same_pid_session_recovery() {
         assert!(current.events.is_empty());
         assert_eq!(
             read_changes(
-                &client, &old_descriptor, &finished.identity,
+                &client,
+                &old_descriptor,
+                &finished.identity,
                 finished.latest_sequence + 1,
             )
             .await,
@@ -248,7 +261,8 @@ fn actual_graph_read_loss_resnapshot_and_same_pid_session_recovery() {
         );
         assert_eq!(
             read_changes(
-                &client, &old_descriptor,
+                &client,
+                &old_descriptor,
                 &riesel::GraphReadIdentity {
                     session_generation: "other-run".into(),
                     ..finished.identity.clone()
@@ -296,7 +310,10 @@ fn actual_graph_read_loss_resnapshot_and_same_pid_session_recovery() {
         let second = read_snapshot(&client, &fresh).await;
         assert_eq!(second.phase, "created");
         assert_eq!(second.nodes.len(), 2);
-        assert_ne!(second.identity.session_generation, finished.identity.session_generation);
+        assert_ne!(
+            second.identity.session_generation,
+            finished.identity.session_generation
+        );
         assert_ne!(second.identity.run_sequence, 0);
         let second_report = new_runner.execute().await;
         assert!(second_report.succeeded());
