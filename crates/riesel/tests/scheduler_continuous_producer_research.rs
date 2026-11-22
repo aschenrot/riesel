@@ -234,9 +234,7 @@ fn abandoning_pending_cold_run_releases_session_slot_without_dispatch() {
         }
         let writer = |name: &str| {
             ExecutionPlanDraft::new(name, 1)
-                .operation(
-                    OperationNode::new(name, key(name)).access("shared", AccessMode::Write),
-                )
+                .operation(OperationNode::new(name, key(name)).access("shared", AccessMode::Write))
                 .validate()
                 .unwrap()
                 .bind(&registry)
