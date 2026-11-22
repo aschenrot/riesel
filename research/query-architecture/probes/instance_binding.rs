@@ -429,3 +429,54 @@ fn composite_authoring_reduces_handler_arguments_but_not_ownership_risk() {
         .run()
         .unwrap();
 }
+
+struct ResearchStorageReadProjection(riesel::Records<TaskData>);
+
+impl riesel::ApplicationParam for ResearchStorageReadProjection {
+    fn default_alias() -> riesel::Result<String> {
+        <riesel::Records<TaskData> as riesel::ApplicationParam>::default_alias()
+    }
+
+    fn declare(application: Application, alias: &str) -> riesel::Result<Application> {
+        <riesel::Records<TaskData> as riesel::ApplicationParam>::declare(application, alias)
+    }
+
+    fn extract(context: &riesel::Context<'_>, alias: &str) -> riesel::Result<Self> {
+        Ok(Self(
+            <riesel::Records<TaskData> as riesel::ApplicationParam>::extract(context, alias)?,
+        ))
+    }
+}
+
+impl ResearchStorageReadProjection {
+    fn count_first_page(&self) -> usize {
+        self.0.list_page(None, 32).unwrap().records.len()
+    }
+}
+
+#[test]
+fn rust_read_only_projection_does_not_attenuate_storage_rpc_permission() {
+    let prepared = Application::new("ResearchProjectedStorageRead")
+        .handler(
+            |reader: ResearchStorageReadProjection| -> Result<(), StoreError> {
+                assert_eq!(reader.count_first_page(), 0);
+                Ok(())
+            },
+        )
+        .unwrap();
+    assert_eq!(prepared.definition().requires.len(), 1);
+    let expected = RecordStoreContract::definition().unwrap().capability;
+    assert_eq!(prepared.definition().requires[0].capability, expected);
+    let definition = RecordStoreContract::definition().unwrap();
+    assert!(
+        definition.operations.contains_key("create")
+            && definition.operations.contains_key("update")
+            && definition.operations.contains_key("delete"),
+        "hiding mutation methods in the injected Rust wrapper does not remove them from the RPC capability"
+    );
+    prepared
+        .provider(writer_only("research.projected.local"))
+        .unwrap()
+        .run()
+        .unwrap();
+}
