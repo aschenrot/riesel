@@ -220,17 +220,18 @@ mod tests {
                                             let _ = accepted.send(Err(Error::UnsupportedSafePoint));
                                             continue;
                                         }
-                                        let new_value = world.get() + match kind {
-                                            Kind::SimulationTick => 2,
-                                            Kind::PipelineStage => 5,
-                                        };
+                                        let new_value = world.get()
+                                            + match kind {
+                                                Kind::SimulationTick => 2,
+                                                Kind::PipelineStage => 5,
+                                            };
                                         world.set(new_value);
                                         confirmed += 1;
-                                        published.0.lock().unwrap().record(
-                                            &parent,
-                                            new_value,
-                                            confirmed,
-                                        );
+                                        published
+                                            .0
+                                            .lock()
+                                            .unwrap()
+                                            .record(&parent, new_value, confirmed);
                                         let _ = accepted.send(Ok(()));
                                     }
                                     Ok(Permit::Cancel { epoch, accepted }) => {
@@ -255,7 +256,10 @@ mod tests {
                             } else if let Some(error) = error {
                                 let _ = reply.send(Err(error));
                             } else {
-                                let _ = reply.send(Ok(Reply { confirmed, cancelled }));
+                                let _ = reply.send(Ok(Reply {
+                                    confirmed,
+                                    cancelled,
+                                }));
                             }
                         }
                     }
@@ -284,7 +288,10 @@ mod tests {
             r#"{"version":1,"app":{"name":"NestedContractResearch"},"models":{},"requires":[]}"#,
         )
         .unwrap()
-        .start(&DeploymentConfig::new(Default::default()), &ConnectorRegistry::new())
+        .start(
+            &DeploymentConfig::new(Default::default()),
+            &ConnectorRegistry::new(),
+        )
         .unwrap()
     }
 
@@ -314,78 +321,88 @@ mod tests {
         let independent = Arc::new(AtomicUsize::new(0));
         let downstream = Arc::new(AtomicUsize::new(0));
         let mut registry = OperationRegistry::<AsyncOperation>::new();
-        registry.register(
-            key("frame"),
-            async_operation_with_effects({
-                let commands = Arc::clone(&commands);
-                let parent_run = Arc::clone(&parent_run);
-                let incoming_permits = Arc::clone(&incoming_permits);
-                move |effects| {
-                    let commands = commands.lock().unwrap().clone().unwrap();
-                    let parent = Parent {
-                        run: parent_run.lock().unwrap().clone().unwrap(),
-                        operation: "frame".into(),
-                        attempt: 1,
-                    };
-                    let permits = incoming_permits.lock().unwrap().take().unwrap();
-                    async move {
-                        let (reply, answer) = oneshot::channel();
-                        if commands.try_send(DomainCommand::Frame {
-                            parent,
-                            proposed,
-                            permits,
-                            lost_ack,
-                            reply,
-                        }).is_err() {
-                            return OperationOutcome::Failed("domain closed".into());
-                        }
-                        match answer.await {
-                            Ok(Ok(result)) => {
-                                if result.confirmed > 0 {
-                                    effects.confirm_prefix("domain.committed", result.confirmed)
-                                        .unwrap();
-                                }
-                                if result.cancelled {
-                                    OperationOutcome::Cancelled
-                                } else if result.confirmed == proposed {
-                                    OperationOutcome::Completed
-                                } else {
-                                    OperationOutcome::Failed("incomplete frame".into())
-                                }
+        registry
+            .register(
+                key("frame"),
+                async_operation_with_effects({
+                    let commands = Arc::clone(&commands);
+                    let parent_run = Arc::clone(&parent_run);
+                    let incoming_permits = Arc::clone(&incoming_permits);
+                    move |effects| {
+                        let commands = commands.lock().unwrap().clone().unwrap();
+                        let parent = Parent {
+                            run: parent_run.lock().unwrap().clone().unwrap(),
+                            operation: "frame".into(),
+                            attempt: 1,
+                        };
+                        let permits = incoming_permits.lock().unwrap().take().unwrap();
+                        async move {
+                            let (reply, answer) = oneshot::channel();
+                            if commands
+                                .try_send(DomainCommand::Frame {
+                                    parent,
+                                    proposed,
+                                    permits,
+                                    lost_ack,
+                                    reply,
+                                })
+                                .is_err()
+                            {
+                                return OperationOutcome::Failed("domain closed".into());
                             }
-                            Ok(Err(error)) => OperationOutcome::Failed(format!("{error:?}")),
-                            Err(_) => OperationOutcome::OutcomeUnknown,
+                            match answer.await {
+                                Ok(Ok(result)) => {
+                                    if result.confirmed > 0 {
+                                        effects
+                                            .confirm_prefix("domain.committed", result.confirmed)
+                                            .unwrap();
+                                    }
+                                    if result.cancelled {
+                                        OperationOutcome::Cancelled
+                                    } else if result.confirmed == proposed {
+                                        OperationOutcome::Completed
+                                    } else {
+                                        OperationOutcome::Failed("incomplete frame".into())
+                                    }
+                                }
+                                Ok(Err(error)) => OperationOutcome::Failed(format!("{error:?}")),
+                                Err(_) => OperationOutcome::OutcomeUnknown,
+                            }
                         }
                     }
-                }
-            }),
-        ).unwrap();
-        registry.register(
-            key("independent"),
-            async_operation({
-                let independent = Arc::clone(&independent);
-                move || {
+                }),
+            )
+            .unwrap();
+        registry
+            .register(
+                key("independent"),
+                async_operation({
                     let independent = Arc::clone(&independent);
-                    async move {
-                        independent.fetch_add(1, Ordering::SeqCst);
-                        OperationOutcome::Completed
+                    move || {
+                        let independent = Arc::clone(&independent);
+                        async move {
+                            independent.fetch_add(1, Ordering::SeqCst);
+                            OperationOutcome::Completed
+                        }
                     }
-                }
-            }),
-        ).unwrap();
-        registry.register(
-            key("after"),
-            async_operation({
-                let downstream = Arc::clone(&downstream);
-                move || {
+                }),
+            )
+            .unwrap();
+        registry
+            .register(
+                key("after"),
+                async_operation({
                     let downstream = Arc::clone(&downstream);
-                    async move {
-                        downstream.fetch_add(1, Ordering::SeqCst);
-                        OperationOutcome::Completed
+                    move || {
+                        let downstream = Arc::clone(&downstream);
+                        async move {
+                            downstream.fetch_add(1, Ordering::SeqCst);
+                            OperationOutcome::Completed
+                        }
                     }
-                }
-            }),
-        ).unwrap();
+                }),
+            )
+            .unwrap();
         let plan = ExecutionPlanDraft::new("research.nested", 7)
             .operation(OperationNode::new("frame", key("frame")).delegated_frame("domain"))
             .operation(OperationNode::new("independent", key("independent")))
@@ -394,7 +411,9 @@ mod tests {
             .unwrap()
             .bind(&registry)
             .unwrap();
-        let runner = owner.execution_graph(plan, NonZeroUsize::new(3).unwrap()).unwrap();
+        let runner = owner
+            .execution_graph(plan, NonZeroUsize::new(3).unwrap())
+            .unwrap();
         let observer = runner.observer();
         let identity = observer.snapshot().identity;
         let actor = DomainActor::start(identity.clone(), kind);
@@ -421,13 +440,14 @@ mod tests {
         .unwrap();
     }
 
-    async fn grant(
-        tx: &SyncSender<Permit>,
-        epoch: u64,
-        kind: Kind,
-    ) -> Result<(), Error> {
+    async fn grant(tx: &SyncSender<Permit>, epoch: u64, kind: Kind) -> Result<(), Error> {
         let (accepted, reply) = oneshot::channel();
-        tx.send(Permit::Advance { epoch, kind, accepted }).unwrap();
+        tx.send(Permit::Advance {
+            epoch,
+            kind,
+            accepted,
+        })
+        .unwrap();
         tokio::time::timeout(WAIT, reply).await.unwrap().unwrap()
     }
 
@@ -447,25 +467,38 @@ mod tests {
                 Err(GraphControlError::UnsupportedDomainAuthority { .. })
             ));
             let task = tokio::spawn(setup.runner.execute());
-            until(|| setup.independent.load(Ordering::SeqCst) == 1
-                && setup.observer.snapshot().operations["frame"].state == OperationState::Running
-            ).await;
+            until(|| {
+                setup.independent.load(Ordering::SeqCst) == 1
+                    && setup.observer.snapshot().operations["frame"].state
+                        == OperationState::Running
+            })
+            .await;
             assert_eq!(setup.observer.snapshot().operations["frame"].attempt, 1);
             assert_eq!(setup.actor.observer.snapshot().latest_sequence, 0);
-            assert_eq!(grant(&setup.permits, OWNER_EPOCH - 1, Kind::SimulationTick).await,
-                Err(Error::StaleOwnerEpoch));
-            assert_eq!(grant(&setup.permits, OWNER_EPOCH, Kind::PipelineStage).await,
-                Err(Error::UnsupportedSafePoint));
+            assert_eq!(
+                grant(&setup.permits, OWNER_EPOCH - 1, Kind::SimulationTick).await,
+                Err(Error::StaleOwnerEpoch)
+            );
+            assert_eq!(
+                grant(&setup.permits, OWNER_EPOCH, Kind::PipelineStage).await,
+                Err(Error::UnsupportedSafePoint)
+            );
             assert_eq!(setup.actor.observer.snapshot().cumulative_world, 0);
-            grant(&setup.permits, OWNER_EPOCH, Kind::SimulationTick).await.unwrap();
+            grant(&setup.permits, OWNER_EPOCH, Kind::SimulationTick)
+                .await
+                .unwrap();
             until(|| setup.actor.observer.snapshot().latest_sequence == 1).await;
             let snapshot = setup.actor.observer.snapshot();
             assert_eq!(snapshot.committed[&("frame".into(), 1)], 1);
             assert_eq!(snapshot.cumulative_world, 2);
-            assert_eq!(snapshot.last_parent.as_ref().unwrap().run,
-                setup.observer.snapshot().identity);
-            assert_eq!(setup.observer.snapshot().operations["frame"].state,
-                OperationState::Running);
+            assert_eq!(
+                snapshot.last_parent.as_ref().unwrap().run,
+                setup.observer.snapshot().identity
+            );
+            assert_eq!(
+                setup.observer.snapshot().operations["frame"].state,
+                OperationState::Running
+            );
             cancel(&setup.permits, OWNER_EPOCH).await.unwrap();
             let report = tokio::time::timeout(WAIT, task).await.unwrap().unwrap();
             assert_eq!(report.operations["frame"], OperationState::Cancelled);
@@ -482,15 +515,23 @@ mod tests {
         executor().block_on(async {
             let setup = setup(Kind::SimulationTick, 2, true);
             let task = tokio::spawn(setup.runner.execute());
-            until(|| setup.observer.snapshot().operations["frame"].state
-                == OperationState::Running).await;
-            grant(&setup.permits, OWNER_EPOCH, Kind::SimulationTick).await.unwrap();
-            grant(&setup.permits, OWNER_EPOCH, Kind::SimulationTick).await.unwrap();
+            until(|| {
+                setup.observer.snapshot().operations["frame"].state == OperationState::Running
+            })
+            .await;
+            grant(&setup.permits, OWNER_EPOCH, Kind::SimulationTick)
+                .await
+                .unwrap();
+            grant(&setup.permits, OWNER_EPOCH, Kind::SimulationTick)
+                .await
+                .unwrap();
             let report = tokio::time::timeout(WAIT, task).await.unwrap().unwrap();
             assert_eq!(report.operations["frame"], OperationState::OutcomeUnknown);
             assert_eq!(report.operations["after"], OperationState::Blocked);
-            assert!(report.confirmed_prefixes.get("frame").is_none(),
-                "a lost acknowledgement must not create a graph effect confirmation");
+            assert!(
+                report.confirmed_prefixes.get("frame").is_none(),
+                "a lost acknowledgement must not create a graph effect confirmation"
+            );
             let owner_view = setup.actor.observer.snapshot();
             assert_eq!(owner_view.committed[&("frame".into(), 1)], 2);
             assert_eq!(owner_view.cumulative_world, 4);
@@ -509,7 +550,9 @@ mod tests {
             let task = tokio::spawn(setup.runner.execute());
             until(|| setup.independent.load(Ordering::SeqCst) == 1).await;
             for _ in 0..12 {
-                grant(&setup.permits, OWNER_EPOCH, Kind::PipelineStage).await.unwrap();
+                grant(&setup.permits, OWNER_EPOCH, Kind::PipelineStage)
+                    .await
+                    .unwrap();
             }
             let report = tokio::time::timeout(WAIT, task).await.unwrap().unwrap();
             assert!(report.succeeded());
@@ -524,7 +567,14 @@ mod tests {
             assert_eq!(snapshot.cumulative_world, 60);
             assert_eq!(snapshot.committed[&("frame".into(), 1)], 12);
             assert_eq!(snapshot.last_parent.unwrap().run, report.identity);
-            assert!(setup.actor.observer.changes_since(snapshot.latest_sequence).events.is_empty());
+            assert!(
+                setup
+                    .actor
+                    .observer
+                    .changes_since(snapshot.latest_sequence)
+                    .events
+                    .is_empty()
+            );
             assert_eq!(setup.actor.stop(), 60);
         });
     }
@@ -533,22 +583,31 @@ mod tests {
     fn new_session_and_wrong_parent_reject_before_nested_world_mutation() {
         let first = setup(Kind::SimulationTick, 1, false);
         let second = setup(Kind::SimulationTick, 1, false);
-        assert_ne!(first.observer.snapshot().identity.session_generation(),
-            second.observer.snapshot().identity.session_generation());
+        assert_ne!(
+            first.observer.snapshot().identity.session_generation(),
+            second.observer.snapshot().identity.session_generation()
+        );
         let (tx, rx) = mpsc::sync_channel(1);
         let (reply, response) = oneshot::channel();
-        first.actor.commands.send(DomainCommand::Frame {
-            parent: Parent {
-                run: second.observer.snapshot().identity,
-                operation: "frame".into(),
-                attempt: 1,
-            },
-            proposed: 1,
-            permits: rx,
-            lost_ack: false,
-            reply,
-        }).unwrap();
-        assert_eq!(executor().block_on(response).unwrap(), Err(Error::StaleParent));
+        first
+            .actor
+            .commands
+            .send(DomainCommand::Frame {
+                parent: Parent {
+                    run: second.observer.snapshot().identity,
+                    operation: "frame".into(),
+                    attempt: 1,
+                },
+                proposed: 1,
+                permits: rx,
+                lost_ack: false,
+                reply,
+            })
+            .unwrap();
+        assert_eq!(
+            executor().block_on(response).unwrap(),
+            Err(Error::StaleParent)
+        );
         drop(tx);
         assert_eq!(first.actor.observer.snapshot().cumulative_world, 0);
         assert_eq!(first.actor.stop(), 0);
