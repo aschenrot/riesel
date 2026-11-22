@@ -1,0 +1,63 @@
+name: Research #60 — real Counter AppArmor domain admission vs hostile same-UID
+
+permissions:
+  contents: read
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - ".github/workflows/real-counter-client-domain-research.yml"
+      - "research/application-export/linux_kernel_domain_export_server.py"
+      - "research/application-export/linux_kernel_domain_counter_probe.py"
+      - "research/application-export/LINUX-KERNEL-CLIENT-DOMAIN.md"
+  workflow_dispatch:
+
+jobs:
+  ubuntu-real-counter-labels:
+    name: Real Counter, two kernel security domains and unconfined same-user bypass
+    runs-on: ubuntu-24.04
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+      - name: Verify actual AppArmor and systemd prerequisites
+        run: |
+          set -euo pipefail
+          test "$(id -u)" != 0
+          test "$(ps -p 1 -o comm=)" = systemd
+          sudo -n true
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends apparmor apparmor-utils
+          command -v apparmor_parser
+          command -v aa-exec
+          command -v setpriv
+          command -v nsenter
+          test "$(cat /sys/module/apparmor/parameters/enabled)" = Y
+          python3 -m py_compile \
+            research/application-export/linux_kernel_domain_export_server.py \
+            research/application-export/linux_kernel_domain_counter_probe.py
+      - name: Fetch exact previously verified OS gateway and actual Counter
+        env:
+          GATEWAY_SHA: a5c811fbce184e8ff2684ab413798453e6d189f4
+          COUNTER_SHA: 5201e61cc74bab778dfc63a3788f1708b2530f21
+        run: |
+          set -euo pipefail
+          git fetch --no-tags --depth=1 origin refs/pull/149/head
+          test "$(git rev-parse FETCH_HEAD)" = "$GATEWAY_SHA"
+          git worktree add --detach "$RUNNER_TEMP/pinned-riesel-pr149" "$GATEWAY_SHA"
+          echo "PINNED_GATEWAY_ROOT=$RUNNER_TEMP/pinned-riesel-pr149" >> "$GITHUB_ENV"
+          git fetch --no-tags --depth=1 origin refs/pull/90/head
+          test "$(git rev-parse FETCH_HEAD)" = "$COUNTER_SHA"
+          git worktree add --detach "$RUNNER_TEMP/pinned-riesel-pr90" "$COUNTER_SHA"
+          echo "PINNED_COUNTER_ROOT=$RUNNER_TEMP/pinned-riesel-pr90" >> "$GITHUB_ENV"
+          rustup toolchain install 1.100.0 --profile minimal
+          rustup default 1.100.0
+          cd "$RUNNER_TEMP/pinned-riesel-pr90"
+          cargo build --locked -p riesel_counter_example --bin counter_resolved_facade_host
+      - name: Test same UID, two AppArmor labels, actual Counter and malicious self-label selection
+        run: |
+          set -euo pipefail
+          timeout 165 python3 research/application-export/linux_kernel_domain_counter_probe.py \
+            --exercise "$PINNED_GATEWAY_ROOT" "$PINNED_COUNTER_ROOT"
