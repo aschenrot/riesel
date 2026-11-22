@@ -1,0 +1,49 @@
+name: Research #59 — real polkit credential, cache and X11 input boundaries
+
+permissions:
+  contents: read
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - ".github/workflows/manager-polkit-interactive-research.yml"
+      - "research/process-ownership/manager_polkit_interactive_challenge_probe.py"
+      - "research/process-ownership/manager_polkit_x11_submit_attacker.py"
+      - "research/process-ownership/POLKIT-INTERACTIVE-AUTH-RESEARCH.md"
+  workflow_dispatch:
+
+jobs:
+  ubuntu-polkit-authentication-differential:
+    name: Ubuntu real polkit fresh, cached and X11 input differentials
+    runs-on: ubuntu-24.04
+    timeout-minutes: 16
+    steps:
+      - uses: actions/checkout@v4
+      - name: Verify disposable host and polkit prerequisites
+        run: |
+          set -euo pipefail
+          test "$(id -u)" != 0
+          test "$(ps -p 1 -o comm=)" = systemd
+          command -v pkcheck
+          command -v pkaction
+          command -v setpriv
+          command -v useradd
+          command -v userdel
+          sudo -n true
+          python3 -m py_compile research/process-ownership/manager_polkit_interactive_challenge_probe.py
+      - name: Exercise real PAM challenge on fictional operation only
+        run: |
+          set -euo pipefail
+          timeout 100 python3 research/process-ownership/manager_polkit_interactive_challenge_probe.py
+      - name: Exercise dangerous _KEEP cached detail substitution (negative control)
+        run: |
+          set -euo pipefail
+          timeout 100 python3 research/process-ownership/manager_polkit_interactive_challenge_probe.py --keep
+      - name: Real X11 polkit terminal input-origin negative control
+        run: |
+          set -euo pipefail
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends xvfb xterm xdotool
+          python3 -m py_compile research/process-ownership/manager_polkit_x11_submit_attacker.py
+          xvfb-run -a -s "-screen 0 1280x900x24" timeout 100 python3 research/process-ownership/manager_polkit_interactive_challenge_probe.py --x11
