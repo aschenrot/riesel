@@ -42,6 +42,8 @@ mod application;
 mod records;
 mod rpc_connector;
 
+#[cfg(feature = "records")]
+pub use application::ModelRead;
 pub use application::{
     Application, ApplicationHandler, ApplicationModule, ApplicationParam, Capability, Context,
     HandlerParams, PreparedApplication, Result, SdkError,
@@ -51,7 +53,7 @@ pub use application::{
     AsyncApplicationHandler, AsyncCapability, NativeHandleParam, PreparedAsyncApplication,
 };
 #[cfg(feature = "records")]
-pub use records::{Record, RecordPage, Records};
+pub use records::{QueryPage, Record, RecordPage, Records};
 #[cfg(feature = "async-tcp")]
 pub use riesel_app::{
     AsyncOperation, ExecutionGraphRunner, GraphControlError, GraphControlMode, GraphControlTarget,
@@ -98,7 +100,7 @@ pub mod prelude {
     #[cfg(feature = "async-tcp")]
     pub use super::{AsyncCapability, AsyncTasks};
     #[cfg(feature = "records")]
-    pub use super::{Record, Records};
+    pub use super::{ModelRead, QueryPage, Record, Records};
 }
 pub use riesel_schema as schema;
 #[cfg(feature = "records")]

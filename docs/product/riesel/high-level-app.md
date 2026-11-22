@@ -97,6 +97,36 @@ future read-designated Query capability and a validated model/data-owner
 relationship before reading. Existing `Records<T>` and
 `records_at<T>` remain the explicit **writable Storage v2** path.
 
+## Typed linked record readers (schema/owner foundation)
+
+The accepted linked Record Query architecture uses the existing high-level
+typed-parameter path to declare model metadata and a **read-only capability**
+without writable Storage authority. The SDK foundation has two equivalent
+authoring routes:
+
+- `ModelRead<T, ReaderContract>` in a typed handler derives a model declaration,
+  one reader capability requirement and the model's linked Query relationship.
+- `Application::record_query_at::<T, ReaderContract>("read")` expresses the
+  same registration through a builder. Adding `Records<T>` or
+  `records_at::<T>("writer")` associates that writer with the model and
+  requires both to resolve to one actual linked provider/session. Declaration
+  order does not change the schema. Explicit different providers fail
+  preflight instead of returning inconsistent reads.
+
+The generated reader contract must expose **Query operations only**; a
+read-only Rust wrapper over writable Storage v2 is not accepted. A model
+declaration without a writer is not a cross-process access grant. Schema
+version 2 represents the linked relationship while old version 1 Storage
+applications retain their existing serialized definition.
+
+**Delivery boundary:** this SDK/schema/owner registration mechanism is
+independently testable, but the actual provider-executed typed Record Query
+contract, Memory/SQLite filtering and bounded cursors remain [#161](https://github.com/aschenrot/riesel/issues/161).
+No existing Storage v2 method becomes a read-only Query API simply by
+registering a model. Remote/managed readers remain unsupported under this
+linked-only consistency profile. See the
+[accepted technical contract](record-query-architecture.md).
+
 ## Explicit linked SQLite Storage (Stage 6)
 
 For durable local records, enable the SDK's `sqlite-storage` Cargo feature
