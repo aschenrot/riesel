@@ -14,7 +14,7 @@ mod tests {
         OperationState, RunningApp, async_operation, async_operation_with_effects,
     };
     use std::cell::Cell;
-    use std::collections::{BTreeMap, VecDeque};
+    use std::collections::{BTreeMap, BTreeSet, VecDeque};
     use std::num::NonZeroUsize;
     use std::rc::Rc;
     use std::sync::{
@@ -46,6 +46,7 @@ mod tests {
     #[derive(Debug, Clone, PartialEq, Eq)]
     enum Error {
         StaleParent,
+        DuplicateAttempt,
         StaleOwnerEpoch,
         UnsupportedSafePoint,
         NoPermit,
@@ -166,7 +167,11 @@ mod tests {
     }
 
     impl DomainActor {
-        fn start(expected: GraphRunIdentity, kind: Kind) -> Self {
+        fn start(expected: GraphRunIdentity, kind: Kind, allowed_operations: &[&str]) -> Self {
+            let allowed = allowed_operations
+                .iter()
+                .map(|name| (*name).to_owned())
+                .collect::<BTreeSet<String>>();
             let observer = DomainObserver(Arc::new(Mutex::new(Store {
                 snapshot: DomainSnapshot {
                     parent_run: expected.clone(),
@@ -185,6 +190,9 @@ mod tests {
                 // Only this actor thread ever holds this !Send world. The
                 // projection contains copied values, not Rc or &mut World.
                 let world = Rc::new(Cell::new(0_i32));
+                // Only a local, single-owner in-memory duplicate fence for
+                // this experiment. NOT durable idempotency or remote trust.
+                let mut seen_attempts = BTreeSet::<(String, u64)>::new();
                 while let Ok(command) = incoming.recv() {
                     match command {
                         DomainCommand::Stop => break,
@@ -196,10 +204,14 @@ mod tests {
                             reply,
                         } => {
                             if parent.run != expected
-                                || parent.operation != "frame"
+                                || !allowed.contains(&parent.operation)
                                 || parent.attempt != 1
                             {
                                 let _ = reply.send(Err(Error::StaleParent));
+                                continue;
+                            }
+                            if !seen_attempts.insert((parent.operation.clone(), parent.attempt)) {
+                                let _ = reply.send(Err(Error::DuplicateAttempt));
                                 continue;
                             }
                             let mut confirmed = 0_u64;
@@ -312,65 +324,80 @@ mod tests {
         downstream: Arc<AtomicUsize>,
     }
 
+    /// Fixture-only adapter that binds one real graph operation and one
+    /// domain-owned frame attempt; it is not the proposed public API.
+    fn frame_handler(
+        operation: &'static str,
+        commands: Arc<Mutex<Option<SyncSender<DomainCommand>>>>,
+        parent_run: Arc<Mutex<Option<GraphRunIdentity>>>,
+        permit_rx: Receiver<Permit>,
+        proposed: u64,
+        lost_ack: bool,
+    ) -> Arc<AsyncOperation> {
+        let incoming_permits = Arc::new(Mutex::new(Some(permit_rx)));
+        async_operation_with_effects(move |effects| {
+            let commands = commands.lock().unwrap().clone().unwrap();
+            let parent = Parent {
+                run: parent_run.lock().unwrap().clone().unwrap(),
+                operation: operation.to_owned(),
+                attempt: 1,
+            };
+            let permits = incoming_permits.lock().unwrap().take().unwrap();
+            async move {
+                let (reply, answer) = oneshot::channel();
+                if commands
+                    .try_send(DomainCommand::Frame {
+                        parent,
+                        proposed,
+                        permits,
+                        lost_ack,
+                        reply,
+                    })
+                    .is_err()
+                {
+                    return OperationOutcome::Failed("domain closed".into());
+                }
+                match answer.await {
+                    Ok(Ok(result)) => {
+                        if result.confirmed > 0 {
+                            effects
+                                .confirm_prefix("domain.committed", result.confirmed)
+                                .unwrap();
+                        }
+                        if result.cancelled {
+                            OperationOutcome::Cancelled
+                        } else if result.confirmed == proposed {
+                            OperationOutcome::Completed
+                        } else {
+                            OperationOutcome::Failed("incomplete frame".into())
+                        }
+                    }
+                    Ok(Err(error)) => OperationOutcome::Failed(format!("{error:?}")),
+                    Err(_) => OperationOutcome::OutcomeUnknown,
+                }
+            }
+        })
+    }
+
     fn setup(kind: Kind, proposed: u64, lost_ack: bool) -> Setup {
         let owner = session();
         let commands = Arc::new(Mutex::new(None::<SyncSender<DomainCommand>>));
         let parent_run = Arc::new(Mutex::new(None::<GraphRunIdentity>));
         let (permits, permit_rx) = mpsc::sync_channel::<Permit>(4);
-        let incoming_permits = Arc::new(Mutex::new(Some(permit_rx)));
         let independent = Arc::new(AtomicUsize::new(0));
         let downstream = Arc::new(AtomicUsize::new(0));
         let mut registry = OperationRegistry::<AsyncOperation>::new();
         registry
             .register(
                 key("frame"),
-                async_operation_with_effects({
-                    let commands = Arc::clone(&commands);
-                    let parent_run = Arc::clone(&parent_run);
-                    let incoming_permits = Arc::clone(&incoming_permits);
-                    move |effects| {
-                        let commands = commands.lock().unwrap().clone().unwrap();
-                        let parent = Parent {
-                            run: parent_run.lock().unwrap().clone().unwrap(),
-                            operation: "frame".into(),
-                            attempt: 1,
-                        };
-                        let permits = incoming_permits.lock().unwrap().take().unwrap();
-                        async move {
-                            let (reply, answer) = oneshot::channel();
-                            if commands
-                                .try_send(DomainCommand::Frame {
-                                    parent,
-                                    proposed,
-                                    permits,
-                                    lost_ack,
-                                    reply,
-                                })
-                                .is_err()
-                            {
-                                return OperationOutcome::Failed("domain closed".into());
-                            }
-                            match answer.await {
-                                Ok(Ok(result)) => {
-                                    if result.confirmed > 0 {
-                                        effects
-                                            .confirm_prefix("domain.committed", result.confirmed)
-                                            .unwrap();
-                                    }
-                                    if result.cancelled {
-                                        OperationOutcome::Cancelled
-                                    } else if result.confirmed == proposed {
-                                        OperationOutcome::Completed
-                                    } else {
-                                        OperationOutcome::Failed("incomplete frame".into())
-                                    }
-                                }
-                                Ok(Err(error)) => OperationOutcome::Failed(format!("{error:?}")),
-                                Err(_) => OperationOutcome::OutcomeUnknown,
-                            }
-                        }
-                    }
-                }),
+                frame_handler(
+                    "frame",
+                    Arc::clone(&commands),
+                    Arc::clone(&parent_run),
+                    permit_rx,
+                    proposed,
+                    lost_ack,
+                ),
             )
             .unwrap();
         registry
@@ -416,7 +443,7 @@ mod tests {
             .unwrap();
         let observer = runner.observer();
         let identity = observer.snapshot().identity;
-        let actor = DomainActor::start(identity.clone(), kind);
+        let actor = DomainActor::start(identity.clone(), kind, &["frame"]);
         *commands.lock().unwrap() = Some(actor.commands.clone());
         *parent_run.lock().unwrap() = Some(identity);
         Setup {
@@ -613,4 +640,121 @@ mod tests {
         assert_eq!(first.actor.stop(), 0);
         assert_eq!(second.actor.stop(), 0);
     }
+    #[test]
+    fn multiple_real_outer_frames_have_distinct_authoritative_nested_parents() {
+        executor().block_on(async {
+            let owner = session();
+            let commands = Arc::new(Mutex::new(None::<SyncSender<DomainCommand>>));
+            let parent_run = Arc::new(Mutex::new(None::<GraphRunIdentity>));
+            let (first_tx, first_rx) = mpsc::sync_channel::<Permit>(4);
+            let (second_tx, second_rx) = mpsc::sync_channel::<Permit>(4);
+            let mut registry = OperationRegistry::<AsyncOperation>::new();
+            registry
+                .register(
+                    key("frame-first"),
+                    frame_handler(
+                        "frame-first",
+                        Arc::clone(&commands),
+                        Arc::clone(&parent_run),
+                        first_rx,
+                        1,
+                        false,
+                    ),
+                )
+                .unwrap();
+            registry
+                .register(
+                    key("frame-second"),
+                    frame_handler(
+                        "frame-second",
+                        Arc::clone(&commands),
+                        Arc::clone(&parent_run),
+                        second_rx,
+                        1,
+                        false,
+                    ),
+                )
+                .unwrap();
+            let plan = ExecutionPlanDraft::new("research.nested.multiframe", 8)
+                .operation(
+                    OperationNode::new("frame-first", key("frame-first"))
+                        .delegated_frame("domain"),
+                )
+                .operation(
+                    OperationNode::new("frame-second", key("frame-second"))
+                        .after("frame-first")
+                        .delegated_frame("domain"),
+                )
+                .validate()
+                .unwrap()
+                .bind(&registry)
+                .unwrap();
+            let runner = owner
+                .execution_graph(plan, NonZeroUsize::new(1).unwrap())
+                .unwrap();
+            let observer = runner.observer();
+            let identity = observer.snapshot().identity;
+            let actor = DomainActor::start(
+                identity.clone(),
+                Kind::SimulationTick,
+                &["frame-first", "frame-second"],
+            );
+            *commands.lock().unwrap() = Some(actor.commands.clone());
+            *parent_run.lock().unwrap() = Some(identity.clone());
+            let task = tokio::spawn(runner.execute());
+            until(|| {
+                observer.snapshot().operations["frame-first"].state == OperationState::Running
+            })
+            .await;
+            grant(&first_tx, OWNER_EPOCH, Kind::SimulationTick)
+                .await
+                .unwrap();
+            until(|| {
+                observer.snapshot().operations["frame-first"].state == OperationState::Completed
+                    && observer.snapshot().operations["frame-second"].state
+                        == OperationState::Running
+            })
+            .await;
+            grant(&second_tx, OWNER_EPOCH, Kind::SimulationTick)
+                .await
+                .unwrap();
+            let report = tokio::time::timeout(WAIT, task).await.unwrap().unwrap();
+            assert!(report.succeeded());
+            assert_eq!(report.confirmed_prefixes["frame-first"]["domain.committed"], 1);
+            assert_eq!(report.confirmed_prefixes["frame-second"]["domain.committed"], 1);
+            let domain_view = actor.observer.snapshot();
+            assert_eq!(domain_view.parent_run, report.identity);
+            assert_eq!(domain_view.cumulative_world, 4);
+            assert_eq!(domain_view.latest_sequence, 2);
+            assert_eq!(domain_view.committed[&("frame-first".into(), 1)], 1);
+            assert_eq!(domain_view.committed[&("frame-second".into(), 1)], 1);
+            let events = actor.observer.changes_since(0).events;
+            assert_eq!(events.len(), 2);
+            assert_eq!(events[0].parent.operation, "frame-first");
+            assert_eq!(events[1].parent.operation, "frame-second");
+            assert_eq!(events[0].parent.run, events[1].parent.run);
+
+            // Replaying a command with the identical parent/attempt in the
+            // same domain-owner lifetime is rejected before any new mutation.
+            // This is NOT a durable exactly-once guarantee across restart.
+            let (unused_tx, unused_rx) = mpsc::sync_channel::<Permit>(1);
+            let (reply, answer) = oneshot::channel();
+            actor.commands.send(DomainCommand::Frame {
+                parent: Parent {
+                    run: identity,
+                    operation: "frame-first".into(),
+                    attempt: 1,
+                },
+                proposed: 1,
+                permits: unused_rx,
+                lost_ack: false,
+                reply,
+            }).unwrap();
+            assert_eq!(answer.await.unwrap(), Err(Error::DuplicateAttempt));
+            drop(unused_tx);
+            assert_eq!(actor.observer.snapshot().latest_sequence, 2);
+            assert_eq!(actor.stop(), 4);
+        });
+    }
+
 }
