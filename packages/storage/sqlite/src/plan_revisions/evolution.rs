@@ -4,10 +4,10 @@
 //! the migrated store; SQLite transactional CAS fences stale local writers.
 
 use super::{
-    FORMAT, LEGACY_FORMAT, SqlitePlanRevisionRepository, read_head, revision_to_db, storage,
+    FORMAT, LEGACY_FORMAT, SqlitePlanRevisionRepository, read_head, storage,
 };
 use super::backup::{V2SnapshotBudget, compare_exact_content};
-use riesel_app::{PlanAuthoringHead, PlanRevisionError};
+use riesel_app::{PlanAuthoringHead, PlanRevisionError, PlanRevisionRepository};
 use rusqlite::{Connection, OpenFlags, TransactionBehavior, params};
 use std::path::Path;
 
