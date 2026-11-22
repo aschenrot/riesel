@@ -4,7 +4,8 @@ mod routes;
 mod security;
 
 use crate::{TaskData, Todo, TodoError};
-use riesel::{AsyncTasks, Records};
+use riesel::storage::RecordQueryContract;
+use riesel::{AsyncTasks, ModelRead, Records};
 use routes::ApiError;
 use std::future::IntoFuture;
 use std::io::{self, Write};
@@ -24,6 +25,7 @@ enum OperationClass {
 #[derive(Clone)]
 struct HttpState {
     records: Records<TaskData>,
+    query: Option<Arc<ModelRead<TaskData, RecordQueryContract>>>,
     tasks: AsyncTasks,
     authority: Arc<str>,
     next_request: Arc<AtomicU64>,
@@ -36,6 +38,7 @@ impl HttpState {
         F: FnOnce(Todo) -> Result<R, TodoError> + Send + 'static,
     {
         let records = self.records.clone();
+        let query = self.query.clone();
         let (sender, receiver) = tokio::sync::oneshot::channel();
         let name = format!(
             "todo-http-{}",
@@ -48,7 +51,11 @@ impl HttpState {
                     return Ok(());
                 }
                 // A domain error is one HTTP response, not a fatal runtime task.
-                let result = operation(Todo::new(records)).map_err(ApiError::from);
+                let todo = match query {
+                    Some(reader) => Todo::with_query(records, reader),
+                    None => Todo::new(records),
+                };
+                let result = operation(todo).map_err(ApiError::from);
                 let _ = sender.send(result);
                 Ok(())
             })
@@ -77,6 +84,7 @@ fn router(state: HttpState, directory: Option<&std::path::Path>) -> axum::Router
     assets::mount(
         Router::new()
             .route("/api/v1/tasks", get(routes::list).post(routes::create))
+            .route("/api/v1/tasks/query", get(routes::query_completed))
             .route(
                 "/api/v1/tasks/{id}",
                 get(routes::show)
@@ -98,6 +106,7 @@ fn router(state: HttpState, directory: Option<&std::path::Path>) -> axum::Router
 /// promised; the same-origin browser defense is implemented in security.
 pub async fn serve(
     records: Records<TaskData>,
+    query: Option<Arc<ModelRead<TaskData, RecordQueryContract>>>,
     tasks: AsyncTasks,
     port: u16,
     directory: Option<PathBuf>,
@@ -107,6 +116,7 @@ pub async fn serve(
     let addr = listener.local_addr()?;
     let state = HttpState {
         records,
+        query,
         tasks,
         authority: Arc::from(format!("127.0.0.1:{}", addr.port())),
         next_request: Arc::new(AtomicU64::new(1)),
@@ -346,6 +356,7 @@ mod tests {
                 }
                 let state = HttpState {
                     records,
+                    query: None,
                     tasks,
                     authority: Arc::from("127.0.0.1:0"),
                     next_request: Arc::new(AtomicU64::new(1)),
@@ -466,7 +477,7 @@ mod tests {
                         tokio::time::sleep(Duration::from_millis(150)).await;
                         Err(std::io::Error::other("fatal session worker").into())
                     })?;
-                    serve(records, tasks, port, None).await?;
+                    serve(records, None, tasks, port, None).await?;
                     Ok::<(), Box<dyn std::error::Error + Send + Sync>>(())
                 },
             )
