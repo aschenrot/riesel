@@ -7,13 +7,20 @@
 ## Method and evidence classification
 
 Candidates were collected in the separate [discovery log](DISCOVERY.md),
-which records public upstream documentation for **16 discovered mechanisms
+which records public upstream documentation for **22 discovered mechanisms
 and comparators**; the discovery categories are not a mandatory shortlist.
 Read `README.md`, `CONTRIBUTING.md`, `docs/project/delivery.md`,
 relevant accepted Riesel product and authoring/Storage/lifecycle
 contracts, the #107 research branch, and independent RunenECS architecture.
 Cross-repository Runenwerk ADRs 0017/0018 were consulted as
 **external comparison**, not Riesel acceptance.
+
+**Expanded discovery after the first pass:** CEL-style expression
+engines, JSONPath, embedded scripting, OData and native spatial/physics
+query providers are additional **candidate mechanisms**. They show why
+a fixed ORM-vs-universal-engine shortlist was inadequate. Their API
+descriptions are documented in `DISCOVERY.md` and are not
+Riesel compatibility or security proof.
 
 The terms below distinguish:
 
@@ -111,8 +118,7 @@ The research script uses only Python's stdlib `sqlite3`, an
 It is isolated from Riesel's provider and has no production migration.
 Test environment for the initial run: Python `sqlite3` linked to
 **SQLite 3.46.1**; **3/3** deterministic assertions passed.
-The dedicated research CI workflow reruns the same fixture on its
-own runner; its version and run must be recorded separately.
+The dedicated [research CI run #44967915491](https://github.com/aschenrot/riesel/actions/runs/44967915491) reran the exact fixture at PR head `403ecaedaa74b270ef145a802606c941fa19c78f` using **SQLite 3.46.1**, with **3/3 tests passed**; this is still a scratch-only probe.
 
 | Deterministic case | Observed result | Inference / limit |
 | --- | --- | --- |
@@ -145,6 +151,9 @@ requirements invented to force one candidate.
 | **Versioned typed read/query capability, executed by authoritative provider** | Potential common schema/operator/cursor/error semantics; enforce bound same-state writer/query and no implicit mutation permission. | Reuse across registered-model applications without universal execution; needs support negotiation, runtime validation, managed/export lifecycle and correct provider-native adapters. | **Viable candidate**, not accepted; identity/authorization and type-precision costs substantial |
 | **Versioned unified record interface with read/query operations** | One provider handle chooses both reads and writes, reducing same-instance pairing burden; co-expose v2 during transition. | Broader versioned API and potential read-only consumer permission problem; possible compatibility/migration costs. | **Viable candidate**, compare security facet and API authoring costs rather than assuming separate Query wins |
 | **Reuse existing SQL DSL, ORM or typed SQL macro *within provider*** | SQL engine already handles many ordinary predicates/indices; record-schema full-width numeric/null semantics must still be proven and app/auth boundaries enforced. | Avoids new low-level SQL AST builder; ties implementation to DB dialect and schema mapping; doesn't itself establish a Riesel protocol. | **Potential implementation choice**, not automatically competing with a common logical contract |
+| **Portable non-SQL predicates (CEL, JSONPath or constrained expression evaluator)** | A bounded expression engine could validate/evaluate selectors on provider-owned records without a full SQL/Arrow engine, **if** precise Riesel type/null semantics and limits can be represented. | Reuse of existing parsers may reduce new-language work; translating expressions to SQLite indexes and proving `u64` parity/cancellation can be difficult. | **Newly discovered independent candidate**, requires typed semantic and pushdown proof |
+| **Standardized remote resource filtering (OData, GraphQL-style APIs)** | Mature API selection ideas are relevant if remote UI/client interoperability is an actual goal; they do not define Riesel's authenticated provider identity. | Adds another schema/API surface and potential transport coupling, so requires explicit consumer and security benefit. | **External API candidate**, not a mandatory baseline |
+| **Spatial/domain-owned indexing (rstar/Rapier)** | Native geometric query and validity rules remain with the domain; an optional bridge might expose bounded inspection metadata. | Strong evidence against treating all `Query` operations as relational record filters; may offer specialized adapters. | **Specialized pressure test**, not inherently incompatible with shared inspection vocabulary |
 | **Relational IR/engine or federation (Substrait, DataFusion, similar)** | Expressive query planning if relational/analytics functionality becomes a genuine outcome. Transactional snapshot and user authorization still need Riesel-owned contracts. | Extra planning, memory/CPU, Arrow/schema conversions and engine lifecycle; may provide large reuse if heterogeneous analytics is accepted. | **Growth candidate / unknown**, no accepted need or conformance proof for first record-filtering delivery |
 | **GraphQL-style API projection, search index, local lazy frame or incremental view** | Each solves a distinct selection/search/batch/live-update concern through owner-defined semantics and materialization. | Potentially useful optional adapters; forcing them into ordinary CRUD query is neither shown necessary nor safe. | **Distinct-product comparators**, reconsider if user product requirements demand them |
 | **ECS/world or spatial engine-owned query** | Preserves borrow/epoch, thread access, spatial-index and frame-state authority under specialized runtime. | Optional reflective or inspection adapter could translate a *bounded projection*, not arbitrary World borrows. | **Domain boundary comparator**; no authority to replace RunenECS query |
@@ -246,8 +255,7 @@ federation engine or analytics runtime is a prerequisite for Todo.
 - Scratch probe: `python3 research/query-architecture/probes/sqlite_live_keyset.py`;
   Python stdlib only, deterministic seed, in-memory database and
   no user filesystem side effects. Initial SQLite **3.46.1** run
-  asserted all **3/3** outcomes; GitHub research workflow result
-  must be linked after the exact changed SHA completes.
+  asserted all **3/3** outcomes; [research CI #44967915491](https://github.com/aschenrot/riesel/actions/runs/44967915491) passed **3/3** tests at earlier commit `403ecaed`. A later doc update requires an independent **new exact-head** CI check; do not transfer the old run's pass status automatically.
 - Comparative claims: upstream documentation links in
   `DISCOVERY.md`. **Not verified** here: legal licensing audit,
   upstream package MSRV at pinned Rust 1.100, actual integration

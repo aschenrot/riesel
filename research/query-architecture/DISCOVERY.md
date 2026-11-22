@@ -90,6 +90,12 @@ comparator, or simply irrelevant to the selected product outcome.
 | **Full-text indexed retrieval — Tantivy** | Rust text-search index/query APIs with parsed search queries. | Relevant when text relevance/search is a real product requirement; secondary index synchronization, per-document source truth and index persistence must be established independently. | [Tantivy Rust docs](https://docs.rs/tantivy/latest/tantivy/) |
 | **Incrementally maintained computations — Differential Dataflow** | A framework for efficiently maintaining derived computations as inputs change. | Strong counterexample to equating finite page reads and *subscribed/live* query results. A change-feed/retraction/version model would be a separate product outcome. | [Differential Dataflow documentation](https://timelydataflow.github.io/differential-dataflow/) |
 | **Borrow-safe ECS component/world query — Bevy ECS** | Rust system parameter `Query<'world, 'state, D, F>` borrows and filters component data from a World. | Specialized domain comparator; borrowing/structural epochs and task-access constraints are not serializable record predicates by default. | [Bevy ECS Query](https://docs.rs/bevy_ecs/latest/bevy_ecs/system/struct.Query.html) |
+| **Portable expression evaluation — Common Expression Language (CEL)** | CEL describes a non-general-purpose, portable expression evaluation language; Rust CEL implementations expose parsing/evaluation and JSON conversion options. | **New middle-ground candidate:** reusable predicate semantics without a full relational planner. Before adoption verify Rust model type fidelity, exact `u64`, null/presence rules, resource limits, and whether providers can push predicates into native indexes rather than scanning. | [CEL](https://cel.dev/), [Rust CEL](https://docs.rs/cel/latest/cel/) |
+| **JSON document selection — JSONPath / serde_json_path** | JSONPath-related Rust APIs query JSON trees with selection/filter expressions. | **New provider-local/portable selection candidate:** evaluate compatibility with Riesel's schema-validated Rust types and SQLite JSON semantics; JSON navigation does not alone imply query indexes, bounded costs, or stable results. | [serde_json_path docs](https://docs.rs/serde_json_path/latest/serde_json_path/), [jsonpath-rust](https://docs.rs/jsonpath-rust/latest/jsonpath_rust/) |
+| **Embedded expression scripting — Rhai** | Rust scripting engine supports expression parsing and evaluation. | **New contrast:** expressive local predicates may be convenient but untrusted execution, deterministic typed semantics, limits and remote portability require explicit guarantees; not a safe default query protocol. | [Rhai expression docs](https://rhai.rs/book/engine/expressions.html), [engine](https://docs.rs/rhai/latest/rhai/struct.Engine.html) |
+| **Typed resource query URL protocol — OData** | OData specifies URL conventions for filters and resource selection in typed data services. | **New API/interoperability candidate:** compare discoverability and field filtering against Riesel's versioned Rust SDK/host boundaries, without adopting HTTP or accepting an OData server by implication. | [OASIS OData URL conventions](https://docs.oasis-open.org/odata/odata/v4.02/odata-v4.02-part2-url-conventions.html) |
+| **Spatial indexing primitive — rstar R*-tree** | Rust n-dimensional R-tree provides spatial and nearest-neighbor access paths. | **New specialized index comparator:** query semantics depend on geometry and live index ownership, not generic JSON model fields; optional adaptation must declare coordinate systems/epochs/updates. | [rstar](https://docs.rs/rstar/latest/rstar/) |
+| **Physics-owned scene queries — Rapier** | Physics world query pipeline supports ray/shape casts, intersections and filters. | **New specialized execution comparator:** demonstrates another legitimate `Query` owned by a distinct domain; does not establish a universal query engine or shared lifetime semantics. | [Rapier scene queries](https://rapier.rs/docs/user_guides/rust/scene_queries/) |
 | **RunenECS authoritative world/relation query** | RunenECS independently owns its component, relation, world and scheduler semantics; dense spans are borrow/structural-freeze scoped. | Actual Dornglut integration comparator; investigate interoperable *metadata/inspection* only where semantics remain owner-local. | [RunenECS architecture](https://github.com/dornglut/runen-ecs/blob/main/ARCHITECTURE.md) |
 
 The last two rows are **not** the same mechanism as RecordStore. The
@@ -100,6 +106,17 @@ replacements would create false equivalence.
 
 ## Coverage and cross-cutting discoveries
 
+- **A non-relational middle ground exists:** CEL, JSONPath and Rhai
+  illustrate portable or local expression evaluation without a
+  SQL/Arrow query engine. Their presence changes the research question:
+  a common predicate model might be adopted or adapted independently
+  of a general-purpose relational planner. Type fidelity,
+  authorization, pushdown and bounded-cost semantics remain unverified.
+- **Spatial meanings are not an afterthought:** rstar and Rapier show
+  indexing and query languages tied to coordinates, geometry, world
+  state and collision filtering. Any shared interface must preserve
+  their specialized validity domains; basic RecordStore predicates
+  must not silently claim those operations.
 - **Logical representation vs executor:** typed SQL builders, remote
   schemas, relational algebra and query execution engines are different
   layers. Adopting SeaQuery, Substrait, SQLx or DataFusion for one layer
