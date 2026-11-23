@@ -1,6 +1,6 @@
 # #272 — local IPC candidate portability probe (research only)
 
-This independent fixture is **not** part of Riesel's workspace, production SDK, or supported GUI protocol. It checks two Rust transport candidates (pinned `interprocess 2.4.9` and `tipsy 0.7.1`) against the **same** small bounded frame handler and a real independent Node.js client over Unix sockets / Windows named pipes. The application still owns `AppReadPublication` and the authoritative application session; neither candidate implements those policies.
+This independent fixture is **not** part of Riesel's workspace, production SDK, or supported GUI protocol. It checks three Rust transport approaches (pinned `interprocess 2.4.9`, `tipsy 0.7.1`, and the existing direct-Tokio Unix/Windows primitives) against the **same** small bounded frame handler and a real independent Node.js client over Unix sockets / Windows named pipes. The application still owns `AppReadPublication` and the authoritative application session; neither candidate implements those policies.
 
 ## Reproduce
 
@@ -24,7 +24,7 @@ The fixture is necessary but **insufficient** for #272's acceptance. Before any 
 - Actual OS-specific directory/socket permissions, Windows named-pipe ACL and remote-rejection, endpoint uniqueness and collision/cleanup behavior, along with negative cross-user tests.
 - Same-UID endpoint impostor remains within T1's documented trust assumptions; do **not** report tested endpoint names, UUIDs or ACLs as protected per-client/server authentication.
 - Real `AppReadPublication` admission/withdrawal/reconnect, actual graph loss/full resnapshot and Node browser compatibility; wire-version migration or explicit opt-in/dual-reader behavior for existing Unix v1 clients.
-- Direct Tokio baseline under the same tests and dependency/MSRV/API maintenance comparison; compare latency and allocations if decision-relevant.
+- Dependency/MSRV/API maintenance comparison and genuine security-policy validation of the direct-Tokio baseline alongside the libraries; compare latency and allocations if decision-relevant.
 - Rust formatting, exact integrated revision, relevant code review and target-platform tests before production release. Research success cannot close #258 or #272 or authorize writes, private data, Manager operations or plan activation.
 
 [Investigation #272](https://github.com/aschenrot/riesel/issues/272) owns the research outcome and eventual maintainer decision. The accepted architecture remains [#248 P3/T1](https://github.com/aschenrot/riesel/issues/248).
