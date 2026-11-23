@@ -480,8 +480,11 @@ dependencies = [
  "riesel_counter",
  "riesel_counter_component",
  "riesel_protocol",
+ "riesel_schema",
  "serde",
  "serde_json",
+ "tempfile",
+ "thiserror",
  "tokio",
 ]
 
@@ -807,6 +810,8 @@ version = "0.1.0"
 dependencies = [
  "axum",
  "riesel",
+ "riesel_protocol",
+ "riesel_schema",
  "riesel_storage_component",
  "serde",
  "serde_json",

@@ -1,4 +1,8 @@
 pub mod app;
+#[cfg(feature = "app-publication")]
+mod app_publication;
+#[cfg(all(unix, feature = "app-publication-unix"))]
+mod app_publication_unix;
 #[cfg(feature = "async-tcp")]
 mod async_tasks;
 mod catalog;
@@ -29,6 +33,12 @@ mod supervisor;
 mod tasks;
 
 pub use app::{App, AppError};
+#[cfg(feature = "app-publication")]
+pub use app_publication::{
+    AppReadPublication, ReadExposure, ReadPublicationDescriptor, ReadPublicationError,
+};
+#[cfg(all(unix, feature = "app-publication-unix"))]
+pub use app_publication_unix::{UnixReadClient, UnixReadServer};
 #[cfg(feature = "async-tcp")]
 pub use async_tasks::AsyncTasks;
 #[cfg(feature = "internal-publication")]

@@ -13,6 +13,10 @@ async-tcp = ["riesel_protocol/async-tcp", "dep:tokio"]
 test-fixtures = ["async-tcp"]
 # Internal-only Riesel session ingress integration tests; no exporter API.
 internal-publication = ["async-tcp", "riesel_protocol/internal-publication", "riesel_manager/internal-observation"]
+# Opt-in public read policy reuses the runtime-issued session permit; no listener.
+app-publication = ["async-tcp", "riesel_protocol/internal-publication"]
+# Explicit Unix-only local adapter for the trusted shared-user T1 profile.
+app-publication-unix = ["app-publication"]
 
 [dependencies]
 tokio = { workspace = true, optional = true }

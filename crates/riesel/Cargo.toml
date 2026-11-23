@@ -14,6 +14,10 @@ sqlite-storage = ["records", "dep:riesel_storage_sqlite"]
 async-tcp = ["riesel_protocol/async-tcp", "riesel_app/async-tcp", "dep:tokio"]
 # Intentionally unstable test-only adapter, not the accepted #60 exporter API.
 internal-publication = ["async-tcp", "riesel_protocol/internal-publication", "riesel_app/internal-publication"]
+# Reusable opt-in T1 read policy, separate from transports and rendering.
+app-publication = ["async-tcp", "riesel_app/app-publication"]
+# Optional Unix-native transport, never required for browser/Bevy/custom hosts.
+app-publication-unix = ["app-publication", "riesel_app/app-publication-unix"]
 
 [dependencies]
 serde.workspace = true
@@ -44,3 +48,8 @@ required-features = ["async-tcp"]
 tempfile = "3.23"
 # Research-only multi-worker scheduler fixture; no production Tokio feature change.
 tokio = { workspace = true, features = ["rt-multi-thread"] }
+
+
+[[example]]
+name = "graph_read_host"
+required-features = ["app-publication-unix"]

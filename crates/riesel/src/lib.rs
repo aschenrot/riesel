@@ -38,6 +38,8 @@
 //! Riesel - a general purpose application engine
 extern crate self as riesel;
 mod application;
+#[cfg(feature = "app-publication")]
+mod graph_read;
 #[cfg(feature = "records")]
 mod records;
 mod rpc_connector;
@@ -52,8 +54,18 @@ pub use application::{
 pub use application::{
     AsyncApplicationHandler, AsyncCapability, NativeHandleParam, PreparedAsyncApplication,
 };
+#[cfg(feature = "app-publication")]
+pub use graph_read::{
+    ExecutionGraphRead, ExecutionGraphReadAsyncRpcDispatcher, ExecutionGraphReadFacade,
+    GraphReadChanges, GraphReadError, GraphReadEvent, GraphReadIdentity, GraphReadNode,
+    GraphReadPrefix, GraphReadSnapshot,
+};
 #[cfg(feature = "records")]
 pub use records::{QueryPage, Record, RecordPage, Records};
+#[cfg(feature = "app-publication")]
+pub use riesel_app::{
+    AppReadPublication, ReadExposure, ReadPublicationDescriptor, ReadPublicationError,
+};
 #[cfg(feature = "async-tcp")]
 pub use riesel_app::{
     AsyncOperation, ExecutionGraphRunner, GraphControlError, GraphControlMode, GraphControlTarget,
@@ -69,6 +81,8 @@ pub use riesel_app::{
 };
 #[cfg(feature = "async-tcp")]
 pub use riesel_app::{AsyncTasks, ProviderBlocking, ProviderBlockingError, ProviderCancellation};
+#[cfg(all(unix, feature = "app-publication-unix"))]
+pub use riesel_app::{UnixReadClient, UnixReadServer};
 #[cfg(feature = "async-tcp")]
 pub use rpc_connector::AsyncRpcConnector;
 pub use rpc_connector::RpcConnector;

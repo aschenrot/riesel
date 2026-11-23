@@ -1,0 +1,118 @@
+name: Graph inspector independent browser (#114)
+
+permissions:
+  contents: read
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - "crates/riesel/examples/graph_read_host.rs"
+      - "crates/riesel/Cargo.toml"
+      - "examples/graph-inspector/**"
+      - ".github/workflows/graph-browser-client.yml"
+  workflow_dispatch:
+
+jobs:
+  real-graph-independent-chromium:
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install pinned Rust 1.100
+        run: |
+          rustup toolchain install 1.100.0 --profile minimal --component rustfmt
+          rustup default 1.100.0
+      - name: Verify Rust formatting and actual published graph reader
+        run: |
+          cargo fmt --all -- --check
+          cargo test --locked -p riesel --features app-publication-unix --test graph_publication_unix
+          cargo build --locked -p riesel --features app-publication-unix --example graph_read_host
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - name: Verify standalone browser JavaScript syntax
+        run: |
+          node --check examples/graph-inspector/local-browser.mjs
+          node --check examples/graph-inspector/inspector.js
+          node --check examples/graph-inspector/e2e.mjs
+          node --check examples/graph-inspector/e2e-overflow.mjs
+      - name: Reuse locked Chromium test dependency
+        working-directory: examples/todo/web
+        run: npm ci --no-audit --no-fund
+      - name: Install Chromium
+        working-directory: examples/todo/web
+        run: npx playwright install --with-deps --only-shell chromium
+      - name: Test live independent Riesel app, Unix read, browser and Chromium
+        env:
+          GRAPH_GUI_SCREENSHOT: /tmp/riesel-graph-inspector.png
+        run: |
+          set -euo pipefail
+          target/debug/examples/graph_read_host 20 > "$RUNNER_TEMP/graph-owner.log" 2>&1 &
+          owner_pid=$!
+          viewer_pid=''
+          cleanup() {
+            if [[ -n "$viewer_pid" ]]; then kill "$viewer_pid" 2>/dev/null || true; fi
+            kill "$owner_pid" 2>/dev/null || true
+          }
+          trap cleanup EXIT
+          endpoint=''
+          for i in $(seq 1 300); do
+            endpoint=$(sed -n 's/^GRAPH_SOCKET=//p' "$RUNNER_TEMP/graph-owner.log" | head -n1)
+            if [[ -n "$endpoint" && -S "$endpoint" ]]; then break; fi
+            sleep 0.1
+          done
+          if [[ -z "$endpoint" || ! -S "$endpoint" ]]; then
+            cat "$RUNNER_TEMP/graph-owner.log"
+            exit 1
+          fi
+          node examples/graph-inspector/local-browser.mjs "$endpoint" > "$RUNNER_TEMP/graph-browser.log" 2>&1 &
+          viewer_pid=$!
+          node examples/graph-inspector/e2e.mjs "$RUNNER_TEMP/graph-browser.log" || {
+            cat "$RUNNER_TEMP/graph-browser.log"
+            cat "$RUNNER_TEMP/graph-owner.log"
+            exit 1
+          }
+          kill "$viewer_pid" 2>/dev/null || true
+          viewer_pid=''
+          wait "$owner_pid"
+          trap - EXIT
+      - name: Verify real 128-event ring loss, authoritative resnapshot and UI disconnect
+        run: |
+          set -euo pipefail
+          target/debug/examples/graph_read_host 30 --wide > "$RUNNER_TEMP/wide-owner.log" 2>&1 &
+          owner_pid=$!
+          viewer_pid=''
+          cleanup() {
+            if [[ -n "$viewer_pid" ]]; then kill "$viewer_pid" 2>/dev/null || true; fi
+            kill "$owner_pid" 2>/dev/null || true
+          }
+          trap cleanup EXIT
+          endpoint=''
+          for i in $(seq 1 300); do
+            endpoint=$(sed -n 's/^GRAPH_SOCKET=//p' "$RUNNER_TEMP/wide-owner.log" | head -n1)
+            if [[ -n "$endpoint" && -S "$endpoint" ]]; then break; fi
+            sleep 0.1
+          done
+          if [[ -z "$endpoint" || ! -S "$endpoint" ]]; then
+            cat "$RUNNER_TEMP/wide-owner.log"
+            exit 1
+          fi
+          node examples/graph-inspector/local-browser.mjs "$endpoint" > "$RUNNER_TEMP/wide-browser.log" 2>&1 &
+          viewer_pid=$!
+          GRAPH_OWNER_PID="$owner_pid" node examples/graph-inspector/e2e-overflow.mjs "$RUNNER_TEMP/wide-browser.log" || {
+            cat "$RUNNER_TEMP/wide-browser.log"
+            cat "$RUNNER_TEMP/wide-owner.log"
+            exit 1
+          }
+          kill "$viewer_pid" 2>/dev/null || true
+          viewer_pid=''
+          wait "$owner_pid" 2>/dev/null || true
+          trap - EXIT
+      - name: Retain actual Chromium screenshot
+        uses: actions/upload-artifact@v4
+        with:
+          name: independent-graph-inspector-chromium
+          path: /tmp/riesel-graph-inspector.png
+          retention-days: 14
+          if-no-files-found: error
