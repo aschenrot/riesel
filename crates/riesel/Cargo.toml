@@ -14,6 +14,8 @@ sqlite-storage = ["records", "dep:riesel_storage_sqlite"]
 async-tcp = ["riesel_protocol/async-tcp", "riesel_app/async-tcp", "dep:tokio"]
 # Intentionally unstable test-only adapter, not the accepted #60 exporter API.
 internal-publication = ["async-tcp", "riesel_protocol/internal-publication", "riesel_app/internal-publication"]
+# Feature-gated #226 research probe, not a supported SDK capability.
+internal-admission-research = ["async-tcp", "riesel_app/internal-admission-research"]
 # Reusable opt-in T1 read policy, separate from transports and rendering.
 app-publication = ["async-tcp", "riesel_app/app-publication"]
 # Optional Unix-native transport, never required for browser/Bevy/custom hosts.
@@ -46,6 +48,7 @@ required-features = ["async-tcp"]
 
 [dev-dependencies]
 tempfile = "3.23"
+tokio = { workspace = true, features = ["rt-multi-thread"] }
 
 
 [[example]]
