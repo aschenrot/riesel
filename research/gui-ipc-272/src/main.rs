@@ -90,6 +90,35 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 tokio::spawn(async move { one_connection(stream, generation).await });
             }
         }
+        "tokio" => {
+            #[cfg(unix)]
+            {
+                let listener = tokio::net::UnixListener::bind(endpoint)?;
+                println!("READY {endpoint}");
+                loop {
+                    let (stream, _) = listener.accept().await?;
+                    let generation = generation.to_owned();
+                    tokio::spawn(async move { one_connection(stream, generation).await });
+                }
+            }
+            #[cfg(windows)]
+            {
+                use tokio::net::windows::named_pipe::ServerOptions;
+                // First-instance guard is only endpoint collision evidence, not caller identity.
+                let mut server = ServerOptions::new()
+                    .first_pipe_instance(true)
+                    .create(endpoint)?;
+                println!("READY {endpoint}");
+                loop {
+                    server.connect().await?;
+                    let connected = server;
+                    // Create the next instance before handling the connected client.
+                    server = ServerOptions::new().create(endpoint)?;
+                    let generation = generation.to_owned();
+                    tokio::spawn(async move { one_connection(connected, generation).await });
+                }
+            }
+        }
         _ => return Err("unrecognized transport candidate".into()),
     }
     Ok(())
