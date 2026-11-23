@@ -1,0 +1,27 @@
+name: Research GUI IPC portability (#272)
+on:
+  pull_request:
+    paths:
+      - 'research/gui-ipc-272/**'
+      - '.github/workflows/research-gui-ipc-272.yml'
+  workflow_dispatch:
+
+jobs:
+  cross-platform-transport-probe:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: '1.100.0'
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Compile isolated Rust transport candidates
+        run: cargo build --manifest-path research/gui-ipc-272/Cargo.toml
+      - name: Independently connect Node to each Rust IPC candidate
+        run: node research/gui-ipc-272/probe.mjs
