@@ -119,4 +119,4 @@ async function probe(kind) {
   }
 }
 
-for (const kind of ['interprocess', 'tipsy']) await probe(kind);
+for (const kind of ['interprocess', 'tipsy', 'tokio']) await probe(kind);
