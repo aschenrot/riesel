@@ -495,9 +495,8 @@ fn overlapping_read_handoffs_keep_writer_ungrantable_until_last_release() {
         }
     });
 }
-#[test]
-fn independent_work_must_not_hide_contested_waiting_demand() {
-    runtime().block_on(async {
+fn independent_work_probe(rt: tokio::runtime::Runtime, mode: &str) {
+    rt.block_on(async {
         const INDEPENDENT: usize = 8;
         const ROUNDS: usize = 4;
         for round in 0..ROUNDS {
@@ -623,10 +622,20 @@ fn independent_work_must_not_hide_contested_waiting_demand() {
             assert_eq!(cold_report.started, INDEPENDENT + 1);
             assert_eq!(writer_started.load(Ordering::SeqCst), 1);
             eprintln!(
-                "research #226 mixed_demand round={round} independent_completed_before_writer={INDEPENDENT} contested_writer_remained_pending=true"
+                "research #226 mixed_demand mode={mode} round={round} independent_completed_before_writer={INDEPENDENT} contested_writer_remained_pending=true"
             );
         }
     });
+}
+
+#[test]
+fn independent_work_must_not_hide_contested_waiting_demand() {
+    independent_work_probe(runtime(), "current_thread");
+}
+
+#[test]
+fn independent_work_multithread_must_not_hide_contested_waiting_demand() {
+    independent_work_probe(multithread_runtime(), "four_workers");
 }
 
 fn capacity_only_service_probe(rt: tokio::runtime::Runtime, mode: &str) {
