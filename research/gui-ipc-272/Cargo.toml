@@ -1,0 +1,15 @@
+[package]
+name = "riesel-ipc-272"
+version = "0.0.0"
+edition = "2024"
+publish = false
+
+# Standalone research fixture: does not enter Riesel's release graph.
+[workspace]
+
+[dependencies]
+interprocess = { version = "=2.4.9", features = ["tokio"] }
+tipsy = "=0.7.1"
+futures-util = "0.3"
+tokio = { version = "=1.54.1", features = ["io-util", "rt", "macros", "net", "time"] }
+serde_json = "1"
