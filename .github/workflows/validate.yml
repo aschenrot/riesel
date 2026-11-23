@@ -53,6 +53,12 @@ jobs:
           target/debug/examples/v2_artifact_new "$scratch/plans.sqlite" "$scratch/old-backup.sqlite"
       - name: Smoke test runtime and managed providers
         run: cargo smoke
+      - name: Research #226 reader writer service baseline (draft branch only)
+        if: ${{ github.event_name == 'pull_request' && github.head_ref == 'research/226-reader-writer-service' }}
+        run: cargo test --locked -p riesel --features async-tcp --test scheduler_reader_fairness_research -- --nocapture --test-threads=1
+      - name: Research #226 reader writer release profile (draft branch only)
+        if: ${{ github.event_name == 'pull_request' && github.head_ref == 'research/226-reader-writer-service' }}
+        run: cargo test --locked --release -p riesel --features async-tcp --test scheduler_reader_fairness_research -- --nocapture --test-threads=1
 
   windows:
     if: ${{ github.event_name == 'workflow_dispatch' && inputs.windows }}

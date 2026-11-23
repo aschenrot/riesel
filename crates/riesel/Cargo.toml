@@ -46,6 +46,8 @@ required-features = ["async-tcp"]
 
 [dev-dependencies]
 tempfile = "3.23"
+# Research-only multi-worker scheduler fixture; no production Tokio feature change.
+tokio = { workspace = true, features = ["rt-multi-thread"] }
 
 
 [[example]]
