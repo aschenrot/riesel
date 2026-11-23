@@ -9,12 +9,12 @@
 //! domain boundaries and resource conflicts. Its session-local observer
 //! publishes authoritative run state. An attempt-scoped confirmed-prefix
 //! reporter is an incremental #113 facility; cooperative control remains open.
+#[cfg(feature = "internal-admission-research")]
+use crate::execution_observation::AdmissionResearchLog;
 use crate::execution_observation::{
     GraphEffectRecorder, GraphRunController, GraphRunIdentity, GraphRunObserver,
     GraphRunPublication,
 };
-#[cfg(feature = "internal-admission-research")]
-use crate::execution_observation::AdmissionResearchLog;
 use crate::execution_plan::{
     AccessMode, BoundExecutionPlan, DomainAdmissionMode, DomainBoundary, OperationTrigger,
     ResourceAccess,
@@ -816,11 +816,9 @@ impl ExecutionGraphRunner {
                 .expect("validated exact-version operation binding"),
         );
         #[cfg(feature = "internal-admission-research")]
-        let admitted = self.publication.admit(
-            index,
-            node.domain_boundary(),
-            &self.admission.research_log,
-        );
+        let admitted =
+            self.publication
+                .admit(index, node.domain_boundary(), &self.admission.research_log);
         #[cfg(not(feature = "internal-admission-research"))]
         let admitted = self.publication.admit(index, node.domain_boundary());
         if !admitted {
@@ -944,7 +942,6 @@ impl RunningApp {
             max_in_flight,
         )
     }
-
 
     /// Experimental in-process probe for #226 research only; not an
     /// authenticated observation/export API and not built by default.
