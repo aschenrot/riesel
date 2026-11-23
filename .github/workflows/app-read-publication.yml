@@ -10,6 +10,10 @@ on:
       - "crates/riesel_app/**"
       - "crates/riesel/**"
       - "crates/riesel_protocol/**"
+      - "examples/todo/**"
+      - "examples/counter/app/**"
+      - "examples/counter/component/**"
+      - "examples/counter/contract/**"
       - "docs/product/riesel/application-publication-usage.md"
       - ".github/workflows/app-read-publication.yml"
   workflow_dispatch:
@@ -36,3 +40,9 @@ jobs:
         run: cargo check --locked -p riesel --features app-publication-unix
       - name: Real graph read contract, independent OS client and trace overflow
         run: cargo test --locked -p riesel --features app-publication-unix --test graph_publication_unix -- --nocapture
+      - name: Verify actual Todo provider and independent read-only summary process
+        run: cargo test --locked -p todo --features t1-public-read --test t1_publication_unix -- --nocapture
+      - name: Compile optional standalone Todo T1 read host without changing normal Todo
+        run: cargo check --locked -p todo --features t1-public-read --bin todo_t1_read_host
+      - name: Verify actual SDK-resolved Counter provider and independent read-only process
+        run: cargo test --locked -p riesel_counter_example --features t1-public-read --test t1_publication_unix -- --nocapture

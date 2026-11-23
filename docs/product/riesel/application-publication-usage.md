@@ -124,3 +124,78 @@ browser bridge, portable OS attachment or protected application-server
 authentication. The first GUI is tracked in [#114](https://github.com/aschenrot/riesel/issues/114);
 the remaining shared Counter/Todo read-model and lifecycle acceptance
 work is [#258](https://github.com/aschenrot/riesel/issues/258).
+
+## Counter and Todo application-domain read facades (T1 examples)
+
+The generated graph read interface is not an exception to the shared
+publication contract. The **actual** Counter and Todo applications also
+deliberately select bounded, non-sensitive read facades under the same
+`RunningApp`/`Context::publish_local_reads`, `ReadExposure` and
+`UnixReadServer`/independent `UnixReadClient` semantics.
+
+- **Counter:** the optional `riesel_counter_example` feature
+  `t1-public-read` exposes `riesel.counter.public_value@1`
+  `snapshot` only. It delegates through the **real SDK-selected
+  Counter provider**, so application-owned `CounterContract::add`
+  changes are subsequently visible; `add` and `label` cannot be called
+  through this T1 read publication. Linux process tests use two genuine
+  OS processes and verify contract-version fences and withdrawal.
+- **Todo:** optional `todo` feature `t1-public-read` publishes
+  `riesel.todo.public_summary@1` `snapshot` only. The facade reads
+  a single bounded first page (maximum 32) through the actual registered
+  Todo `Records<TaskData>`/Storage provider. It exposes only the page's
+  open/completed counts, number inspected and `more_available`. It
+  does **not** reveal titles, task IDs, revisions, records, arbitrary
+  Storage/Query operations, or write commands. These are **not global
+  totals** if `more_available` is true. The real-process regression
+  verifies the app's private records remain absent from wire output
+  and owner-only state changes are visible on the next read.
+
+For a fully isolated, ephemeral and expressly non-sensitive Todo
+fixture on Unix:
+
+```sh
+cargo run --locked -p todo --features t1-public-read --bin todo_t1_read_host -- 45
+```
+
+The app prints `TODO_T1_SOCKET=/absolute/local/path`. A separate
+native T1 client can use `UnixReadClient::new` with that exact path.
+No Todo CLI or local browser HTTP route is replaced or automatically
+enrolled; the reference Counter and Todo publication features remain
+**off by default**. Even task counts can be sensitive outside this
+deliberately non-sensitive demo; a real user-data Todo application
+requires its own classification and stronger separately authorized
+profile before exporting private information. T1's trusted-same-user
+assumption remains unchanged.
+
+
+## Reproducible same-OS-user endpoint impersonation limit
+
+An explicit OS-process negative test under `crates/riesel_app/tests/app_publication_unix.rs`
+demonstrates the **deliberate absence** of protected endpoint identity
+in T1. After an app-owned `UnixReadServer` closes and removes its
+original socket, a second process running under the **same UID** can
+bind the same endpoint path. It can return forged app/interface/contract
+and session/publication identifiers as well as a fabricated successful
+read. The ordinary `UnixReadClient` accepts those values because T1
+does **not** authenticate an individual server principal.
+
+Reproduce on Unix:
+
+```sh
+cargo test --locked -p riesel_app --features app-publication-unix \
+  --test app_publication_unix same_uid_endpoint_rebinding -- --nocapture
+```
+
+This is an **expected limitation test**, not a vulnerability fix
+or a claimed guarantee against same-UID attackers. The normal
+read-publication policy still prevents unselected mutations when
+talking to the *genuine* app server. It cannot prevent a counterfeit
+same-user endpoint from lying to its client. Read-only, non-sensitive
+data classification and trusted same-user peers are therefore
+essential prerequisites of T1. Sensitive information and mutations
+require a separately accepted **protected application endpoint,
+individual caller identity and authorized operation grant**; neither
+a UUID, a Unix UID, a socket pathname nor an HTTP Host/Origin check
+may be promoted to such a grant.
+

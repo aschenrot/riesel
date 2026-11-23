@@ -107,6 +107,9 @@ function graph(doc, depth) {
   const width = Math.max(410, levels * 260 + 60);
   const height = Math.max(290, count * 112 + 90);
   root.setAttribute("viewBox", "0 0 " + width + " " + height);
+  // Preserve readable node dimensions for wide plans. The stage scrolls
+  // horizontally rather than compressing an 80-node DAG into tiny text.
+  root.style.minWidth = width + "px";
   const coords = new Map();
   for (const [level, nodes] of columns) {
     nodes.forEach((n, i) => coords.set(n.id, {
