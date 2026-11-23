@@ -69,6 +69,50 @@ impl GraphRunIdentity {
     }
 }
 
+// Research-only session-global successful-admission witness. The ordinary
+// observer remains per-run, bounded and completely independent of this probe.
+#[cfg(feature = "internal-admission-research")]
+const MAX_ADMISSION_RESEARCH_EVENTS: usize = 1024;
+
+#[cfg(feature = "internal-admission-research")]
+#[derive(Default)]
+pub(crate) struct AdmissionResearchLog {
+    state: Mutex<AdmissionResearchState>,
+}
+
+#[cfg(feature = "internal-admission-research")]
+#[derive(Default)]
+struct AdmissionResearchState {
+    next_sequence: u64,
+    events: Vec<(u64, GraphRunIdentity, String, u64)>,
+    truncated: bool,
+}
+
+#[cfg(feature = "internal-admission-research")]
+impl AdmissionResearchLog {
+    // Called only after the authoritative control gate made a pending
+    // operation Running. This lock defines one session-global witness order;
+    // it does not grant or reserve a resource and is not a production policy.
+    pub(crate) fn record(&self, identity: GraphRunIdentity, operation: String, attempt: u64) {
+        let mut state = self.state.lock().unwrap_or_else(PoisonError::into_inner);
+        state.next_sequence = state
+            .next_sequence
+            .checked_add(1)
+            .expect("research-only session admission sequence exhausted");
+        if state.events.len() < MAX_ADMISSION_RESEARCH_EVENTS {
+            let sequence = state.next_sequence;
+            state.events.push((sequence, identity, operation, attempt));
+        } else {
+            state.truncated = true;
+        }
+    }
+
+    pub(crate) fn snapshot(&self) -> (Vec<(u64, GraphRunIdentity, String, u64)>, bool) {
+        let state = self.state.lock().unwrap_or_else(PoisonError::into_inner);
+        (state.events.clone(), state.truncated)
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum GraphRunPhase {
     Created,
@@ -751,7 +795,12 @@ impl GraphRunPublication {
     /// Atomically consume at most one armed step at every matching boundary
     /// and publish the actual running attempt. Caller must already own its
     /// session-level operation reservation, but not yet have spawned work.
-    pub(crate) fn admit(&mut self, index: usize, domain: Option<&DomainBoundary>) -> bool {
+    pub(crate) fn admit(
+        &mut self,
+        index: usize,
+        domain: Option<&DomainBoundary>,
+        #[cfg(feature = "internal-admission-research")] research_log: &AdmissionResearchLog,
+    ) -> bool {
         let mut state = self
             .observer
             .state
@@ -804,6 +853,8 @@ impl GraphRunPublication {
             attempt,
             state: OperationState::Running,
         });
+        #[cfg(feature = "internal-admission-research")]
+        research_log.record(state.snapshot.identity.clone(), name.clone(), attempt);
         true
     }
 

@@ -9,6 +9,8 @@
 //! domain boundaries and resource conflicts. Its session-local observer
 //! publishes authoritative run state. An attempt-scoped confirmed-prefix
 //! reporter is an incremental #113 facility; cooperative control remains open.
+#[cfg(feature = "internal-admission-research")]
+use crate::execution_observation::AdmissionResearchLog;
 use crate::execution_observation::{
     GraphEffectRecorder, GraphRunController, GraphRunIdentity, GraphRunObserver,
     GraphRunPublication,
@@ -43,6 +45,8 @@ pub(crate) struct SessionGraphAdmission {
     // Runtime-issued, in-process scope identity for every run in this
     // application generation; not an external identity or credential.
     session_generation: Uuid,
+    #[cfg(feature = "internal-admission-research")]
+    research_log: Arc<AdmissionResearchLog>,
 }
 
 impl Default for SessionGraphAdmission {
@@ -51,6 +55,8 @@ impl Default for SessionGraphAdmission {
             state: Mutex::new(SessionGraphState::default()),
             changed: Arc::new(Notify::new()),
             session_generation: Uuid::new_v4(),
+            #[cfg(feature = "internal-admission-research")]
+            research_log: Arc::new(AdmissionResearchLog::default()),
         }
     }
 }
@@ -809,7 +815,13 @@ impl ExecutionGraphRunner {
                 .handler(node.id())
                 .expect("validated exact-version operation binding"),
         );
-        if !self.publication.admit(index, node.domain_boundary()) {
+        #[cfg(feature = "internal-admission-research")]
+        let admitted =
+            self.publication
+                .admit(index, node.domain_boundary(), &self.admission.research_log);
+        #[cfg(not(feature = "internal-admission-research"))]
+        let admitted = self.publication.admit(index, node.domain_boundary());
+        if !admitted {
             drop(lease);
             return;
         }
@@ -929,6 +941,15 @@ impl RunningApp {
             Arc::clone(&self.graph_admission),
             max_in_flight,
         )
+    }
+
+    /// Experimental in-process probe for #226 research only; not an
+    /// authenticated observation/export API and not built by default.
+    /// Each tuple is (session order, exact run, operation ID, attempt).
+    #[cfg(feature = "internal-admission-research")]
+    #[doc(hidden)]
+    pub fn research_graph_admissions(&self) -> (Vec<(u64, GraphRunIdentity, String, u64)>, bool) {
+        self.graph_admission.research_log.snapshot()
     }
 }
 
